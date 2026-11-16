@@ -10,6 +10,8 @@ import { DefaultGroupsService } from "../application/groups/service";
 import { DefaultImportService } from "../application/import/service";
 import { DefaultInterfacesService } from "../application/interfaces/service";
 import { DefaultNodesService } from "../application/nodes/service";
+import { DefaultQuotaService } from "../application/quota/service";
+import type { QuotaService } from "../application/quota/service";
 import { DefaultSettingsService } from "../application/settings/service";
 import { DefaultStatsService } from "../application/stats/service";
 import { DefaultTariffsService } from "../application/tariffs/service";
@@ -26,6 +28,7 @@ import { HttpGroupsRepository } from "@/infrastructure/http/groups.repository";
 import { HttpImportRepository } from "@/infrastructure/http/import.repository";
 import { HttpInterfacesRepository } from "@/infrastructure/http/interfaces.repository";
 import { HttpNodesRepository } from "@/infrastructure/http/nodes.repository";
+import { HttpQuotaRepository } from "@/infrastructure/http/quota.repository";
 import { HttpSettingsRepository } from "@/infrastructure/http/settings.repository";
 import { HttpStatsRepository } from "@/infrastructure/http/stats.repository";
 import { HttpTariffsRepository } from "@/infrastructure/http/tariffs.repository";
@@ -52,6 +55,7 @@ const SERVICES = [
   DefaultInterfacesService,
   DefaultDevicesService,
   DefaultStatsService,
+  DefaultQuotaService,
   DefaultSettingsService,
   DefaultImportService,
 ] as const;
@@ -62,6 +66,7 @@ class ServiceAutowiringProbe {
     readonly audit: AuditService,
     readonly users: UsersService,
     readonly devices: DevicesService,
+    readonly quota: QuotaService,
   ) {}
 }
 
@@ -75,6 +80,7 @@ const REPOSITORIES = [
   HttpInterfacesRepository,
   HttpDevicesRepository,
   HttpStatsRepository,
+  HttpQuotaRepository,
   HttpSettingsRepository,
   HttpImportRepository,
 ] as const;
@@ -141,10 +147,12 @@ describe("DI autodiscovery", () => {
     expect(probe.audit).toBeInstanceOf(DefaultAuditService);
     expect(probe.users).toBeInstanceOf(DefaultUsersService);
     expect(probe.devices).toBeInstanceOf(DefaultDevicesService);
+    expect(probe.quota).toBeInstanceOf(DefaultQuotaService);
     expect(probe.auth).toBe(services.auth);
     expect(probe.audit).toBe(services.audit);
     expect(probe.users).toBe(services.users);
     expect(probe.devices).toBe(services.devices);
+    expect(probe.quota).toBe(services.quota);
   });
 
   it("resolves repositories to HTTP implementations", async () => {
@@ -159,6 +167,8 @@ describe("DI autodiscovery", () => {
     expect(services.repositories.interfaces).toBeInstanceOf(HttpInterfacesRepository);
     expect(services.repositories.devices).toBeInstanceOf(HttpDevicesRepository);
     expect(services.repositories.stats).toBeInstanceOf(HttpStatsRepository);
+    expect(services.repositories.quota).toBeInstanceOf(HttpQuotaRepository);
+    expect(services.quota).toBeInstanceOf(DefaultQuotaService);
     expect(services.repositories.settings).toBeInstanceOf(HttpSettingsRepository);
     expect(services.repositories.import).toBeInstanceOf(HttpImportRepository);
   });

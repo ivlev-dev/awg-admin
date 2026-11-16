@@ -4,7 +4,10 @@ import { Session } from "@/app/session";
 import { ThemeStore } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
 import { DefaultAuthService } from "@/application/auth/service";
+import { DefaultQuotaService } from "@/application/quota/service";
 import type { AuthRepository } from "@/domain/auth/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
+import type { QuotaState } from "@/domain/quota/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import type { Mock } from "vitest";
@@ -33,6 +36,17 @@ const SESSION: AuthSession = {
   refresh_token: "refresh-1",
   expires_in: 3600,
   user: ADMIN,
+};
+
+const QUOTA: QuotaState = {
+  used_bytes: 2 * 1024 * 1024 * 1024,
+  quota_bytes: 10 * 1024 * 1024 * 1024,
+  exceeded: false,
+  remaining_bytes: 8 * 1024 * 1024 * 1024,
+  percent: 20,
+  period_start: "2026-11-01T00:00:00Z",
+  period_end: "2026-12-01T00:00:00Z",
+  reset_at: "2026-12-01T00:00:00Z",
 };
 
 class MemoryTokenStore implements TokenStore {
@@ -66,8 +80,24 @@ interface Harness {
   toasts: ToastStore;
   tokens: MemoryTokenStore;
   auth: AuthRepository;
+  quota: QuotaRepository;
+  quotaMe: Mock<() => Promise<QuotaState>>;
   changePassword: Mock<(current: string | null, next: string) => Promise<void>>;
   logout: Mock<(refreshToken: string) => Promise<void>>;
+}
+
+function quotaHarness(state: QuotaState = QUOTA): {
+  repository: QuotaRepository;
+  me: Mock<() => Promise<QuotaState>>;
+} {
+  const me = vi.fn(async () => ({ ...state }));
+  return {
+    me,
+    repository: {
+      me,
+      users: vi.fn(async () => []),
+    },
+  };
 }
 
 function makeHarness(
@@ -76,6 +106,7 @@ function makeHarness(
     changePassword?: (current: string | null, next: string) => Promise<void>;
     logout?: (refreshToken: string) => Promise<void>;
   } = {},
+  quotaState: QuotaState = QUOTA,
 ): Harness {
   const changePassword = vi.fn(
     handlers.changePassword ?? (async () => undefined),
@@ -97,14 +128,24 @@ function makeHarness(
   router.navigate("/profile");
   const theme = new ThemeStore();
   const toasts = new ToastStore();
+  const quota = quotaHarness(quotaState);
   return {
-    vm: new ProfilePageVM(session, new DefaultAuthService(auth), router, theme, toasts),
+    vm: new ProfilePageVM(
+      session,
+      new DefaultAuthService(auth),
+      new DefaultQuotaService(quota.repository),
+      router,
+      theme,
+      toasts,
+    ),
     session,
     router,
     theme,
     toasts,
     tokens,
     auth,
+    quota: quota.repository,
+    quotaMe: quota.me,
     changePassword,
     logout,
   };
@@ -189,6 +230,73 @@ describe("ProfilePageVM", () => {
       "light",
       "dark",
     ]);
+  });
+
+  it("загружает квоту пользователя при создании", async () => {
+    const harness = makeHarness();
+
+    harness.vm.created();
+    await vi.waitFor(() => expect(harness.vm.quotaLoading).toBe(false));
+
+    expect(harness.quotaMe).toHaveBeenCalledTimes(1);
+    expect(harness.vm.quotaError).toBeNull();
+    expect(harness.vm.quotaView).toMatchObject({
+      hasQuota: true,
+      exceeded: false,
+      usedLabel: "2.0 ГБ",
+      limitLabel: "10.0 ГБ",
+      remainingLabel: "8.0 ГБ",
+      percentLabel: "20.0 %",
+      progress: 20,
+      statusLabel: "В норме",
+    });
+    expect(harness.vm.quotaResetLabel).toBe(
+      new Date(QUOTA.reset_at).toLocaleDateString("ru-RU"),
+    );
+  });
+
+  it("помечает исчерпанную квоту пользователя", async () => {
+    const harness = makeHarness(ADMIN, {}, {
+      ...QUOTA,
+      used_bytes: QUOTA.quota_bytes ?? 0,
+      remaining_bytes: 0,
+      percent: 100,
+      exceeded: true,
+    });
+
+    await harness.vm.loadQuota();
+
+    expect(harness.vm.quotaView.exceeded).toBe(true);
+    expect(harness.vm.quotaView.statusLabel).toBe("Квота исчерпана");
+    expect(harness.vm.quotaView.progressClass).toContain("progress__bar--danger");
+  });
+
+  it("показывает «Без ограничения» и скрывает прогресс без квоты", async () => {
+    const harness = makeHarness(ADMIN, {}, {
+      ...QUOTA,
+      quota_bytes: null,
+      remaining_bytes: null,
+      percent: null,
+    });
+
+    await harness.vm.loadQuota();
+
+    expect(harness.vm.quotaView.hasQuota).toBe(false);
+    expect(harness.vm.quotaView.limitLabel).toBe("Без ограничения");
+    expect(harness.vm.quotaView.percentLabel).toBe("—");
+    expect(harness.vm.quotaView.progress).toBe(0);
+  });
+
+  it("обрабатывает ошибку загрузки квоты", async () => {
+    const harness = makeHarness();
+    vi.mocked(harness.quotaMe).mockRejectedValueOnce(new Error("Квота недоступна"));
+
+    await harness.vm.loadQuota();
+
+    expect(harness.vm.quota).toBeNull();
+    expect(harness.vm.quotaError).toBe("Квота недоступна");
+    expect(harness.vm.quotaLoading).toBe(false);
+    expect(harness.vm.quotaView.hasQuota).toBe(false);
   });
 
   it("switches the theme through the injected store", () => {
@@ -367,6 +475,7 @@ describe("ProfilePageVM", () => {
     const container = createAppContainer();
     container.bind(Session, () => harness.session);
     container.bind(DefaultAuthService, () => new DefaultAuthService(harness.auth));
+    container.bind(DefaultQuotaService, () => new DefaultQuotaService(harness.quota));
     container.bind(Router, () => harness.router);
     container.bind(ThemeStore, () => harness.theme);
     container.bind(ToastStore, () => harness.toasts);

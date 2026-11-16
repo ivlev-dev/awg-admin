@@ -75,6 +75,70 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
           <section class="card">
             <div class="card__head">
               <div>
+                <div class="card__title">Квота трафика</div>
+                <div class="card__sub">Период: {this.vm.quotaPeriodLabel}</div>
+              </div>
+              <span
+                class={`badge ${
+                  this.vm.quotaView.exceeded
+                    ? "badge--red"
+                    : this.vm.quotaView.hasQuota
+                      ? "badge--green"
+                      : "badge--blue"
+                }`}
+              >
+                {this.vm.quotaView.statusLabel}
+              </span>
+            </div>
+            <div class="card__body">
+              <Show
+                when={!this.vm.quotaLoading}
+                fallback={<div class="skeleton" style="height:64px"></div>}
+              >
+                <Show
+                  when={this.vm.quota}
+                  fallback={
+                    <div class="small muted">
+                      {this.vm.quotaError ?? "Без ограничения"}
+                    </div>
+                  }
+                >
+                  <div class="quota">
+                    <div class="row-between wrap">
+                      <div class="quota__value">
+                        {this.vm.quotaView.usedLabel}
+                        <span class="muted"> из {this.vm.quotaView.limitLabel}</span>
+                      </div>
+                      <div class="mono strong">{this.vm.quotaView.percentLabel}</div>
+                    </div>
+                    <Show when={this.vm.quotaView.hasQuota}>
+                      <div class="progress">
+                        <div
+                          class={this.vm.quotaView.progressClass}
+                          style={`width:${this.vm.quotaView.progress}%`}
+                        ></div>
+                      </div>
+                    </Show>
+                    <div class="row-between wrap xs muted">
+                      <span>
+                        Осталось: <span class="strong">{this.vm.quotaView.remainingLabel}</span>
+                      </span>
+                      <span>Сброс: {this.vm.quotaResetLabel}</span>
+                    </div>
+                  </div>
+                  <Show when={this.vm.quotaView.exceeded}>
+                    <div class="alert alert--error" style="margin-top:var(--sp-3)">
+                      Квота исчерпана, скорость ограничена 1 Кбит/с
+                    </div>
+                  </Show>
+                </Show>
+              </Show>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card__head">
+              <div>
                 <div class="card__title">Оформление</div>
                 <div class="card__sub">Тема интерфейса панели</div>
               </div>

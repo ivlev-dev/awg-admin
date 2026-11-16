@@ -2,6 +2,7 @@ import { createComponent } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
 import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultQuotaService } from "@/application/quota/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -10,6 +11,8 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { CreateShareInput, DeviceStats } from "@/domain/devices/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
+import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { Device, Group, Profile, Role, ShareLink, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { ClientDetails } from "./ClientDetails";
@@ -162,6 +165,26 @@ const STATS: DeviceStats = {
   month: { rx: 1048576, tx: 2097152 },
 };
 
+const QUOTA: QuotaState = {
+  used_bytes: 1024 * 1024 * 1024,
+  quota_bytes: 10 * 1024 * 1024 * 1024,
+  exceeded: false,
+  remaining_bytes: 9 * 1024 * 1024 * 1024,
+  percent: 10,
+  period_start: "2020-01-01T00:00:00Z",
+  period_end: "2020-02-01T00:00:00Z",
+  reset_at: "2020-02-01T00:00:00Z",
+};
+
+const USER_QUOTA: UserQuota = {
+  user_id: OWNER.id,
+  login: OWNER.login,
+  used_bytes: 1024 * 1024 * 1024,
+  quota_bytes: 10 * 1024 * 1024 * 1024,
+  exceeded: false,
+  percent: 10,
+};
+
 class MemoryTokenStore implements TokenStore {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
@@ -278,6 +301,26 @@ function devicesHarness(): {
   return { repository, state };
 }
 
+function quotaHarness(
+  state: QuotaState = QUOTA,
+  users: UserQuota[] = [USER_QUOTA],
+): {
+  repository: QuotaRepository;
+  service: DefaultQuotaService;
+  me: ReturnType<typeof vi.fn>;
+  users: ReturnType<typeof vi.fn>;
+} {
+  const me = vi.fn(async () => ({ ...state }));
+  const list = vi.fn(async () => users.map((quota) => ({ ...quota })));
+  const repository: QuotaRepository = { me, users: list };
+  return {
+    repository,
+    service: new DefaultQuotaService(repository),
+    me,
+    users: list,
+  };
+}
+
 function groupsHarness(groups: Group[]): GroupsRepository {
   return {
     listGroups: vi.fn(async () => [...groups]),
@@ -295,17 +338,29 @@ function groupsHarness(groups: Group[]): GroupsRepository {
   };
 }
 
-function setup(role: Role = "admin") {
+function setup(
+  role: Role = "admin",
+  quotaState: QuotaState = QUOTA,
+  quotaUsers: UserQuota[] = [USER_QUOTA],
+) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness();
   const groups = groupsHarness([GROUP]);
+  const quota = quotaHarness(quotaState, quotaUsers);
   const devicesService = new DefaultDevicesService(devices.repository);
   const groupsService = new DefaultGroupsService(groups);
   const session = makeSession(user);
   window.history.replaceState(null, "", "/clients/d1");
   const router = new Router();
   const toasts = new ToastStore();
-  const vm = new ClientDetailsVM(devicesService, groupsService, session, router, toasts);
+  const vm = new ClientDetailsVM(
+    devicesService,
+    groupsService,
+    quota.service,
+    session,
+    router,
+    toasts,
+  );
   return {
     vm,
     repository: devices.repository,
@@ -313,6 +368,7 @@ function setup(role: Role = "admin") {
     devicesService,
     groupsService,
     groups,
+    quota,
     session,
     router,
     toasts,
@@ -441,6 +497,7 @@ describe("ClientDetailsVM", () => {
     const vm = new ClientDetailsVM(
       new DefaultDevicesService(repository),
       groupsService,
+      new DefaultQuotaService({ me: async () => QUOTA, users: async () => [USER_QUOTA] }),
       makeSession(ADMIN),
       new Router(),
       new ToastStore(),
@@ -450,6 +507,72 @@ describe("ClientDetailsVM", () => {
 
     expect(vm.loading).toBe(false);
     expect(repository.getDevice).not.toHaveBeenCalled();
+  });
+
+  it("находит квоту владельца устройства через список для администратора", async () => {
+    const { vm, quota } = setup("admin");
+
+    await vm.load();
+
+    expect(quota.users).toHaveBeenCalledTimes(1);
+    expect(quota.me).not.toHaveBeenCalled();
+    expect(vm.ownerQuota).toMatchObject({
+      usedBytes: 1024 * 1024 * 1024,
+      quotaBytes: 10 * 1024 * 1024 * 1024,
+      exceeded: false,
+    });
+    expect(vm.quotaUsageLabel).toBe("Использовано 1.0 ГБ из 10.0 ГБ");
+    expect(vm.quotaExceeded).toBe(false);
+    expect(vm.rateLimitHint).toBe("");
+  });
+
+  it("берёт квоту владельца из собственной квоты для пользователя", async () => {
+    const { vm, quota } = setup("user");
+
+    await vm.load();
+
+    expect(quota.me).toHaveBeenCalledTimes(1);
+    expect(quota.users).not.toHaveBeenCalled();
+    expect(vm.ownerQuota).toMatchObject({ quotaBytes: 10 * 1024 * 1024 * 1024 });
+  });
+
+  it("помечает исчерпанную квоту владельца и ограничение 1 Кбит/с", async () => {
+    const exceeded: UserQuota = {
+      ...USER_QUOTA,
+      used_bytes: USER_QUOTA.quota_bytes ?? 0,
+      exceeded: true,
+      percent: 100,
+    };
+    const { vm } = setup("admin", { ...QUOTA, exceeded: true, percent: 100 }, [exceeded]);
+
+    await vm.load();
+
+    expect(vm.quotaExceeded).toBe(true);
+    expect(vm.rateLimitHint).toContain("1 Кбит/с");
+    expect(vm.quotaView.statusLabel).toBe("Квота исчерпана");
+  });
+
+  it("не ломает карточку устройства при ошибке загрузки квоты", async () => {
+    const { vm, quota } = setup("admin");
+    vi.mocked(quota.users).mockRejectedValueOnce(new Error("Квоты недоступны"));
+
+    await vm.load();
+
+    expect(vm.error).toBeNull();
+    expect(vm.device?.name).toBe("laptop");
+    expect(vm.ownerQuota).toBeNull();
+    expect(vm.quotaExceeded).toBe(false);
+    expect(vm.quotaUsageLabel).toBe("");
+  });
+
+  it("оставляет карточку без квоты, если владелец отсутствует в списке", async () => {
+    const { vm } = setup("admin", QUOTA, []);
+
+    await vm.load();
+
+    expect(vm.device?.name).toBe("laptop");
+    expect(vm.ownerQuota).toBeNull();
+    expect(vm.quotaExceeded).toBe(false);
   });
 
   it("сохраняет имя, лимиты и режим «Все мои устройства»", async () => {
@@ -877,10 +1000,11 @@ describe("ClientDetailsVM", () => {
   });
 
   it("резолвит VM через DI и монтирует представление с внедрёнными зависимостями", async () => {
-    const { devicesService, groupsService, session, router, toasts } = setup("admin");
+    const { devicesService, groupsService, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
     container.bind(DefaultGroupsService, () => groupsService);
+    container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
     container.bind(ToastStore, () => toasts);

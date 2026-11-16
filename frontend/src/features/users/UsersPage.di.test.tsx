@@ -4,12 +4,15 @@ import { createAppContainer } from "@/app/di";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
+import type { QuotaRepository } from "@/domain/quota/repository";
+import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type {
@@ -59,6 +62,15 @@ const GROUP: Group = {
   updated_at: "2020-01-01T00:00:00Z",
   interfaces: 0,
   devices: 0,
+};
+
+const QUOTA: UserQuota = {
+  user_id: ADMIN.id,
+  login: ADMIN.login,
+  used_bytes: 1024,
+  quota_bytes: 2048,
+  exceeded: false,
+  percent: 50,
 };
 
 class StubUsersRepository implements UsersRepository {
@@ -135,6 +147,16 @@ class StubGroupsRepository implements GroupsRepository {
   }
 
   async deletePool(_id: string): Promise<void> {}
+}
+
+class StubQuotaRepository implements QuotaRepository {
+  async me(): Promise<QuotaState> {
+    throw new Error("not used");
+  }
+
+  async users(): Promise<UserQuota[]> {
+    return [{ ...QUOTA }];
+  }
 }
 
 class StubAuthRepository implements AuthRepository {
@@ -214,6 +236,7 @@ function stubApi(): void {
     "fetch",
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
+      if (url.endsWith("/quota/users")) return jsonResponse([QUOTA]);
       if (url.endsWith("/users")) return jsonResponse([ADMIN]);
       if (url.endsWith("/tariffs")) return jsonResponse([TARIFF]);
       if (url.endsWith("/groups")) return jsonResponse([GROUP]);
@@ -235,6 +258,7 @@ describe("UsersPageVM constructor DI", () => {
     container.bind(DefaultUsersService, () => new DefaultUsersService(new StubUsersRepository()));
     container.bind(DefaultTariffsService, () => new DefaultTariffsService(new StubTariffsRepository()));
     container.bind(DefaultGroupsService, () => new DefaultGroupsService(new StubGroupsRepository()));
+    container.bind(DefaultQuotaService, () => new DefaultQuotaService(new StubQuotaRepository()));
     container.bind(Session, () => session);
     container.bind(ToastStore, () => toasts);
 
@@ -250,6 +274,9 @@ describe("UsersPageVM constructor DI", () => {
     expect(vm.users).toEqual([ADMIN]);
     expect(vm.tariffs).toEqual([TARIFF]);
     expect(vm.groups).toEqual([GROUP]);
+    expect(vm.quotas).toEqual([
+      expect.objectContaining({ userId: ADMIN.id, percent: 50, quotaBytes: 2048 }),
+    ]);
     expect(result.node.textContent).toBe(ADMIN.id);
     result.dispose();
   });
@@ -270,6 +297,7 @@ describe("UsersPageVM constructor DI", () => {
     expect(vm.users).toEqual([ADMIN]);
     expect(vm.tariffs).toEqual([TARIFF]);
     expect(vm.groups).toEqual([GROUP]);
+    expect(vm.quotaPercentLabel(ADMIN.id)).toBe("50.0 %");
     result.dispose();
   });
 });

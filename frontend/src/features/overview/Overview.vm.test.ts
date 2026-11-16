@@ -1,8 +1,11 @@
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
+import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultStatsService } from "@/application/stats/service";
 import type { AuthRepository } from "@/domain/auth/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
+import type { QuotaState } from "@/domain/quota/types";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { Overview, Role, StatsPoint, User } from "@/domain/types";
 import { LiveStats } from "@/infrastructure/stats";
@@ -64,6 +67,17 @@ const POINTS: StatsPoint[] = [
   { at: "2020-01-01T00:00:00Z", rx: 1024, tx: 2048 },
   { at: "2020-01-01T01:00:00Z", rx: 0, tx: 1024 },
 ];
+
+const QUOTA: QuotaState = {
+  used_bytes: 1024 * 1024 * 1024,
+  quota_bytes: 10 * 1024 * 1024 * 1024,
+  exceeded: false,
+  remaining_bytes: 9 * 1024 * 1024 * 1024,
+  percent: 10,
+  period_start: "2020-01-01T00:00:00Z",
+  period_end: "2020-02-01T00:00:00Z",
+  reset_at: "2020-02-01T00:00:00Z",
+};
 
 class MemoryTokenStore implements TokenStore {
   private accessToken: string | null = null;
@@ -157,7 +171,7 @@ function statsHarness(overview: Overview, points: StatsPoint[]): {
   };
 }
 
-function setup(role: Role = "admin") {
+function setup(role: Role = "admin", quotaState: QuotaState = QUOTA) {
   const user = role === "admin" ? ADMIN : OWNER;
   const tokens = new MemoryTokenStore();
   tokens.set("access-token", "refresh-token");
@@ -165,15 +179,21 @@ function setup(role: Role = "admin") {
   session.user = user;
   window.history.replaceState(null, "", "/");
   const stats = statsHarness(OVERVIEW, POINTS);
+  const quotaFn = vi.fn(async () => ({ ...quotaState }));
+  const quotaRepository: QuotaRepository = {
+    me: quotaFn,
+    users: vi.fn(async () => []),
+  };
   const liveStats = new LiveStats(tokens);
   const router = new Router();
   const vm = new OverviewVM(
     new DefaultStatsService(stats.repository),
+    new DefaultQuotaService(quotaRepository),
     liveStats,
     session,
     router,
   );
-  return { vm, stats, liveStats, session, router };
+  return { vm, stats, quotaFn, liveStats, session, router };
 }
 
 beforeEach(() => {
@@ -298,6 +318,78 @@ describe("OverviewVM", () => {
     await vm.load();
 
     expect(vm.error).toBe("Не удалось загрузить обзор");
+  });
+
+  it("показывает квоту трафика и дату сброса", async () => {
+    const { vm, quotaFn } = setup("admin");
+
+    await vm.load();
+
+    expect(quotaFn).toHaveBeenCalledTimes(1);
+    expect(vm.quota?.quotaBytes).toBe(10 * 1024 * 1024 * 1024);
+    expect(vm.quotaView).toMatchObject({
+      hasQuota: true,
+      exceeded: false,
+      usedLabel: "1.0 ГБ",
+      limitLabel: "10.0 ГБ",
+      remainingLabel: "9.0 ГБ",
+      percentLabel: "10.0 %",
+      progress: 10,
+      statusLabel: "В норме",
+    });
+    expect(vm.quotaResetLabel).toBe(
+      new Date(QUOTA.reset_at).toLocaleDateString("ru-RU"),
+    );
+    expect(vm.quotaPeriodLabel).toContain(
+      new Date(QUOTA.period_start).toLocaleDateString("ru-RU"),
+    );
+  });
+
+  it("помечает исчерпанную квоту", async () => {
+    const { vm } = setup("admin", {
+      ...QUOTA,
+      used_bytes: QUOTA.quota_bytes ?? 0,
+      remaining_bytes: 0,
+      percent: 100,
+      exceeded: true,
+    });
+
+    await vm.load();
+
+    expect(vm.quotaView.exceeded).toBe(true);
+    expect(vm.quotaView.statusLabel).toBe("Квота исчерпана");
+    expect(vm.quotaView.progress).toBe(100);
+    expect(vm.quotaView.progressClass).toContain("progress__bar--danger");
+  });
+
+  it("не показывает прогресс и процент без квоты", async () => {
+    const { vm } = setup("admin", {
+      ...QUOTA,
+      quota_bytes: null,
+      remaining_bytes: null,
+      percent: null,
+    });
+
+    await vm.load();
+
+    expect(vm.quotaView.hasQuota).toBe(false);
+    expect(vm.quotaView.limitLabel).toBe("Без ограничения");
+    expect(vm.quotaView.remainingLabel).toBe("Без ограничения");
+    expect(vm.quotaView.percentLabel).toBe("—");
+    expect(vm.quotaView.progress).toBe(0);
+  });
+
+  it("не ломает обзор при ошибке загрузки квоты", async () => {
+    const { vm, quotaFn } = setup("admin");
+    vi.mocked(quotaFn).mockRejectedValueOnce(new Error("Квота недоступна"));
+
+    await vm.load();
+
+    expect(vm.error).toBeNull();
+    expect(vm.data).toEqual(OVERVIEW);
+    expect(vm.quota).toBeNull();
+    expect(vm.quotaError).toBe("Квота недоступна");
+    expect(vm.quotaView.hasQuota).toBe(false);
   });
 
   it("переходит по разделам через роутер", () => {

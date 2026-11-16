@@ -30,6 +30,65 @@ export function Overview(this: { vm: OverviewVM }) {
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <div class="card__title">Квота трафика</div>
+            <div class="card__sub">Период: {this.vm.quotaPeriodLabel}</div>
+          </div>
+          <span
+            class={`badge ${
+              this.vm.quotaView.exceeded
+                ? "badge--red"
+                : this.vm.quotaView.hasQuota
+                  ? "badge--green"
+                  : "badge--blue"
+            }`}
+          >
+            {this.vm.quotaView.statusLabel}
+          </span>
+        </div>
+        <div class="card__body">
+          <Show
+            when={this.vm.quota}
+            fallback={
+              <div class="small muted">
+                {this.vm.quotaError ?? "Данные о квоте недоступны"}
+              </div>
+            }
+          >
+            <div class="quota">
+              <div class="row-between wrap">
+                <div class="quota__value">
+                  {this.vm.quotaView.usedLabel}
+                  <span class="muted"> из {this.vm.quotaView.limitLabel}</span>
+                </div>
+                <div class="mono strong">{this.vm.quotaView.percentLabel}</div>
+              </div>
+              <Show when={this.vm.quotaView.hasQuota}>
+                <div class="progress">
+                  <div
+                    class={this.vm.quotaView.progressClass}
+                    style={`width:${this.vm.quotaView.progress}%`}
+                  ></div>
+                </div>
+              </Show>
+              <div class="row-between wrap xs muted">
+                <span>
+                  Осталось: <span class="strong">{this.vm.quotaView.remainingLabel}</span>
+                </span>
+                <span>Сброс: {this.vm.quotaResetLabel}</span>
+              </div>
+            </div>
+            <Show when={this.vm.quotaView.exceeded}>
+              <div class="alert alert--error" style="margin-top:var(--sp-3)">
+                Квота исчерпана, скорость ограничена 1 Кбит/с
+              </div>
+            </Show>
+          </Show>
+        </div>
+      </section>
+
       <div class="grid grid--4">
         <div class="stat">
           <div class="stat__label"><span class="dot dot--green"></span>Принято сегодня</div>

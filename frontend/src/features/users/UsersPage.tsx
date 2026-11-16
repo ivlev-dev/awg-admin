@@ -51,6 +51,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                       <th>Роль</th>
                       <th>Тариф</th>
                       <th>Группа</th>
+                      <th>Квота</th>
                       <th>Статус</th>
                       <th></th>
                     </tr>
@@ -72,6 +73,19 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           </td>
                           <td data-label="Тариф">{this.vm.tariffName(user.tariff_id)}</td>
                           <td data-label="Группа">{this.vm.groupName(user.group_id)}</td>
+                          <td data-label="Квота">
+                            <Show
+                              when={this.vm.quotaFor(user.id)}
+                              fallback={<span class="xs muted">—</span>}
+                            >
+                              <div class="stack-sm" title={this.vm.quotaTitle(user.id)}>
+                                <span class="small mono strong">{this.vm.quotaPercentLabel(user.id)}</span>
+                                <span class={this.vm.quotaBadgeClass(user.id)}>
+                                  {this.vm.quotaStatusLabel(user.id)}
+                                </span>
+                              </div>
+                            </Show>
+                          </td>
                           <td data-label="Статус">
                             <span class={`badge ${user.disabled ? "badge--red" : "badge--green"}`}>
                               {user.disabled ? "Отключён" : "Активен"}

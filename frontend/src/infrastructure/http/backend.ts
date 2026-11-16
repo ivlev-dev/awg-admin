@@ -5,6 +5,7 @@ import type { GroupsRepository } from "@/domain/groups/repository";
 import type { ImportRepository } from "@/domain/import/repository";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
 import type { SettingsRepository } from "@/domain/settings/repository";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
@@ -23,6 +24,7 @@ import { HttpImportRepository } from "./import.repository";
 import { InterceptorRegistry } from "./interceptor-registry";
 import { HttpInterfacesRepository } from "./interfaces.repository";
 import { HttpNodesRepository } from "./nodes.repository";
+import { HttpQuotaRepository } from "./quota.repository";
 import { HttpSettingsRepository } from "./settings.repository";
 import { HttpStatsRepository } from "./stats.repository";
 import { HttpTariffsRepository } from "./tariffs.repository";
@@ -39,6 +41,7 @@ export interface ApiRepositories {
   interfaces: InterfacesRepository;
   devices: DevicesRepository;
   stats: StatsRepository;
+  quota: QuotaRepository;
   settings: SettingsRepository;
   import: ImportRepository;
 }
@@ -76,6 +79,7 @@ export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
       interfaces: new HttpInterfacesRepository(client),
       devices: new HttpDevicesRepository(client),
       stats: new HttpStatsRepository(client),
+      quota: new HttpQuotaRepository(client),
       settings: new HttpSettingsRepository(client),
       import: new HttpImportRepository(client),
     },

@@ -2,8 +2,11 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
+import { userMessage } from "@/application/errors";
+import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
+import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { StatsService } from "../../application/stats/service";
-import { formatBytes } from "@/domain/format";
+import { formatBytes, formatDateRu } from "@/domain/format";
 import type { Overview } from "@/domain/types";
 import type { LiveStats } from "@/infrastructure/stats";
 
@@ -12,11 +15,14 @@ export class OverviewVM {
   @reactive accessor series: Array<{ at: string; rx: number; tx: number }> = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
+  @reactive accessor quota: QuotaSnapshot | null = null;
+  @reactive accessor quotaError: string | null = null;
 
   private started = false;
 
   constructor(
     private readonly statsService: StatsService,
+    private readonly quotaService: QuotaService,
     private readonly liveStats: LiveStats,
     private readonly session: Session,
     private readonly router: Router,
@@ -106,6 +112,22 @@ export class OverviewVM {
   }
 
   @computed
+  get quotaView(): QuotaDisplay {
+    return quotaDisplay(this.quota);
+  }
+
+  @computed
+  get quotaResetLabel(): string {
+    return formatDateRu(this.quota?.resetAt);
+  }
+
+  @computed
+  get quotaPeriodLabel(): string {
+    if (!this.quota) return "—";
+    return `${formatDateRu(this.quota.periodStart)} — ${formatDateRu(this.quota.periodEnd)}`;
+  }
+
+  @computed
   get nodesOnline(): number {
     return this.data?.nodes_online ?? 0;
   }
@@ -123,19 +145,29 @@ export class OverviewVM {
   async load(): Promise<void> {
     this.loading = true;
     this.error = null;
+    this.quotaError = null;
     try {
       const to = Math.floor(Date.now() / 1000);
       const from = to - 24 * 3600;
       const scope = this.isAdmin ? "global" : "user";
       const id = this.isAdmin ? null : this.session.user?.id ?? null;
-      const [overview, series] = await Promise.all([
+      const [overview, series, quota] = await Promise.allSettled([
         this.statsService.overview(),
         this.statsService.series(scope, id, from, to),
+        this.quotaService.me(),
       ]);
-      this.data = overview;
-      this.series = series.map((point) => ({ at: point.at, rx: point.rx, tx: point.tx }));
+      if (quota.status === "fulfilled") {
+        this.quota = quota.value;
+      } else {
+        this.quota = null;
+        this.quotaError = userMessage(quota.reason, "Не удалось загрузить квоту трафика");
+      }
+      if (overview.status === "rejected") throw overview.reason;
+      if (series.status === "rejected") throw series.reason;
+      this.data = overview.value;
+      this.series = series.value.map((point) => ({ at: point.at, rx: point.rx, tx: point.tx }));
     } catch (error) {
-      this.error = error instanceof Error ? error.message : "Не удалось загрузить обзор";
+      this.error = userMessage(error, "Не удалось загрузить обзор");
     } finally {
       this.loading = false;
     }

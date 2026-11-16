@@ -247,6 +247,10 @@
 .progress__bar--warn { background: linear-gradient(90deg, var(--amber), #f59e0b); }
 .progress__bar--danger { background: linear-gradient(90deg, var(--red), #f97316); }
 
+.quota { display: flex; flex-direction: column; gap: var(--sp-2); }
+.quota__value { font-size: var(--t-lg); font-weight: 750; letter-spacing: -0.01em; }
+.quota__value .muted { font-size: var(--t-sm); font-weight: 500; }
+
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 6px var(--sp-4); font-size: var(--t-sm); }
 .kv dt { color: var(--muted); }
 .kv dd { margin: 0; text-align: right; font-weight: 600; }

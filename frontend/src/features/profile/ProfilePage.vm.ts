@@ -4,8 +4,11 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
+import { userMessage } from "@/application/errors";
+import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
+import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { AuthService } from "../../application/auth/service";
-import { formatDate, initials } from "@/domain/format";
+import { formatDate, formatDateRu, initials } from "@/domain/format";
 
 export interface PermissionItem {
   key: string;
@@ -71,6 +74,7 @@ export class ProfilePageVM {
   constructor(
     private readonly session: Session,
     private readonly auth: AuthService,
+    private readonly quotaService: QuotaService,
     private readonly router: Router,
     private readonly theme: ThemeStore,
     private readonly toasts: ToastStore,
@@ -80,6 +84,26 @@ export class ProfilePageVM {
   @reactive accessor nextPassword = "";
   @reactive accessor repeatPassword = "";
   @reactive accessor saving = false;
+  @reactive accessor quota: QuotaSnapshot | null = null;
+  @reactive accessor quotaError: string | null = null;
+  @reactive accessor quotaLoading = false;
+
+  created(): void {
+    void this.loadQuota();
+  }
+
+  async loadQuota(): Promise<void> {
+    this.quotaLoading = true;
+    this.quotaError = null;
+    try {
+      this.quota = await this.quotaService.me();
+    } catch (error) {
+      this.quota = null;
+      this.quotaError = userMessage(error, "Не удалось загрузить квоту трафика");
+    } finally {
+      this.quotaLoading = false;
+    }
+  }
 
   @computed
   get login(): string {
@@ -114,6 +138,22 @@ export class ProfilePageVM {
   @computed
   get roleBadgeClass(): string {
     return this.isAdmin ? "badge badge--violet" : "badge badge--blue";
+  }
+
+  @computed
+  get quotaView(): QuotaDisplay {
+    return quotaDisplay(this.quota);
+  }
+
+  @computed
+  get quotaResetLabel(): string {
+    return formatDateRu(this.quota?.resetAt);
+  }
+
+  @computed
+  get quotaPeriodLabel(): string {
+    if (!this.quota) return "—";
+    return `${formatDateRu(this.quota.periodStart)} — ${formatDateRu(this.quota.periodEnd)}`;
   }
 
   @computed

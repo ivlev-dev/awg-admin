@@ -91,6 +91,11 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     </span>
                   </div>
                   <div class="card__body stack">
+                    <Show when={this.vm.quotaExceeded}>
+                      <div class="alert alert--error">
+                        Квота трафика исчерпана: скорость ограничена 1 Кбит/с
+                      </div>
+                    </Show>
                     <dl class="kv">
                       <dt>Имя</dt>
                       <dd>{this.vm.device?.name ?? "—"}</dd>
@@ -100,6 +105,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       <dd>{this.vm.downLabel}</dd>
                       <dt>Лимит ↑</dt>
                       <dd>{this.vm.upLabel}</dd>
+                      <Show when={this.vm.ownerQuota}>
+                        <dt>Квота</dt>
+                        <dd>{this.vm.quotaUsageLabel}</dd>
+                      </Show>
                       <dt>Forwarding</dt>
                       <dd>{this.vm.forwardingLabel}</dd>
                     </dl>
@@ -211,6 +220,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         <div class="hint">0 — без лимита</div>
                       </div>
                     </div>
+
+                    <Show when={this.vm.rateLimitHint}>
+                      <div class="alert alert--warn">{this.vm.rateLimitHint}</div>
+                    </Show>
 
                     <Show when={!this.vm.isAdmin}>
                       <div class="alert alert--info">

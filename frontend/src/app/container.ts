@@ -7,6 +7,7 @@ import { DefaultGroupsService } from "@/application/groups/service";
 import { DefaultImportService } from "@/application/import/service";
 import { DefaultInterfacesService } from "@/application/interfaces/service";
 import { DefaultNodesService } from "@/application/nodes/service";
+import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultSettingsService } from "@/application/settings/service";
 import { DefaultStatsService } from "@/application/stats/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
@@ -43,6 +44,7 @@ export function bindAppServices(container: Container): void {
   container.bind(DefaultInterfacesService, () => services.interfaces);
   container.bind(DefaultDevicesService, () => services.devices);
   container.bind(DefaultStatsService, () => services.stats);
+  container.bind(DefaultQuotaService, () => services.quota);
   container.bind(DefaultSettingsService, () => services.settings);
   container.bind(DefaultImportService, () => services.import);
 }

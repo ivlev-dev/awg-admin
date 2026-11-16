@@ -36,6 +36,18 @@ export function formatDate(value: string | null | undefined): string {
   }).format(date);
 }
 
+export function formatPercent(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
+  return `${value.toFixed(1)} %`;
+}
+
+export function formatDateRu(value: string | null | undefined): string {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("ru-RU");
+}
+
 export function formatDay(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);

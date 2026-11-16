@@ -1,5 +1,7 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
+import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
+import type { QuotaService, QuotaUsageView } from "../../application/quota/service";
 import type { DevicesService } from "../../application/devices/service";
 import type { GroupsService } from "../../application/groups/service";
 import { Router } from "@/app/router";
@@ -48,6 +50,7 @@ export class ClientDetailsVM {
   constructor(
     private readonly devicesService: DevicesService,
     private readonly groupsService: GroupsService,
+    private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly router: Router,
     private readonly toasts: ToastStore,
@@ -59,6 +62,7 @@ export class ClientDetailsVM {
   @reactive accessor stats: DeviceStats | null = null;
   @reactive accessor allDevices: Device[] = [];
   @reactive accessor groups: Group[] = [];
+  @reactive accessor ownerQuota: QuotaUsageView | null = null;
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
   @reactive accessor saving = false;
@@ -167,6 +171,29 @@ export class ClientDetailsVM {
   @computed
   get monthTx(): string {
     return formatBytes(this.stats?.month.tx ?? 0);
+  }
+
+  @computed
+  get quotaView(): QuotaDisplay {
+    return quotaDisplay(this.ownerQuota);
+  }
+
+  @computed
+  get quotaExceeded(): boolean {
+    return this.ownerQuota?.exceeded ?? false;
+  }
+
+  @computed
+  get quotaUsageLabel(): string {
+    if (!this.ownerQuota) return "";
+    return `Использовано ${this.quotaView.usedLabel} из ${this.quotaView.limitLabel}`;
+  }
+
+  @computed
+  get rateLimitHint(): string {
+    return this.quotaExceeded
+      ? "Фактическая скорость ограничена 1 Кбит/с: квота трафика исчерпана."
+      : "";
   }
 
   @computed
@@ -290,6 +317,7 @@ export class ClientDetailsVM {
     this.allDevices = [];
     this.forwardingRows = [];
     this.groups = [];
+    this.ownerQuota = null;
     this.activeProfileId = "";
     this.shareInterfaceId = "";
     try {
@@ -317,6 +345,7 @@ export class ClientDetailsVM {
       this.groups = groups;
       this.buildForwardingRows(device);
       this.hydrateForm(device);
+      await this.loadOwnerQuota(device);
       if (!profiles.some((profile) => profile.interface_id === this.activeProfileId)) {
         this.activeProfileId = profiles[0]?.interface_id ?? "";
       }
@@ -628,6 +657,16 @@ export class ClientDetailsVM {
     this.forwardingMode = modeOfForwarding(device.forwarding);
     this.forwardingSelected =
       this.forwardingMode === "selected" ? [...device.forwarding.allowed_devices] : [];
+  }
+
+  private async loadOwnerQuota(device: Device): Promise<void> {
+    try {
+      this.ownerQuota = this.isAdmin
+        ? await this.quotaService.forUser(device.user_id)
+        : await this.quotaService.me();
+    } catch {
+      this.ownerQuota = null;
+    }
   }
 
   private buildForwardingRows(device: Device): void {

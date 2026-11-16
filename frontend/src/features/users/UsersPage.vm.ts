@@ -4,15 +4,18 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { validatePassword } from "@/application/guards";
+import type { QuotaService, UserQuotaSnapshot } from "../../application/quota/service";
 import type { GroupsService } from "../../application/groups/service";
 import type { TariffsService } from "../../application/tariffs/service";
 import type { UsersService } from "../../application/users/service";
+import { formatBytes, formatPercent } from "@/domain/format";
 import type { Group, Role, Tariff, User } from "@/domain/types";
 
 export class UsersPageVM {
   @reactive accessor users: User[] = [];
   @reactive accessor tariffs: Tariff[] = [];
   @reactive accessor groups: Group[] = [];
+  @reactive accessor quotas: UserQuotaSnapshot[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
 
@@ -36,6 +39,7 @@ export class UsersPageVM {
     private readonly usersService: UsersService,
     private readonly tariffsService: TariffsService,
     private readonly groupsService: GroupsService,
+    private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly toasts: ToastStore,
   ) {}
@@ -47,15 +51,20 @@ export class UsersPageVM {
   async load(): Promise<void> {
     this.loading = true;
     this.error = null;
+    const [usersResult, tariffsResult, groupsResult, quotaResult] = await Promise.allSettled([
+      this.usersService.listUsers(),
+      this.tariffsService.listTariffs(),
+      this.groupsService.listGroups(),
+      this.quotaService.users(),
+    ]);
+    this.quotas = quotaResult.status === "fulfilled" ? quotaResult.value : [];
     try {
-      const [users, tariffs, groups] = await Promise.all([
-        this.usersService.listUsers(),
-        this.tariffsService.listTariffs(),
-        this.groupsService.listGroups(),
-      ]);
-      this.users = users;
-      this.tariffs = tariffs;
-      this.groups = groups;
+      if (usersResult.status === "rejected") throw usersResult.reason;
+      if (tariffsResult.status === "rejected") throw tariffsResult.reason;
+      if (groupsResult.status === "rejected") throw groupsResult.reason;
+      this.users = usersResult.value;
+      this.tariffs = tariffsResult.value;
+      this.groups = groupsResult.value;
     } catch (error) {
       this.error = userMessage(error, "Не удалось загрузить пользователей");
     } finally {
@@ -81,6 +90,36 @@ export class UsersPageVM {
   groupName(id: string | null): string {
     if (!id) return "Не задана";
     return this.groups.find((group) => group.id === id)?.name ?? "—";
+  }
+
+  quotaFor(userId: string): UserQuotaSnapshot | null {
+    return this.quotas.find((quota) => quota.userId === userId) ?? null;
+  }
+
+  quotaPercentLabel(userId: string): string {
+    const quota = this.quotaFor(userId);
+    return quota ? formatPercent(quota.percent) : "—";
+  }
+
+  quotaStatusLabel(userId: string): string {
+    const quota = this.quotaFor(userId);
+    if (!quota) return "";
+    if (quota.exceeded) return "исчерпана";
+    return quota.quotaBytes === null ? "без лимита" : "в норме";
+  }
+
+  quotaBadgeClass(userId: string): string {
+    const quota = this.quotaFor(userId);
+    if (!quota) return "badge badge--blue";
+    if (quota.exceeded) return "badge badge--red";
+    return quota.quotaBytes === null ? "badge badge--blue" : "badge badge--green";
+  }
+
+  quotaTitle(userId: string): string {
+    const quota = this.quotaFor(userId);
+    if (!quota) return "Квота не задана";
+    const limit = quota.quotaBytes === null ? "Без ограничения" : formatBytes(quota.quotaBytes);
+    return `Использовано ${formatBytes(quota.usedBytes)} из ${limit}`;
   }
 
   openCreate(): void {

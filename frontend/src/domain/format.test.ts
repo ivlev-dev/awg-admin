@@ -2,6 +2,8 @@ import {
   formatBytes,
   formatRate,
   formatPerSecond,
+  formatPercent,
+  formatDateRu,
   relativeTime,
   plural,
   percent,
@@ -64,6 +66,33 @@ describe("formatPerSecond", () => {
 
   it("converts kbps to bytes", () => {
     expect(formatPerSecond(8)).toBe("1000 B/с");
+  });
+});
+
+describe("formatPercent", () => {
+  it("keeps one decimal", () => {
+    expect(formatPercent(0)).toBe("0.0 %");
+    expect(formatPercent(42.345)).toBe("42.3 %");
+    expect(formatPercent(100)).toBe("100.0 %");
+  });
+
+  it("handles missing values", () => {
+    expect(formatPercent(null)).toBe("—");
+    expect(formatPercent(undefined)).toBe("—");
+    expect(formatPercent(Number.NaN)).toBe("—");
+  });
+});
+
+describe("formatDateRu", () => {
+  it("formats a date in ru locale", () => {
+    const value = "2026-12-01T12:00:00Z";
+    expect(formatDateRu(value)).toBe(new Date(value).toLocaleDateString("ru-RU"));
+  });
+
+  it("handles missing and invalid dates", () => {
+    expect(formatDateRu(null)).toBe("—");
+    expect(formatDateRu("")).toBe("—");
+    expect(formatDateRu("not-a-date")).toBe("—");
   });
 });
 

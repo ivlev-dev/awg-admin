@@ -1,12 +1,15 @@
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
+import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type {
@@ -68,6 +71,25 @@ const GROUP: Group = {
   interfaces: 0,
   devices: 0,
 };
+
+const QUOTAS: UserQuota[] = [
+  {
+    user_id: "u1",
+    login: "admin",
+    used_bytes: 1024 * 1024 * 1024,
+    quota_bytes: 10 * 1024 * 1024 * 1024,
+    exceeded: false,
+    percent: 10,
+  },
+  {
+    user_id: "u2",
+    login: "alice",
+    used_bytes: 10 * 1024 * 1024 * 1024,
+    quota_bytes: 10 * 1024 * 1024 * 1024,
+    exceeded: true,
+    percent: 100,
+  },
+];
 
 class MemoryUsersRepository implements UsersRepository {
   users: User[];
@@ -238,6 +260,24 @@ class MemoryGroupsRepository implements GroupsRepository {
   }
 }
 
+class MemoryQuotaRepository implements QuotaRepository {
+  quotas: UserQuota[];
+  failure: Error | null = null;
+
+  constructor(seed: UserQuota[]) {
+    this.quotas = seed.map((quota) => ({ ...quota }));
+  }
+
+  async me(): Promise<QuotaState> {
+    throw new Error("me is not used in this test");
+  }
+
+  async users(): Promise<UserQuota[]> {
+    if (this.failure !== null) throw this.failure;
+    return this.quotas.map((quota) => ({ ...quota }));
+  }
+}
+
 class FakeAuthRepository implements AuthRepository {
   constructor(private readonly current: User) {}
 
@@ -291,23 +331,30 @@ interface SetupResult {
   usersRepo: MemoryUsersRepository;
   tariffsRepo: MemoryTariffsRepository;
   groupsRepo: MemoryGroupsRepository;
+  quotaRepo: MemoryQuotaRepository;
   toasts: ToastStore;
   session: Session;
   services: {
     users: DefaultUsersService;
     tariffs: DefaultTariffsService;
     groups: DefaultGroupsService;
+    quota: DefaultQuotaService;
   };
 }
 
-function setup(seed: User[] = [ADMIN, ALICE]): SetupResult {
+function setup(
+  seed: User[] = [ADMIN, ALICE],
+  quotaSeed: UserQuota[] = QUOTAS,
+): SetupResult {
   const usersRepo = new MemoryUsersRepository(seed);
   const tariffsRepo = new MemoryTariffsRepository([TARIFF]);
   const groupsRepo = new MemoryGroupsRepository([GROUP]);
+  const quotaRepo = new MemoryQuotaRepository(quotaSeed);
   const services = {
     users: new DefaultUsersService(usersRepo),
     tariffs: new DefaultTariffsService(tariffsRepo),
     groups: new DefaultGroupsService(groupsRepo),
+    quota: new DefaultQuotaService(quotaRepo),
   };
   const session = new Session(new FakeAuthRepository(ADMIN), new MemoryTokenStore());
   session.user = ADMIN;
@@ -316,10 +363,11 @@ function setup(seed: User[] = [ADMIN, ALICE]): SetupResult {
     services.users,
     services.tariffs,
     services.groups,
+    services.quota,
     session,
     toasts,
   );
-  return { vm, usersRepo, tariffsRepo, groupsRepo, toasts, session, services };
+  return { vm, usersRepo, tariffsRepo, groupsRepo, quotaRepo, toasts, session, services };
 }
 
 function toastMessages(toasts: ToastStore): string[] {
@@ -362,6 +410,60 @@ describe("UsersPageVM", () => {
     expect(vm.loading).toBe(false);
     expect(vm.error).toBe("Сеть недоступна");
     expect(vm.users).toEqual([]);
+  });
+
+  it("loads user quotas once and exposes column labels", async () => {
+    const { vm, quotaRepo } = setup();
+    const usersSpy = vi.spyOn(quotaRepo, "users");
+
+    await vm.load();
+
+    expect(usersSpy).toHaveBeenCalledTimes(1);
+    expect(vm.quotas).toHaveLength(2);
+    expect(vm.quotaFor(ADMIN.id)).toMatchObject({ userId: ADMIN.id, percent: 10 });
+    expect(vm.quotaPercentLabel(ADMIN.id)).toBe("10.0 %");
+    expect(vm.quotaStatusLabel(ADMIN.id)).toBe("в норме");
+    expect(vm.quotaBadgeClass(ADMIN.id)).toBe("badge badge--green");
+    expect(vm.quotaTitle(ADMIN.id)).toBe("Использовано 1.0 ГБ из 10.0 ГБ");
+    expect(vm.quotaPercentLabel(ALICE.id)).toBe("100.0 %");
+    expect(vm.quotaStatusLabel(ALICE.id)).toBe("исчерпана");
+    expect(vm.quotaBadgeClass(ALICE.id)).toBe("badge badge--red");
+    expect(vm.quotaFor("missing")).toBeNull();
+    expect(vm.quotaPercentLabel("missing")).toBe("—");
+  });
+
+  it("marks an unlimited quota in the users table", async () => {
+    const { vm } = setup([ADMIN], [
+      {
+        user_id: ADMIN.id,
+        login: ADMIN.login,
+        used_bytes: 1024,
+        quota_bytes: null,
+        exceeded: false,
+        percent: null,
+      },
+    ]);
+
+    await vm.load();
+
+    expect(vm.quotaPercentLabel(ADMIN.id)).toBe("—");
+    expect(vm.quotaStatusLabel(ADMIN.id)).toBe("без лимита");
+    expect(vm.quotaBadgeClass(ADMIN.id)).toBe("badge badge--blue");
+    expect(vm.quotaTitle(ADMIN.id)).toBe("Использовано 1.0 КБ из Без ограничения");
+  });
+
+  it("keeps the users table when quotas fail to load", async () => {
+    const { vm, quotaRepo } = setup();
+    quotaRepo.failure = new Error("Квоты недоступны");
+
+    await vm.load();
+
+    expect(vm.error).toBeNull();
+    expect(vm.users.map((user) => user.login)).toEqual(["admin", "alice"]);
+    expect(vm.quotas).toEqual([]);
+    expect(vm.quotaFor(ALICE.id)).toBeNull();
+    expect(vm.quotaPercentLabel(ALICE.id)).toBe("—");
+    expect(vm.quotaStatusLabel(ALICE.id)).toBe("");
   });
 
   it("creates a user", async () => {

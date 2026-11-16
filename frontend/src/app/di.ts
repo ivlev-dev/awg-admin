@@ -7,6 +7,7 @@ import { DefaultGroupsService, type GroupsService } from "@/application/groups/s
 import { DefaultImportService, type ImportService } from "@/application/import/service";
 import { DefaultInterfacesService, type InterfacesService } from "@/application/interfaces/service";
 import { DefaultNodesService, type NodesService } from "@/application/nodes/service";
+import { DefaultQuotaService, type QuotaService } from "@/application/quota/service";
 import { DefaultSettingsService, type SettingsService } from "@/application/settings/service";
 import { DefaultStatsService, type StatsService } from "@/application/stats/service";
 import { DefaultTariffsService, type TariffsService } from "@/application/tariffs/service";
@@ -25,6 +26,7 @@ import { HttpGroupsRepository } from "@/infrastructure/http/groups.repository";
 import { HttpImportRepository } from "@/infrastructure/http/import.repository";
 import { HttpInterfacesRepository } from "@/infrastructure/http/interfaces.repository";
 import { HttpNodesRepository } from "@/infrastructure/http/nodes.repository";
+import { HttpQuotaRepository } from "@/infrastructure/http/quota.repository";
 import { HttpSettingsRepository } from "@/infrastructure/http/settings.repository";
 import { HttpStatsRepository } from "@/infrastructure/http/stats.repository";
 import { HttpTariffsRepository } from "@/infrastructure/http/tariffs.repository";
@@ -48,6 +50,7 @@ export interface AppServices {
   interfaces: InterfacesService;
   devices: DevicesService;
   stats: StatsService;
+  quota: QuotaService;
   settings: SettingsService;
   import: ImportService;
 }
@@ -93,6 +96,7 @@ export function createAppServices(options: AppOptions = {}): AppServices {
     interfaces: new DefaultInterfacesService(repositories.interfaces),
     devices: new DefaultDevicesService(repositories.devices),
     stats: new DefaultStatsService(repositories.stats),
+    quota: new DefaultQuotaService(repositories.quota),
     settings: new DefaultSettingsService(repositories.settings),
     import: new DefaultImportService(repositories.import),
   };
@@ -121,6 +125,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
   const interfacesRepository = await container.resolve<HttpInterfacesRepository>(HttpInterfacesRepository);
   const devicesRepository = await container.resolve<HttpDevicesRepository>(HttpDevicesRepository);
   const statsRepository = await container.resolve<HttpStatsRepository>(HttpStatsRepository);
+  const quotaRepository = await container.resolve<HttpQuotaRepository>(HttpQuotaRepository);
   const settingsRepository = await container.resolve<HttpSettingsRepository>(HttpSettingsRepository);
   const importRepository = await container.resolve<HttpImportRepository>(HttpImportRepository);
   const client = await container.resolve<HttpClient>(HttpClient);
@@ -135,6 +140,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
     interfaces: interfacesRepository,
     devices: devicesRepository,
     stats: statsRepository,
+    quota: quotaRepository,
     settings: settingsRepository,
     import: importRepository,
   };
@@ -155,6 +161,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
     interfaces: await container.resolve<DefaultInterfacesService>(DefaultInterfacesService),
     devices: await container.resolve<DefaultDevicesService>(DefaultDevicesService),
     stats: await container.resolve<DefaultStatsService>(DefaultStatsService),
+    quota: await container.resolve<DefaultQuotaService>(DefaultQuotaService),
     settings: await container.resolve<DefaultSettingsService>(DefaultSettingsService),
     import: await container.resolve<DefaultImportService>(DefaultImportService),
   };
