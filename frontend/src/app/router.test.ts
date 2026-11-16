@@ -31,6 +31,21 @@ describe("matchRoute", () => {
     expect(match.route.name).toBe("overview");
     expect(match.params).toEqual({});
   });
+
+  it("register is public", () => {
+    const match = matchRoute("/register");
+    expect(match.route.name).toBe("register");
+    expect(match.route.title).toBe("Регистрация");
+    expect(match.route.public).toBe(true);
+    expect(match.route.adminOnly).toBeUndefined();
+  });
+
+  it("verify-email is public", () => {
+    const match = matchRoute("/verify-email");
+    expect(match.route.name).toBe("verify-email");
+    expect(match.route.title).toBe("Подтверждение почты");
+    expect(match.route.public).toBe(true);
+  });
 });
 
 describe("normalize", () => {

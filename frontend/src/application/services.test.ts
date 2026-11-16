@@ -40,6 +40,9 @@ const USER: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -169,6 +172,12 @@ function makeAuth(): AuthRepository {
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => USER),
     changePassword: vi.fn(async () => undefined),
+    register: vi.fn(async () => ({ status: "pending_email" as const })),
+    verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
+    resendVerification: vi.fn(async () => undefined),
+    totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
+    totpEnable: vi.fn(async () => ({ enabled: true })),
+    totpDisable: vi.fn(async () => ({ enabled: false })),
   };
 }
 
@@ -201,16 +210,103 @@ describe("AuthService", () => {
     const service = new DefaultAuthService(makeAuth());
     await expect(service.changePassword("old", "short")).rejects.toBeInstanceOf(ValidationError);
   });
+
+  it("registers with a normalized email and an optional login", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(
+      service.register({ email: " user@example.com ", login: " user ", password: "secret123" }),
+    ).resolves.toEqual({ status: "pending_email" });
+    expect(repo.register).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "secret123",
+      login: "user",
+    });
+  });
+
+  it("omits an empty login on registration", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await service.register({ email: "user@example.com", login: "  ", password: "secret123" });
+
+    expect(repo.register).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "secret123",
+    });
+  });
+
+  it("rejects an invalid email and a short password on registration", async () => {
+    const service = new DefaultAuthService(makeAuth());
+    await expect(
+      service.register({ email: "nope", password: "secret123" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      service.register({ email: "user@example.com", password: "short" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("verifies an email token", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(service.verifyEmail(" token ")).resolves.toEqual({ status: "pending_approval" });
+    expect(repo.verifyEmail).toHaveBeenCalledWith("token");
+    await expect(service.verifyEmail(" ")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("resends the verification email", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await service.resendVerification(" user@example.com ");
+    expect(repo.resendVerification).toHaveBeenCalledWith("user@example.com");
+    await expect(service.resendVerification("nope")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("passes the TOTP code on login", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await service.login({ login: "admin", password: "secret", totp_code: " 123456 " });
+
+    expect(repo.login).toHaveBeenCalledWith({
+      login: "admin",
+      password: "secret",
+      totp_code: "123456",
+    });
+  });
+
+  it("delegates TOTP setup, enable and disable", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(service.totpSetup()).resolves.toEqual({
+      secret: "",
+      otpauth_url: "",
+      recovery_codes: [],
+    });
+    await expect(service.totpEnable(" 123456 ")).resolves.toEqual({ enabled: true });
+    await expect(service.totpDisable(" secret ", " 654321 ")).resolves.toEqual({ enabled: false });
+
+    expect(repo.totpEnable).toHaveBeenCalledWith("123456");
+    expect(repo.totpDisable).toHaveBeenCalledWith("secret", "654321");
+    await expect(service.totpEnable("abc")).rejects.toBeInstanceOf(ValidationError);
+  });
 });
 
 describe("UsersService", () => {
   function makeUsers(): UsersRepository {
     return {
       listUsers: vi.fn(async () => [USER]),
+      listPending: vi.fn(async () => [USER]),
       createUser: vi.fn(async () => USER),
       updateUser: vi.fn(async () => USER),
       deleteUser: vi.fn(async () => undefined),
       resetPassword: vi.fn(async () => undefined),
+      approveUser: vi.fn(async () => USER),
+      rejectUser: vi.fn(async () => USER),
     };
   }
 
@@ -234,6 +330,38 @@ describe("UsersService", () => {
     await service.deleteUser(" u1 ");
     expect(repo.updateUser).toHaveBeenCalledWith("u1", { disabled: true });
     expect(repo.deleteUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("lists pending accounts", async () => {
+    const repo = makeUsers();
+    const service = new DefaultUsersService(repo);
+
+    await expect(service.listPending()).resolves.toEqual([USER]);
+    expect(repo.listPending).toHaveBeenCalledTimes(1);
+  });
+
+  it("approves a pending account with a tariff and optional group", async () => {
+    const repo = makeUsers();
+    const service = new DefaultUsersService(repo);
+
+    await service.approveUser(" u2 ", { tariff_id: " t1 ", group_id: "g1" });
+
+    expect(repo.approveUser).toHaveBeenCalledWith("u2", {
+      tariff_id: "t1",
+      group_id: "g1",
+    });
+    await expect(
+      service.approveUser("u2", { tariff_id: "  " }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects a pending account", async () => {
+    const repo = makeUsers();
+    const service = new DefaultUsersService(repo);
+
+    await expect(service.rejectUser(" u2 ")).resolves.toEqual(USER);
+    expect(repo.rejectUser).toHaveBeenCalledWith("u2");
+    await expect(service.rejectUser(" ")).rejects.toBeInstanceOf(ValidationError);
   });
 });
 

@@ -1,5 +1,12 @@
 import type { AuthRepository } from "../../domain/auth/repository";
-import type { LoginInput } from "../../domain/auth/types";
+import type {
+  LoginInput,
+  RegisterInput,
+  RegisterResult,
+  TotpSetup,
+  TotpToggleResult,
+  VerifyEmailResult,
+} from "../../domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "../storage";
 import { ApiError } from "./errors";
@@ -17,6 +24,24 @@ export class HttpAuthRepository implements AuthRepository {
     );
     this.tokens.set(session.token, session.refresh_token);
     return session;
+  }
+
+  register(input: RegisterInput): Promise<RegisterResult> {
+    return this.request(() =>
+      this.transport.post<RegisterResult>("/auth/register", input, { source: "auth" }),
+    );
+  }
+
+  verifyEmail(token: string): Promise<VerifyEmailResult> {
+    return this.request(() =>
+      this.transport.post<VerifyEmailResult>("/auth/verify-email", { token }, { source: "auth" }),
+    );
+  }
+
+  async resendVerification(email: string): Promise<void> {
+    await this.request(() =>
+      this.transport.post<void>("/auth/resend-verification", { email }, { source: "auth" }),
+    );
   }
 
   async refresh(refreshToken: string): Promise<AuthSession> {
@@ -59,6 +84,35 @@ export class HttpAuthRepository implements AuthRepository {
       this.transport.post<void>(
         "/auth/password",
         { current_password: current, new_password: next },
+        { source: "auth", headers: this.authHeaders() },
+      ),
+    );
+  }
+
+  totpSetup(): Promise<TotpSetup> {
+    return this.request(() =>
+      this.transport.post<TotpSetup>("/auth/totp/setup", undefined, {
+        source: "auth",
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  totpEnable(code: string): Promise<TotpToggleResult> {
+    return this.request(() =>
+      this.transport.post<TotpToggleResult>(
+        "/auth/totp/enable",
+        { code },
+        { source: "auth", headers: this.authHeaders() },
+      ),
+    );
+  }
+
+  totpDisable(password: string, code: string): Promise<TotpToggleResult> {
+    return this.request(() =>
+      this.transport.post<TotpToggleResult>(
+        "/auth/totp/disable",
+        { password, code },
         { source: "auth", headers: this.authHeaders() },
       ),
     );

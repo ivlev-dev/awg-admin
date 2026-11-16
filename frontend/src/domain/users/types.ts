@@ -14,3 +14,8 @@ export interface UpdateUserInput {
   group_id?: string | null;
   disabled?: boolean;
 }
+
+export interface ApproveUserInput {
+  tariff_id: string;
+  group_id?: string | null;
+}

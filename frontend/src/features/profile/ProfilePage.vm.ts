@@ -8,6 +8,7 @@ import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { AuthService } from "../../application/auth/service";
+import type { TotpSetup } from "@/domain/auth/types";
 import { initials } from "@/domain/format";
 import {
   LANGUAGE_OPTIONS,
@@ -104,6 +105,17 @@ export class ProfilePageVM {
   @reactive accessor quota: QuotaSnapshot | null = null;
   @reactive accessor quotaError: string | null = null;
   @reactive accessor quotaLoading = false;
+
+  @reactive accessor totpOpen = false;
+  @reactive accessor totpSetup: TotpSetup | null = null;
+  @reactive accessor totpSetupLoading = false;
+  @reactive accessor totpSetupError: string | null = null;
+  @reactive accessor totpCode = "";
+  @reactive accessor totpSaving = false;
+  @reactive accessor totpDisableOpen = false;
+  @reactive accessor totpDisablePassword = "";
+  @reactive accessor totpDisableCode = "";
+  @reactive accessor totpDisableSaving = false;
 
   created(): void {
     void this.loadQuota();
@@ -313,6 +325,144 @@ export class ProfilePageVM {
       );
     } finally {
       this.saving = false;
+    }
+  }
+
+  @computed
+  get totpEnabled(): boolean {
+    return this.session.user?.totp_enabled ?? false;
+  }
+
+  @computed
+  get totpStatusLabel(): string {
+    return this.totpEnabled ? t("profile.totp.status.enabled") : t("profile.totp.status.disabled");
+  }
+
+  @computed
+  get totpStatusBadge(): string {
+    return this.totpEnabled ? "badge badge--green" : "badge badge--blue";
+  }
+
+  @computed
+  get canEnableTotp(): boolean {
+    return /^\d{6}$/.test(this.totpCode.trim()) && !this.totpSaving;
+  }
+
+  @computed
+  get canDisableTotp(): boolean {
+    return (
+      !this.totpDisableSaving &&
+      this.totpDisablePassword.length > 0 &&
+      /^\d{6}$/.test(this.totpDisableCode.trim())
+    );
+  }
+
+  setTotpCode(event: Event): void {
+    this.totpCode = (event.target as HTMLInputElement).value;
+  }
+
+  setTotpDisablePassword(event: Event): void {
+    this.totpDisablePassword = (event.target as HTMLInputElement).value;
+  }
+
+  setTotpDisableCode(event: Event): void {
+    this.totpDisableCode = (event.target as HTMLInputElement).value;
+  }
+
+  async toggleTotp(): Promise<void> {
+    if (this.totpEnabled) {
+      this.openTotpDisable();
+      return;
+    }
+    await this.openTotpSetup();
+  }
+
+  async openTotpSetup(): Promise<void> {
+    if (this.totpSetupLoading) return;
+    this.totpOpen = true;
+    this.totpSetupLoading = true;
+    this.totpSetupError = null;
+    this.totpSetup = null;
+    this.totpCode = "";
+    try {
+      this.totpSetup = await this.auth.totpSetup();
+    } catch (error) {
+      this.totpSetupError = userMessage(error, t("profile.totp.error.setup"));
+    } finally {
+      this.totpSetupLoading = false;
+    }
+  }
+
+  closeTotpSetup(): void {
+    if (this.totpSaving) return;
+    this.totpOpen = false;
+    this.totpSetup = null;
+    this.totpSetupError = null;
+    this.totpCode = "";
+  }
+
+  async submitTotpEnable(): Promise<void> {
+    if (!this.canEnableTotp) {
+      this.toasts.error(t("profile.totp.error.invalidCode"));
+      return;
+    }
+    this.totpSaving = true;
+    try {
+      await this.auth.totpEnable(this.totpCode.trim());
+      this.totpOpen = false;
+      this.totpSetup = null;
+      this.totpCode = "";
+      this.toasts.success(t("profile.totp.success.enabled"));
+      await this.session.reload();
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("profile.totp.error.enable")));
+    } finally {
+      this.totpSaving = false;
+    }
+  }
+
+  openTotpDisable(): void {
+    this.totpDisableOpen = true;
+    this.totpDisablePassword = "";
+    this.totpDisableCode = "";
+  }
+
+  closeTotpDisable(): void {
+    if (this.totpDisableSaving) return;
+    this.totpDisableOpen = false;
+    this.totpDisablePassword = "";
+    this.totpDisableCode = "";
+  }
+
+  async submitTotpDisable(): Promise<void> {
+    if (!this.canDisableTotp) {
+      this.toasts.error(t("profile.totp.error.invalidCode"));
+      return;
+    }
+    this.totpDisableSaving = true;
+    try {
+      await this.auth.totpDisable(this.totpDisablePassword, this.totpDisableCode.trim());
+      this.totpDisableOpen = false;
+      this.totpDisablePassword = "";
+      this.totpDisableCode = "";
+      this.toasts.success(t("profile.totp.success.disabled"));
+      await this.session.reload();
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("profile.totp.error.disable")));
+    } finally {
+      this.totpDisableSaving = false;
+    }
+  }
+
+  async copyRecoveryCodes(): Promise<void> {
+    const codes = this.totpSetup?.recovery_codes ?? [];
+    if (codes.length === 0) return;
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(codes.join("\n"));
+      this.toasts.success(t("profile.totp.modal.copied"));
+    } catch {
+      this.toasts.error(t("profile.totp.error.copy"));
     }
   }
 

@@ -1,14 +1,18 @@
 import type { UsersRepository } from "../../domain/users/repository";
-import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
+import { ValidationError } from "../errors";
 import { requireId, requireText, validatePassword } from "../guards";
 
 export interface UsersService {
   listUsers(): Promise<User[]>;
+  listPending(): Promise<User[]>;
   createUser(input: CreateUserInput): Promise<User>;
   updateUser(id: string, input: UpdateUserInput): Promise<User>;
   deleteUser(id: string): Promise<void>;
   resetPassword(id: string, password: string): Promise<void>;
+  approveUser(id: string, input: ApproveUserInput): Promise<User>;
+  rejectUser(id: string): Promise<User>;
 }
 
 export class DefaultUsersService implements UsersService {
@@ -16,6 +20,10 @@ export class DefaultUsersService implements UsersService {
 
   listUsers(): Promise<User[]> {
     return this.repository.listUsers();
+  }
+
+  listPending(): Promise<User[]> {
+    return this.repository.listPending();
   }
 
   async createUser(input: CreateUserInput): Promise<User> {
@@ -41,5 +49,19 @@ export class DefaultUsersService implements UsersService {
       requireId(id, "Пользователь"),
       validatePassword(password),
     );
+  }
+
+  async approveUser(id: string, input: ApproveUserInput): Promise<User> {
+    if (!input.tariff_id.trim()) {
+      throw new ValidationError("Выберите тариф");
+    }
+    return this.repository.approveUser(requireId(id, "Пользователь"), {
+      tariff_id: input.tariff_id.trim(),
+      group_id: input.group_id ? input.group_id : null,
+    });
+  }
+
+  async rejectUser(id: string): Promise<User> {
+    return this.repository.rejectUser(requireId(id, "Пользователь"));
   }
 }

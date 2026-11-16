@@ -4,7 +4,7 @@ import type { AuthView } from "./api";
 
 export async function loginViaUi(page: Page, login: string, password: string): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Логин").fill(login);
+  await page.getByLabel("Email или логин").fill(login);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Войти" }).click();
 }

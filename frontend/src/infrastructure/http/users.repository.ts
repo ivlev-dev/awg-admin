@@ -1,5 +1,5 @@
 import type { UsersRepository } from "../../domain/users/repository";
-import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import type { HttpClient } from "./client";
 
@@ -8,6 +8,18 @@ export class HttpUsersRepository implements UsersRepository {
 
   listUsers(): Promise<User[]> {
     return this.client.get<User[]>("/users");
+  }
+
+  listPending(): Promise<User[]> {
+    return this.client.get<User[]>("/users/pending");
+  }
+
+  approveUser(id: string, input: ApproveUserInput): Promise<User> {
+    return this.client.post<User>(`/users/${id}/approve`, input);
+  }
+
+  rejectUser(id: string): Promise<User> {
+    return this.client.post<User>(`/users/${id}/reject`);
   }
 
   createUser(input: CreateUserInput): Promise<User> {

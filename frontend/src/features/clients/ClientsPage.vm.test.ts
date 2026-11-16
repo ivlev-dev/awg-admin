@@ -19,6 +19,9 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -30,6 +33,9 @@ const OWNER: User = {
   role: "user",
   tariff_id: null,
   group_id: "g1",
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -108,6 +114,12 @@ function fakeAuth(user: User): AuthRepository {
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => user),
     changePassword: vi.fn(async () => undefined),
+    register: vi.fn(async () => ({ status: "pending_email" as const })),
+    verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
+    resendVerification: vi.fn(async () => undefined),
+    totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
+    totpEnable: vi.fn(async () => ({ enabled: true })),
+    totpDisable: vi.fn(async () => ({ enabled: false })),
   };
 }
 
@@ -204,6 +216,9 @@ function usersHarness(users: User[]): UsersRepository {
     updateUser: vi.fn(async () => OWNER),
     deleteUser: vi.fn(async () => undefined),
     resetPassword: vi.fn(async () => undefined),
+    listPending: vi.fn(async () => []),
+    approveUser: vi.fn(async () => OWNER),
+    rejectUser: vi.fn(async () => OWNER),
   };
 }
 

@@ -10,14 +10,22 @@ import type { TariffsService } from "../../application/tariffs/service";
 import type { UsersService } from "../../application/users/service";
 import { formatBytes, formatPercent } from "@/domain/format";
 import type { Group, Role, Tariff, User } from "@/domain/types";
+import { t } from "@/i18n";
+import { formatDateI18n } from "@/i18n/format";
+
+export type UsersTab = "active" | "pending";
 
 export class UsersPageVM {
   @reactive accessor users: User[] = [];
+  @reactive accessor pending: User[] = [];
   @reactive accessor tariffs: Tariff[] = [];
   @reactive accessor groups: Group[] = [];
   @reactive accessor quotas: UserQuotaSnapshot[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
+  @reactive accessor pendingLoading = false;
+  @reactive accessor pendingError: string | null = null;
+  @reactive accessor tab: UsersTab = "active";
 
   @reactive accessor modalOpen = false;
   @reactive accessor editingId: string | null = null;
@@ -35,6 +43,13 @@ export class UsersPageVM {
   @reactive accessor resetTarget: User | null = null;
   @reactive accessor resetPassword = "";
 
+  @reactive accessor approveOpen = false;
+  @reactive accessor approveTarget: User | null = null;
+  @reactive accessor approveTariffId = "";
+  @reactive accessor approveGroupId = "";
+  @reactive accessor approveSaving = false;
+  @reactive accessor approveError: string | null = null;
+
   constructor(
     private readonly usersService: UsersService,
     private readonly tariffsService: TariffsService,
@@ -50,14 +65,24 @@ export class UsersPageVM {
 
   async load(): Promise<void> {
     this.loading = true;
+    this.pendingLoading = true;
     this.error = null;
-    const [usersResult, tariffsResult, groupsResult, quotaResult] = await Promise.allSettled([
+    this.pendingError = null;
+    const [usersResult, pendingResult, tariffsResult, groupsResult, quotaResult] = await Promise.allSettled([
       this.usersService.listUsers(),
+      this.usersService.listPending(),
       this.tariffsService.listTariffs(),
       this.groupsService.listGroups(),
       this.quotaService.users(),
     ]);
     this.quotas = quotaResult.status === "fulfilled" ? quotaResult.value : [];
+    if (pendingResult.status === "fulfilled") {
+      this.pending = pendingResult.value;
+    } else {
+      this.pending = [];
+      this.pendingError = userMessage(pendingResult.reason, t("users.pending.error.load"));
+    }
+    this.pendingLoading = false;
     try {
       if (usersResult.status === "rejected") throw usersResult.reason;
       if (tariffsResult.status === "rejected") throw tariffsResult.reason;
@@ -80,6 +105,51 @@ export class UsersPageVM {
   @computed
   get selfId(): string {
     return this.session.user?.id ?? "";
+  }
+
+  @computed
+  get activeUsers(): User[] {
+    return this.users.filter(
+      (user) => user.status !== "pending_email" && user.status !== "pending_approval",
+    );
+  }
+
+  @computed
+  get pendingCount(): number {
+    return this.pending.length;
+  }
+
+  setTab(value: string): void {
+    this.tab = value === "pending" ? "pending" : "active";
+  }
+
+  emailLabel(user: User): string {
+    return user.email ?? "—";
+  }
+
+  statusLabel(user: User): string {
+    if (user.disabled && user.status === "active") return t("users.status.disabled");
+    return t(`users.status.${user.status}`);
+  }
+
+  statusBadgeClass(user: User): string {
+    if (user.disabled && user.status === "active") return "badge badge--red";
+    switch (user.status) {
+      case "active":
+        return "badge badge--green";
+      case "rejected":
+        return "badge badge--red";
+      case "pending_approval":
+        return "badge badge--blue";
+      case "pending_email":
+        return "badge badge--violet";
+      default:
+        return "badge badge--blue";
+    }
+  }
+
+  requestDateLabel(user: User): string {
+    return formatDateI18n(user.created_at);
   }
 
   tariffName(id: string | null): string {
@@ -267,6 +337,68 @@ export class UsersPageVM {
       await this.load();
     } catch (error) {
       this.toasts.error(userMessage(error, "Не удалось удалить пользователя"));
+    }
+  }
+
+  openApprove(user: User): void {
+    this.approveTarget = user;
+    this.approveTariffId = "";
+    this.approveGroupId = "";
+    this.approveError = null;
+    this.approveOpen = true;
+  }
+
+  closeApprove(): void {
+    if (this.approveSaving) return;
+    this.approveOpen = false;
+    this.approveTarget = null;
+    this.approveError = null;
+  }
+
+  setApproveTariff(value: string): void {
+    this.approveTariffId = value;
+    this.approveError = null;
+  }
+
+  setApproveGroup(value: string): void {
+    this.approveGroupId = value;
+  }
+
+  async submitApprove(): Promise<void> {
+    if (!this.approveTarget || this.approveSaving) return;
+    if (!this.approveTariffId) {
+      this.approveError = t("users.pending.error.tariff");
+      return;
+    }
+    this.approveSaving = true;
+    this.approveError = null;
+    try {
+      await this.usersService.approveUser(this.approveTarget.id, {
+        tariff_id: this.approveTariffId,
+        group_id: this.approveGroupId ? this.approveGroupId : null,
+      });
+      this.toasts.success(t("users.pending.approved"));
+      this.approveOpen = false;
+      this.approveTarget = null;
+      await this.load();
+    } catch (error) {
+      const message = userMessage(error, t("users.pending.error.approve"));
+      this.approveError = message;
+      this.toasts.error(message);
+    } finally {
+      this.approveSaving = false;
+    }
+  }
+
+  async reject(user: User): Promise<void> {
+    const login = user.email ?? user.login;
+    if (!window.confirm(t("users.pending.rejectConfirm", { login }))) return;
+    try {
+      await this.usersService.rejectUser(user.id);
+      this.toasts.success(t("users.pending.rejected"));
+      await this.load();
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("users.pending.error.reject")));
     }
   }
 }

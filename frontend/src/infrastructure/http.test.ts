@@ -21,6 +21,9 @@ const USER: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -78,6 +81,128 @@ describe("HTTP backend", () => {
     expect(store.refresh()).toBe("refresh-1");
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/v1/auth/login",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("registers an account without storing tokens", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      mockResponse(202, { status: "pending_email" }),
+    );
+
+    const result = await backend.repositories.auth.register({
+      email: "user@example.com",
+      login: "user",
+      password: "secret123",
+    });
+
+    expect(result).toEqual({ status: "pending_email" });
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/api/v1/auth/register",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({
+          email: "user@example.com",
+          login: "user",
+          password: "secret123",
+        }),
+      }),
+    );
+    expect(store.access()).toBeNull();
+  });
+
+  it("verifies an email and resends the verification letter", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(200, { status: "pending_approval" }))
+      .mockResolvedValueOnce(mockResponse(202));
+
+    await expect(backend.repositories.auth.verifyEmail("token-1")).resolves.toEqual({
+      status: "pending_approval",
+    });
+    await backend.repositories.auth.resendVerification("user@example.com");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/auth/verify-email",
+      expect.objectContaining({ body: JSON.stringify({ token: "token-1" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/auth/resend-verification",
+      expect.objectContaining({ body: JSON.stringify({ email: "user@example.com" }) }),
+    );
+  });
+
+  it("sets up, enables and disables TOTP with the access token", async () => {
+    store.set("tok-123", "ref-123");
+    const setup = {
+      secret: "SECRET",
+      otpauth_url: "otpauth://totp/test",
+      recovery_codes: ["1111"],
+    };
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(200, setup))
+      .mockResolvedValueOnce(mockResponse(200, { enabled: true }))
+      .mockResolvedValueOnce(mockResponse(200, { enabled: false }));
+
+    await expect(backend.repositories.auth.totpSetup()).resolves.toEqual(setup);
+    await expect(backend.repositories.auth.totpEnable("123456")).resolves.toEqual({ enabled: true });
+    await expect(backend.repositories.auth.totpDisable("secret", "654321")).resolves.toEqual({
+      enabled: false,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/auth/totp/enable",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+        body: JSON.stringify({ code: "123456" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/auth/totp/disable",
+      expect.objectContaining({
+        body: JSON.stringify({ password: "secret", code: "654321" }),
+      }),
+    );
+  });
+
+  it("lists, approves and rejects pending users", async () => {
+    store.set("tok-123", "ref-123");
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(200, [USER]))
+      .mockResolvedValueOnce(mockResponse(200, USER))
+      .mockResolvedValueOnce(mockResponse(200, { ...USER, status: "rejected" }));
+
+    await expect(backend.repositories.users.listPending()).resolves.toEqual([USER]);
+    await expect(
+      backend.repositories.users.approveUser("u1", { tariff_id: "t1", group_id: "g1" }),
+    ).resolves.toEqual(USER);
+    await expect(backend.repositories.users.rejectUser("u1")).resolves.toEqual({
+      ...USER,
+      status: "rejected",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/users/pending",
+      expect.objectContaining({ method: "GET" }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/users/u1/approve",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ tariff_id: "t1", group_id: "g1" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/users/u1/reject",
       expect.objectContaining({ method: "POST" }),
     );
   });

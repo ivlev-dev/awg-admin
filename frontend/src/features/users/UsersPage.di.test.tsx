@@ -8,7 +8,14 @@ import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
-import type { LoginInput } from "@/domain/auth/types";
+import type {
+  LoginInput,
+  RegisterInput,
+  RegisterResult,
+  TotpSetup,
+  TotpToggleResult,
+  VerifyEmailResult,
+} from "@/domain/auth/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { QuotaRepository } from "@/domain/quota/repository";
@@ -23,7 +30,7 @@ import type {
   User,
 } from "@/domain/types";
 import type { UsersRepository } from "@/domain/users/repository";
-import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { CreateUserInput, UpdateUserInput, ApproveUserInput } from "@/domain/users/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPageVM } from "./UsersPage.vm";
 
@@ -33,6 +40,9 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -76,6 +86,18 @@ const QUOTA: UserQuota = {
 class StubUsersRepository implements UsersRepository {
   async listUsers(): Promise<User[]> {
     return [ADMIN];
+  }
+
+  async listPending(): Promise<User[]> {
+    return [];
+  }
+
+  async approveUser(_id: string, _input: ApproveUserInput): Promise<User> {
+    return ADMIN;
+  }
+
+  async rejectUser(_id: string): Promise<User> {
+    return ADMIN;
   }
 
   async createUser(_input: CreateUserInput): Promise<User> {
@@ -164,6 +186,16 @@ class StubAuthRepository implements AuthRepository {
     throw new Error("not used");
   }
 
+  async register(_input: RegisterInput): Promise<RegisterResult> {
+    return { status: "pending_email" };
+  }
+
+  async verifyEmail(_token: string): Promise<VerifyEmailResult> {
+    return { status: "pending_approval" };
+  }
+
+  async resendVerification(_email: string): Promise<void> {}
+
   async refresh(_refreshToken: string): Promise<AuthSession> {
     throw new Error("not used");
   }
@@ -175,6 +207,18 @@ class StubAuthRepository implements AuthRepository {
   }
 
   async changePassword(_current: string | null, _next: string): Promise<void> {}
+
+  async totpSetup(): Promise<TotpSetup> {
+    return { secret: "secret", otpauth_url: "otpauth://totp/test", recovery_codes: ["code"] };
+  }
+
+  async totpEnable(_code: string): Promise<TotpToggleResult> {
+    return { enabled: true };
+  }
+
+  async totpDisable(_password: string, _code: string): Promise<TotpToggleResult> {
+    return { enabled: false };
+  }
 }
 
 class MemoryTokenStore implements TokenStore {

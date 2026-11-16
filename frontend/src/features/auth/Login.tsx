@@ -38,55 +38,105 @@ export function Login(this: { vm: LoginVM }) {
         <div class="auth__card">
           <div class="page-head" style="margin-bottom:24px">
             <div class="page-head__eyebrow">{t("auth.login.eyebrow")}</div>
-            <h1>{t("auth.login.title")}</h1>
-            <p>{t("auth.login.subtitle")}</p>
+            <h1>{this.vm.step === "totp" ? t("auth.login.totp.title") : t("auth.login.title")}</h1>
+            <p>{this.vm.step === "totp" ? t("auth.login.totp.subtitle") : t("auth.login.subtitle")}</p>
           </div>
 
           <form class="stack" onSubmit={(event: Event) => this.vm.submit(event)}>
-            <div class="field">
-              <label for="login">{t("auth.login.username")}</label>
-              <input
-                id="login"
-                class="input"
-                type="text"
-                autocomplete="username"
-                placeholder="admin"
-                value={this.vm.login}
-                onInput={(event: Event) => this.vm.setLogin(event)}
-              />
-            </div>
-            <div class="field">
-              <label for="password">{t("auth.login.password")}</label>
-              <div class="auth__password">
+            <Show when={this.vm.step === "credentials"}>
+              <div class="field">
+                <label for="login">{t("auth.login.identifier")}</label>
                 <input
-                  id="password"
+                  id="login"
                   class="input"
-                  type={this.vm.showPassword ? "text" : "password"}
-                  autocomplete="current-password"
-                  placeholder="••••••••"
-                  value={this.vm.password}
-                  onInput={(event: Event) => this.vm.setPassword(event)}
+                  type="text"
+                  autocomplete="username"
+                  placeholder={t("auth.login.identifierPlaceholder")}
+                  value={this.vm.login}
+                  onInput={(event: Event) => this.vm.setLogin(event)}
                 />
-                <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")}>
-                  <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
-                </button>
               </div>
-            </div>
+              <div class="field">
+                <label for="password">{t("auth.login.password")}</label>
+                <div class="auth__password">
+                  <input
+                    id="password"
+                    class="input"
+                    type={this.vm.showPassword ? "text" : "password"}
+                    autocomplete="current-password"
+                    placeholder="••••••••"
+                    value={this.vm.password}
+                    onInput={(event: Event) => this.vm.setPassword(event)}
+                  />
+                  <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")}>
+                    <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
+                  </button>
+                </div>
+              </div>
+            </Show>
+
+            <Show when={this.vm.step === "totp"}>
+              <div class="field">
+                <label for="totp">{t("auth.login.totp.label")}</label>
+                <input
+                  id="totp"
+                  class="input"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  placeholder={t("auth.login.totp.placeholder")}
+                  value={this.vm.totpCode}
+                  onInput={(event: Event) => this.vm.setTotpCode(event)}
+                />
+                <div class="hint">{t("auth.login.totp.hint")}</div>
+              </div>
+            </Show>
 
             <Show when={this.vm.error}>
               <div class="alert alert--error">{this.vm.error}</div>
             </Show>
 
+            <Show when={this.vm.showResend}>
+              <div class="stack-sm">
+                <button class="btn btn--sm" type="button" disabled={!this.vm.canResend} onClick={() => this.vm.resend()}>
+                  <Icon name={this.vm.resending ? "refresh" : "link"} size={14} class="" />
+                  {this.vm.resending ? t("auth.login.resend.sending") : t("auth.login.resend")}
+                </button>
+                <Show when={this.vm.resendNotice}>
+                  <div class="alert alert--info">{this.vm.resendNotice}</div>
+                </Show>
+                <Show when={this.vm.resendError}>
+                  <div class="alert alert--error">{this.vm.resendError}</div>
+                </Show>
+              </div>
+            </Show>
+
             <button class="btn btn--primary btn--block" type="submit" disabled={!this.vm.canSubmit}>
-              <Show when={this.vm.busy} fallback={<span>{t("auth.login.submit")}</span>}>
+              <Show when={this.vm.busy} fallback={<span>{this.vm.step === "totp" ? t("auth.login.totp.submit") : t("auth.login.submit")}</span>}>
                 <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
                 <span>{t("auth.login.submitting")}</span>
               </Show>
             </button>
+
+            <Show when={this.vm.step === "totp"}>
+              <button class="btn btn--ghost btn--block" type="button" onClick={() => this.vm.backToCredentials()} disabled={this.vm.busy}>
+                {t("auth.login.totp.back")}
+              </button>
+            </Show>
           </form>
 
           <div class="auth__footer">
-            <span class="xs muted">{t("auth.login.footer")}</span>
+            <Show
+              when={this.vm.step === "credentials"}
+              fallback={<span class="xs muted">{t("auth.login.footer")}</span>}
+            >
+              <div class="row-between wrap">
+                <span class="xs muted">{t("auth.login.footer")}</span>
+                <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.goRegister()}>
+                  {t("auth.login.registerLink")}
+                </button>
+              </div>
+            </Show>
           </div>
         </div>
       </section>

@@ -39,7 +39,7 @@ test.describe("Аутентификация", () => {
 
   test("неверный пароль показывает ошибку и не пускает в панель", async ({ page }) => {
     await page.goto("/login");
-    await page.getByLabel("Логин").fill(ADMIN_LOGIN);
+    await page.getByLabel("Email или логин").fill(ADMIN_LOGIN);
     await page.getByLabel("Пароль", { exact: true }).fill("definitely-wrong-password");
     await page.getByRole("button", { name: "Войти" }).click();
 

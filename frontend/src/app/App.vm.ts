@@ -62,6 +62,8 @@ const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
   profile: "route.profile",
   settings: "route.settings",
   login: "route.login",
+  register: "route.register",
+  "verify-email": "route.verifyEmail",
 };
 
 function localize(definitions: NavDefinition[]): NavItem[] {
@@ -123,7 +125,7 @@ export class AppVM {
 
   @computed
   get showShell(): boolean {
-    return this.authenticated && this.routeName !== "login";
+    return this.authenticated && !this.router.match.route.public;
   }
 
   @computed

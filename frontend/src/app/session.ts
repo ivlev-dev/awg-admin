@@ -3,6 +3,7 @@ import { reactive } from "@ivlev-dev/silent-core";
 import type { AuthSessionState } from "../application/auth/session-state";
 import type { AuthRepository } from "../domain/auth/repository";
 import type { User } from "@/domain/types";
+import { ApiError } from "../infrastructure/http/errors";
 import type { TokenStore } from "../infrastructure/storage";
 
 export class Session implements AuthSessionState {
@@ -10,6 +11,8 @@ export class Session implements AuthSessionState {
   @reactive accessor ready = false;
   @reactive accessor busy = false;
   @reactive accessor error: string | null = null;
+  @reactive accessor errorCode: string | null = null;
+  @reactive accessor totpRequired = false;
 
   constructor(
     private readonly auth: AuthRepository,
@@ -20,6 +23,12 @@ export class Session implements AuthSessionState {
   clear(): void {
     this.tokens.clear();
     this.user = null;
+  }
+
+  clearError(): void {
+    this.error = null;
+    this.errorCode = null;
+    this.totpRequired = false;
   }
 
   async init(): Promise<void> {
@@ -38,14 +47,21 @@ export class Session implements AuthSessionState {
     }
   }
 
-  async login(login: string, password: string): Promise<boolean> {
+  async login(login: string, password: string, totpCode?: string): Promise<boolean> {
     this.busy = true;
-    this.error = null;
+    this.clearError();
     try {
-      const session = await this.auth.login({ login, password });
+      const session = await this.auth.login({
+        login,
+        password,
+        ...(totpCode ? { totp_code: totpCode } : {}),
+      });
       this.user = session.user;
+      this.clearError();
       return true;
     } catch (error) {
+      this.errorCode = error instanceof ApiError ? error.code : null;
+      this.totpRequired = this.errorCode === "totp_required";
       this.error = error instanceof Error ? error.message : "Не удалось войти";
       return false;
     } finally {

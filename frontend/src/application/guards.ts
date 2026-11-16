@@ -42,3 +42,19 @@ export function validatePassword(value: string): string {
   }
   return value;
 }
+
+export function validateEmail(value: string): string {
+  const trimmed = value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    throw new ValidationError("Введите корректный email");
+  }
+  return trimmed;
+}
+
+export function validateTotpCode(value: string): string {
+  const trimmed = value.trim();
+  if (!/^\d{6}$/.test(trimmed) && !/^[A-Za-z0-9-]{6,}$/.test(trimmed)) {
+    throw new ValidationError("Введите 6-значный код или резервный код");
+  }
+  return trimmed;
+}

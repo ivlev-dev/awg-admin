@@ -5,7 +5,14 @@ import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
-import type { LoginInput } from "@/domain/auth/types";
+import type {
+  LoginInput,
+  RegisterInput,
+  RegisterResult,
+  TotpSetup,
+  TotpToggleResult,
+  VerifyEmailResult,
+} from "@/domain/auth/types";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { QuotaRepository } from "@/domain/quota/repository";
@@ -19,7 +26,7 @@ import type {
   Tariff,
   User,
 } from "@/domain/types";
-import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { UsersRepository } from "@/domain/users/repository";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPageVM } from "./UsersPage.vm";
@@ -30,6 +37,9 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -41,9 +51,23 @@ const ALICE: User = {
   role: "user",
   tariff_id: "t1",
   group_id: "g1",
+  email: "alice@example.com",
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
+};
+
+const PENDING: User = {
+  ...ALICE,
+  id: "u3",
+  login: "newbie",
+  email: "newbie@example.com",
+  status: "pending_approval",
+  tariff_id: null,
+  group_id: null,
+  created_at: "2020-02-01T00:00:00Z",
 };
 
 const TARIFF: Tariff = {
@@ -105,6 +129,34 @@ class MemoryUsersRepository implements UsersRepository {
     return [...this.users];
   }
 
+  async listPending(): Promise<User[]> {
+    this.failIfNeeded();
+    return this.users.filter(
+      (user) => user.status === "pending_email" || user.status === "pending_approval",
+    );
+  }
+
+  async approveUser(id: string, input: ApproveUserInput): Promise<User> {
+    this.failIfNeeded();
+    const user = this.find(id);
+    const next: User = {
+      ...user,
+      status: "active",
+      tariff_id: input.tariff_id,
+      group_id: input.group_id ?? null,
+    };
+    this.replace(next);
+    return next;
+  }
+
+  async rejectUser(id: string): Promise<User> {
+    this.failIfNeeded();
+    const user = this.find(id);
+    const next: User = { ...user, status: "rejected" };
+    this.replace(next);
+    return next;
+  }
+
   async createUser(input: CreateUserInput): Promise<User> {
     this.failIfNeeded();
     const user: User = {
@@ -113,6 +165,9 @@ class MemoryUsersRepository implements UsersRepository {
       role: input.role,
       tariff_id: input.tariff_id,
       group_id: input.group_id,
+      email: null,
+      status: "active",
+      totp_enabled: false,
       disabled: false,
       created_at: "2020-01-02T00:00:00Z",
       updated_at: "2020-01-02T00:00:00Z",
@@ -290,6 +345,16 @@ class FakeAuthRepository implements AuthRepository {
     };
   }
 
+  async register(_input: RegisterInput): Promise<RegisterResult> {
+    return { status: "pending_email" };
+  }
+
+  async verifyEmail(_token: string): Promise<VerifyEmailResult> {
+    return { status: "pending_approval" };
+  }
+
+  async resendVerification(_email: string): Promise<void> {}
+
   async refresh(_refreshToken: string): Promise<AuthSession> {
     return this.login({ login: this.current.login, password: "secret" });
   }
@@ -301,6 +366,18 @@ class FakeAuthRepository implements AuthRepository {
   }
 
   async changePassword(_current: string | null, _next: string): Promise<void> {}
+
+  async totpSetup(): Promise<TotpSetup> {
+    return { secret: "secret", otpauth_url: "otpauth://totp/test", recovery_codes: ["code"] };
+  }
+
+  async totpEnable(_code: string): Promise<TotpToggleResult> {
+    return { enabled: true };
+  }
+
+  async totpDisable(_password: string, _code: string): Promise<TotpToggleResult> {
+    return { enabled: false };
+  }
 }
 
 class MemoryTokenStore implements TokenStore {
@@ -609,5 +686,119 @@ describe("UsersPageVM", () => {
     await vm.toggleDisabled(ALICE);
 
     expect(usersRepo.users.find((user) => user.id === ALICE.id)?.disabled).toBe(true);
+  });
+
+  it("separates pending registrations from the main user list", async () => {
+    const { vm } = setup([ADMIN, ALICE, PENDING]);
+
+    await vm.load();
+
+    expect(vm.activeUsers.map((user) => user.login)).toEqual(["admin", "alice"]);
+    expect(vm.pending.map((user) => user.login)).toEqual(["newbie"]);
+    expect(vm.pendingCount).toBe(1);
+    expect(vm.emailLabel(PENDING)).toBe("newbie@example.com");
+    expect(vm.requestDateLabel(PENDING)).not.toBe("—");
+  });
+
+  it("shows status labels and badges for accounts", () => {
+    const { vm } = setup();
+
+    expect(vm.statusLabel(ADMIN)).toBe("Активен");
+    expect(vm.statusBadgeClass(ADMIN)).toBe("badge badge--green");
+    expect(vm.statusLabel({ ...ADMIN, disabled: true })).toBe("Отключён");
+    expect(vm.statusBadgeClass({ ...ADMIN, disabled: true })).toBe("badge badge--red");
+    expect(vm.statusLabel(PENDING)).toBe("Ожидает подтверждения");
+    expect(vm.statusBadgeClass(PENDING)).toBe("badge badge--blue");
+    expect(vm.statusLabel({ ...PENDING, status: "rejected" })).toBe("Отклонён");
+  });
+
+  it("switches tabs and refreshes lists", async () => {
+    const { vm } = setup();
+
+    vm.setTab("pending");
+    expect(vm.tab).toBe("pending");
+    vm.setTab("active");
+    expect(vm.tab).toBe("active");
+  });
+
+  it("requires a tariff before approving a pending account", async () => {
+    const { vm, toasts } = setup([ADMIN, PENDING]);
+    await vm.load();
+
+    vm.openApprove(PENDING);
+    expect(vm.approveOpen).toBe(true);
+    expect(vm.approveTarget?.id).toBe(PENDING.id);
+
+    await vm.submitApprove();
+
+    expect(vm.approveError).toBe("Выберите тариф");
+    expect(toastMessages(toasts)).not.toContain("Заявка подтверждена");
+  });
+
+  it("approves a pending account with a tariff and group", async () => {
+    const { vm, usersRepo, toasts } = setup([ADMIN, PENDING]);
+    await vm.load();
+
+    vm.openApprove(PENDING);
+    vm.setApproveTariff(TARIFF.id);
+    vm.setApproveGroup(GROUP.id);
+    await vm.submitApprove();
+
+    const approved = usersRepo.users.find((user) => user.id === PENDING.id);
+    expect(approved?.status).toBe("active");
+    expect(approved?.tariff_id).toBe(TARIFF.id);
+    expect(approved?.group_id).toBe(GROUP.id);
+    expect(vm.approveOpen).toBe(false);
+    expect(vm.approveTarget).toBeNull();
+    expect(vm.pending).toHaveLength(0);
+    expect(toastMessages(toasts)).toContain("Заявка подтверждена");
+  });
+
+  it("reports an approval failure", async () => {
+    const { vm, usersRepo, toasts } = setup([ADMIN, PENDING]);
+    await vm.load();
+    usersRepo.failure = new Error("Сервер недоступен");
+
+    vm.openApprove(PENDING);
+    vm.setApproveTariff(TARIFF.id);
+    await vm.submitApprove();
+
+    expect(vm.approveError).toBe("Сервер недоступен");
+    expect(toastMessages(toasts)).toContain("Сервер недоступен");
+    expect(vm.approveOpen).toBe(true);
+  });
+
+  it("rejects a pending account after confirmation", async () => {
+    const confirm = stubConfirm(true);
+    const { vm, usersRepo, toasts } = setup([ADMIN, PENDING]);
+    await vm.load();
+
+    await vm.reject(PENDING);
+
+    expect(confirm).toHaveBeenCalledWith("Отклонить заявку newbie@example.com?");
+    expect(usersRepo.users.find((user) => user.id === PENDING.id)?.status).toBe("rejected");
+    expect(vm.pending).toHaveLength(0);
+    expect(toastMessages(toasts)).toContain("Заявка отклонена");
+  });
+
+  it("keeps the request when rejection is declined", async () => {
+    stubConfirm(false);
+    const { vm, usersRepo } = setup([ADMIN, PENDING]);
+    await vm.load();
+
+    await vm.reject(PENDING);
+
+    expect(usersRepo.users.find((user) => user.id === PENDING.id)?.status).toBe("pending_approval");
+  });
+
+  it("reports pending list load errors without failing the page", async () => {
+    const { vm, usersRepo, toasts } = setup();
+    usersRepo.failure = new Error("Заявки недоступны");
+
+    await vm.load();
+
+    expect(vm.error).toBe("Заявки недоступны");
+    expect(vm.pendingError).toBe("Заявки недоступны");
+    expect(toastMessages(toasts)).toEqual([]);
   });
 });

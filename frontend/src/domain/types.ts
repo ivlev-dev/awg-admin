@@ -1,10 +1,14 @@
 export type Role = "admin" | "user";
 export type PoolMode = "auto" | "rf_only" | "external_only";
 export type ShareFormat = "conf" | "vpn";
+export type UserStatus = "pending_email" | "pending_approval" | "active" | "rejected";
 
 export interface User {
   id: string;
   login: string;
+  email: string | null;
+  status: UserStatus;
+  totp_enabled: boolean;
   role: Role;
   tariff_id: string | null;
   group_id: string | null;

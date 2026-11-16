@@ -24,6 +24,8 @@ export const ROUTES: RouteDef[] = [
   { name: "profile", path: "/profile", title: "Профиль" },
   { name: "settings", path: "/settings", title: "Настройки", adminOnly: true },
   { name: "login", path: "/login", title: "Вход", public: true },
+  { name: "register", path: "/register", title: "Регистрация", public: true },
+  { name: "verify-email", path: "/verify-email", title: "Подтверждение почты", public: true },
 ];
 
 export interface Match {
@@ -101,6 +103,7 @@ export class Router {
       window.history.pushState(null, "", target);
     }
     this.path = target;
+    this.search = window.location.search;
     window.scrollTo({ top: 0, behavior: "instant" });
   }
 

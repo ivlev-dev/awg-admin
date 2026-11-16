@@ -30,6 +30,14 @@ const Login = lazy(
   () => import("@/features/auth/Login").then((module) => ({ default: module.Login })),
   pageOptions("login"),
 );
+const Register = lazy(
+  () => import("@/features/auth/Register").then((module) => ({ default: module.Register })),
+  pageOptions("register"),
+);
+const VerifyEmail = lazy(
+  () => import("@/features/auth/VerifyEmail").then((module) => ({ default: module.VerifyEmail })),
+  pageOptions("verify-email"),
+);
 const Overview = lazy(
   () => import("@/features/overview/Overview").then((module) => ({ default: module.Overview })),
   pageOptions("overview"),
@@ -276,6 +284,18 @@ export function App(this: { vm: AppVM }) {
       <Show when={!this.vm.booting && this.vm.routeName === "login"}>
         <PageSlot>
           <Login />
+        </PageSlot>
+      </Show>
+
+      <Show when={!this.vm.booting && this.vm.routeName === "register"}>
+        <PageSlot>
+          <Register />
+        </PageSlot>
+      </Show>
+
+      <Show when={!this.vm.booting && this.vm.routeName === "verify-email"}>
+        <PageSlot>
+          <VerifyEmail />
         </PageSlot>
       </Show>
 

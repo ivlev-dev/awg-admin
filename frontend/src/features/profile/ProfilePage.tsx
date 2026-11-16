@@ -2,6 +2,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { ProfilePageVM } from "./ProfilePage.vm";
 import { Icon } from "@/components/Icon";
+import { Modal } from "@/components/Modal";
 import { t } from "@/i18n";
 
 export function ProfilePage(this: { vm: ProfilePageVM }) {
@@ -191,6 +192,29 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               </div>
             </div>
           </section>
+
+          <section class="card">
+            <div class="card__head">
+              <div>
+                <div class="card__title">{t("profile.totp.title")}</div>
+                <div class="card__sub">{t("profile.totp.subtitle")}</div>
+              </div>
+              <span class={this.vm.totpStatusBadge}>{this.vm.totpStatusLabel}</span>
+            </div>
+            <div class="card__body stack-sm">
+              <div class="small muted">
+                {this.vm.totpEnabled ? t("profile.totp.enabledNote") : t("profile.totp.disabledNote")}
+              </div>
+              <button
+                class={`btn btn--block ${this.vm.totpEnabled ? "btn--danger" : "btn--primary"}`}
+                type="button"
+                onClick={() => this.vm.toggleTotp()}
+              >
+                <Icon name="shield" size={16} class="" />
+                {this.vm.totpEnabled ? t("profile.totp.disable") : t("profile.totp.enable")}
+              </button>
+            </div>
+          </section>
         </div>
 
         <section class="card">
@@ -283,6 +307,133 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
           </form>
         </section>
       </div>
+
+      <Modal
+        open={this.vm.totpOpen}
+        title={t("profile.totp.modal.enableTitle")}
+        onClose={() => this.vm.closeTotpSetup()}
+        footer={
+          <div class="row" style="gap:8px">
+            <button class="btn" type="button" onClick={() => this.vm.closeTotpSetup()} disabled={this.vm.totpSaving}>
+              {t("profile.totp.modal.cancel")}
+            </button>
+            <button class="btn btn--primary" type="button" onClick={() => this.vm.submitTotpEnable()} disabled={!this.vm.canEnableTotp}>
+              <Show when={this.vm.totpSaving} fallback={<span>{t("profile.totp.modal.confirm")}</span>}>
+                <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                <span>{t("common.saving")}</span>
+              </Show>
+            </button>
+          </div>
+        }
+      >
+        <div class="stack">
+          <Show
+            when={!this.vm.totpSetupLoading}
+            fallback={
+              <div class="stack" style="align-items:center;gap:10px;padding:16px 0">
+                <div class="spinner"></div>
+                <div class="small muted">{t("profile.totp.loading")}</div>
+              </div>
+            }
+          >
+            <Show when={this.vm.totpSetupError}>
+              <div class="alert alert--error">{this.vm.totpSetupError}</div>
+            </Show>
+            <Show when={this.vm.totpSetup}>
+              <div class="field">
+                <label>{t("profile.totp.modal.secret")}</label>
+                <div class="copy-row">
+                  <input class="input" type="text" readonly value={this.vm.totpSetup?.secret ?? ""} />
+                </div>
+                <div class="hint">{t("profile.totp.modal.secretHint")}</div>
+              </div>
+              <div class="field">
+                <label>{t("profile.totp.modal.uri")}</label>
+                <div class="copy-row">
+                  <input class="input" type="text" readonly value={this.vm.totpSetup?.otpauth_url ?? ""} />
+                </div>
+                <div class="hint">
+                  <a href={this.vm.totpSetup?.otpauth_url ?? "#"}>{t("profile.totp.modal.uriHint")}</a>
+                </div>
+              </div>
+              <div class="field">
+                <div class="row-between wrap">
+                  <label>{t("profile.totp.modal.recovery")}</label>
+                  <button class="btn btn--sm" type="button" onClick={() => this.vm.copyRecoveryCodes()}>
+                    <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copy")}
+                  </button>
+                </div>
+                <div class="stack-sm" style="font-family:ui-monospace,Menlo,Consolas,monospace">
+                  <For each={this.vm.totpSetup?.recovery_codes ?? []}>
+                    {(code) => <div class="small strong">{code}</div>}
+                  </For>
+                </div>
+                <div class="hint">{t("profile.totp.modal.recoveryHint")}</div>
+              </div>
+              <div class="field">
+                <label for="totp-enable-code">{t("profile.totp.modal.code")}</label>
+                <input
+                  id="totp-enable-code"
+                  class="input"
+                  type="text"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  placeholder={t("profile.totp.modal.codePlaceholder")}
+                  value={this.vm.totpCode}
+                  onInput={(event: Event) => this.vm.setTotpCode(event)}
+                />
+              </div>
+            </Show>
+          </Show>
+        </div>
+      </Modal>
+
+      <Modal
+        open={this.vm.totpDisableOpen}
+        title={t("profile.totp.modal.disableTitle")}
+        onClose={() => this.vm.closeTotpDisable()}
+        footer={
+          <div class="row" style="gap:8px">
+            <button class="btn" type="button" onClick={() => this.vm.closeTotpDisable()} disabled={this.vm.totpDisableSaving}>
+              {t("profile.totp.modal.cancel")}
+            </button>
+            <button class="btn btn--danger" type="button" onClick={() => this.vm.submitTotpDisable()} disabled={!this.vm.canDisableTotp}>
+              <Show when={this.vm.totpDisableSaving} fallback={<span>{t("profile.totp.modal.disableConfirm")}</span>}>
+                <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                <span>{t("common.saving")}</span>
+              </Show>
+            </button>
+          </div>
+        }
+      >
+        <div class="stack">
+          <div class="small muted">{t("profile.totp.modal.disableHint")}</div>
+          <div class="field">
+            <label for="totp-disable-password">{t("profile.totp.modal.password")}</label>
+            <input
+              id="totp-disable-password"
+              class="input"
+              type="password"
+              autocomplete="current-password"
+              value={this.vm.totpDisablePassword}
+              onInput={(event: Event) => this.vm.setTotpDisablePassword(event)}
+            />
+          </div>
+          <div class="field">
+            <label for="totp-disable-code">{t("profile.totp.modal.code")}</label>
+            <input
+              id="totp-disable-code"
+              class="input"
+              type="text"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              placeholder={t("profile.totp.modal.codePlaceholder")}
+              value={this.vm.totpDisableCode}
+              onInput={(event: Event) => this.vm.setTotpDisableCode(event)}
+            />
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

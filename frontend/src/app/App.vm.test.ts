@@ -20,6 +20,9 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -100,6 +103,12 @@ function makeAuth(current: User | null): AuthRepository {
       return current;
     }),
     changePassword: vi.fn(async () => undefined),
+    register: vi.fn(async () => ({ status: "pending_email" as const })),
+    verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
+    resendVerification: vi.fn(async () => undefined),
+    totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
+    totpEnable: vi.fn(async () => ({ enabled: true })),
+    totpDisable: vi.fn(async () => ({ enabled: false })),
   };
 }
 
@@ -158,6 +167,32 @@ describe("AppVM access guard", () => {
     harness.vm.guard();
 
     expect(harness.router.path).toBe("/login");
+  });
+
+  it("keeps a guest on the public registration route", () => {
+    const harness = makeHarness({ user: null, path: "/register" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/register");
+  });
+
+  it("keeps a guest on the public email verification route", () => {
+    const harness = makeHarness({ user: null, path: "/verify-email" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/verify-email");
+  });
+
+  it("does not render the shell for public auth routes", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/register" });
+
+    expect(harness.vm.showShell).toBe(false);
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/register");
   });
 
   it("moves an authenticated user away from the login page", () => {

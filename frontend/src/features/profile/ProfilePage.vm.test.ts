@@ -20,6 +20,9 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  email: null,
+  status: "active",
+  totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
@@ -85,6 +88,9 @@ interface Harness {
   quotaMe: Mock<() => Promise<QuotaState>>;
   changePassword: Mock<(current: string | null, next: string) => Promise<void>>;
   logout: Mock<(refreshToken: string) => Promise<void>>;
+  totpSetup: Mock<() => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>>;
+  totpEnable: Mock<(code: string) => Promise<void>>;
+  totpDisable: Mock<(password: string, code: string) => Promise<void>>;
 }
 
 function quotaHarness(state: QuotaState = QUOTA): {
@@ -106,6 +112,9 @@ function makeHarness(
   handlers: {
     changePassword?: (current: string | null, next: string) => Promise<void>;
     logout?: (refreshToken: string) => Promise<void>;
+    totpSetup?: () => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>;
+    totpEnable?: (code: string) => Promise<void>;
+    totpDisable?: (password: string, code: string) => Promise<void>;
   } = {},
   quotaState: QuotaState = QUOTA,
 ): Harness {
@@ -113,12 +122,33 @@ function makeHarness(
     handlers.changePassword ?? (async () => undefined),
   );
   const logout = vi.fn(handlers.logout ?? (async () => undefined));
+  const totpSetup = vi.fn(
+    handlers.totpSetup ??
+      (async () => ({ secret: "SECRET", otpauth_url: "otpauth://totp/test", recovery_codes: ["1111", "2222"] })),
+  );
+  const totpEnable = vi.fn(handlers.totpEnable ?? (async () => undefined));
+  const totpDisable = vi.fn(handlers.totpDisable ?? (async () => undefined));
+  let current: User = user;
   const auth: AuthRepository = {
     login: vi.fn(async () => SESSION),
     refresh: vi.fn(async () => SESSION),
     logout,
-    me: vi.fn(async () => user),
+    me: vi.fn(async () => current),
     changePassword,
+    register: vi.fn(async () => ({ status: "pending_email" as const })),
+    verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
+    resendVerification: vi.fn(async () => undefined),
+    totpSetup,
+    totpEnable: vi.fn(async (code: string) => {
+      await totpEnable(code);
+      current = { ...current, totp_enabled: true };
+      return { enabled: true };
+    }),
+    totpDisable: vi.fn(async (password: string, code: string) => {
+      await totpDisable(password, code);
+      current = { ...current, totp_enabled: false };
+      return { enabled: false };
+    }),
   };
   const tokens = new MemoryTokenStore();
   tokens.set("access-1", "refresh-1");
@@ -149,11 +179,20 @@ function makeHarness(
     quotaMe: quota.me,
     changePassword,
     logout,
+    totpSetup,
+    totpEnable,
+    totpDisable,
   };
 }
 
 function submitEvent(): Event {
   return new Event("submit", { cancelable: true });
+}
+
+function valueEvent(value: string): Event {
+  const event = new Event("input");
+  Object.defineProperty(event, "target", { value: { value } });
+  return event;
 }
 
 class MemoryStorage {
@@ -517,6 +556,97 @@ describe("ProfilePageVM", () => {
     expect(harness.session.user).toBeNull();
     expect(harness.tokens.refresh()).toBeNull();
     expect(harness.router.path).toBe("/login");
+  });
+
+  it("включает двухфакторную аутентификацию через модалку", async () => {
+    const harness = makeHarness();
+    expect(harness.vm.totpEnabled).toBe(false);
+    expect(harness.vm.totpStatusLabel).toBe("Отключена");
+
+    await harness.vm.openTotpSetup();
+
+    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
+    expect(harness.vm.totpOpen).toBe(true);
+    expect(harness.vm.totpSetup?.secret).toBe("SECRET");
+    expect(harness.vm.totpSetup?.recovery_codes).toEqual(["1111", "2222"]);
+
+    harness.vm.setTotpCode(valueEvent("123456"));
+    expect(harness.vm.canEnableTotp).toBe(true);
+
+    await harness.vm.submitTotpEnable();
+
+    expect(harness.totpEnable).toHaveBeenCalledWith("123456");
+    expect(harness.vm.totpOpen).toBe(false);
+    expect(harness.vm.totpEnabled).toBe(true);
+    expect(harness.vm.totpStatusLabel).toBe("Включена");
+    expect(harness.toasts.items.some((item) => item.message === "Двухфакторная аутентификация включена")).toBe(true);
+  });
+
+  it("не включает 2FA с некорректным кодом", async () => {
+    const harness = makeHarness();
+    await harness.vm.openTotpSetup();
+    harness.vm.setTotpCode(valueEvent("12"));
+
+    expect(harness.vm.canEnableTotp).toBe(false);
+    await harness.vm.submitTotpEnable();
+
+    expect(harness.totpEnable).not.toHaveBeenCalled();
+    expect(harness.toasts.items.some((item) => item.message === "Введите 6-значный код")).toBe(true);
+  });
+
+  it("показывает ошибку загрузки параметров 2FA", async () => {
+    const harness = makeHarness(ADMIN, {
+      totpSetup: async () => {
+        throw new Error("Сервис недоступен");
+      },
+    });
+
+    await harness.vm.openTotpSetup();
+
+    expect(harness.vm.totpSetupError).toBe("Сервис недоступен");
+    expect(harness.vm.totpSetup).toBeNull();
+    expect(harness.vm.totpSetupLoading).toBe(false);
+  });
+
+  it("отключает двухфакторную аутентификацию по паролю и коду", async () => {
+    const harness = makeHarness({ ...ADMIN, totp_enabled: true });
+
+    await harness.vm.toggleTotp();
+
+    expect(harness.vm.totpDisableOpen).toBe(true);
+    harness.vm.setTotpDisablePassword(valueEvent("secret"));
+    harness.vm.setTotpDisableCode(valueEvent("654321"));
+
+    expect(harness.vm.canDisableTotp).toBe(true);
+    await harness.vm.submitTotpDisable();
+
+    expect(harness.totpDisable).toHaveBeenCalledWith("secret", "654321");
+    expect(harness.vm.totpDisableOpen).toBe(false);
+    expect(harness.vm.totpEnabled).toBe(false);
+    expect(harness.toasts.items.some((item) => item.message === "Двухфакторная аутентификация отключена")).toBe(true);
+  });
+
+  it("не отключает 2FA без пароля", async () => {
+    const harness = makeHarness({ ...ADMIN, totp_enabled: true });
+    harness.vm.openTotpDisable();
+    harness.vm.setTotpDisableCode(valueEvent("654321"));
+
+    expect(harness.vm.canDisableTotp).toBe(false);
+    await harness.vm.submitTotpDisable();
+
+    expect(harness.totpDisable).not.toHaveBeenCalled();
+  });
+
+  it("копирует резервные коды", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const harness = makeHarness();
+    await harness.vm.openTotpSetup();
+
+    await harness.vm.copyRecoveryCodes();
+
+    expect(writeText).toHaveBeenCalledWith("1111\n2222");
+    expect(harness.toasts.items.some((item) => item.message === "Резервные коды скопированы")).toBe(true);
   });
 
   it("resolves constructor dependencies through the container", async () => {
