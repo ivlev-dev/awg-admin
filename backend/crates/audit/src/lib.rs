@@ -4,7 +4,7 @@ pub mod infrastructure;
 
 pub use application::AuditService;
 pub use domain::{
-    AuditEntry, AuditPage, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT, NewAuditEntry,
-    validate_audit_cursor,
+    AuditEntry, AuditFilter, AuditPage, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT,
+    NewAuditEntry, validate_audit_cursor,
 };
 pub use infrastructure::RedbAuditRepository;

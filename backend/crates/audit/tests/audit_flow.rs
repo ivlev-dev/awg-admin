@@ -4,8 +4,8 @@ use chrono::{Duration, TimeZone, Utc};
 use uuid::Uuid;
 
 use awg_audit::{
-    AuditEntry, AuditPage, AuditRepository, AuditService, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT,
-    NewAuditEntry, RedbAuditRepository,
+    AuditEntry, AuditFilter, AuditPage, AuditRepository, AuditService, DEFAULT_AUDIT_LIMIT,
+    MAX_AUDIT_LIMIT, NewAuditEntry, RedbAuditRepository,
 };
 use awg_shared::CoreResult;
 use awg_storage::Store;
@@ -82,7 +82,12 @@ impl AuditRepository for RecordingRepository {
         Ok(())
     }
 
-    fn list_page(&self, limit: usize, _before: Option<&str>) -> CoreResult<AuditPage> {
+    fn list_page_filtered(
+        &self,
+        limit: usize,
+        _before: Option<&str>,
+        _filter: &AuditFilter,
+    ) -> CoreResult<AuditPage> {
         *self.requested_limit.lock().unwrap() = Some(limit);
         let entries = self.entries.lock().unwrap();
         Ok(AuditPage {
@@ -175,4 +180,312 @@ fn keys_sort_chronologically_within_a_second() {
     assert!(
         awg_audit::infrastructure::audit_key(&early) < awg_audit::infrastructure::audit_key(&late)
     );
+}
+
+fn custom(
+    at: chrono::DateTime<Utc>,
+    action: &str,
+    entity: &str,
+    actor: &str,
+    status: u16,
+) -> AuditEntry {
+    AuditEntry {
+        actor_login: actor.into(),
+        entity: entity.into(),
+        status,
+        ..entry(at, action)
+    }
+}
+
+fn seeded() -> (RedbAuditRepository, Vec<AuditEntry>) {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let repo = RedbAuditRepository::new(store);
+    let entries = vec![
+        custom(base(), "POST", "devices", "Admin", 201),
+        custom(
+            base() + Duration::seconds(10),
+            "PATCH",
+            "devices",
+            "operator",
+            200,
+        ),
+        custom(
+            base() + Duration::seconds(20),
+            "POST",
+            "users",
+            "superadmin",
+            201,
+        ),
+        custom(
+            base() + Duration::seconds(30),
+            "DELETE",
+            "tariffs",
+            "admin-2",
+            204,
+        ),
+    ];
+    for entry in &entries {
+        repo.record(entry).unwrap();
+    }
+    (repo, entries)
+}
+
+fn ids(page: &AuditPage) -> Vec<Uuid> {
+    page.items.iter().map(|item| item.id).collect()
+}
+
+#[test]
+fn repository_filters_by_action_entity_status() {
+    let (repo, entries) = seeded();
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                action: Some("POST".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[2].id, entries[0].id]);
+    assert!(page.next_cursor.is_none());
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                entity: Some("tariffs".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[3].id]);
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                status: Some(200),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[1].id]);
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                status: Some(201),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[2].id, entries[0].id]);
+}
+
+#[test]
+fn repository_filters_actor_case_insensitively() {
+    let (repo, entries) = seeded();
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                actor: Some("ADMIN".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        ids(&page),
+        vec![entries[3].id, entries[2].id, entries[0].id]
+    );
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                actor: Some("RATOR".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[1].id]);
+}
+
+#[test]
+fn repository_filters_by_inclusive_time_range() {
+    let (repo, entries) = seeded();
+
+    let from = (base() + Duration::seconds(10)).timestamp();
+    let to = (base() + Duration::seconds(20)).timestamp();
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                from: Some(from),
+                to: Some(to),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[2].id, entries[1].id]);
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                from: Some(from),
+                to: Some(from),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(ids(&page), vec![entries[1].id]);
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                from: Some((base() + Duration::days(1)).timestamp()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(page.items.is_empty());
+    assert!(page.next_cursor.is_none());
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                to: Some((base() - Duration::seconds(1)).timestamp()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(page.items.is_empty());
+}
+
+#[test]
+fn repository_combines_filters_with_cursor() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let repo = RedbAuditRepository::new(store);
+
+    let mut posts = Vec::new();
+    for index in 0..5 {
+        let entry = custom(
+            base() + Duration::seconds(index),
+            "POST",
+            "devices",
+            "admin",
+            201,
+        );
+        repo.record(&entry).unwrap();
+        posts.push(entry);
+    }
+    let other = custom(
+        base() + Duration::seconds(2),
+        "PATCH",
+        "devices",
+        "admin",
+        200,
+    );
+    repo.record(&other).unwrap();
+
+    let filter = AuditFilter {
+        action: Some("POST".into()),
+        entity: Some("devices".into()),
+        ..Default::default()
+    };
+
+    let first = repo.list_page_filtered(2, None, &filter).unwrap();
+    assert_eq!(ids(&first), vec![posts[4].id, posts[3].id]);
+    assert_eq!(
+        first.next_cursor.as_deref(),
+        Some(awg_audit::infrastructure::audit_key(&posts[3]).as_str())
+    );
+
+    let second = repo
+        .list_page_filtered(2, first.next_cursor.as_deref(), &filter)
+        .unwrap();
+    assert_eq!(ids(&second), vec![posts[2].id, posts[1].id]);
+    assert!(second.next_cursor.is_some());
+
+    let third = repo
+        .list_page_filtered(2, second.next_cursor.as_deref(), &filter)
+        .unwrap();
+    assert_eq!(ids(&third), vec![posts[0].id]);
+    assert!(third.next_cursor.is_none());
+}
+
+#[test]
+fn repository_filter_without_matches_returns_empty_page() {
+    let (repo, _) = seeded();
+
+    let page = repo
+        .list_page_filtered(
+            10,
+            None,
+            &AuditFilter {
+                action: Some("PUT".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert!(page.items.is_empty());
+    assert!(page.next_cursor.is_none());
+}
+
+#[test]
+fn repository_rejects_invalid_cursor_with_filter() {
+    let (repo, _) = seeded();
+    assert!(
+        repo.list_page_filtered(10, Some("nope"), &AuditFilter::default())
+            .is_err()
+    );
+}
+
+#[test]
+fn service_rejects_inverted_time_range() {
+    let repo = Arc::new(RecordingRepository::new());
+    let service = AuditService::new(repo.clone());
+
+    let filter = AuditFilter {
+        from: Some(20),
+        to: Some(10),
+        ..Default::default()
+    };
+    assert!(service.list_page_filtered(10, None, &filter).is_err());
+    assert!(repo.requested_limit.lock().unwrap().is_none());
+}
+
+#[test]
+fn service_clamps_limit_with_filter() {
+    let repo = Arc::new(RecordingRepository::new());
+    let service = AuditService::new(repo.clone());
+
+    service
+        .list_page_filtered(0, None, &AuditFilter::default())
+        .unwrap();
+    assert_eq!(
+        *repo.requested_limit.lock().unwrap(),
+        Some(DEFAULT_AUDIT_LIMIT)
+    );
+
+    service
+        .list_page_filtered(MAX_AUDIT_LIMIT * 10, None, &AuditFilter::default())
+        .unwrap();
+    assert_eq!(*repo.requested_limit.lock().unwrap(), Some(MAX_AUDIT_LIMIT));
 }

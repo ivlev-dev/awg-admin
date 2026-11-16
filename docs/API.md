@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `internal`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `internal`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -65,7 +65,7 @@
 | GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
 | GET | `/settings` | admin | — | `ObfuscationView` + share TTL |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | то же |
-| GET | `/audit` | admin | query `limit` (1..500, по умолчанию 100), `before` (cursor) | `{items, next_cursor}` |
+| GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
 | POST | `/import` | admin | `ImportRequest` | `{ok:true}` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
@@ -162,11 +162,44 @@ refresh, повтор refresh, заблокированный или удалё�
 
 ## Аудит
 
-`GET /api/v1/audit?limit=50&before=<cursor>` доступен только роли `admin`.
-Записи возвращаются в обратном хронологическом порядке (сначала новые).
-Ответ: `{"items":[...],"next_cursor":"..."}` (`next_cursor` равен `null`, если
-дальше страниц нет). `limit` приводится к диапазону 1..500, `before` —
-cursor предыдущей страницы (валидируется). Retention: записи старше
+`GET /api/v1/audit` доступен только роли `admin`. Записи возвращаются в обратном
+хронологическом порядке (сначала новые). Ответ: `{"items":[...],"next_cursor":"..."}`.
+
+Query-параметры (все необязательные, комбинируются через AND):
+
+| Параметр | Тип | Семантика |
+|---|---|---|
+| `limit` | целое | размер страницы, приводится к `1..500`; `0` или отсутствие — `100` |
+| `before` | строка | курсор `next_cursor` предыдущей страницы в формате `<микросекунды>:<uuid>`; отдаются записи строго старше него |
+| `action` | строка | точное совпадение, например `POST`, `PATCH`, `PUT`, `DELETE` |
+| `entity` | строка | точное совпадение, например `devices`, `auth/login` |
+| `actor` | строка | регистронезависимое вхождение в `actor_login` |
+| `status` | целое | точный HTTP-код, например `200` |
+| `from` | целое | Unix-секунды, `at >= from` (включительно) |
+| `to` | целое | Unix-секунды, `at <= to` (включительно) |
+
+`from > to` — `400 invalid_filter`. Пустые значения строковых фильтров
+игнорируются. `status`, `from`, `to` должны быть целыми, иначе `400 bad_request`.
+
+`next_cursor` — курсор последней отданной записи; `null`, если в выборке
+(с учётом фильтров) больше нет записей. Курсор и фильтры можно менять между
+страницами, пагинация идёт по ключам в сторону старых записей.
+
+Примеры:
+
+```
+GET /api/v1/audit?limit=50
+GET /api/v1/audit?action=DELETE&entity=devices
+GET /api/v1/audit?actor=adm&status=200&from=1767225600&to=1767312000
+GET /api/v1/audit?entity=users&limit=20&before=00010767000645000000:4f1f4f7a-1f0a-4c1a-9c4d-8b2a0d5b1c11
+```
+
+```json
+{"error":{"code":"invalid_filter","message":"audit filter: from must not exceed to"}}
+```
+
+`limit` приводится к диапазону 1..500, `before` валидируется (неверный формат —
+`400 bad_request`). Retention: записи старше
 `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) удаляются
 фоновой задачей раз в сутки.
 

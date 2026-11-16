@@ -5,7 +5,7 @@ use awg_storage::{StorageError, Store, Table};
 
 use chrono::{DateTime, Utc};
 
-use crate::domain::{AuditEntry, AuditPage, AuditRepository, validate_audit_cursor};
+use crate::domain::{AuditEntry, AuditFilter, AuditPage, AuditRepository, validate_audit_cursor};
 
 const KEY_OFFSET_MICROS: i64 = 9_000_000_000_000_000;
 
@@ -38,7 +38,12 @@ impl AuditRepository for RedbAuditRepository {
             .map_err(map_err)
     }
 
-    fn list_page(&self, limit: usize, before: Option<&str>) -> CoreResult<AuditPage> {
+    fn list_page_filtered(
+        &self,
+        limit: usize,
+        before: Option<&str>,
+        filter: &AuditFilter,
+    ) -> CoreResult<AuditPage> {
         if limit == 0 {
             return Ok(AuditPage {
                 items: Vec::new(),
@@ -48,34 +53,38 @@ impl AuditRepository for RedbAuditRepository {
         if let Some(cursor) = before {
             validate_audit_cursor(cursor)?;
         }
+        filter.validate()?;
 
         let mut keys = self.store.keys(Table::Audit).map_err(map_err)?;
-        keys.sort();
-        let filtered: Vec<String> = match before {
-            Some(cursor) => keys
-                .into_iter()
-                .filter(|key| key.as_str() < cursor)
-                .collect(),
-            None => keys,
+        keys.sort_unstable();
+        let up_to = match before {
+            Some(cursor) => keys.partition_point(|key| key.as_str() < cursor),
+            None => keys.len(),
         };
 
-        let total = filtered.len();
-        let start = total.saturating_sub(limit);
-        let mut page_keys: Vec<String> = filtered[start..].to_vec();
-        page_keys.reverse();
-
-        let mut items = Vec::with_capacity(page_keys.len());
-        for key in &page_keys {
-            if let Some(entry) = self
+        let mut page_keys: Vec<String> = Vec::with_capacity(limit);
+        let mut items: Vec<AuditEntry> = Vec::with_capacity(limit);
+        let mut has_more = false;
+        for key in keys[..up_to].iter().rev() {
+            let Some(entry) = self
                 .store
                 .get::<AuditEntry>(Table::Audit, key)
                 .map_err(map_err)?
-            {
-                items.push(entry);
+            else {
+                continue;
+            };
+            if !filter.matches(&entry) {
+                continue;
             }
+            if page_keys.len() == limit {
+                has_more = true;
+                break;
+            }
+            page_keys.push(key.clone());
+            items.push(entry);
         }
 
-        let next_cursor = if start > 0 && !page_keys.is_empty() {
+        let next_cursor = if has_more {
             page_keys.last().cloned()
         } else {
             None

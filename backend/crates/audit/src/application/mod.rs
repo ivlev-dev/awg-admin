@@ -5,8 +5,8 @@ use awg_shared::CoreResult;
 use chrono::{DateTime, Utc};
 
 use crate::domain::{
-    AuditEntry, AuditPage, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT, NewAuditEntry,
-    validate_audit_cursor,
+    AuditEntry, AuditFilter, AuditPage, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT,
+    NewAuditEntry, validate_audit_cursor,
 };
 
 pub struct AuditService {
@@ -30,10 +30,21 @@ impl AuditService {
     }
 
     pub fn list(&self, limit: usize) -> CoreResult<Vec<AuditEntry>> {
-        Ok(self.list_page(limit, None)?.items)
+        Ok(self
+            .list_page_filtered(limit, None, &AuditFilter::default())?
+            .items)
     }
 
     pub fn list_page(&self, limit: usize, before: Option<&str>) -> CoreResult<AuditPage> {
+        self.list_page_filtered(limit, before, &AuditFilter::default())
+    }
+
+    pub fn list_page_filtered(
+        &self,
+        limit: usize,
+        before: Option<&str>,
+        filter: &AuditFilter,
+    ) -> CoreResult<AuditPage> {
         let limit = if limit == 0 {
             DEFAULT_AUDIT_LIMIT
         } else {
@@ -42,7 +53,8 @@ impl AuditService {
         if let Some(cursor) = before {
             validate_audit_cursor(cursor)?;
         }
-        self.repo.list_page(limit, before)
+        filter.validate()?;
+        self.repo.list_page_filtered(limit, before, filter)
     }
 
     pub fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
