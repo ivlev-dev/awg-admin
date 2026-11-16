@@ -21,15 +21,15 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 406 тестов.
+  статические SVG-иконки, 407 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
 ## Проверено
 
-- `cargo test --workspace` — 69 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 91 тест, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 406 тестов, зелёные.
+- `cd frontend && pnpm test` — 407 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -118,9 +118,9 @@
 
 - CI добавлен: `.github/workflows/ci.yml` (fmt, clippy -D warnings, cargo test,
   pnpm typecheck/test/build, сборка трёх Docker-образов).
-- Нет миграций/версионирования схемы redb. При изменении структур нужен
-  version + migration.
-- Нет backup/restore redb и ротации файла.
+- Версионирование схемы redb сделано (`meta.schema_version`, каркас миграций).
+- Backup/restore: `Store::backup_to`, `restore_from`, `replace_file_from`
+  (офлайн). Ротации файла по расписанию нет.
 - Нет метрик Prometheus/OpenTelemetry и structured access-логов.
 - Нет автоматических e2e-тестов UI: Playwright использовался вручную; набор
   можно закрепить в CI.
@@ -153,7 +153,8 @@
    AWG_DRY_RUN=false cargo run -p awg-worker
    ```
 5. Блокеры kernel/tc/nft/ TLS описаны в `docs/PRODUCTION-VERIFICATION.md`;
-   Docker, аудит, rate limit, JWT и CI уже закрыты.
+   Docker, аудит, rate limit, JWT, CI, миграции/backup redb, lazy-роуты и
+   архитектурные границы уже закрыты.
 
 ## Особенности окружения
 

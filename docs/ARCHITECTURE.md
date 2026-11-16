@@ -17,7 +17,7 @@ admin -> redb (файл /data/awg-admin.redb)
 Backend (`backend/crates/*`) разбит на доменные модули. Зависимости направлены внутрь: presentation зависит от application/domain, infrastructure реализует порты.
 
 - `shared` — shared kernel: `obf`, `conf`, `vpn`, `cidr`, `crypto`.
-- `storage` — репозиторий `Store`.
+- `storage` — репозиторий `Store`: единственный redb-файл, версия схемы, миграции, backup/restore.
 - `identity` — пользователи, роли, Argon2, JWT.
 - `tariffs` — тарифы и лимиты.
 - `network` — группы, ноды, интерфейсы, пулы CIDR, obfuscation-настройки.
@@ -52,13 +52,29 @@ domain <- application <- infrastructure
 - `infrastructure` — реализации репозиториев и транспорта: `infrastructure/http/transport.ts` (`HttpTransport` — чистый fetch: base URL, JSON/текст/204, timeout, `ApiError`, без авторизации), `infrastructure/http/client.ts` (`HttpClient` — цепочка интерсепторов), `infrastructure/http/<context>.repository.ts`, `storage.ts` (`TokenStore`/`LocalTokenStore`), WebSocket-статистика.
 - `app` — composition root и MVVM-обвязка: router, session, theme, toast, `di.ts`, `container.ts`. `features/*` содержат View (`*.tsx`) и ViewModel (`*.vm.ts`).
 
-Правила зависимостей:
+Правила зависимостей (проверяются командой `pnpm arch:check`, конфигурация — `frontend/.dependency-cruiser.cjs`):
 
-- domain не импортирует application/infrastructure/app.
-- application импортирует только domain.
-- infrastructure импортирует domain и application (порт `AuthSessionState`, совместимый фасад `AdminApi`).
-- app собирает всё вместе и единственный знает о конкретных классах.
+- `domain` не импортирует `application`, `infrastructure`, `features`, `app`, `components`.
+- `application` импортирует только `domain` (и соседние модули `application`); `infrastructure`, `features`, `app`, `components` запрещены.
+- `infrastructure` импортирует `domain` и `application` (порт `AuthSessionState`); `features`, `app`, `components` запрещены.
+- `features/*` импортируют `domain`, `application`, `app` и общие `components`; value-импорты из `infrastructure` и импорты других `features/*` запрещены. `import type` из `infrastructure` допустим — зависимость стирается при компиляции и не тянет рантайм; тестовые файлы (`*.test.ts(x)`) могут собирать адаптеры (`LiveStats`, `TokenStore`) напрямую.
+- `app` — composition root и единственный, кто знает о конкретных классах; может импортировать любой слой.
+- Циклические зависимости запрещены на всех слоях (правило `no-circular`); проверка orphan-модулей намеренно не включена.
+- Алиас `@/` → `src` резолвится конфигом `.dependency-cruiser.webpack.cjs` (`resolve.alias`). Парсер — `@swc/core`: `dependency-cruiser` не поддерживает TypeScript 7, на котором работает `tsc --noEmit`.
 - Контексты: `auth`, `users`, `tariffs`, `groups` (включая CIDR-пулы), `nodes`, `interfaces`, `devices` (устройства, профили, share-ссылки, статистика устройства), `stats`, `settings`, `import`.
+
+
+### Проверка границ
+
+```bash
+cd frontend && pnpm arch:check
+```
+
+`dependency-cruiser` строит граф зависимостей `frontend/src` и падает при нарушении
+правил выше. Проверка не входит в `pnpm test` — запускается отдельно, вместе с
+`pnpm typecheck`, `pnpm test` и `pnpm build`. Правила в конфиге: `domain-isolated`,
+`application-uses-domain-only`, `infrastructure-implements-ports`,
+`features-no-infrastructure`, `features-no-cross-feature-imports`, `no-circular`.
 
 ### Как добавить контекст
 
@@ -66,7 +82,7 @@ domain <- application <- infrastructure
 2. `infrastructure/http/<context>.repository.ts` — реализация поверх `HttpClient` без бизнес-логики.
 3. `application/<context>/service.ts` — use case: проверки, нормализация, вызовы репозитория.
 4. Добавить репозиторий и сервис в `app/di.ts` (`ApiRepositories`, `AppServices`, `createAppServices`, `resolveAppServices`).
-5. Пробросить методы в `infrastructure/http.ts` (`HttpApi`), если они входят в `AdminApi`.
+5. Добавить интерфейс сервиса (`interface XService`) и реализацию `DefaultXService`; VM зависят только от интерфейса.
 6. Добавить тесты: сервис с фейковым репозиторием, DI-резолв в `app/di.test.ts`.
 
 ### HTTP-слой: транспорт, клиент, интерсепторы
@@ -108,13 +124,88 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
 - VM резолвится контейнером при монтировании (`mount`/`createComponent` с `{ container }`), зависимости конструктора VM разрешаются тем же автопоиском.
 - `HttpClient` резолвится контейнером вместе с `InterceptorRegistry` и обоими интерсепторами; цикл `HttpClient → InterceptorRegistry → AuthResponseInterceptor → AuthRepository → HttpTransport` не замыкается на `HttpClient`.
 
-### Совместимость и что осталось мигрировать
+### Итоговое состояние фронтенда
 
-- `application/api.ts` (`AdminApi`) и `infrastructure/http.ts` (`HttpApi`) сохранены: `HttpApi` — фасад над новыми репозиториями, сигнатуры не менялись.
-- `app/container.ts` собирается из новых классов и экспортирует как старые синглтоны (`api`, `router`, `session`, `theme`, `toasts`, `liveStats`, `tokens`), так и новые сервисы (`authService` … `importService`).
-- `Session` переведён на конструкторную инъекцию `AuthRepository` + `TokenStore`; публичные методы не изменились.
-- 14 VM в `features/*` пока импортируют синглтоны из `@/app/container`. Следующая волна: заменить их на конструкторную инъекцию сервисов и резолв через `app/di.ts`; после этого `HttpApi`/`AdminApi` можно удалить.
-- `AppVM` и `App.tsx` пока используют модульные синглтоны; DI для VM проверен отдельным тестом (`app/di-view.test.tsx`).
+- Переходный слой удалён: `application/api.ts` (`AdminApi`) и `infrastructure/http.ts` (`HttpApi`) больше не существуют.
+- Все сервисы — интерфейс + `Default*`-реализация; VM получают их через конструктор (`import type`).
+- `app/container.ts` содержит только `bindAppServices(container)`; глобальных экспортов нет.
+- `AppVM`, страницы и `Session` используют конструкторную инъекцию; `mount` получает корневой контейнер из `main.tsx`.
+- Страницы подключены через `lazy` + `Suspense`, каждая в своём чанке.
+- DI-индекс не разрешает alias `@/` для type-импортов интерфейсов — в конструкторах используйте относительные пути.
+- `lazy` + `Suspense` внутри `Show` требует обёртки с единственным корнем (`PageSlot`), иначе при смене маршрута остаётся осиротевший DOM.
+
+## Хранилище (redb)
+
+`Store` — единственное подключение к redb-файлу (`AWG_DB_PATH`, по умолчанию
+`/data/awg-admin.redb`). Все доменные таблицы (`users`, `devices`, `audit` и
+т.д.) — обычные `TableDefinition<&str, &[u8]>` с JSON-значениями.
+
+### Версия схемы
+
+Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
+доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `1`). `Store::schema_version()`
+возвращает версию открытой базы.
+
+При открытии (`schema::initialize`):
+
+- версии нет — создать таблицы и записать `CURRENT_SCHEMA_VERSION` (так
+  помечаются и legacy-базы до версионирования: их схема считается текущей);
+- версия равна текущей — ничего не делать;
+- версия меньше текущей — применить зарегистрированные шаги;
+- версия больше текущей — `StorageError::SchemaTooNew` с сообщением
+  `store schema version N is newer than supported version M`; admin не стартует.
+
+### Миграции
+
+Реестр — `MIGRATIONS: &[MigrationStep]`, шаг `MigrationStep { from, to, apply }`
+с `apply: fn(&WriteTransaction) -> Result<()>`. Функция `migrate(from, to)`
+строит цепочку шагов от `from` до `to` (требует `step.from == cursor` и
+`step.to <= to`), при дыре возвращает `MissingMigration`, при `to < from` —
+`InvalidMigration`. Все шаги и запись новой версии выполняются в одной
+write-транзакции: ошибка любого шага откатывает и данные, и версию
+(`failed_migration_rolls_back_and_keeps_version`). Для тестов доступна
+`migrate_with(..., steps)` с произвольным реестром; сейчас `MIGRATIONS` пуст,
+потому что версия `1` — стартовая.
+
+Добавление миграции: поднять `CURRENT_SCHEMA_VERSION`, добавить
+`MigrationStep { from: old, to: new, apply }` в `MIGRATIONS`. Шаг работает
+только через `WriteTransaction` и обязан быть идемпотентным относительно
+консистентного состояния `from`.
+
+### Backup
+
+`Database::compact()` в redb не даёт hot-backup, а копирование файла на живой
+базе небезопасно. Поэтому `Store::backup_to(path)` делает логический снапшот:
+одна read-транзакция на источнике (консистентный снимок на момент открытия
+транзакции) + запись всех таблиц и `schema_version` в новый redb-файл.
+Процесс admin останавливать не нужно, конкурентные записи в снапшот не
+попадают.
+
+Порядок: временный файл `<path>.tmp-<pid>-<n>` → запись снапшота → повторное
+открытие с `set_check_integrity_on_open(true)` и проверкой версии → `fsync` и
+атомарный `rename` на `path`. При ошибке временный файл удаляется, прежний
+backup не трогается. Нельзя указать путь самого открытого файла БД —
+`BackupPathConflict`.
+
+### Restore
+
+- `Store::restore_from(path)` — восстановление в работающую базу: backup
+  открывается с проверкой целостности, версия должна строго совпадать с
+  `CURRENT_SCHEMA_VERSION` (иначе `IncompatibleBackup`/`UnversionedBackup`,
+  база не меняется). Все таблицы удаляются и заново наполняются из backup в
+  одной write-транзакции вместе с версией — восстановление атомарно; записи,
+  сделанные после backup, исчезают.
+- `Store::replace_file_from(backup, target)` — офлайн-замена файла: копия
+  backup во временный файл рядом с `target`, проверка целостности и версии,
+  `fsync`, `rename`. Требует остановленного admin: файл БД открыт эксклюзивно,
+  подмена файла у работающего процесса не поддерживается.
+
+Для проверки целостности backup открывается на запись (redb выполняет проверку
+только при read-write open), поэтому файл backup должен быть доступен на
+запись. Backup переносим между инсталляциями только при совпадении версии
+схемы; при расхождении сначала обновите admin до версии, создавшей backup, или
+наоборот выполните миграции на восстановленной копии.
 
 ## Worker
 

@@ -91,7 +91,8 @@ Traefik проксирует `/api` к admin по HTTP/1.1; HTTP/3 термин�
 ```bash
 cargo test --workspace          # 28 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 59 тестов
+cd frontend && pnpm test        # 407 тестов
+cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build
 ```
