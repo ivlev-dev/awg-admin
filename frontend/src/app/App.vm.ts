@@ -5,6 +5,7 @@ import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
 import { initials } from "@/domain/format";
+import { t, type TranslationKey } from "@/i18n";
 import type { IconName } from "@/components/Icon";
 
 export interface NavItem {
@@ -13,31 +14,63 @@ export interface NavItem {
   icon: IconName;
 }
 
-const MANAGEMENT: NavItem[] = [
-  { path: "/", title: "Обзор", icon: "overview" },
-  { path: "/nodes", title: "Ноды", icon: "nodes" },
-  { path: "/interfaces", title: "Интерфейсы", icon: "interfaces" },
-  { path: "/groups", title: "Группы", icon: "groups" },
-  { path: "/clients", title: "Клиенты", icon: "clients" },
-  { path: "/import", title: "Импорт", icon: "import" },
+interface NavDefinition {
+  path: string;
+  titleKey: TranslationKey;
+  icon: IconName;
+}
+
+const MANAGEMENT: NavDefinition[] = [
+  { path: "/", titleKey: "nav.overview", icon: "overview" },
+  { path: "/nodes", titleKey: "nav.nodes", icon: "nodes" },
+  { path: "/interfaces", titleKey: "nav.interfaces", icon: "interfaces" },
+  { path: "/groups", titleKey: "nav.groups", icon: "groups" },
+  { path: "/clients", titleKey: "nav.clients", icon: "clients" },
+  { path: "/import", titleKey: "nav.import", icon: "import" },
 ];
 
-const ACCOUNT: NavItem[] = [
-  { path: "/tariffs", title: "Тарифы", icon: "tariffs" },
-  { path: "/users", title: "Пользователи", icon: "users" },
-  { path: "/audit", title: "Аудит", icon: "shield" },
-  { path: "/stats", title: "Статистика", icon: "stats" },
-  { path: "/settings", title: "Настройки", icon: "settings" },
-  { path: "/profile", title: "Профиль", icon: "profile" },
+const ACCOUNT: NavDefinition[] = [
+  { path: "/tariffs", titleKey: "nav.tariffs", icon: "tariffs" },
+  { path: "/users", titleKey: "nav.users", icon: "users" },
+  { path: "/audit", titleKey: "nav.audit", icon: "shield" },
+  { path: "/stats", titleKey: "nav.stats", icon: "stats" },
+  { path: "/settings", titleKey: "nav.settings", icon: "settings" },
+  { path: "/profile", titleKey: "nav.profile", icon: "profile" },
 ];
 
-export const MOBILE_NAV: NavItem[] = [
-  { path: "/", title: "Обзор", icon: "overview" },
-  { path: "/clients", title: "Клиенты", icon: "clients" },
-  { path: "/interfaces", title: "Интерфейсы", icon: "interfaces" },
-  { path: "/stats", title: "Статистика", icon: "stats" },
-  { path: "/profile", title: "Профиль", icon: "profile" },
+const MOBILE_NAV: NavDefinition[] = [
+  { path: "/", titleKey: "nav.overview", icon: "overview" },
+  { path: "/clients", titleKey: "nav.clients", icon: "clients" },
+  { path: "/interfaces", titleKey: "nav.interfaces", icon: "interfaces" },
+  { path: "/stats", titleKey: "nav.stats", icon: "stats" },
+  { path: "/profile", titleKey: "nav.profile", icon: "profile" },
 ];
+
+const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
+  overview: "route.overview",
+  nodes: "route.nodes",
+  interfaces: "route.interfaces",
+  groups: "route.groups",
+  group: "route.group",
+  clients: "route.clients",
+  client: "route.client",
+  tariffs: "route.tariffs",
+  users: "route.users",
+  audit: "route.audit",
+  import: "route.import",
+  stats: "route.stats",
+  profile: "route.profile",
+  settings: "route.settings",
+  login: "route.login",
+};
+
+function localize(definitions: NavDefinition[]): NavItem[] {
+  return definitions.map((item) => ({
+    path: item.path,
+    title: t(item.titleKey),
+    icon: item.icon,
+  }));
+}
 
 export class AppVM {
   @reactive accessor booting = true;
@@ -84,7 +117,8 @@ export class AppVM {
 
   @computed
   get title(): string {
-    return this.router.title;
+    const key = ROUTE_TITLES[this.routeName];
+    return key ? t(key) : this.router.title;
   }
 
   @computed
@@ -94,17 +128,17 @@ export class AppVM {
 
   @computed
   get nav(): NavItem[] {
-    return this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path));
+    return localize(this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path)));
   }
 
   @computed
   get accountNav(): NavItem[] {
-    return this.isAdmin ? ACCOUNT : ACCOUNT.filter((item) => item.path === "/profile" || item.path === "/stats");
+    return localize(this.isAdmin ? ACCOUNT : ACCOUNT.filter((item) => item.path === "/profile" || item.path === "/stats"));
   }
 
   @computed
   get mobileNav(): NavItem[] {
-    return MOBILE_NAV.filter((item) => this.isAdmin || !["/nodes"].includes(item.path));
+    return localize(MOBILE_NAV.filter((item) => this.isAdmin || !["/nodes"].includes(item.path)));
   }
 
   @computed
@@ -127,12 +161,12 @@ export class AppVM {
   }
 
   get name(): string {
-    return this.user?.login ?? "Гость";
+    return this.user?.login ?? t("common.guest");
   }
 
   @computed
   get roleLabel(): string {
-    return this.isAdmin ? "Администратор" : "Пользователь";
+    return this.isAdmin ? t("role.admin") : t("role.user");
   }
 
   isActive(path: string): boolean {

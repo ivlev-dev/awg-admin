@@ -11,6 +11,7 @@ import type { QuotaState } from "@/domain/quota/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import type { Mock } from "vitest";
+import { setLocale } from "@/i18n";
 import { ProfilePageVM } from "./ProfilePage.vm";
 
 const ADMIN: User = {
@@ -178,6 +179,7 @@ describe("ProfilePageVM", () => {
   });
 
   afterEach(() => {
+    setLocale("ru");
     vi.unstubAllGlobals();
   });
 
@@ -297,6 +299,53 @@ describe("ProfilePageVM", () => {
     expect(harness.vm.quotaError).toBe("Квота недоступна");
     expect(harness.vm.quotaLoading).toBe(false);
     expect(harness.vm.quotaView.hasQuota).toBe(false);
+  });
+
+  it("переключает язык интерфейса и сохраняет выбор", () => {
+    const harness = makeHarness();
+
+    expect(harness.vm.language).toBe("ru");
+    expect(harness.vm.roleLabel).toBe("Администратор");
+    expect(harness.vm.permissions[0]?.label).toBe("Просмотр");
+    expect(harness.vm.themeOptions.map((option) => option.label)).toEqual([
+      "Системная",
+      "Светлая",
+      "Тёмная",
+    ]);
+
+    harness.vm.setLanguage("en");
+
+    expect(harness.vm.language).toBe("en");
+    expect(harness.vm.roleLabel).toBe("Administrator");
+    expect(harness.vm.permissions[0]?.label).toBe("View");
+    expect(harness.vm.themeOptions.map((option) => option.label)).toEqual([
+      "System",
+      "Light",
+      "Dark",
+    ]);
+    expect(harness.vm.effectiveThemeLabel).toBe("Light");
+    expect(localStorage.getItem("awg.locale")).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
+
+    harness.vm.setLanguage("de");
+
+    expect(harness.vm.language).toBe("en");
+  });
+
+  it("показывает подписи квоты на выбранном языке", async () => {
+    const harness = makeHarness();
+
+    await harness.vm.loadQuota();
+
+    expect(harness.vm.quotaUsedLabel).toBe("2.0 ГБ");
+    expect(harness.vm.quotaLimitLabel).toBe("10.0 ГБ");
+    expect(harness.vm.quotaRemainingLabel).toBe("8.0 ГБ");
+    expect(harness.vm.quotaStatusLabel).toBe("В норме");
+
+    setLocale("en");
+
+    expect(harness.vm.quotaUsedLabel).toBe("2.0 GB");
+    expect(harness.vm.quotaStatusLabel).toBe("Within limit");
   });
 
   it("switches the theme through the injected store", () => {

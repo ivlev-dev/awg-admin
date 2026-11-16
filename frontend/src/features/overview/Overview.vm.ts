@@ -6,9 +6,10 @@ import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { StatsService } from "../../application/stats/service";
-import { formatBytes, formatDateRu } from "@/domain/format";
+import { formatDateI18n, formatBytesI18n } from "@/i18n/format";
 import type { Overview } from "@/domain/types";
 import type { LiveStats } from "@/infrastructure/stats";
+import { t } from "@/i18n";
 
 export class OverviewVM {
   @reactive accessor data: Overview | null = null;
@@ -65,37 +66,37 @@ export class OverviewVM {
   @computed
   get todayRx(): string {
     const totals = this.liveStats.connected ? this.liveStats.today : this.data?.today;
-    return formatBytes(totals?.rx ?? 0);
+    return formatBytesI18n(totals?.rx ?? 0);
   }
 
   @computed
   get todayTx(): string {
     const totals = this.liveStats.connected ? this.liveStats.today : this.data?.today;
-    return formatBytes(totals?.tx ?? 0);
+    return formatBytesI18n(totals?.tx ?? 0);
   }
 
   @computed
   get monthRx(): string {
     const totals = this.liveStats.connected ? this.liveStats.month : this.data?.month;
-    return formatBytes(totals?.rx ?? 0);
+    return formatBytesI18n(totals?.rx ?? 0);
   }
 
   @computed
   get monthTx(): string {
     const totals = this.liveStats.connected ? this.liveStats.month : this.data?.month;
-    return formatBytes(totals?.tx ?? 0);
+    return formatBytesI18n(totals?.tx ?? 0);
   }
 
   @computed
   get todayTotal(): string {
     const totals = this.liveStats.connected ? this.liveStats.today : this.data?.today;
-    return formatBytes((totals?.rx ?? 0) + (totals?.tx ?? 0));
+    return formatBytesI18n((totals?.rx ?? 0) + (totals?.tx ?? 0));
   }
 
   @computed
   get monthTotal(): string {
     const totals = this.liveStats.connected ? this.liveStats.month : this.data?.month;
-    return formatBytes((totals?.rx ?? 0) + (totals?.tx ?? 0));
+    return formatBytesI18n((totals?.rx ?? 0) + (totals?.tx ?? 0));
   }
 
   @computed
@@ -118,13 +119,38 @@ export class OverviewVM {
 
   @computed
   get quotaResetLabel(): string {
-    return formatDateRu(this.quota?.resetAt);
+    return formatDateI18n(this.quota?.resetAt);
   }
 
   @computed
   get quotaPeriodLabel(): string {
     if (!this.quota) return "—";
-    return `${formatDateRu(this.quota.periodStart)} — ${formatDateRu(this.quota.periodEnd)}`;
+    return `${formatDateI18n(this.quota.periodStart)} — ${formatDateI18n(this.quota.periodEnd)}`;
+  }
+
+  @computed
+  get quotaUsedLabel(): string {
+    return formatBytesI18n(this.quota?.usedBytes ?? 0);
+  }
+
+  @computed
+  get quotaLimitLabel(): string {
+    const limit = this.quota?.quotaBytes;
+    return limit === null || limit === undefined ? t("common.unlimited") : formatBytesI18n(limit);
+  }
+
+  @computed
+  get quotaRemainingLabel(): string {
+    const remaining = this.quota?.remainingBytes;
+    return remaining === null || remaining === undefined
+      ? t("common.unlimited")
+      : formatBytesI18n(remaining);
+  }
+
+  @computed
+  get quotaStatusLabel(): string {
+    if (this.quotaView.exceeded) return t("quota.status.exceeded");
+    return this.quotaView.hasQuota ? t("quota.status.ok") : t("common.unlimited");
   }
 
   @computed
@@ -160,14 +186,14 @@ export class OverviewVM {
         this.quota = quota.value;
       } else {
         this.quota = null;
-        this.quotaError = userMessage(quota.reason, "Не удалось загрузить квоту трафика");
+        this.quotaError = userMessage(quota.reason, t("quota.error.load"));
       }
       if (overview.status === "rejected") throw overview.reason;
       if (series.status === "rejected") throw series.reason;
       this.data = overview.value;
       this.series = series.value.map((point) => ({ at: point.at, rx: point.rx, tx: point.tx }));
     } catch (error) {
-      this.error = userMessage(error, "Не удалось загрузить обзор");
+      this.error = userMessage(error, t("overview.error.load"));
     } finally {
       this.loading = false;
     }

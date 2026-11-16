@@ -4,6 +4,7 @@ import { ValidationError } from "@/application/errors";
 import { DefaultSettingsService } from "@/application/settings/service";
 import type { SettingsRepository } from "@/domain/settings/repository";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
+import { setLocale } from "@/i18n";
 import { SettingsPageVM } from "./SettingsPage.vm";
 
 const SETTINGS: Settings = {
@@ -92,6 +93,36 @@ function checkedEvent(checked: boolean): Event {
 function submitEvent(): Event {
   return new Event("submit", { cancelable: true });
 }
+
+class MemoryStorage {
+  private readonly store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+beforeEach(() => {
+  vi.stubGlobal("localStorage", new MemoryStorage());
+  setLocale("ru");
+});
+
+afterEach(() => {
+  setLocale("ru");
+  vi.unstubAllGlobals();
+});
 
 describe("SettingsPageVM", () => {
   it("loads and maps the server settings", async () => {
@@ -312,6 +343,38 @@ describe("SettingsPageVM", () => {
     expect(harness.vm.profile).toBe("tls");
     expect(harness.vm.intensity).toBe("high");
     expect(harness.vm.browser).toBe("firefox");
+  });
+
+  it("переключает язык интерфейса и переводит подписи опций", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+
+    expect(harness.vm.language).toBe("ru");
+    expect(harness.vm.profileOptions.map((option) => option.label)).toEqual([
+      "HTTP/3",
+      "TLS",
+      "QUIC",
+      "Случайный",
+    ]);
+
+    harness.vm.setLanguage("en");
+
+    expect(harness.vm.language).toBe("en");
+    expect(harness.vm.profileOptions.map((option) => option.label)).toEqual([
+      "HTTP/3",
+      "TLS",
+      "QUIC",
+      "Random",
+    ]);
+    expect(harness.vm.intensityOptions[0]?.label).toBe("Low");
+    expect(harness.vm.browserOptions[1]?.label).toBe("Firefox");
+    expect(harness.vm.profileHint).toContain("TLS");
+    expect(harness.vm.languageOptions).toHaveLength(2);
+    expect(localStorage.getItem("awg.locale")).toBe("en");
+
+    harness.vm.setLanguage("de");
+
+    expect(harness.vm.language).toBe("en");
   });
 
   it("exposes the option hints", async () => {

@@ -2,14 +2,15 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { ProfilePageVM } from "./ProfilePage.vm";
 import { Icon } from "@/components/Icon";
+import { t } from "@/i18n";
 
 export function ProfilePage(this: { vm: ProfilePageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Аккаунт</div>
-        <h1>Профиль</h1>
-        <p>Учётная запись, права доступа, пароль и оформление панели.</p>
+        <div class="page-head__eyebrow">{t("profile.eyebrow")}</div>
+        <h1>{t("profile.title")}</h1>
+        <p>{t("profile.subtitle")}</p>
       </div>
 
       <div class="profile-layout">
@@ -31,7 +32,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                   <div class="xs muted">
                     ID: <span class="mono">{this.vm.userId}</span>
                   </div>
-                  <div class="xs muted">В системе с {this.vm.createdAtLabel}</div>
+                  <div class="xs muted">{t("profile.memberSince", { date: this.vm.createdAtLabel })}</div>
                 </div>
               </div>
 
@@ -39,7 +40,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
 
               <div class="stack-sm">
                 <div class="xs muted" style="text-transform:uppercase;letter-spacing:0.08em;font-weight:700">
-                  Права доступа
+                  {t("profile.permissions")}
                 </div>
                 <For each={this.vm.permissions}>
                   {(permission) => (
@@ -54,20 +55,20 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                         <div class="xs muted">{permission.description}</div>
                       </div>
                       <span class={`badge ${permission.granted ? "badge--green" : "badge--red"}`}>
-                        {permission.granted ? "есть" : "нет"}
+                        {permission.granted ? t("profile.permissions.granted") : t("profile.permissions.denied")}
                       </span>
                     </div>
                   )}
                 </For>
                 <div class="xs muted" style="margin-top:var(--sp-2)">
-                  Права определяются ролью. Если нужен дополнительный доступ, обратитесь к администратору панели.
+                  {t("profile.permissions.note")}
                 </div>
               </div>
 
               <hr class="divider" />
 
               <button class="btn btn--danger btn--block" type="button" onClick={() => this.vm.logout()}>
-                <Icon name="logout" size={16} class="" /> Выйти из аккаунта
+                <Icon name="logout" size={16} class="" /> {t("profile.logout")}
               </button>
             </div>
           </section>
@@ -75,8 +76,8 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
           <section class="card">
             <div class="card__head">
               <div>
-                <div class="card__title">Квота трафика</div>
-                <div class="card__sub">Период: {this.vm.quotaPeriodLabel}</div>
+                <div class="card__title">{t("quota.title")}</div>
+                <div class="card__sub">{t("quota.period", { period: this.vm.quotaPeriodLabel })}</div>
               </div>
               <span
                 class={`badge ${
@@ -87,7 +88,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                       : "badge--blue"
                 }`}
               >
-                {this.vm.quotaView.statusLabel}
+                {this.vm.quotaStatusLabel}
               </span>
             </div>
             <div class="card__body">
@@ -99,15 +100,15 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                   when={this.vm.quota}
                   fallback={
                     <div class="small muted">
-                      {this.vm.quotaError ?? "Без ограничения"}
+                      {this.vm.quotaError ?? t("common.unlimited")}
                     </div>
                   }
                 >
                   <div class="quota">
                     <div class="row-between wrap">
                       <div class="quota__value">
-                        {this.vm.quotaView.usedLabel}
-                        <span class="muted"> из {this.vm.quotaView.limitLabel}</span>
+                        {this.vm.quotaUsedLabel}
+                        <span class="muted"> {t("quota.of", { limit: this.vm.quotaLimitLabel })}</span>
                       </div>
                       <div class="mono strong">{this.vm.quotaView.percentLabel}</div>
                     </div>
@@ -121,14 +122,14 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                     </Show>
                     <div class="row-between wrap xs muted">
                       <span>
-                        Осталось: <span class="strong">{this.vm.quotaView.remainingLabel}</span>
+                        {t("quota.remaining", { value: this.vm.quotaRemainingLabel })}
                       </span>
-                      <span>Сброс: {this.vm.quotaResetLabel}</span>
+                      <span>{t("quota.reset", { date: this.vm.quotaResetLabel })}</span>
                     </div>
                   </div>
                   <Show when={this.vm.quotaView.exceeded}>
                     <div class="alert alert--error" style="margin-top:var(--sp-3)">
-                      Квота исчерпана, скорость ограничена 1 Кбит/с
+                      {t("quota.exceededNotice")}
                     </div>
                   </Show>
                 </Show>
@@ -139,10 +140,10 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
           <section class="card">
             <div class="card__head">
               <div>
-                <div class="card__title">Оформление</div>
-                <div class="card__sub">Тема интерфейса панели</div>
+                <div class="card__title">{t("profile.theme.title")}</div>
+                <div class="card__sub">{t("profile.theme.subtitle")}</div>
               </div>
-              <span class="badge badge--blue">Сейчас: {this.vm.effectiveThemeLabel}</span>
+              <span class="badge badge--blue">{t("profile.theme.current", { theme: this.vm.effectiveThemeLabel })}</span>
             </div>
             <div class="card__body stack-sm">
               <div class="tabs">
@@ -166,7 +167,27 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 )}
               </For>
               <div class="xs muted">
-                Режим «Системная» повторяет настройки операционной системы и переключается автоматически.
+                {t("profile.theme.note")}
+              </div>
+
+              <hr class="divider" />
+
+              <div class="stack-sm">
+                <div class="strong">{t("language.title")}</div>
+                <div class="xs muted">{t("language.subtitle")}</div>
+                <div class="tabs">
+                  <For each={this.vm.languageOptions}>
+                    {(option) => (
+                      <button
+                        class={`tab ${this.vm.isLanguage(option.value) ? "is-active" : ""}`}
+                        type="button"
+                        onClick={() => this.vm.setLanguage(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    )}
+                  </For>
+                </div>
               </div>
             </div>
           </section>
@@ -175,13 +196,13 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
         <section class="card">
           <div class="card__head">
             <div>
-              <div class="card__title">Настройки аккаунта</div>
-              <div class="card__sub">Логин и пароль для входа в панель</div>
+              <div class="card__title">{t("profile.account.title")}</div>
+              <div class="card__sub">{t("profile.account.subtitle")}</div>
             </div>
           </div>
           <form class="card__body stack" onSubmit={(event: SubmitEvent) => this.vm.savePassword(event)}>
             <div class="field">
-              <label for="profile-login">Логин</label>
+              <label for="profile-login">{t("profile.account.login")}</label>
               <input
                 id="profile-login"
                 class="input"
@@ -190,18 +211,18 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 readonly
                 autocomplete="username"
               />
-              <div class="hint">Логин назначает администратор, изменить его нельзя.</div>
+              <div class="hint">{t("profile.account.loginHint")}</div>
             </div>
 
             <hr class="divider" />
 
             <div class="stack-sm">
-              <div class="strong">Смена пароля</div>
-              <div class="xs muted">Текущая сессия останется активной после смены пароля.</div>
+              <div class="strong">{t("profile.password.title")}</div>
+              <div class="xs muted">{t("profile.password.subtitle")}</div>
             </div>
 
             <div class="field">
-              <label for="profile-current">Текущий пароль</label>
+              <label for="profile-current">{t("profile.password.current")}</label>
               <input
                 id="profile-current"
                 class="input"
@@ -214,51 +235,51 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
             </div>
 
             <div class="field">
-              <label for="profile-next">Новый пароль</label>
+              <label for="profile-next">{t("profile.password.next")}</label>
               <input
                 id="profile-next"
                 class={`input ${this.vm.nextTooShort ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
-                placeholder="Минимум 8 символов"
+                placeholder={t("profile.password.nextPlaceholder")}
                 value={this.vm.nextPassword}
                 onInput={(event: InputEvent) => this.vm.setNextPassword(event)}
               />
               <Show
                 when={this.vm.nextTooShort}
-                fallback={<div class="hint">Минимум 8 символов.</div>}
+                fallback={<div class="hint">{t("profile.password.hint")}</div>}
               >
-                <div class="hint" style="color:var(--red)">Пароль слишком короткий.</div>
+                <div class="hint" style="color:var(--red)">{t("profile.password.tooShort")}</div>
               </Show>
             </div>
 
             <div class="field">
-              <label for="profile-repeat">Повторите новый пароль</label>
+              <label for="profile-repeat">{t("profile.password.repeat")}</label>
               <input
                 id="profile-repeat"
                 class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
-                placeholder="Ещё раз"
+                placeholder={t("profile.password.repeatPlaceholder")}
                 value={this.vm.repeatPassword}
                 onInput={(event: InputEvent) => this.vm.setRepeatPassword(event)}
               />
               <Show when={this.vm.repeatMismatch}>
-                <div class="hint" style="color:var(--red)">Пароли не совпадают.</div>
+                <div class="hint" style="color:var(--red)">{t("profile.password.mismatch")}</div>
               </Show>
             </div>
 
             <button class="btn btn--primary btn--block" type="submit" disabled={!this.vm.canSave}>
-              <Show when={this.vm.saving} fallback={<span>Сохранить изменения</span>}>
+              <Show when={this.vm.saving} fallback={<span>{t("common.save")}</span>}>
                 <span
                   class="spinner"
                   style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"
                 ></span>
-                <span>Сохраняем…</span>
+                <span>{t("common.saving")}</span>
               </Show>
             </button>
 
-            <div class="xs muted">Пароль хранится на сервере в виде хеша и не передаётся другим пользователям.</div>
+            <div class="xs muted">{t("profile.password.note")}</div>
           </form>
         </section>
       </div>

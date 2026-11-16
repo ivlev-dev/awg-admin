@@ -3,6 +3,7 @@ import type { LazyOptions } from "@ivlev-dev/silent-core";
 
 import type { AppVM } from "./App.vm";
 import { Icon } from "@/components/Icon";
+import { t } from "@/i18n";
 
 interface PageFailure {
   readonly route: string;
@@ -13,7 +14,7 @@ const [pageFailure, setPageFailure] = createSignal<PageFailure | null>(null);
 
 function failureMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message;
-  return "Неизвестная ошибка загрузки";
+  return t("app.error.unknown");
 }
 
 function pageOptions(route: string): LazyOptions {
@@ -90,7 +91,7 @@ function PageFallback() {
   return (
     <div class="stack" style="align-items:center;justify-content:center;min-height:240px;gap:12px">
       <div class="spinner"></div>
-      <div class="small muted">Загрузка…</div>
+      <div class="small muted">{t("app.loading.page")}</div>
     </div>
   );
 }
@@ -106,11 +107,11 @@ function PageSlot(props: { readonly children?: unknown }) {
 function PageFailureNotice(props: { readonly title: string }) {
   return (
     <div class="stack">
-      <div class="alert alert--error">Не удалось загрузить раздел «{props.title}».</div>
+      <div class="alert alert--error">{t("app.error.section", { title: props.title })}</div>
       <div class="xs muted">{pageFailure()?.message}</div>
       <div>
         <button class="btn btn--sm" type="button" onClick={() => window.location.reload()}>
-          Обновить страницу
+          {t("app.action.reload")}
         </button>
       </div>
     </div>
@@ -124,12 +125,12 @@ function sidebar(vm: AppVM) {
         <div class="sidebar__logo"></div>
         <div>
           <div class="sidebar__title">AWG Admin</div>
-          <div class="sidebar__subtitle">AmneziaWG control</div>
+          <div class="sidebar__subtitle">{t("shell.subtitle")}</div>
         </div>
       </div>
       <nav class="grow">
         <div class="nav-group">
-          <div class="nav-group__label">Управление</div>
+          <div class="nav-group__label">{t("nav.group.management")}</div>
           <For each={vm.nav}>
             {(item) => (
               <button class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`} type="button" onClick={() => vm.go(item.path)}>
@@ -140,7 +141,7 @@ function sidebar(vm: AppVM) {
           </For>
         </div>
         <div class="nav-group">
-          <div class="nav-group__label">Аккаунт</div>
+          <div class="nav-group__label">{t("nav.group.account")}</div>
           <For each={vm.accountNav}>
             {(item) => (
               <button class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`} type="button" onClick={() => vm.go(item.path)}>
@@ -152,11 +153,11 @@ function sidebar(vm: AppVM) {
         </div>
         <Show when={vm.isAdmin}>
           <div class="sidebar__hint">
-            <strong>Быстрый старт</strong>
-            Создайте ноду, добавьте интерфейс и подключите первый клиент.
+            <strong>{t("shell.quickStart.title")}</strong>
+            {t("shell.quickStart.text")}
             <div style="margin-top:8px">
               <a href="/interfaces" onClick={(event: Event) => { event.preventDefault(); vm.go("/interfaces"); }}>
-                Перейти к интерфейсам →
+                {t("shell.quickStart.link")}
               </a>
             </div>
           </div>
@@ -168,7 +169,7 @@ function sidebar(vm: AppVM) {
           <div class="small strong truncate">{vm.name}</div>
           <div class="xs muted">{vm.roleLabel}</div>
         </div>
-        <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.logout()} aria-label="Выйти">
+        <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.logout()} aria-label={t("shell.logout")}>
           <Icon name="logout" size={18} />
         </button>
       </div>
@@ -268,7 +269,7 @@ export function App(this: { vm: AppVM }) {
         <div class="boot-screen">
           <div class="sidebar__logo" style="width:56px;height:56px"></div>
           <div class="spinner"></div>
-          <div class="small muted">Загрузка панели…</div>
+          <div class="small muted">{t("app.loading.panel")}</div>
         </div>
       </Show>
 
@@ -283,18 +284,18 @@ export function App(this: { vm: AppVM }) {
           <aside class="sidebar">{sidebar(this.vm)}</aside>
           <div class="main">
             <header class="topbar">
-              <button class="btn btn--ghost btn--icon no-desktop" type="button" onClick={() => this.vm.toggleDrawer()} aria-label="Меню">
+              <button class="btn btn--ghost btn--icon no-desktop" type="button" onClick={() => this.vm.toggleDrawer()} aria-label={t("shell.menu")}>
                 <Icon name="menu" size={20} class="" />
               </button>
               <div class="topbar__title">{this.vm.title}</div>
               <div class="topbar__spacer"></div>
               <span class="status-pill no-mobile">
-                <span class="dot dot--green"></span> Online
+                <span class="dot dot--green"></span> {t("common.online")}
               </span>
-              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleTheme()} aria-label="Сменить тему">
+              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleTheme()} aria-label={t("shell.theme")}>
                 <Icon name={this.vm.themeEffective === "dark" ? "sun" : "moon"} size={18} class="" />
               </button>
-              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.go("/profile")} aria-label="Профиль">
+              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.go("/profile")} aria-label={t("shell.profile")}>
                 <div class="avatar avatar--sm">{this.vm.userInitial}</div>
               </button>
             </header>

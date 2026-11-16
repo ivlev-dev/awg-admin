@@ -3,24 +3,26 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { OverviewVM } from "./Overview.vm";
 import { AreaChart, Sparkline } from "@/components/Charts";
 import { Icon } from "@/components/Icon";
+import { t } from "@/i18n";
+import { formatBytesI18n } from "@/i18n/format";
 
 export function Overview(this: { vm: OverviewVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Панель управления</div>
+        <div class="page-head__eyebrow">{t("overview.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>Обзор</h1>
-            <p>Состояние нод, трафик и активность клиентов за последние сутки.</p>
+            <h1>{t("overview.title")}</h1>
+            <p>{t("overview.subtitle")}</p>
           </div>
           <div class="actions-bar">
             <span class={`badge ${this.vm.live ? "badge--green" : "badge--amber"}`}>
               <span class={`dot ${this.vm.live ? "dot--green" : ""}`}></span>
-              {this.vm.live ? "LIVE" : "офлайн"}
+              {this.vm.live ? t("overview.live") : t("overview.offline")}
             </span>
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
           </div>
         </div>
@@ -33,8 +35,8 @@ export function Overview(this: { vm: OverviewVM }) {
       <section class="card">
         <div class="card__head">
           <div>
-            <div class="card__title">Квота трафика</div>
-            <div class="card__sub">Период: {this.vm.quotaPeriodLabel}</div>
+            <div class="card__title">{t("quota.title")}</div>
+            <div class="card__sub">{t("quota.period", { period: this.vm.quotaPeriodLabel })}</div>
           </div>
           <span
             class={`badge ${
@@ -45,7 +47,7 @@ export function Overview(this: { vm: OverviewVM }) {
                   : "badge--blue"
             }`}
           >
-            {this.vm.quotaView.statusLabel}
+            {this.vm.quotaStatusLabel}
           </span>
         </div>
         <div class="card__body">
@@ -53,15 +55,15 @@ export function Overview(this: { vm: OverviewVM }) {
             when={this.vm.quota}
             fallback={
               <div class="small muted">
-                {this.vm.quotaError ?? "Данные о квоте недоступны"}
+                {this.vm.quotaError ?? t("quota.unavailable")}
               </div>
             }
           >
             <div class="quota">
               <div class="row-between wrap">
                 <div class="quota__value">
-                  {this.vm.quotaView.usedLabel}
-                  <span class="muted"> из {this.vm.quotaView.limitLabel}</span>
+                  {this.vm.quotaUsedLabel}
+                  <span class="muted"> {t("quota.of", { limit: this.vm.quotaLimitLabel })}</span>
                 </div>
                 <div class="mono strong">{this.vm.quotaView.percentLabel}</div>
               </div>
@@ -75,14 +77,14 @@ export function Overview(this: { vm: OverviewVM }) {
               </Show>
               <div class="row-between wrap xs muted">
                 <span>
-                  Осталось: <span class="strong">{this.vm.quotaView.remainingLabel}</span>
+                  {t("quota.remaining", { value: this.vm.quotaRemainingLabel })}
                 </span>
-                <span>Сброс: {this.vm.quotaResetLabel}</span>
+                <span>{t("quota.reset", { date: this.vm.quotaResetLabel })}</span>
               </div>
             </div>
             <Show when={this.vm.quotaView.exceeded}>
               <div class="alert alert--error" style="margin-top:var(--sp-3)">
-                Квота исчерпана, скорость ограничена 1 Кбит/с
+                {t("quota.exceededNotice")}
               </div>
             </Show>
           </Show>
@@ -91,24 +93,24 @@ export function Overview(this: { vm: OverviewVM }) {
 
       <div class="grid grid--4">
         <div class="stat">
-          <div class="stat__label"><span class="dot dot--green"></span>Принято сегодня</div>
+          <div class="stat__label"><span class="dot dot--green"></span>{t("overview.stats.rxToday")}</div>
           <div class="stat__value">{this.vm.todayRx}</div>
-          <div class="stat__hint">за месяц {this.vm.monthRx}</div>
+          <div class="stat__hint">{t("overview.stats.month", { value: this.vm.monthRx })}</div>
         </div>
         <div class="stat">
-          <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>Передано сегодня</div>
+          <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("overview.stats.txToday")}</div>
           <div class="stat__value">{this.vm.todayTx}</div>
-          <div class="stat__hint">за месяц {this.vm.monthTx}</div>
+          <div class="stat__hint">{t("overview.stats.month", { value: this.vm.monthTx })}</div>
         </div>
         <div class="stat">
-          <div class="stat__label">Всего за сегодня</div>
+          <div class="stat__label">{t("overview.stats.todayTotal")}</div>
           <div class="stat__value">{this.vm.todayTotal}</div>
-          <div class="stat__hint">месяц: {this.vm.monthTotal}</div>
+          <div class="stat__hint">{t("overview.stats.monthTotal", { value: this.vm.monthTotal })}</div>
         </div>
         <div class="stat">
-          <div class="stat__label">Устройства</div>
+          <div class="stat__label">{t("overview.stats.devices")}</div>
           <div class="stat__value">{this.vm.devices}</div>
-          <div class="stat__hint">{this.vm.nodesOnline} из {this.vm.nodesTotal} нод онлайн</div>
+          <div class="stat__hint">{t("overview.stats.nodesOnline", { online: this.vm.nodesOnline, total: this.vm.nodesTotal })}</div>
         </div>
       </div>
 
@@ -116,12 +118,12 @@ export function Overview(this: { vm: OverviewVM }) {
         <section class="card">
           <div class="card__head">
             <div>
-              <div class="card__title">Трафик за 24 часа</div>
-              <div class="card__sub">Принято и передано по всем интерфейсам</div>
+              <div class="card__title">{t("overview.traffic.title")}</div>
+              <div class="card__sub">{t("overview.traffic.subtitle")}</div>
             </div>
             <div class="chart__legend no-mobile">
-              <span><i style="background:var(--accent)"></i>Входящий</span>
-              <span><i style="background:var(--brand-3)"></i>Исходящий</span>
+              <span><i style="background:var(--accent)"></i>{t("overview.traffic.rx")}</span>
+              <span><i style="background:var(--brand-3)"></i>{t("overview.traffic.tx")}</span>
             </div>
           </div>
           <div class="card__body">
@@ -130,8 +132,8 @@ export function Overview(this: { vm: OverviewVM }) {
                 when={this.vm.series.length > 0}
                 fallback={
                   <div class="empty" style="padding:56px 16px">
-                    <div class="empty__title">Нет данных за период</div>
-                    <div class="small">Трафик появится после подключения клиентов.</div>
+                    <div class="empty__title">{t("overview.traffic.emptyTitle")}</div>
+                    <div class="small">{t("overview.traffic.emptyText")}</div>
                   </div>
                 }
               >
@@ -144,28 +146,28 @@ export function Overview(this: { vm: OverviewVM }) {
         <section class="card">
           <div class="card__head">
             <div>
-              <div class="card__title">Активность</div>
-              <div class="card__sub">Живой поток, последние срезы</div>
+              <div class="card__title">{t("overview.activity.title")}</div>
+              <div class="card__sub">{t("overview.activity.subtitle")}</div>
             </div>
           </div>
           <div class="card__body stack">
             <div class="row-between">
               <div>
-                <div class="xs muted">Скорость сейчас</div>
-                <div class="strong mono">{this.vm.spark.length} срезов</div>
+                <div class="xs muted">{t("overview.activity.speed")}</div>
+                <div class="strong mono">{t("overview.activity.slices", { count: this.vm.spark.length })}</div>
               </div>
               <Sparkline values={this.vm.spark} width={160} height={44} fill />
             </div>
             <hr class="divider" />
             <div class="stack-sm">
               <button class="btn btn--block" type="button" onClick={() => this.vm.openClients()}>
-                <Icon name="clients" size={16} class="" /> Управление клиентами
+                <Icon name="clients" size={16} class="" /> {t("overview.action.clients")}
               </button>
               <button class="btn btn--block" type="button" onClick={() => this.vm.openInterfaces()}>
-                <Icon name="interfaces" size={16} class="" /> Интерфейсы и ноды
+                <Icon name="interfaces" size={16} class="" /> {t("overview.action.interfaces")}
               </button>
               <button class="btn btn--block" type="button" onClick={() => this.vm.openStats()}>
-                <Icon name="stats" size={16} class="" /> Отчёты и графики
+                <Icon name="stats" size={16} class="" /> {t("overview.action.stats")}
               </button>
             </div>
           </div>
@@ -175,29 +177,29 @@ export function Overview(this: { vm: OverviewVM }) {
       <section class="card">
         <div class="card__head">
           <div>
-            <div class="card__title">Топ устройств по трафику</div>
-            <div class="card__sub">За текущие сутки</div>
+            <div class="card__title">{t("overview.top.title")}</div>
+            <div class="card__sub">{t("overview.top.subtitle")}</div>
           </div>
-          <button class="btn btn--sm" type="button" onClick={() => this.vm.openClients()}>Все клиенты</button>
+          <button class="btn btn--sm" type="button" onClick={() => this.vm.openClients()}>{t("overview.top.all")}</button>
         </div>
         <Show
           when={this.vm.topDevices.length > 0}
-          fallback={<div class="empty"><div class="empty__title">Пока нет трафика</div><div class="small">Подключите клиента, и статистика появится здесь.</div></div>}
+          fallback={<div class="empty"><div class="empty__title">{t("overview.top.emptyTitle")}</div><div class="small">{t("overview.top.emptyText")}</div></div>}
         >
           <div class="table-wrap">
             <table class="table table--cards">
               <thead>
-                <tr><th>Устройство</th><th>Входящий</th><th>Исходящий</th><th>Всего</th><th></th></tr>
+                <tr><th>{t("overview.table.device")}</th><th>{t("overview.table.rx")}</th><th>{t("overview.table.tx")}</th><th>{t("overview.table.total")}</th><th></th></tr>
               </thead>
               <tbody>
                 <For each={this.vm.topDevices}>
                   {(device) => (
                     <tr>
-                      <td data-label="Устройство"><span class="strong">{device.name}</span></td>
-                      <td data-label="Входящий" class="mono">{formatTotal(device.rx)}</td>
-                      <td data-label="Исходящий" class="mono">{formatTotal(device.tx)}</td>
-                      <td data-label="Всего" class="mono">{formatTotal(device.rx + device.tx)}</td>
-                      <td><button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.openDevice(device.device_id)}>Открыть</button></td>
+                      <td data-label={t("overview.table.device")}><span class="strong">{device.name}</span></td>
+                      <td data-label={t("overview.table.rx")} class="mono">{formatBytesI18n(device.rx)}</td>
+                      <td data-label={t("overview.table.tx")} class="mono">{formatBytesI18n(device.tx)}</td>
+                      <td data-label={t("overview.table.total")} class="mono">{formatBytesI18n(device.rx + device.tx)}</td>
+                      <td><button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.openDevice(device.device_id)}>{t("common.open")}</button></td>
                     </tr>
                   )}
                 </For>
@@ -208,11 +210,4 @@ export function Overview(this: { vm: OverviewVM }) {
       </section>
     </div>
   );
-}
-
-function formatTotal(value: number): string {
-  if (value >= 1024 * 1024 * 1024) return `${(value / 1024 / 1024 / 1024).toFixed(2)} ГБ`;
-  if (value >= 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} МБ`;
-  if (value >= 1024) return `${(value / 1024).toFixed(0)} КБ`;
-  return `${value} Б`;
 }

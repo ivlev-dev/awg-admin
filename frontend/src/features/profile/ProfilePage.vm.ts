@@ -8,7 +8,18 @@ import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { AuthService } from "../../application/auth/service";
-import { formatDate, formatDateRu, initials } from "@/domain/format";
+import { initials } from "@/domain/format";
+import {
+  LANGUAGE_OPTIONS,
+  isLocale,
+  locale,
+  setLocale,
+  t,
+  type LanguageOption,
+  type Locale,
+  type TranslationKey,
+} from "@/i18n";
+import { formatBytesI18n, formatDateI18n, formatDateTimeI18n } from "@/i18n/format";
 
 export interface PermissionItem {
   key: string;
@@ -25,49 +36,55 @@ export interface ThemeOption {
 
 interface PermissionDef {
   key: string;
-  label: string;
-  description: string;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
+}
+
+interface ThemeDefinition {
+  value: ThemeMode;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
 }
 
 const PERMISSION_DEFS: PermissionDef[] = [
   {
     key: "read",
-    label: "Просмотр",
-    description: "Ноды, интерфейсы, устройства и статистика.",
+    labelKey: "permission.read.label",
+    descriptionKey: "permission.read.description",
   },
   {
     key: "write",
-    label: "Изменения",
-    description: "Создание и редактирование клиентов.",
+    labelKey: "permission.write.label",
+    descriptionKey: "permission.write.description",
   },
   {
     key: "manage_users",
-    label: "Управление пользователями",
-    description: "Роли, учётные записи и сброс паролей.",
+    labelKey: "permission.manage_users.label",
+    descriptionKey: "permission.manage_users.description",
   },
   {
     key: "export_config",
-    label: "Экспорт конфигов",
-    description: "Выгрузка серверных и клиентских конфигураций.",
+    labelKey: "permission.export_config.label",
+    descriptionKey: "permission.export_config.description",
   },
   {
     key: "share_config",
-    label: "Общий доступ",
-    description: "Создание и отзыв ссылок на конфиги устройств.",
+    labelKey: "permission.share_config.label",
+    descriptionKey: "permission.share_config.description",
   },
   {
     key: "profile",
-    label: "Профиль",
-    description: "Смена собственного пароля и оформления.",
+    labelKey: "permission.profile.label",
+    descriptionKey: "permission.profile.description",
   },
 ];
 
 const USER_PERMISSIONS = new Set<string>(["read", "write", "share_config", "profile"]);
 
-const THEME_OPTIONS: ThemeOption[] = [
-  { value: "system", label: "Системная", description: "Как в операционной системе" },
-  { value: "light", label: "Светлая", description: "Всегда светлое оформление" },
-  { value: "dark", label: "Тёмная", description: "Всегда тёмное оформление" },
+const THEME_DEFINITIONS: ThemeDefinition[] = [
+  { value: "system", labelKey: "profile.theme.system", descriptionKey: "profile.theme.system.description" },
+  { value: "light", labelKey: "profile.theme.light", descriptionKey: "profile.theme.light.description" },
+  { value: "dark", labelKey: "profile.theme.dark", descriptionKey: "profile.theme.dark.description" },
 ];
 
 export class ProfilePageVM {
@@ -99,7 +116,7 @@ export class ProfilePageVM {
       this.quota = await this.quotaService.me();
     } catch (error) {
       this.quota = null;
-      this.quotaError = userMessage(error, "Не удалось загрузить квоту трафика");
+      this.quotaError = userMessage(error, t("quota.error.load"));
     } finally {
       this.quotaLoading = false;
     }
@@ -107,7 +124,7 @@ export class ProfilePageVM {
 
   @computed
   get login(): string {
-    return this.session.user?.login ?? "Гость";
+    return this.session.user?.login ?? t("common.guest");
   }
 
   @computed
@@ -122,7 +139,7 @@ export class ProfilePageVM {
 
   @computed
   get createdAtLabel(): string {
-    return formatDate(this.session.user?.created_at);
+    return formatDateTimeI18n(this.session.user?.created_at);
   }
 
   @computed
@@ -132,7 +149,7 @@ export class ProfilePageVM {
 
   @computed
   get roleLabel(): string {
-    return this.isAdmin ? "Администратор" : "Пользователь";
+    return this.isAdmin ? t("role.admin") : t("role.user");
   }
 
   @computed
@@ -146,27 +163,58 @@ export class ProfilePageVM {
   }
 
   @computed
+  get quotaUsedLabel(): string {
+    return formatBytesI18n(this.quota?.usedBytes ?? 0);
+  }
+
+  @computed
+  get quotaLimitLabel(): string {
+    const limit = this.quota?.quotaBytes;
+    return limit === null || limit === undefined ? t("common.unlimited") : formatBytesI18n(limit);
+  }
+
+  @computed
+  get quotaRemainingLabel(): string {
+    const remaining = this.quota?.remainingBytes;
+    return remaining === null || remaining === undefined
+      ? t("common.unlimited")
+      : formatBytesI18n(remaining);
+  }
+
+  @computed
+  get quotaStatusLabel(): string {
+    if (this.quotaView.exceeded) return t("quota.status.exceeded");
+    return this.quotaView.hasQuota ? t("quota.status.ok") : t("common.unlimited");
+  }
+
+  @computed
   get quotaResetLabel(): string {
-    return formatDateRu(this.quota?.resetAt);
+    return formatDateI18n(this.quota?.resetAt);
   }
 
   @computed
   get quotaPeriodLabel(): string {
     if (!this.quota) return "—";
-    return `${formatDateRu(this.quota.periodStart)} — ${formatDateRu(this.quota.periodEnd)}`;
+    return `${formatDateI18n(this.quota.periodStart)} — ${formatDateI18n(this.quota.periodEnd)}`;
   }
 
   @computed
   get permissions(): PermissionItem[] {
     return PERMISSION_DEFS.map((permission) => ({
-      ...permission,
+      key: permission.key,
+      label: t(permission.labelKey),
+      description: t(permission.descriptionKey),
       granted: this.isAdmin || USER_PERMISSIONS.has(permission.key),
     }));
   }
 
   @computed
   get themeOptions(): ThemeOption[] {
-    return THEME_OPTIONS;
+    return THEME_DEFINITIONS.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+      description: t(option.descriptionKey),
+    }));
   }
 
   @computed
@@ -176,7 +224,16 @@ export class ProfilePageVM {
 
   @computed
   get effectiveThemeLabel(): string {
-    return this.effectiveTheme === "dark" ? "Тёмная" : "Светлая";
+    return this.effectiveTheme === "dark" ? t("profile.theme.dark") : t("profile.theme.light");
+  }
+
+  @computed
+  get language(): Locale {
+    return locale();
+  }
+
+  get languageOptions(): readonly LanguageOption[] {
+    return LANGUAGE_OPTIONS;
   }
 
   @computed
@@ -207,6 +264,14 @@ export class ProfilePageVM {
     this.theme.set(mode);
   }
 
+  isLanguage(value: Locale): boolean {
+    return this.language === value;
+  }
+
+  setLanguage(value: string): void {
+    if (isLocale(value)) setLocale(value);
+  }
+
   setCurrentPassword(event: Event): void {
     this.currentPassword = (event.target as HTMLInputElement).value;
   }
@@ -223,15 +288,15 @@ export class ProfilePageVM {
     event.preventDefault();
     if (this.saving) return;
     if (this.currentPassword.length === 0) {
-      this.toasts.error("Введите текущий пароль");
+      this.toasts.error(t("profile.password.error.currentRequired"));
       return;
     }
     if (this.nextPassword.length < 8) {
-      this.toasts.error("Новый пароль должен содержать минимум 8 символов");
+      this.toasts.error(t("profile.password.error.tooShort"));
       return;
     }
     if (this.nextPassword !== this.repeatPassword) {
-      this.toasts.error("Пароли не совпадают");
+      this.toasts.error(t("profile.password.error.mismatch"));
       return;
     }
 
@@ -241,9 +306,11 @@ export class ProfilePageVM {
       this.currentPassword = "";
       this.nextPassword = "";
       this.repeatPassword = "";
-      this.toasts.success("Пароль обновлён");
+      this.toasts.success(t("profile.password.success"));
     } catch (error) {
-      this.toasts.error(error instanceof Error ? error.message : "Не удалось изменить пароль");
+      this.toasts.error(
+        error instanceof Error ? error.message : t("profile.password.error.failed"),
+      );
     } finally {
       this.saving = false;
     }

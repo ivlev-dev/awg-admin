@@ -12,6 +12,7 @@ import { Router } from "./router";
 import { Session } from "./session";
 import { ThemeStore } from "./theme";
 import { ToastStore } from "./toast";
+import { setLocale } from "@/i18n";
 
 const ADMIN: User = {
   id: "u1",
@@ -138,6 +139,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setLocale("ru");
   vi.unstubAllGlobals();
 });
 
@@ -225,7 +227,31 @@ describe("AppVM navigation filtering", () => {
     expect(harness.vm.roleLabel).toBe("Администратор");
   });
 
-  it("hides admin-only sections from a regular user", () => {
+  it("переводит пункты меню и роль при смене языка", () => {
+    const harness = makeHarness({ user: ADMIN });
+
+    setLocale("en");
+
+    expect(harness.vm.nav.map((item) => item.title)).toEqual([
+      "Overview",
+      "Nodes",
+      "Interfaces",
+      "Groups",
+      "Clients",
+      "Import",
+    ]);
+    expect(harness.vm.accountNav.map((item) => item.title)).toContain("Settings");
+    expect(harness.vm.mobileNav.map((item) => item.title)).toContain("Statistics");
+    expect(harness.vm.roleLabel).toBe("Administrator");
+    expect(harness.vm.title).toBe("Overview");
+
+    setLocale("ru");
+
+    expect(harness.vm.nav[0]?.title).toBe("Обзор");
+    expect(harness.vm.roleLabel).toBe("Администратор");
+  });
+
+  it("скрывает админские разделы у обычного пользователя", () => {
     const harness = makeHarness({ user: PLAIN });
 
     expect(harness.vm.nav.map((item) => item.path)).toEqual(["/", "/interfaces", "/clients"]);
@@ -259,7 +285,19 @@ describe("AppVM route state", () => {
     expect(harness.vm.showShell).toBe(true);
   });
 
-  it("hides the shell on the login route", () => {
+  it("переводит заголовок маршрута", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/clients/42" });
+
+    expect(harness.vm.title).toBe("Устройство");
+
+    setLocale("en");
+
+    expect(harness.vm.title).toBe("Device");
+
+    setLocale("ru");
+  });
+
+  it("скрывает shell на маршруте входа", () => {
     const harness = makeHarness({ user: null, path: "/login" });
 
     expect(harness.vm.showShell).toBe(false);

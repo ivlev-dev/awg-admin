@@ -3,6 +3,16 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 import { ToastStore } from "@/app/toast";
 import type { SettingsService } from "../../application/settings/service";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
+import {
+  LANGUAGE_OPTIONS,
+  isLocale,
+  locale,
+  setLocale,
+  t,
+  type LanguageOption,
+  type Locale,
+  type TranslationKey,
+} from "@/i18n";
 
 export type ObfuscationProfile = ObfuscationSettings["profile"];
 export type ObfuscationIntensity = ObfuscationSettings["intensity"];
@@ -12,6 +22,12 @@ export interface Choice<T extends string> {
   value: T;
   label: string;
   description: string;
+}
+
+interface ChoiceDefinition<T extends string> {
+  value: T;
+  labelKey: TranslationKey;
+  descriptionKey: TranslationKey;
 }
 
 export type NumericField =
@@ -27,26 +43,42 @@ export type NumericField =
 
 const S_FLOOR = 12;
 
-const PROFILE_OPTIONS: Choice<ObfuscationProfile>[] = [
-  { value: "http3", label: "HTTP/3", description: "Маскировка первых пакетов под QUIC-обмен HTTP/3." },
-  { value: "tls", label: "TLS", description: "Имитация TLS ClientHello с браузерными расширениями." },
-  { value: "quic", label: "QUIC", description: "QUIC Initial-пакеты без HTTP/3-обвязки." },
-  { value: "random", label: "Случайный", description: "Профиль выбирается случайно для каждого интерфейса." },
+const PROFILE_OPTIONS: ChoiceDefinition<ObfuscationProfile>[] = [
+  { value: "http3", labelKey: "settings.profile.http3.label", descriptionKey: "settings.profile.http3.description" },
+  { value: "tls", labelKey: "settings.profile.tls.label", descriptionKey: "settings.profile.tls.description" },
+  { value: "quic", labelKey: "settings.profile.quic.label", descriptionKey: "settings.profile.quic.description" },
+  { value: "random", labelKey: "settings.profile.random.label", descriptionKey: "settings.profile.random.description" },
 ];
 
-const INTENSITY_OPTIONS: Choice<ObfuscationIntensity>[] = [
-  { value: "low", label: "Низкая", description: "Минимум junk-пакетов: ниже нагрузка, слабее маскировка." },
-  { value: "medium", label: "Средняя", description: "Баланс между нагрузкой и устойчивостью к анализу." },
-  { value: "high", label: "Высокая", description: "Высокий Jc: больше junk-пакетов перед рукопожатием." },
+const INTENSITY_OPTIONS: ChoiceDefinition<ObfuscationIntensity>[] = [
+  { value: "low", labelKey: "settings.intensity.low.label", descriptionKey: "settings.intensity.low.description" },
+  { value: "medium", labelKey: "settings.intensity.medium.label", descriptionKey: "settings.intensity.medium.description" },
+  { value: "high", labelKey: "settings.intensity.high.label", descriptionKey: "settings.intensity.high.description" },
 ];
 
-const BROWSER_OPTIONS: Choice<ObfuscationBrowser>[] = [
-  { value: "chrome", label: "Chrome", description: "Размеры пакетов выравниваются под Chrome." },
-  { value: "firefox", label: "Firefox", description: "Размеры пакетов выравниваются под Firefox." },
-  { value: "safari", label: "Safari", description: "Размеры пакетов выравниваются под Safari." },
-  { value: "edge", label: "Edge", description: "Размеры пакетов выравниваются под Edge." },
-  { value: "random", label: "Случайный", description: "Браузер выбирается случайно для каждого соединения." },
+const BROWSER_OPTIONS: ChoiceDefinition<ObfuscationBrowser>[] = [
+  { value: "chrome", labelKey: "settings.browser.chrome.label", descriptionKey: "settings.browser.chrome.description" },
+  { value: "firefox", labelKey: "settings.browser.firefox.label", descriptionKey: "settings.browser.firefox.description" },
+  { value: "safari", labelKey: "settings.browser.safari.label", descriptionKey: "settings.browser.safari.description" },
+  { value: "edge", labelKey: "settings.browser.edge.label", descriptionKey: "settings.browser.edge.description" },
+  { value: "random", labelKey: "settings.browser.random.label", descriptionKey: "settings.browser.random.description" },
 ];
+
+function localizeChoices<T extends string>(definitions: ChoiceDefinition<T>[]): Choice<T>[] {
+  return definitions.map((definition) => ({
+    value: definition.value,
+    label: t(definition.labelKey),
+    description: t(definition.descriptionKey),
+  }));
+}
+
+function describeChoice<T extends string>(
+  definitions: ChoiceDefinition<T>[],
+  value: T,
+): string {
+  const definition = definitions.find((option) => option.value === value);
+  return definition ? t(definition.descriptionKey) : "";
+}
 
 export class SettingsPageVM {
   constructor(
@@ -82,32 +114,49 @@ export class SettingsPageVM {
 
   @computed
   get profileOptions(): Choice<ObfuscationProfile>[] {
-    return PROFILE_OPTIONS;
+    return localizeChoices(PROFILE_OPTIONS);
   }
 
   @computed
   get intensityOptions(): Choice<ObfuscationIntensity>[] {
-    return INTENSITY_OPTIONS;
+    return localizeChoices(INTENSITY_OPTIONS);
   }
 
   @computed
   get browserOptions(): Choice<ObfuscationBrowser>[] {
-    return BROWSER_OPTIONS;
+    return localizeChoices(BROWSER_OPTIONS);
   }
 
   @computed
   get profileHint(): string {
-    return PROFILE_OPTIONS.find((option) => option.value === this.profile)?.description ?? "";
+    return describeChoice(PROFILE_OPTIONS, this.profile);
   }
 
   @computed
   get intensityHint(): string {
-    return INTENSITY_OPTIONS.find((option) => option.value === this.intensity)?.description ?? "";
+    return describeChoice(INTENSITY_OPTIONS, this.intensity);
   }
 
   @computed
   get browserHint(): string {
-    return BROWSER_OPTIONS.find((option) => option.value === this.browser)?.description ?? "";
+    return describeChoice(BROWSER_OPTIONS, this.browser);
+  }
+
+  @computed
+  get language(): Locale {
+    return locale();
+  }
+
+  get languageOptions(): readonly LanguageOption[] {
+    return LANGUAGE_OPTIONS;
+  }
+
+  isLanguage(value: Locale): boolean {
+    return this.language === value;
+  }
+
+  setLanguage(value: string): void {
+    if (isLocale(value)) setLocale(value);
   }
 
   @computed
@@ -134,7 +183,7 @@ export class SettingsPageVM {
       this.loaded = true;
     } catch (error) {
       this.loaded = false;
-      this.error = messageOf(error, "Не удалось загрузить настройки");
+      this.error = messageOf(error, t("settings.error.load"));
       this.toasts.error(this.error);
     } finally {
       this.loading = false;
@@ -148,9 +197,9 @@ export class SettingsPageVM {
     try {
       const settings = await this.settingsService.updateSettings(this.buildInput());
       this.apply(settings);
-      this.toasts.success("Настройки сохранены");
+      this.toasts.success(t("settings.saved"));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось сохранить настройки"));
+      this.toasts.error(messageOf(error, t("settings.error.save")));
     } finally {
       this.saving = false;
     }

@@ -10,6 +10,7 @@ import type { StatsRepository } from "@/domain/stats/repository";
 import type { Overview, Role, StatsPoint, User } from "@/domain/types";
 import { LiveStats } from "@/infrastructure/stats";
 import type { TokenStore } from "@/infrastructure/storage";
+import { setLocale } from "@/i18n";
 import { OverviewVM } from "./Overview.vm";
 
 const ADMIN: User = {
@@ -202,6 +203,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setLocale("ru");
   vi.unstubAllGlobals();
 });
 
@@ -343,6 +345,23 @@ describe("OverviewVM", () => {
     expect(vm.quotaPeriodLabel).toContain(
       new Date(QUOTA.period_start).toLocaleDateString("ru-RU"),
     );
+  });
+
+  it("переводит подписи квоты и единицы измерения при смене языка", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    expect(vm.quotaStatusLabel).toBe("В норме");
+    expect(vm.quotaUsedLabel).toBe("1.0 ГБ");
+    expect(vm.quotaLimitLabel).toBe("10.0 ГБ");
+    expect(vm.todayRx).toBe("1.0 КБ");
+
+    setLocale("en");
+
+    expect(vm.quotaStatusLabel).toBe("Within limit");
+    expect(vm.quotaUsedLabel).toBe("1.0 GB");
+    expect(vm.quotaLimitLabel).toBe("10.0 GB");
+    expect(vm.todayRx).toBe("1.0 KB");
   });
 
   it("помечает исчерпанную квоту", async () => {
