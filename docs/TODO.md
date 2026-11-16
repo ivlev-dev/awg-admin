@@ -21,7 +21,7 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 407 тестов.
+  статические SVG-иконки, 422 теста.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
@@ -29,7 +29,7 @@
 
 - `cargo test --workspace` — 91 тест, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 407 тестов, зелёные.
+- `cd frontend && pnpm test` — 422 теста, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -76,8 +76,8 @@
    Это осознанное ограничение.
 8. **WebTransport.** Не реализован, используется WebSocket. Нужен h3 или
    проксирование WT + клиентский fallback.
-9. **Аудит.** Закрыто: новый крейт `awg-audit`, middleware, `GET /api/v1/audit`.
-   Нет UI журнала аудита.
+9. **Аудит.** Закрыто: крейт `awg-audit`, middleware, `GET /api/v1/audit`
+   с фильтрами и курсорной пагинацией, retention, UI-журнал `/audit`.
 10. **Rate limiting.** Закрыто: sliding window для login/refresh, 429 +
     `Retry-After`. В памяти процесса, при нескольких репликах лимиты не общие.
 
