@@ -21,15 +21,15 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 450 тестов.
+  статические SVG-иконки, 525 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
 ## Проверено
 
-- `cargo test --workspace` — 132 теста, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 166 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 450 тестов, зелёные.
+- `cd frontend && pnpm test` — 525 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -64,10 +64,11 @@
    REPLACE_PEERS, счётчики, ICMP и handshake между двумя AWG в netns.
    E2E worker: dry-run (`online`, `worker applied state`) и live (интерфейс,
    пиры, HPK, RandomTrailers применены; handshake с тестовым клиентом прошёл).
-   Осталось: реальные клиенты и замер полосы. Статистика не работает — п. 11.
+   Live-статистика worker проверена (п. 11). Осталось: реальные клиенты и замер
+   полосы.
 2. **tc ingress/egress.** Структура HTB/IFB/u32, квоты, счётчики и изоляция
    проверены; на реальном AWG htb/ingress/IFB применяются. Повторный reconcile
-   падает — п. 12. Без тарифа пользователя tc не применяется; пул без
+   идемпотентен (п. 12). Без тарифа пользователя tc не применяется; пул без
    `gateway` оставляет интерфейс без адреса. Осталось: живая полоса и hairpin.
 3. **nftables forwarding.** Таблица/цепь/правила и изоляция проверены на veth;
    live worker создаёт `fwd_<ifname>` на реальном интерфейсе. Реальная пара
@@ -90,21 +91,26 @@
    с фильтрами и курсорной пагинацией, retention, UI-журнал `/audit`.
 10. **Rate limiting.** Закрыто: sliding window для login/refresh, 429 +
     `Retry-After`. В памяти процесса, при нескольких репликах лимиты не общие.
-11. **Статистика worker в live-режиме.** `backend/crates/worker/src/infrastructure/netlink.rs`
-    (`read_interface`) отправляет `WG_CMD_GET_DEVICE` без `NLM_F_DUMP`. В ядре
-    команда зарегистрирована только как dump (`.start`/`.dumpit`, без `.doit`),
-    поэтому ответ — `Operation not supported (os error 95)`. Worker каждые 2 с
-    пишет `failed to read counters`, API/UI показывают нули даже при реальном
-    handshake. Dry-run это скрывает: `read_interface` возвращает пустой runtime.
-    Нужно выставлять `NLM_F_DUMP` и читать multipart-ответ.
-12. **Повторный reconcile tc.** `TcShaper::apply_egress` вызывает
-    `tc qdisc replace` при каждом применении. На проверочном ядре (Linux 7.3.4,
-    iproute2 7.3.0) второй `replace` root htb возвращает
-    `Change operation not supported by specified qdisc`; после первого
-    успешного reconcile любое изменение состояния падает на `apply tc`, а nft
-    (применяется после tc) остаётся от предыдущей ревизии. `ingress replace`
-    идемпотентен, `qdisc del` + `add` работают. `scripts/verify-dataplane.sh`
-    теперь проверяет это отдельным пунктом.
+11. **Статистика worker в live-режиме.** Закрыто (16.11.2026):
+    `backend/crates/worker/src/infrastructure/netlink.rs` отправляет
+    `WG_CMD_GET_DEVICE` с `NLM_F_REQUEST | NLM_F_DUMP` и `WG_DEVICE_IFNAME`,
+    собирает multipart-ответ до `NLMSG_DONE`, объединяет пиров из всех
+    фрагментов. Причина прежнего `Operation not supported (os error 95)`: у
+    команды в ядре только `.start`/`.dumpit`, запрос без dump-флага уходит в
+    несуществующий `.doit`. Live-проверка (`unshare -rn`,
+    `tests/live_dataplane.rs`): dump читается без ошибок, после ICMP через
+    AWG-туннель растут `rx/tx`, есть `last_handshake`; повторный `SetDevice`
+    проходит, а `ReconcileService::collect` отдаёт монотонные тоталы после
+    сброса счётчиков через `CounterBook`.
+12. **Повторный reconcile tc.** Закрыто (16.11.2026): `htb` в root не
+    поддерживает `replace`/`change` на проверочном ядре (Linux 7.3.4,
+    iproute2 7.3.0). `TcShaper` теперь пересоздаёт root- и ingress-qdisc
+    (`qdisc del` с игнором ошибки → `qdisc add`), из-за чего классы и фильтры
+    тоже пересоздаются и не дублируются. `scripts/verify-dataplane.sh --apply`
+    проверяет повторный reconcile: 0 провалов, дубликатов фильтров нет; live-тест
+    `tests/live_dataplane.rs` применяет tc дважды на veth, `clear` удаляет
+    правила. Там же nft применяется дважды: цепь `fwd_<ifname>` не накапливает
+    дубликаты `drop`.
 
 ### Функционал
 
@@ -125,8 +131,9 @@
   использований, QR-кода, отзыва по device_id списком.
 - **Ротация ключей интерфейса** инвалидирует клиентские конфиги; в UI есть
   предупреждение, но нет пакетного перевыпуска/доставки.
-- **Пользователи**: нет самостоятельной регистрации, сброса пароля по email,
-  MFA, SSO. Список активных refresh-сессий и их отзыв есть в API.
+- **Пользователи**: регистрация с подтверждением email и одобрением админом,
+  вход по email, TOTP 2FA с recovery-кодами — сделаны. Нет сброса пароля по
+  email и SSO. Список активных refresh-сессий и их отзыв есть в API.
 - **Ноды**: токен выдаётся один раз и не ротируется; нет отзыва токена и
   отображения метрик воркера (CPU/RAM/версия ядра).
 - **Пиры**: нет QR, нет выбора нескольких интерфейсов при создании профиля,
@@ -181,8 +188,9 @@
    AWG_DRY_RUN=false cargo run -p awg-worker
    ```
 5. Блокеры kernel/tc/nft/ TLS описаны в `docs/PRODUCTION-VERIFICATION.md`;
-   Docker, аудит, rate limit, JWT, CI, миграции/backup redb, lazy-роуты и
-   архитектурные границы уже закрыты.
+   Docker, аудит, rate limit, JWT, CI, миграции/backup redb, lazy-роуты,
+   архитектурные границы, регистрация/2FA, метрики и квоты уже закрыты.
+   Архитектура оплаты и подписок описана в `docs/PAYMENTS.md` (без реализации).
 
 ## Особенности окружения
 

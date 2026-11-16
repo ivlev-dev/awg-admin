@@ -18,7 +18,7 @@ Backend (`backend/crates/*`) разбит на доменные модули. З
 
 - `shared` — shared kernel: `obf`, `conf`, `vpn`, `cidr`, `crypto`.
 - `storage` — репозиторий `Store`: единственный redb-файл, версия схемы, миграции, backup/restore.
-- `identity` — пользователи, роли, Argon2, JWT.
+- `identity` — пользователи, роли, Argon2, JWT, регистрация с подтверждением email, TOTP 2FA.
 - `tariffs` — тарифы и лимиты.
 - `network` — группы, ноды, интерфейсы, пулы CIDR, obfuscation-настройки.
 - `clients` — устройства, пирь, профили, share-ссылки.
@@ -310,6 +310,28 @@ access валиден до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по 
 секунд). Denylist не используется; вместо него `authenticate` на каждом
 запросе проверяет, что пользователь существует и не заблокирован, поэтому
 блокировка и удаление применяются немедленно.
+
+### Регистрация, email и TOTP
+
+`User` расширен полями `email`, `status`, `totp_secret_sealed`, `totp_enabled`
+и `recovery_codes`; все имеют `serde(default)`, поэтому записи старого формата
+читаются как `active` без 2FA. Статусы: `pending_email` → `pending_approval` →
+`active` либо `rejected`. `ensure_active` требует `status=active` и
+`disabled=false`; `login` ищет сначала по email, затем по login.
+
+Одноразовые токены подтверждения email лежат в redb-таблице
+`email_verifications`: ключ — `sha256(token)` в hex, значение — `user_id`,
+`email`, `expires_at`, `used`; TTL 24 часа. Письмо отправляет `Mailer`
+(`LogMailer` или `SmtpMailer` на `lettre`), ссылка строится от
+`AWG_PUBLIC_URL`. Регистрация создаёт `pending_email`, подтверждение переводит
+в `pending_approval`, администратор назначает тариф и группу (`approve`) или
+отклоняет (`reject`).
+
+TOTP реализован на `totp-rs` (SHA-1, 6 цифр, шаг 30 секунд, допуск ±1).
+Base32-секрет шифруется `awg_shared::crypto::Sealer` перед сохранением, в
+`recovery_codes` хранятся Argon2-хэши 8 одноразовых кодов. Вход при
+включённом TOTP требует `totp_code`: проверяется текущий код или recovery-код
+(после использования удаляется). `disable` требует пароль и действующий код.
 
 ### Аудит
 
