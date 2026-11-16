@@ -100,7 +100,10 @@ pub enum TokenKind {
 pub struct AuthClaims {
     pub sub: Uuid,
     pub role: Role,
+    pub iss: String,
+    pub aud: String,
     pub exp: usize,
+    pub nbf: usize,
     pub iat: usize,
     pub jti: Uuid,
     pub kind: TokenKind,
@@ -113,16 +116,61 @@ pub struct IssuedTokens {
     pub access_expires_in: u64,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct SessionMetadata {
+    pub user_agent: Option<String>,
+    pub ip: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RefreshRecord {
     pub user_id: Uuid,
+    #[serde(default = "Uuid::new_v4")]
+    pub family_id: Uuid,
+    #[serde(default = "Utc::now")]
+    pub created_at: DateTime<Utc>,
     pub expires_at: DateTime<Utc>,
     pub revoked: bool,
+    #[serde(default)]
+    pub used: bool,
+    #[serde(default)]
+    pub user_agent: Option<String>,
+    #[serde(default)]
+    pub ip: Option<String>,
+}
+
+impl RefreshRecord {
+    pub fn is_active(&self, now: DateTime<Utc>) -> bool {
+        !self.revoked && !self.used && self.expires_at > now
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct RefreshSession {
+    pub jti: Uuid,
+    pub user_id: Uuid,
+    pub family_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub revoked: bool,
+    pub used: bool,
+    pub user_agent: Option<String>,
+    pub ip: Option<String>,
 }
 
 pub trait TokenIssuer: Send + Sync {
-    fn issue(&self, user: &User) -> CoreResult<IssuedTokens>;
+    fn issue(&self, user: &User, metadata: &SessionMetadata) -> CoreResult<IssuedTokens>;
+    fn inspect_refresh(&self, token: &str) -> CoreResult<AuthClaims>;
+    fn rotate(
+        &self,
+        token: &str,
+        user: &User,
+        metadata: &SessionMetadata,
+    ) -> CoreResult<IssuedTokens>;
     fn verify_access(&self, token: &str) -> CoreResult<AuthClaims>;
-    fn verify_refresh(&self, token: &str) -> CoreResult<AuthClaims>;
     fn revoke(&self, token: &str) -> CoreResult<()>;
+    fn revoke_session(&self, user_id: Uuid, jti: Uuid) -> CoreResult<()>;
+    fn revoke_all(&self, user_id: Uuid) -> CoreResult<usize>;
+    fn list_sessions(&self, user_id: Uuid) -> CoreResult<Vec<RefreshSession>>;
+    fn prune_expired(&self) -> CoreResult<usize>;
 }

@@ -118,11 +118,10 @@ impl WorkerClient {
                     .context("failed to send apply result")?;
                 }
                 Some(server_message::Payload::Ping(_)) => {}
-                Some(server_message::Payload::Ack(ack)) => {
-                    if !ack.ok {
-                        tracing::warn!(error = %ack.error, "admin reported an error");
-                    }
+                Some(server_message::Payload::Ack(ack)) if !ack.ok => {
+                    tracing::warn!(error = %ack.error, "admin reported an error");
                 }
+                Some(server_message::Payload::Ack(_)) => {}
                 None => {}
             }
         }

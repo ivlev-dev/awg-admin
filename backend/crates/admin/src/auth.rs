@@ -4,7 +4,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use uuid::Uuid;
 
-use awg_identity::{AuthPrincipal, Role};
+use awg_identity::AuthPrincipal;
 
 use crate::error::ApiError;
 use crate::state::AppState;
@@ -56,12 +56,5 @@ impl AuthUser {
                 "access to another user is denied".into(),
             ))
         }
-    }
-}
-
-pub fn role_label(role: Role) -> &'static str {
-    match role {
-        Role::Admin => "admin",
-        Role::User => "user",
     }
 }

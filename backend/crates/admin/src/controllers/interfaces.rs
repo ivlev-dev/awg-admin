@@ -27,10 +27,10 @@ pub async fn list(
     let nodes = state.network.list_nodes().map_err(ApiError::from)?;
     let mut out = Vec::new();
     for interface in interfaces {
-        if let Some(filter) = group_filter {
-            if filter != Some(interface.group_id) {
-                continue;
-            }
+        if let Some(filter) = group_filter
+            && filter != Some(interface.group_id)
+        {
+            continue;
         }
         let group_name = groups
             .iter()

@@ -21,7 +21,6 @@ use awg_tariffs::{NewTariff, RedbTariffRepository, TariffService};
 struct Fixture {
     devices: DeviceService,
     profiles: ProfileService,
-    network: Arc<NetworkService>,
     tariffs: Arc<TariffService>,
     group_id: Uuid,
 }
@@ -107,7 +106,6 @@ fn fixture() -> Fixture {
     Fixture {
         devices,
         profiles,
-        network,
         tariffs,
         group_id: group.id,
     }
@@ -261,4 +259,143 @@ fn forwarding_is_scoped_to_the_user() {
         )
         .unwrap();
     assert_eq!(updated.forwarding.allowed_devices, vec![first.id]);
+}
+
+#[test]
+fn create_normalizes_forwarding() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let first = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                name: "one".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let second_id = Uuid::new_v4();
+    // duplicate + self-ish list cleared when all
+    let second = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                name: "two".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding {
+                    to_own_devices: true,
+                    allowed_devices: vec![first.id, first.id],
+                },
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    assert!(second.forwarding.to_own_devices);
+    assert!(second.forwarding.allowed_devices.is_empty());
+
+    // update dedups/sorts
+    let updated = fixture
+        .devices
+        .update(
+            second.id,
+            &tariff,
+            None,
+            None,
+            None,
+            Some(Forwarding {
+                to_own_devices: false,
+                allowed_devices: vec![first.id, first.id],
+            }),
+        )
+        .unwrap();
+    assert_eq!(updated.forwarding.allowed_devices, vec![first.id]);
+    // persisted
+    let fetched = fixture.devices.get(second.id).unwrap();
+    assert_eq!(fetched.forwarding.allowed_devices, vec![first.id]);
+
+    let _ = second_id;
+}
+
+#[test]
+fn create_rejects_invalid_forwarding() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let owner = user(fixture.group_id, tariff.id);
+    let first = fixture
+        .devices
+        .create(
+            &owner,
+            &tariff,
+            NewDevice {
+                user_id: owner.id,
+                group_id: fixture.group_id,
+                name: "one".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let other_owner = user(fixture.group_id, tariff.id);
+    // foreign: allowed device from other user
+    let other_device = fixture
+        .devices
+        .create(
+            &other_owner,
+            &tariff,
+            NewDevice {
+                user_id: other_owner.id,
+                group_id: fixture.group_id,
+                name: "other".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let res = fixture.devices.create(
+        &owner,
+        &tariff,
+        NewDevice {
+            user_id: owner.id,
+            group_id: fixture.group_id,
+            name: "bad".into(),
+            down_kbps: 1_000,
+            up_kbps: 1_000,
+            forwarding: Forwarding {
+                to_own_devices: false,
+                allowed_devices: vec![other_device.id],
+            },
+        },
+        &ObfuscationSettings::default(),
+    );
+    assert!(res.is_err());
+    // self rejection via update to own id
+    let res = fixture.devices.update(
+        first.id,
+        &tariff,
+        None,
+        None,
+        None,
+        Some(Forwarding {
+            to_own_devices: false,
+            allowed_devices: vec![first.id],
+        }),
+    );
+    assert!(res.is_err());
 }

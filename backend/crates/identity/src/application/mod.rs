@@ -6,8 +6,8 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
-    IssuedTokens, PasswordHasher, Role, TokenIssuer, User, UserRepository, validate_login,
-    validate_password,
+    IssuedTokens, PasswordHasher, RefreshSession, Role, SessionMetadata, TokenIssuer, User,
+    UserRepository, validate_login, validate_password,
 };
 
 #[derive(Debug, Clone)]
@@ -88,7 +88,12 @@ impl IdentityService {
         Ok(Some(user))
     }
 
-    pub fn login(&self, login: &str, password: &str) -> CoreResult<AuthSession> {
+    pub fn login(
+        &self,
+        login: &str,
+        password: &str,
+        metadata: &SessionMetadata,
+    ) -> CoreResult<AuthSession> {
         let user = self
             .users
             .find_by_login(login.trim())?
@@ -97,22 +102,48 @@ impl IdentityService {
         if !self.hasher.verify(password, &user.password_hash)? {
             return Err(CoreError::Forbidden("invalid login or password".into()));
         }
-        self.session_for(user)
+        self.session_for(user, metadata)
     }
 
-    pub fn refresh(&self, refresh_token: &str) -> CoreResult<AuthSession> {
-        let claims = self.tokens.verify_refresh(refresh_token)?;
+    pub fn refresh(
+        &self,
+        refresh_token: &str,
+        metadata: &SessionMetadata,
+    ) -> CoreResult<AuthSession> {
+        let claims = self.tokens.inspect_refresh(refresh_token)?;
         let user = self
             .users
             .find_by_id(claims.sub)?
             .ok_or_else(|| CoreError::Forbidden("user no longer exists".into()))?;
         user.ensure_active()?;
-        self.tokens.revoke(refresh_token)?;
-        self.session_for(user)
+        let IssuedTokens {
+            access_token,
+            refresh_token,
+            access_expires_in,
+            ..
+        } = self.tokens.rotate(refresh_token, &user, metadata)?;
+        Ok(AuthSession {
+            user,
+            access_token,
+            refresh_token,
+            expires_in: access_expires_in,
+        })
     }
 
     pub fn logout(&self, refresh_token: &str) -> CoreResult<()> {
         self.tokens.revoke(refresh_token)
+    }
+
+    pub fn sessions(&self, user_id: Uuid) -> CoreResult<Vec<RefreshSession>> {
+        self.tokens.list_sessions(user_id)
+    }
+
+    pub fn revoke_session(&self, user_id: Uuid, jti: Uuid) -> CoreResult<()> {
+        self.tokens.revoke_session(user_id, jti)
+    }
+
+    pub fn logout_all(&self, user_id: Uuid) -> CoreResult<usize> {
+        self.tokens.revoke_all(user_id)
     }
 
     pub fn authenticate(&self, access_token: &str) -> CoreResult<AuthPrincipal> {
@@ -176,6 +207,9 @@ impl IdentityService {
         }
         user.updated_at = Utc::now();
         self.users.save(&user)?;
+        if user.disabled {
+            self.tokens.revoke_all(user.id)?;
+        }
         Ok(user)
     }
 
@@ -187,14 +221,16 @@ impl IdentityService {
     ) -> CoreResult<()> {
         validate_password(new_password)?;
         let mut user = self.find(user_id)?;
-        if let Some(current) = current {
-            if !self.hasher.verify(current, &user.password_hash)? {
-                return Err(CoreError::Forbidden("current password is wrong".into()));
-            }
+        if let Some(current) = current
+            && !self.hasher.verify(current, &user.password_hash)?
+        {
+            return Err(CoreError::Forbidden("current password is wrong".into()));
         }
         user.password_hash = self.hasher.hash(new_password)?;
         user.updated_at = Utc::now();
-        self.users.save(&user)
+        self.users.save(&user)?;
+        self.tokens.revoke_all(user.id)?;
+        Ok(())
     }
 
     pub fn reset_password(&self, user_id: Uuid, new_password: &str) -> CoreResult<()> {
@@ -202,15 +238,17 @@ impl IdentityService {
     }
 
     pub fn delete(&self, user_id: Uuid) -> CoreResult<()> {
+        self.tokens.revoke_all(user_id)?;
         self.users.delete(user_id)
     }
 
-    fn session_for(&self, user: User) -> CoreResult<AuthSession> {
+    fn session_for(&self, user: User, metadata: &SessionMetadata) -> CoreResult<AuthSession> {
         let IssuedTokens {
             access_token,
             refresh_token,
             access_expires_in,
-        } = self.tokens.issue(&user)?;
+            ..
+        } = self.tokens.issue(&user, metadata)?;
         Ok(AuthSession {
             user,
             access_token,

@@ -1,3 +1,4 @@
+mod audit;
 mod auth;
 mod config;
 mod controllers;
@@ -5,6 +6,7 @@ mod directory;
 mod error;
 mod grpc;
 mod models;
+mod rate_limit;
 mod routes;
 mod settings;
 mod snapshot;
@@ -12,14 +14,17 @@ mod state;
 mod views;
 mod ws;
 
+use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
+use awg_audit::{AuditService, RedbAuditRepository};
 use awg_clients::{
     DeviceService, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
     RedbShareLinkRepository, ShareService,
 };
-use awg_identity::{Argon2Hasher, IdentityService, JwtIssuer, RedbUserRepository};
+use awg_identity::{Argon2Hasher, IdentityService, JwtIssuer, RedbUserRepository, TokenIssuer};
 use awg_network::{
     NetworkService, RedbCidrPoolRepository, RedbGroupRepository, RedbInterfaceRepository,
     RedbNodeRepository,
@@ -36,6 +41,7 @@ use tracing_subscriber::EnvFilter;
 use crate::config::Config;
 use crate::directory::{DevicesAdapter, NodesAdapter};
 use crate::grpc::WorkerGrpc;
+use crate::rate_limit::SlidingWindowLimiter;
 use crate::settings::SettingsStore;
 use crate::snapshot::SnapshotBuilder;
 use crate::state::AppState;
@@ -64,8 +70,28 @@ async fn main() -> Result<()> {
             &config.jwt_secret,
             config.access_ttl_secs,
             config.refresh_ttl_secs,
+            &config.jwt_issuer,
+            &config.jwt_audience,
             store.clone(),
         ));
+        {
+            let tokens = tokens.clone();
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(Duration::from_secs(3600));
+                ticker.tick().await;
+                loop {
+                    ticker.tick().await;
+                    match tokens.prune_expired() {
+                        Ok(removed) => {
+                            tracing::info!(removed, "pruned expired refresh tokens")
+                        }
+                        Err(error) => {
+                            tracing::warn!(%error, "failed to prune refresh tokens")
+                        }
+                    }
+                }
+            });
+        }
         Arc::new(IdentityService::new(users, hasher, tokens))
     };
 
@@ -139,6 +165,38 @@ async fn main() -> Result<()> {
 
     let settings = Arc::new(SettingsStore::new(store.clone()));
 
+    let audit = {
+        let repo = Arc::new(RedbAuditRepository::new(store.clone()));
+        Arc::new(AuditService::new(repo))
+    };
+
+    let login_limiter = Arc::new(SlidingWindowLimiter::new(
+        config.login_rate_limit,
+        Duration::from_secs(config.login_rate_window_secs),
+    ));
+    let refresh_limiter = Arc::new(SlidingWindowLimiter::new(
+        config.refresh_rate_limit,
+        Duration::from_secs(config.refresh_rate_window_secs),
+    ));
+
+    {
+        let login_limiter = login_limiter.clone();
+        let refresh_limiter = refresh_limiter.clone();
+        let period = config
+            .login_rate_window_secs
+            .max(config.refresh_rate_window_secs)
+            .max(60);
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(period));
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                login_limiter.cleanup();
+                refresh_limiter.cleanup();
+            }
+        });
+    }
+
     if let Some(admin) = identity
         .seed_admin(&config.admin_login, &config.admin_password)
         .context("failed to seed the initial administrator")?
@@ -148,8 +206,6 @@ async fn main() -> Result<()> {
 
     let state = Arc::new(AppState {
         config: config.clone(),
-        store,
-        sealer,
         identity,
         tariffs,
         network,
@@ -161,6 +217,9 @@ async fn main() -> Result<()> {
         registry: registry.clone(),
         orchestration,
         settings,
+        audit,
+        login_limiter,
+        refresh_limiter,
     });
 
     {
@@ -196,9 +255,17 @@ async fn main() -> Result<()> {
     let listener = TcpListener::bind(config.bind)
         .await
         .with_context(|| format!("failed to bind {}", config.bind))?;
-    tracing::info!(bind = %config.bind, "admin API listening (h2c + http/1.1)");
-    axum::serve(listener, app)
-        .await
-        .context("HTTP server failed")?;
+    tracing::info!(
+        bind = %config.bind,
+        env = config.environment.as_str(),
+        production = config.is_production(),
+        "admin API listening (h2c + http/1.1)"
+    );
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await
+    .context("HTTP server failed")?;
     Ok(())
 }

@@ -22,17 +22,14 @@ pub enum MimicProfile {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum Intensity {
     Low,
     Medium,
+    #[default]
     High,
 }
 
-impl Default for Intensity {
-    fn default() -> Self {
-        Self::High
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -275,7 +272,7 @@ fn browser_target(settings: &ObfuscationSettings, rng: &mut impl Rng) -> usize {
     let (lo, hi) = settings.browser.size_range();
     let mut target = rng.random_range(lo..=hi);
     if settings.browser.align_128() {
-        target = (target + 127) / 128 * 128;
+        target = target.div_ceil(128) * 128;
     }
     target.min(settings.mtu as usize)
 }

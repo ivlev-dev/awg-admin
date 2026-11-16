@@ -138,7 +138,7 @@ impl DeviceService {
             name: input.name.trim().to_string(),
             down_kbps: down,
             up_kbps: up,
-            forwarding: input.forwarding,
+            forwarding: ForwardingPolicy::normalize(input.forwarding),
             revoked: false,
             created_at: now,
             updated_at: now,
@@ -218,7 +218,7 @@ impl DeviceService {
         device.down_kbps = down;
         device.up_kbps = up;
         if let Some(forwarding) = forwarding {
-            device.forwarding = forwarding;
+            device.forwarding = ForwardingPolicy::normalize(forwarding);
         }
         ForwardingPolicy::validate(&device, &user_devices)?;
         let mut limits: Vec<(u32, u32)> = user_devices

@@ -14,12 +14,6 @@ use crate::state::AppState;
 use crate::views::{DeviceTrafficView, OverviewView, StatsPoint, TrafficTotals};
 
 #[derive(Debug, Deserialize)]
-pub struct ScopeQuery {
-    pub scope: String,
-    pub id: Option<Uuid>,
-}
-
-#[derive(Debug, Deserialize)]
 pub struct SeriesQuery {
     pub scope: String,
     pub id: Option<Uuid>,

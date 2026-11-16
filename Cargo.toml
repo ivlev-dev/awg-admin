@@ -8,6 +8,7 @@ members = [
     "backend/crates/network",
     "backend/crates/clients",
     "backend/crates/statistics",
+    "backend/crates/audit",
     "backend/crates/orchestration",
     "backend/crates/proto",
     "backend/crates/worker",

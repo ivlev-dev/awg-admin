@@ -94,6 +94,7 @@ name = "awg-admin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "awg-audit",
  "awg-clients",
  "awg-identity",
  "awg-network",
@@ -119,6 +120,17 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
+name = "awg-audit"
+version = "0.1.0"
+dependencies = [
+ "awg-shared",
+ "awg-storage",
+ "chrono",
+ "serde",
  "uuid",
 ]
 

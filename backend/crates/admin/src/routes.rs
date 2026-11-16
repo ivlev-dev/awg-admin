@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::Router;
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderValue, Method, header};
+use axum::middleware;
 use axum::routing::{delete, get, patch, post};
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
@@ -19,6 +20,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/auth/logout", post(controllers::auth::logout))
         .route("/auth/me", get(controllers::auth::me))
         .route("/auth/password", post(controllers::auth::change_password))
+        .route("/auth/sessions", get(controllers::auth::sessions))
+        .route(
+            "/auth/sessions/{jti}",
+            delete(controllers::auth::revoke_session),
+        )
+        .route("/auth/logout-all", post(controllers::auth::logout_all))
         .route(
             "/users",
             get(controllers::users::list).post(controllers::users::create),
@@ -107,6 +114,7 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/settings",
             get(controllers::settings::get).put(controllers::settings::update),
         )
+        .route("/audit", get(controllers::audit::list))
         .route("/import", post(controllers::import::run))
         .route("/ws/stats", get(ws::stats_ws))
         .route("/share/{token}", get(controllers::share::download))
@@ -117,6 +125,10 @@ pub fn router(state: Arc<AppState>) -> Router {
 
     Router::new()
         .nest("/api/v1", api)
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            crate::audit::middleware,
+        ))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
 }

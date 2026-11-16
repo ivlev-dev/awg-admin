@@ -67,16 +67,9 @@ impl UserRepository for RedbUserRepository {
     }
 }
 
+#[derive(Default)]
 pub struct Argon2Hasher {
     argon: Argon2<'static>,
-}
-
-impl Default for Argon2Hasher {
-    fn default() -> Self {
-        Self {
-            argon: Argon2::default(),
-        }
-    }
 }
 
 impl PasswordHasher for Argon2Hasher {

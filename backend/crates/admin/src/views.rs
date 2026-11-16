@@ -2,10 +2,11 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+use awg_audit::AuditEntry;
 use awg_clients::{Device, DevicePeer, DeviceProfile, Forwarding, ShareLink};
 use awg_identity::{Role, User};
 use awg_network::{CidrPool, Group, Interface, NodeStatus, PoolMode};
-use awg_shared::obf::{ClientObf, InterfaceObf};
+use awg_shared::obf::InterfaceObf;
 use awg_tariffs::Tariff;
 
 #[derive(Debug, Serialize)]
@@ -41,6 +42,33 @@ pub struct AuthView {
     pub refresh_token: String,
     pub expires_in: u64,
     pub user: UserView,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionView {
+    pub jti: Uuid,
+    pub family_id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub expires_at: DateTime<Utc>,
+    pub revoked: bool,
+    pub used: bool,
+    pub user_agent: Option<String>,
+    pub ip: Option<String>,
+}
+
+impl From<&awg_identity::RefreshSession> for SessionView {
+    fn from(session: &awg_identity::RefreshSession) -> Self {
+        Self {
+            jti: session.jti,
+            family_id: session.family_id,
+            created_at: session.created_at,
+            expires_at: session.expires_at,
+            revoked: session.revoked,
+            used: session.used,
+            user_agent: session.user_agent.clone(),
+            ip: session.ip.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -299,16 +327,32 @@ pub struct DeviceTrafficView {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ObfuscationView {
-    pub profile: awg_shared::obf::MimicProfile,
-    pub intensity: awg_shared::obf::Intensity,
-    pub browser: awg_shared::obf::BrowserProfile,
-    pub mtu: u16,
-    pub jc_min: u16,
-    pub jc_max: u16,
-    pub hosts: Vec<String>,
-    pub random_trailers: bool,
+pub struct AuditEntryView {
+    pub id: Uuid,
+    pub at: DateTime<Utc>,
+    pub actor_id: Option<Uuid>,
+    pub actor_login: String,
+    pub action: String,
+    pub entity: String,
+    pub entity_id: Option<String>,
+    pub status: u16,
+    pub ip: Option<String>,
+    pub details: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-pub struct ClientObfView(pub ClientObf);
+impl From<&AuditEntry> for AuditEntryView {
+    fn from(entry: &AuditEntry) -> Self {
+        Self {
+            id: entry.id,
+            at: entry.at,
+            actor_id: entry.actor_id,
+            actor_login: entry.actor_login.clone(),
+            action: entry.action.clone(),
+            entity: entry.entity.clone(),
+            entity_id: entry.entity_id.clone(),
+            status: entry.status,
+            ip: entry.ip.clone(),
+            details: entry.details.clone(),
+        }
+    }
+}

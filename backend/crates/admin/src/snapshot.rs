@@ -28,18 +28,18 @@ impl SnapshotSource for SnapshotBuilder {
         users.sort_by_key(|u| u.id);
         let mut tariffs = HashMap::new();
         for user in &users {
-            if let Some(tariff_id) = user.tariff_id {
-                if let Ok(tariff) = self.tariffs.get(tariff_id) {
-                    tariffs.insert(tariff_id, tariff);
-                }
+            if let Some(tariff_id) = user.tariff_id
+                && let Ok(tariff) = self.tariffs.get(tariff_id)
+            {
+                tariffs.insert(tariff_id, tariff);
             }
         }
         let mut user_tariffs: HashMap<Uuid, &awg_tariffs::Tariff> = HashMap::new();
         for user in &users {
-            if let Some(tariff_id) = user.tariff_id {
-                if let Some(tariff) = tariffs.get(&tariff_id) {
-                    user_tariffs.insert(user.id, tariff);
-                }
+            if let Some(tariff_id) = user.tariff_id
+                && let Some(tariff) = tariffs.get(&tariff_id)
+            {
+                user_tariffs.insert(user.id, tariff);
             }
         }
 
@@ -130,11 +130,11 @@ impl SnapshotSource for SnapshotBuilder {
                     let Some(pool) = pool_map.get(pool_id) else {
                         continue;
                     };
-                    if let Ok(net) = parse_net(&pool.cidr) {
-                        if let std::net::IpAddr::V4(v4) = ip {
-                            addresses.push(address_with_prefix(*v4, net));
-                            allowed.push(format!("{v4}/32"));
-                        }
+                    if let Ok(net) = parse_net(&pool.cidr)
+                        && let std::net::IpAddr::V4(v4) = ip
+                    {
+                        addresses.push(address_with_prefix(*v4, net));
+                        allowed.push(format!("{v4}/32"));
                     }
                 }
                 peer_by_device.insert(device.id, (addresses.clone(), allowed.clone()));

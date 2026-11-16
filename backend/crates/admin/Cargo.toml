@@ -13,6 +13,7 @@ awg-shared = { path = "../shared" }
 awg-storage = { path = "../storage" }
 awg-identity = { path = "../identity" }
 awg-tariffs = { path = "../tariffs" }
+awg-audit = { path = "../audit" }
 awg-network = { path = "../network" }
 awg-clients = { path = "../clients" }
 awg-statistics = { path = "../statistics" }

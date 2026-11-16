@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
@@ -14,6 +14,12 @@ pub struct Forwarding {
     pub to_own_devices: bool,
     #[serde(default)]
     pub allowed_devices: Vec<Uuid>,
+}
+
+impl AsRef<Forwarding> for Forwarding {
+    fn as_ref(&self) -> &Forwarding {
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -70,6 +76,19 @@ pub trait DevicePeerRepository: Send + Sync {
 pub struct ForwardingPolicy;
 
 impl ForwardingPolicy {
+    pub fn normalize(forwarding: impl AsRef<Forwarding>) -> Forwarding {
+        let forwarding = forwarding.as_ref();
+        let allowed: BTreeSet<Uuid> = forwarding.allowed_devices.iter().copied().collect();
+        let mut result = Forwarding {
+            to_own_devices: forwarding.to_own_devices,
+            allowed_devices: allowed.into_iter().collect(),
+        };
+        if result.to_own_devices {
+            result.allowed_devices.clear();
+        }
+        result
+    }
+
     pub fn validate(device: &Device, other_devices: &[Device]) -> CoreResult<()> {
         let own: HashSet<Uuid> = other_devices
             .iter()
@@ -179,5 +198,65 @@ mod tests {
         assert!(!ForwardingPolicy::allows(&b, &a));
         assert!(!ForwardingPolicy::allows(&c, &a));
         assert!(!ForwardingPolicy::allows(&a, &c));
+    }
+
+    #[test]
+    fn normalize_dedups_and_sorts() {
+        let id1 = Uuid::new_v4();
+        let id2 = Uuid::new_v4();
+        let forwarding = Forwarding {
+            to_own_devices: false,
+            allowed_devices: vec![id2, id1, id1],
+        };
+        let mut expected = vec![id1, id2];
+        expected.sort();
+        expected.dedup();
+        let normalized = ForwardingPolicy::normalize(forwarding);
+        assert_eq!(normalized.allowed_devices, expected);
+    }
+
+    #[test]
+    fn normalize_clears_list_when_all() {
+        let id = Uuid::new_v4();
+        let forwarding = Forwarding {
+            to_own_devices: true,
+            allowed_devices: vec![id],
+        };
+        let normalized = ForwardingPolicy::normalize(forwarding);
+        assert!(normalized.to_own_devices);
+        assert!(normalized.allowed_devices.is_empty());
+    }
+
+    #[test]
+    fn normalize_accepts_reference() {
+        let id = Uuid::new_v4();
+        let forwarding = Forwarding {
+            to_own_devices: false,
+            allowed_devices: vec![id, id],
+        };
+        let normalized = ForwardingPolicy::normalize(&forwarding);
+        assert_eq!(normalized.allowed_devices, vec![id]);
+        assert_eq!(forwarding.allowed_devices.len(), 2);
+    }
+
+    #[test]
+    fn validate_rejects_self() {
+        let user = Uuid::new_v4();
+        let mut a = device(user, false);
+        a.forwarding.allowed_devices = vec![a.id];
+        let err = ForwardingPolicy::validate(&a, std::slice::from_ref(&a)).unwrap_err();
+        assert!(matches!(err, CoreError::Invalid(_)));
+    }
+
+    #[test]
+    fn validate_rejects_foreign() {
+        let user = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let a = device(user, false);
+        let b = device(other, false);
+        let mut a2 = a.clone();
+        a2.forwarding.allowed_devices = vec![b.id];
+        let err = ForwardingPolicy::validate(&a2, &[b]).unwrap_err();
+        assert!(matches!(err, CoreError::Invalid(_)));
     }
 }

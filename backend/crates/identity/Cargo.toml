@@ -17,3 +17,5 @@ sha2.workspace = true
 
 [dev-dependencies]
 base64 = "0.22"
+jsonwebtoken.workspace = true
+uuid.workspace = true
