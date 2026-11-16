@@ -9,6 +9,44 @@ use awg_network::PoolMode;
 pub struct LoginRequest {
     pub login: String,
     pub password: String,
+    #[serde(default)]
+    pub totp_code: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub email: String,
+    #[serde(default)]
+    pub login: Option<String>,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct VerifyEmailRequest {
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResendVerificationRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApproveUserRequest {
+    pub tariff_id: Uuid,
+    #[serde(default)]
+    pub group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EnableTotpRequest {
+    pub code: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DisableTotpRequest {
+    pub password: String,
+    pub code: String,
 }
 
 #[derive(Debug, Deserialize)]

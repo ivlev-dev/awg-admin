@@ -16,6 +16,12 @@ pub fn router(state: Arc<AppState>) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/auth/login", post(controllers::auth::login))
+        .route("/auth/register", post(controllers::auth::register))
+        .route("/auth/verify-email", post(controllers::auth::verify_email))
+        .route(
+            "/auth/resend-verification",
+            post(controllers::auth::resend_verification),
+        )
         .route("/auth/refresh", post(controllers::auth::refresh))
         .route("/auth/logout", post(controllers::auth::logout))
         .route("/auth/me", get(controllers::auth::me))
@@ -26,6 +32,10 @@ pub fn router(state: Arc<AppState>) -> Router {
             delete(controllers::auth::revoke_session),
         )
         .route("/auth/logout-all", post(controllers::auth::logout_all))
+        .route("/auth/totp/setup", post(controllers::auth::totp_setup))
+        .route("/auth/totp/enable", post(controllers::auth::totp_enable))
+        .route("/auth/totp/disable", post(controllers::auth::totp_disable))
+        .route("/users/pending", get(controllers::users::pending))
         .route(
             "/users",
             get(controllers::users::list).post(controllers::users::create),
@@ -40,6 +50,8 @@ pub fn router(state: Arc<AppState>) -> Router {
             "/users/{id}/password",
             post(controllers::users::reset_password),
         )
+        .route("/users/{id}/approve", post(controllers::users::approve))
+        .route("/users/{id}/reject", post(controllers::users::reject))
         .route(
             "/tariffs",
             get(controllers::tariffs::list).post(controllers::tariffs::create),

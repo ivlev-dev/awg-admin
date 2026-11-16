@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `internal`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -14,6 +14,12 @@
 |---|---|---|---|---|
 | GET | `/health` | public | — | `{status,service,version}` |
 | POST | `/auth/login` | public | `LoginRequest` | `AuthView` |
+| POST | `/auth/register` | public | `{email,login?,password}` | `202 {status:"pending_email"}` |
+| POST | `/auth/verify-email` | public | `{token}` | `{status:"pending_approval"}` |
+| POST | `/auth/resend-verification` | public | `{email}` | `202 {status:"sent"}` |
+| POST | `/auth/totp/setup` | user | — | `{secret,otpauth_url,recovery_codes}` |
+| POST | `/auth/totp/enable` | user | `{code}` | `{enabled:true}` |
+| POST | `/auth/totp/disable` | user | `{password,code}` | `{enabled:false}` |
 | POST | `/auth/refresh` | public | `RefreshRequest` | `AuthView` |
 | POST | `/auth/logout` | user | `LogoutRequest` | `{ok:true}` |
 | POST | `/auth/logout-all` | user | — | `{ok:true,revoked}` |
@@ -25,6 +31,9 @@
 | GET | `/auth/sessions` | user | — | `SessionView[]` |
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
 | GET | `/users` | admin | — | `UserView[]` |
+| GET | `/users/pending` | admin | — | `UserView[]` (pending approval) |
+| POST | `/users/{id}/approve` | admin | `{tariff_id,group_id?}` | `UserView` |
+| POST | `/users/{id}/reject` | admin | — | `UserView` |
 | POST | `/users` | admin | `CreateUserRequest` | `UserView` |
 | GET | `/users/{id}` | admin | — | `UserView` |
 | PATCH | `/users/{id}` | admin | `UpdateUserRequest` | `UserView` |
@@ -137,6 +146,54 @@ stateless: после logout/logout-all ранее выданный access де�
 Ошибки аутентификации: `401 unauthorized` — нет/некорректный Bearer-заголовок;
 `403 forbidden` — неверная подпись, `exp`/`nbf`/`iss`/`aud`/`kind`, отозванный
 refresh, повтор refresh, заблокированный или удалённый пользователь.
+
+## Регистрация, подтверждение email и TOTP
+
+Самостоятельная регистрация создаёт пользователя в статусе `pending_email` с
+ролью `user`. Письмо со ссылкой
+`{AWG_PUBLIC_URL}/verify-email?token=…` отправляется через `Mailer`
+(`AWG_MAIL_MODE=log|smtp`); токен живёт 24 часа и одноразовый. После перехода по
+ссылке статус становится `pending_approval`, затем администратор подтверждает
+аккаунт и назначает тариф:
+
+1. `POST /auth/register` `{"email":"user@example.com","login":"optional","password":"…"}`
+   → `202 {"status":"pending_email"}`. Email нормализуется (trim + нижний
+   регистр), уникален без учёта регистра. `login` по умолчанию — local-part
+   email, при коллизии добавляется суффикс (`user-2`). Явно заданный занятый
+   `login` или существующий email дают `409 conflict`.
+2. `POST /auth/verify-email` `{"token":"…"}` →
+   `{"status":"pending_approval"}`. Повторный вызов — `400 bad_request`.
+3. `GET /users/pending` (admin) → `UserView[]` со статусом `pending_approval`.
+4. `POST /users/{id}/approve` `{"tariff_id":"…","group_id":"…"}` (admin) →
+   `UserView` со статусом `active`.
+5. `POST /users/{id}/reject` (admin) → `UserView` со статусом `rejected`.
+
+`POST /auth/resend-verification` `{"email":"…"}` всегда отвечает
+`202 {"status":"sent"}` и не раскрывает существование аккаунта. `register` и
+`resend-verification` ограничены по IP (`AWG_REGISTER_RATE_LIMIT`,
+`AWG_RESEND_RATE_LIMIT`).
+
+Вход `POST /auth/login` принимает в поле `login` email или логин (email
+проверяется первым). Незавершённые статусы дают `403` с кодом
+`email_not_verified`, `pending_approval` или `rejected`. Пользователи,
+созданные администратором, сразу `active`.
+
+`UserView` дополнен полями `email`, `status` (`pending_email`,
+`pending_approval`, `active`, `rejected`) и `totp_enabled`.
+
+TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
+
+- `POST /auth/totp/setup` → `{secret, otpauth_url, recovery_codes}`. Секрет
+  хранится только в зашифрованном виде (`Sealer`), возвращаются 8 одноразовых
+  recovery-кодов (в хранилище — Argon2-хэши), `totp_enabled` пока `false`.
+- `POST /auth/totp/enable` `{"code":"123456"}` → `{"enabled":true}`.
+- `POST /auth/totp/disable` `{"password":"…","code":"…"}` →
+  `{"enabled":false}`, секрет и recovery-коды удаляются.
+
+При включённом TOTP вход без кода возвращает `401 totp_required`, с неверным
+кодом — `401 totp_invalid`. В поле `totp_code` принимается код приложения или
+одноразовый recovery-код. Ошибки статусов и коды TOTP отдаются в формате
+`{"error":{"code":"…","message":"…"}}`.
 
 ## Квота трафика
 

@@ -8,7 +8,9 @@ use awg_identity::{NewUser, UserChanges};
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
-use crate::models::{ChangePasswordRequest, CreateUserRequest, UpdateUserRequest};
+use crate::models::{
+    ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest,
+};
 use crate::state::AppState;
 use crate::views::UserView;
 
@@ -97,4 +99,37 @@ pub async fn reset_password(
         .reset_password(id, &request.new_password)
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+pub async fn pending(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<UserView>>> {
+    user.require_admin()?;
+    let users = state.identity.pending_users().map_err(ApiError::from)?;
+    Ok(Json(users.iter().map(UserView::from).collect()))
+}
+
+pub async fn approve(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(request): Json<ApproveUserRequest>,
+) -> ApiResult<Json<UserView>> {
+    user.require_admin()?;
+    let approved = state
+        .identity
+        .approve_user(id, request.tariff_id, request.group_id)
+        .map_err(ApiError::from)?;
+    Ok(Json(UserView::from(&approved)))
+}
+
+pub async fn reject(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<UserView>> {
+    user.require_admin()?;
+    let rejected = state.identity.reject_user(id).map_err(ApiError::from)?;
+    Ok(Json(UserView::from(&rejected)))
 }

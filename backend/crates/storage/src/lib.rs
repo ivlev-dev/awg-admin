@@ -85,6 +85,7 @@ tables! {
     TrafficBuckets => "traffic_buckets",
     ShareLinks => "share_links",
     RefreshTokens => "refresh_tokens",
+    EmailVerifications => "email_verifications",
     Settings => "settings",
     Audit => "audit",
     Meta => "meta",

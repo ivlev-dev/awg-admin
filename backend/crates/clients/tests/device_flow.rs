@@ -121,6 +121,11 @@ fn user(group_id: Uuid, tariff_id: Uuid) -> User {
         tariff_id: Some(tariff_id),
         group_id: Some(group_id),
         disabled: false,
+        email: None,
+        status: awg_identity::UserStatus::Active,
+        totp_secret_sealed: None,
+        totp_enabled: false,
+        recovery_codes: Vec::new(),
         created_at: now,
         updated_at: now,
     }

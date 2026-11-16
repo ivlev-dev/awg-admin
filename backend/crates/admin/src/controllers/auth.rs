@@ -3,15 +3,18 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, State};
-use axum::http::{HeaderMap, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use uuid::Uuid;
 
-use awg_identity::SessionMetadata;
+use awg_identity::{RegisterInput, SessionMetadata};
 
 use crate::audit::{client_ip, record_login};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
-use crate::models::{ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshRequest};
+use crate::models::{
+    ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, LoginRequest, LogoutRequest,
+    RefreshRequest, RegisterRequest, ResendVerificationRequest, VerifyEmailRequest,
+};
 use crate::state::AppState;
 use crate::views::{AuthView, SessionView, UserView};
 
@@ -39,9 +42,10 @@ pub async fn login(
             retry_after,
         });
     }
-    let session = match state.identity.login(
+    let session = match state.identity.login_with_totp(
         &request.login,
         &request.password,
+        request.totp_code.as_deref(),
         &session_metadata(&headers, Some(peer)),
     ) {
         Ok(session) => session,
@@ -118,6 +122,108 @@ pub async fn logout(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+pub async fn register(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(request): Json<RegisterRequest>,
+) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    let ip = client_ip(&headers, Some(peer));
+    let key = ip_key("register", ip.as_deref());
+    if let Err(retry_after) = state.register_limiter.check(&key) {
+        crate::metrics::record_rate_limited("register");
+        return Err(ApiError::TooManyRequests {
+            message: "too many registration attempts, try again later".into(),
+            retry_after,
+        });
+    }
+    state
+        .identity
+        .register(RegisterInput {
+            email: request.email,
+            login: request.login,
+            password: request.password,
+        })
+        .await
+        .map_err(ApiError::from)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "pending_email" })),
+    ))
+}
+
+pub async fn verify_email(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<VerifyEmailRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    state
+        .identity
+        .verify_email(&request.token)
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "status": "pending_approval" })))
+}
+
+pub async fn resend_verification(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(request): Json<ResendVerificationRequest>,
+) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    let ip = client_ip(&headers, Some(peer));
+    let key = ip_key("resend", ip.as_deref());
+    if let Err(retry_after) = state.resend_limiter.check(&key) {
+        crate::metrics::record_rate_limited("resend_verification");
+        return Err(ApiError::TooManyRequests {
+            message: "too many verification requests, try again later".into(),
+            retry_after,
+        });
+    }
+    state.identity.resend_verification(&request.email).await;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "sent" })),
+    ))
+}
+
+pub async fn totp_setup(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+) -> ApiResult<Json<serde_json::Value>> {
+    let setup = state
+        .identity
+        .setup_totp(user.id())
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({
+        "secret": setup.secret,
+        "otpauth_url": setup.otpauth_url,
+        "recovery_codes": setup.recovery_codes,
+    })))
+}
+
+pub async fn totp_enable(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Json(request): Json<EnableTotpRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    state
+        .identity
+        .enable_totp(user.id(), &request.code)
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "enabled": true })))
+}
+
+pub async fn totp_disable(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Json(request): Json<DisableTotpRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    state
+        .identity
+        .disable_totp(user.id(), &request.password, &request.code)
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "enabled": false })))
+}
+
 pub async fn me(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiResult<Json<UserView>> {
     let user = state.identity.find(user.id()).map_err(ApiError::from)?;
     Ok(Json(UserView::from(&user)))
@@ -186,6 +292,10 @@ fn rate_key(ip: Option<&str>, login: &str) -> String {
         ip.unwrap_or("unknown"),
         login.trim().to_ascii_lowercase()
     )
+}
+
+fn ip_key(prefix: &str, ip: Option<&str>) -> String {
+    format!("{prefix}:{}", ip.unwrap_or("unknown"))
 }
 
 #[cfg(test)]

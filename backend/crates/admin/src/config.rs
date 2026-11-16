@@ -38,6 +38,29 @@ impl Environment {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MailMode {
+    Log,
+    Smtp,
+}
+
+impl MailMode {
+    pub fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "log" => Ok(Self::Log),
+            "smtp" => Ok(Self::Smtp),
+            other => bail!("AWG_MAIL_MODE must be log or smtp, got {other:?}"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Log => "log",
+            Self::Smtp => "smtp",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigInput {
     pub environment: Environment,
@@ -60,6 +83,13 @@ pub struct ConfigInput {
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
+    pub register_rate_limit: u32,
+    pub register_rate_window_secs: u64,
+    pub resend_rate_limit: u32,
+    pub resend_rate_window_secs: u64,
+    pub mail_mode: String,
+    pub smtp_url: Option<String>,
+    pub smtp_from: Option<String>,
     pub metrics_token: Option<String>,
 }
 
@@ -85,6 +115,13 @@ pub struct Config {
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
+    pub register_rate_limit: u32,
+    pub register_rate_window_secs: u64,
+    pub resend_rate_limit: u32,
+    pub resend_rate_window_secs: u64,
+    pub mail_mode: MailMode,
+    pub smtp_url: Option<String>,
+    pub smtp_from: Option<String>,
     pub metrics_token: Option<String>,
 }
 
@@ -174,6 +211,13 @@ impl Config {
             }
         }
 
+        let mail_mode = MailMode::parse(&input.mail_mode)?;
+        let smtp_url = non_empty(&input.smtp_url).map(|value| value.trim().to_string());
+        let smtp_from = non_empty(&input.smtp_from).map(|value| value.trim().to_string());
+        if mail_mode == MailMode::Smtp && (smtp_url.is_none() || smtp_from.is_none()) {
+            bail!("AWG_SMTP_URL and AWG_SMTP_FROM are required when AWG_MAIL_MODE=smtp");
+        }
+
         Ok(Self {
             environment: input.environment,
             bind,
@@ -195,6 +239,13 @@ impl Config {
             login_rate_window_secs: input.login_rate_window_secs.max(1),
             refresh_rate_limit: input.refresh_rate_limit,
             refresh_rate_window_secs: input.refresh_rate_window_secs.max(1),
+            register_rate_limit: input.register_rate_limit,
+            register_rate_window_secs: input.register_rate_window_secs.max(1),
+            resend_rate_limit: input.resend_rate_limit,
+            resend_rate_window_secs: input.resend_rate_window_secs.max(1),
+            mail_mode,
+            smtp_url,
+            smtp_from,
             metrics_token,
         })
     }
@@ -259,6 +310,13 @@ fn input_from_env() -> Result<ConfigInput> {
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
         refresh_rate_limit: env_u32("AWG_REFRESH_RATE_LIMIT", 60),
         refresh_rate_window_secs: env_u64("AWG_REFRESH_RATE_WINDOW_SECS", 300),
+        register_rate_limit: env_u32("AWG_REGISTER_RATE_LIMIT", 5),
+        register_rate_window_secs: env_u64("AWG_REGISTER_RATE_WINDOW_SECS", 300),
+        resend_rate_limit: env_u32("AWG_RESEND_RATE_LIMIT", 5),
+        resend_rate_window_secs: env_u64("AWG_RESEND_RATE_WINDOW_SECS", 300),
+        mail_mode: env("AWG_MAIL_MODE", "log"),
+        smtp_url: env_optional("AWG_SMTP_URL"),
+        smtp_from: env_optional("AWG_SMTP_FROM"),
         metrics_token: env_optional("AWG_METRICS_TOKEN"),
     })
 }
@@ -317,6 +375,13 @@ mod tests {
             login_rate_window_secs: 300,
             refresh_rate_limit: 60,
             refresh_rate_window_secs: 300,
+            register_rate_limit: 5,
+            register_rate_window_secs: 300,
+            resend_rate_limit: 5,
+            resend_rate_window_secs: 300,
+            mail_mode: "log".into(),
+            smtp_url: None,
+            smtp_from: None,
             metrics_token: None,
         }
     }
@@ -426,9 +491,33 @@ mod tests {
         let mut input = base_input(Environment::Development);
         input.login_rate_window_secs = 0;
         input.refresh_rate_window_secs = 0;
+        input.register_rate_window_secs = 0;
+        input.resend_rate_window_secs = 0;
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.login_rate_window_secs, 1);
         assert_eq!(config.refresh_rate_window_secs, 1);
+        assert_eq!(config.register_rate_window_secs, 1);
+        assert_eq!(config.resend_rate_window_secs, 1);
+    }
+
+    #[test]
+    fn mail_mode_defaults_to_log_and_validates_smtp() {
+        let mut input = base_input(Environment::Development);
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.mail_mode, MailMode::Log);
+
+        input.mail_mode = " SMTP ".into();
+        assert!(Config::from_input(input.clone()).is_err());
+
+        input.smtp_url = Some("smtp://user:pass@localhost:2525".into());
+        input.smtp_from = Some("panel@localhost".into());
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.mail_mode, MailMode::Smtp);
+        assert_eq!(config.smtp_from.as_deref(), Some("panel@localhost"));
+
+        input.mail_mode = "telegram".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_MAIL_MODE must be log or smtp"));
     }
 
     #[test]

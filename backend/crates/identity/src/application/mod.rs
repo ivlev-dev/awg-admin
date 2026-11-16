@@ -1,14 +1,22 @@
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{Duration, Utc};
 use uuid::Uuid;
 
+use awg_shared::crypto::Sealer;
 use awg_shared::{CoreError, CoreResult};
+use sha2::{Digest, Sha256};
+use totp_rs::{Algorithm, Builder, Secret, Totp};
 
 use crate::domain::{
-    IssuedTokens, PasswordHasher, RefreshSession, Role, SessionMetadata, TokenIssuer, User,
-    UserRepository, validate_login, validate_password,
+    CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification, EmailVerificationRepository,
+    IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role, SessionMetadata, TokenIssuer, User,
+    UserRepository, UserStatus, normalize_email, validate_login, validate_password,
 };
+
+const VERIFICATION_TTL_HOURS: i64 = 24;
+const RECOVERY_CODE_COUNT: usize = 8;
+const TOTP_ISSUER: &str = "awg-admin";
 
 #[derive(Debug, Clone)]
 pub struct NewUser {
@@ -17,6 +25,20 @@ pub struct NewUser {
     pub role: Role,
     pub tariff_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RegisterInput {
+    pub email: String,
+    pub login: Option<String>,
+    pub password: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TotpSetup {
+    pub secret: String,
+    pub otpauth_url: String,
+    pub recovery_codes: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,6 +81,10 @@ pub struct IdentityService {
     users: Arc<dyn UserRepository>,
     hasher: Arc<dyn PasswordHasher>,
     tokens: Arc<dyn TokenIssuer>,
+    verifications: Arc<dyn EmailVerificationRepository>,
+    mailer: Arc<dyn Mailer>,
+    sealer: Arc<Sealer>,
+    public_url: String,
 }
 
 impl IdentityService {
@@ -66,11 +92,19 @@ impl IdentityService {
         users: Arc<dyn UserRepository>,
         hasher: Arc<dyn PasswordHasher>,
         tokens: Arc<dyn TokenIssuer>,
+        verifications: Arc<dyn EmailVerificationRepository>,
+        mailer: Arc<dyn Mailer>,
+        sealer: Arc<Sealer>,
+        public_url: String,
     ) -> Self {
         Self {
             users,
             hasher,
             tokens,
+            verifications,
+            mailer,
+            sealer,
+            public_url,
         }
     }
 
@@ -94,13 +128,35 @@ impl IdentityService {
         password: &str,
         metadata: &SessionMetadata,
     ) -> CoreResult<AuthSession> {
-        let user = self
-            .users
-            .find_by_login(login.trim())?
-            .ok_or_else(|| CoreError::Forbidden("invalid login or password".into()))?;
+        self.login_with_totp(login, password, None, metadata)
+    }
+
+    pub fn login_with_totp(
+        &self,
+        login: &str,
+        password: &str,
+        totp_code: Option<&str>,
+        metadata: &SessionMetadata,
+    ) -> CoreResult<AuthSession> {
+        let login = login.trim();
+        let user = match self.users.find_by_email(login)? {
+            Some(user) => Some(user),
+            None => self.users.find_by_login(login)?,
+        }
+        .ok_or_else(|| CoreError::Forbidden("invalid login or password".into()))?;
         user.ensure_active()?;
         if !self.hasher.verify(password, &user.password_hash)? {
             return Err(CoreError::Forbidden("invalid login or password".into()));
+        }
+        let mut user = user;
+        if user.totp_enabled {
+            let code = totp_code
+                .map(str::trim)
+                .filter(|code| !code.is_empty())
+                .ok_or_else(|| CoreError::Forbidden(CODE_TOTP_REQUIRED.into()))?;
+            if !self.consume_auth_code(&mut user, code)? {
+                return Err(CoreError::Forbidden(CODE_TOTP_INVALID.into()));
+            }
         }
         self.session_for(user, metadata)
     }
@@ -184,11 +240,289 @@ impl IdentityService {
             tariff_id: input.tariff_id,
             group_id: input.group_id,
             disabled: false,
+            email: None,
+            status: UserStatus::Active,
+            totp_secret_sealed: None,
+            totp_enabled: false,
+            recovery_codes: Vec::new(),
             created_at: now,
             updated_at: now,
         };
         self.users.save(&user)?;
         Ok(user)
+    }
+
+    pub async fn register(&self, input: RegisterInput) -> CoreResult<User> {
+        let email = normalize_email(&input.email)?;
+        validate_password(&input.password)?;
+        if self.users.find_by_email(&email)?.is_some() {
+            return Err(CoreError::Conflict("email is already registered".into()));
+        }
+        let login = match input
+            .login
+            .as_deref()
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+        {
+            Some(login) => {
+                validate_login(login)?;
+                if self.users.find_by_login(login)?.is_some() {
+                    return Err(CoreError::Conflict("login is already taken".into()));
+                }
+                login.to_string()
+            }
+            None => self.derived_login(&email)?,
+        };
+        let now = Utc::now();
+        let user = User {
+            id: Uuid::new_v4(),
+            login,
+            password_hash: self.hasher.hash(&input.password)?,
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            disabled: false,
+            email: Some(email.clone()),
+            status: UserStatus::PendingEmail,
+            totp_secret_sealed: None,
+            totp_enabled: false,
+            recovery_codes: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        };
+        self.users.save(&user)?;
+        self.issue_verification(&user, &email).await;
+        Ok(user)
+    }
+
+    pub fn verify_email(&self, token: &str) -> CoreResult<User> {
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(CoreError::Invalid(
+                "verification token is invalid or expired".into(),
+            ));
+        }
+        let key = hash_token(token);
+        let mut verification = self
+            .verifications
+            .find(&key)?
+            .ok_or_else(|| CoreError::Invalid("verification token is invalid or expired".into()))?;
+        if verification.used {
+            return Err(CoreError::Invalid(
+                "verification token was already used".into(),
+            ));
+        }
+        if verification.expires_at <= Utc::now() {
+            return Err(CoreError::Invalid("verification token is expired".into()));
+        }
+        verification.used = true;
+        self.verifications.save(&key, &verification)?;
+
+        let mut user = self
+            .users
+            .find_by_id(verification.user_id)?
+            .ok_or_else(|| CoreError::NotFound("user".into()))?;
+        if user.status == UserStatus::PendingEmail {
+            user.status = UserStatus::PendingApproval;
+            user.updated_at = Utc::now();
+            self.users.save(&user)?;
+        }
+        Ok(user)
+    }
+
+    pub async fn resend_verification(&self, email: &str) {
+        let Ok(email) = normalize_email(email) else {
+            return;
+        };
+        let Ok(Some(user)) = self.users.find_by_email(&email) else {
+            return;
+        };
+        if user.status != UserStatus::PendingEmail {
+            return;
+        }
+        self.issue_verification(&user, &email).await;
+    }
+
+    pub fn pending_users(&self) -> CoreResult<Vec<User>> {
+        let mut users: Vec<User> = self
+            .users
+            .list()?
+            .into_iter()
+            .filter(|user| user.status == UserStatus::PendingApproval)
+            .collect();
+        users.sort_by_key(|user| user.created_at);
+        Ok(users)
+    }
+
+    pub fn approve_user(
+        &self,
+        id: Uuid,
+        tariff_id: Uuid,
+        group_id: Option<Uuid>,
+    ) -> CoreResult<User> {
+        let mut user = self.find(id)?;
+        if user.status != UserStatus::PendingApproval {
+            return Err(CoreError::Invalid("user is not awaiting approval".into()));
+        }
+        user.status = UserStatus::Active;
+        user.tariff_id = Some(tariff_id);
+        user.group_id = group_id;
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        Ok(user)
+    }
+
+    pub fn reject_user(&self, id: Uuid) -> CoreResult<User> {
+        let mut user = self.find(id)?;
+        if !matches!(
+            user.status,
+            UserStatus::PendingEmail | UserStatus::PendingApproval
+        ) {
+            return Err(CoreError::Invalid("user is not pending".into()));
+        }
+        user.status = UserStatus::Rejected;
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        self.tokens.revoke_all(user.id)?;
+        Ok(user)
+    }
+
+    pub fn setup_totp(&self, user_id: Uuid) -> CoreResult<TotpSetup> {
+        let mut user = self.find(user_id)?;
+        user.ensure_active()?;
+        let secret = Secret::generate();
+        let encoded = secret.to_base32();
+        let totp = build_totp(&user.login, secret)?;
+        let otpauth_url = totp
+            .to_url()
+            .map_err(|e| CoreError::Crypto(format!("otpauth url failed: {e}")))?;
+        let recovery_codes = (0..RECOVERY_CODE_COUNT)
+            .map(|_| generate_recovery_code())
+            .collect::<Vec<_>>();
+        let hashes = recovery_codes
+            .iter()
+            .map(|code| self.hasher.hash(code))
+            .collect::<CoreResult<Vec<_>>>()?;
+        user.totp_secret_sealed = Some(self.sealer.seal_str(&encoded)?);
+        user.totp_enabled = false;
+        user.recovery_codes = hashes;
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        Ok(TotpSetup {
+            secret: encoded,
+            otpauth_url,
+            recovery_codes,
+        })
+    }
+
+    pub fn enable_totp(&self, user_id: Uuid, code: &str) -> CoreResult<()> {
+        let mut user = self.find(user_id)?;
+        user.ensure_active()?;
+        let sealed = user
+            .totp_secret_sealed
+            .clone()
+            .ok_or_else(|| CoreError::Invalid("totp is not configured".into()))?;
+        if !self.verify_totp(&user.login, &sealed, code.trim())? {
+            return Err(CoreError::Invalid("invalid totp code".into()));
+        }
+        user.totp_enabled = true;
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        Ok(())
+    }
+
+    pub fn disable_totp(&self, user_id: Uuid, password: &str, code: &str) -> CoreResult<()> {
+        let mut user = self.find(user_id)?;
+        user.ensure_active()?;
+        if !self.hasher.verify(password, &user.password_hash)? {
+            return Err(CoreError::Forbidden("password is wrong".into()));
+        }
+        if !self.consume_auth_code(&mut user, code.trim())? {
+            return Err(CoreError::Invalid("invalid totp code".into()));
+        }
+        user.totp_secret_sealed = None;
+        user.totp_enabled = false;
+        user.recovery_codes.clear();
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        Ok(())
+    }
+
+    async fn issue_verification(&self, user: &User, email: &str) {
+        let token = generate_token();
+        let key = hash_token(&token);
+        let verification = EmailVerification {
+            user_id: user.id,
+            email: email.to_string(),
+            expires_at: Utc::now() + Duration::hours(VERIFICATION_TTL_HOURS),
+            used: false,
+        };
+        if let Err(error) = self.verifications.save(&key, &verification) {
+            tracing::warn!(%error, "failed to store email verification");
+            return;
+        }
+        let link = format!(
+            "{}/verify-email?token={}",
+            self.public_url.trim_end_matches('/'),
+            token
+        );
+        if let Err(error) = self.mailer.send_verification(email, &link).await {
+            tracing::warn!(%error, "failed to send verification email");
+        }
+    }
+
+    fn derived_login(&self, email: &str) -> CoreResult<String> {
+        let local = email.split('@').next().unwrap_or("user");
+        let mut base: String = local
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
+            .collect();
+        base = base.trim_matches('.').to_string();
+        if base.len() < 3 {
+            base = format!("user{base}");
+        }
+        base.truncate(64);
+        if self.users.find_by_login(&base)?.is_none() {
+            return Ok(base);
+        }
+        for suffix in 2..10_000 {
+            let tail = format!("-{suffix}");
+            let mut candidate = base.clone();
+            candidate.truncate(64 - tail.len());
+            candidate.push_str(&tail);
+            if self.users.find_by_login(&candidate)?.is_none() {
+                return Ok(candidate);
+            }
+        }
+        Err(CoreError::Conflict("could not allocate a login".into()))
+    }
+
+    fn consume_auth_code(&self, user: &mut User, code: &str) -> CoreResult<bool> {
+        if code.is_empty() {
+            return Ok(false);
+        }
+        if let Some(sealed) = user.totp_secret_sealed.as_deref()
+            && self.verify_totp(&user.login, sealed, code)?
+        {
+            return Ok(true);
+        }
+        for index in 0..user.recovery_codes.len() {
+            if self.hasher.verify(code, &user.recovery_codes[index])? {
+                user.recovery_codes.remove(index);
+                user.updated_at = Utc::now();
+                self.users.save(user)?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    fn verify_totp(&self, login: &str, sealed: &str, code: &str) -> CoreResult<bool> {
+        let encoded = self.sealer.open_str(sealed)?;
+        let secret = Secret::try_from_base32(&encoded)
+            .map_err(|e| CoreError::Crypto(format!("bad totp secret: {e}")))?;
+        let totp = build_totp(login, secret)?;
+        Ok(totp.check_current(code).is_some())
     }
 
     pub fn update(&self, id: Uuid, changes: UserChanges) -> CoreResult<User> {
@@ -256,4 +590,38 @@ impl IdentityService {
             expires_in: access_expires_in,
         })
     }
+}
+
+fn build_totp(login: &str, secret: Secret) -> CoreResult<Totp> {
+    Builder::new()
+        .with_secret(secret)
+        .with_algorithm(Algorithm::SHA1)
+        .with_digits(6)
+        .with_skew(1)
+        .with_step_duration(30)
+        .with_account_name(login)
+        .with_issuer(Some(TOTP_ISSUER))
+        .build()
+        .map_err(|e| CoreError::Crypto(format!("totp setup failed: {e}")))
+}
+
+fn generate_token() -> String {
+    use base64::Engine;
+    use rand::RngCore;
+
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
+
+fn hash_token(token: &str) -> String {
+    format!("{:x}", Sha256::digest(token.as_bytes()))
+}
+
+fn generate_recovery_code() -> String {
+    use rand::RngCore;
+
+    let mut bytes = [0u8; 5];
+    rand::rng().fill_bytes(&mut bytes);
+    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

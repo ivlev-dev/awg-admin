@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use awg_audit::AuditEntry;
 use awg_clients::{Device, DevicePeer, DeviceProfile, Forwarding, ShareLink};
-use awg_identity::{Role, User};
+use awg_identity::{Role, User, UserStatus};
 use awg_network::{CidrPool, Group, Interface, NodeStatus, PoolMode};
 use awg_shared::obf::InterfaceObf;
 use awg_tariffs::{QuotaPeriod, QuotaState, Tariff};
@@ -13,6 +13,9 @@ use awg_tariffs::{QuotaPeriod, QuotaState, Tariff};
 pub struct UserView {
     pub id: Uuid,
     pub login: String,
+    pub email: Option<String>,
+    pub status: UserStatus,
+    pub totp_enabled: bool,
     pub role: Role,
     pub tariff_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
@@ -26,6 +29,9 @@ impl From<&User> for UserView {
         Self {
             id: user.id,
             login: user.login.clone(),
+            email: user.email.clone(),
+            status: user.status,
+            totp_enabled: user.totp_enabled,
             role: user.role,
             tariff_id: user.tariff_id,
             group_id: user.group_id,

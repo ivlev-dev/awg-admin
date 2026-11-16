@@ -48,3 +48,5 @@ prost = "0.14"
 ipnet = { version = "2", features = ["serde"] }
 sha2 = "0.10"
 subtle = "2"
+totp-rs = { version = "6", features = ["gen_secret", "otpauth"] }
+lettre = { version = "0.11", default-features = false, features = ["smtp-transport", "builder", "tokio1", "pool"] }

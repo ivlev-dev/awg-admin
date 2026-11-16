@@ -29,4 +29,6 @@ pub struct AppState {
     pub audit: Arc<AuditService>,
     pub login_limiter: Arc<SlidingWindowLimiter>,
     pub refresh_limiter: Arc<SlidingWindowLimiter>,
+    pub register_limiter: Arc<SlidingWindowLimiter>,
+    pub resend_limiter: Arc<SlidingWindowLimiter>,
 }

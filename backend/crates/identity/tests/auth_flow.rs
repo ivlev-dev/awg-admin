@@ -1,19 +1,28 @@
 use std::sync::Arc;
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use chrono::{Duration, Utc};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use uuid::Uuid;
 
 use awg_identity::domain::{AuthClaims, TokenKind};
 use awg_identity::{
-    Argon2Hasher, IdentityService, JwtIssuer, NewUser, RedbUserRepository, Role, SessionMetadata,
-    TokenIssuer, UserChanges,
+    Argon2Hasher, CaptureMailer, IdentityService, JwtIssuer, NewUser,
+    RedbEmailVerificationRepository, RedbUserRepository, Role, SessionMetadata, TokenIssuer,
+    UserChanges,
 };
+use awg_shared::crypto::Sealer;
 use awg_storage::Store;
 
 const SECRET: &[u8] = b"test-secret-with-at-least-32-bytes!!";
 const ISSUER: &str = "awg-admin";
 const AUDIENCE: &str = "awg-admin";
+
+fn sealer() -> Arc<Sealer> {
+    let key = STANDARD.encode([9u8; 32]);
+    Arc::new(Sealer::from_master_key(&key).unwrap())
+}
 
 fn service() -> IdentityService {
     service_with_ttl(900, 86_400)
@@ -29,9 +38,19 @@ fn service_with_ttl(access_ttl: u64, refresh_ttl: u64) -> IdentityService {
         refresh_ttl,
         ISSUER,
         AUDIENCE,
-        store,
+        store.clone(),
     ));
-    IdentityService::new(users, hasher, tokens)
+    let verifications = Arc::new(RedbEmailVerificationRepository::new(store));
+    let mailer = Arc::new(CaptureMailer::new());
+    IdentityService::new(
+        users,
+        hasher,
+        tokens,
+        verifications,
+        mailer,
+        sealer(),
+        "https://panel.test".into(),
+    )
 }
 
 fn metadata() -> SessionMetadata {
@@ -326,6 +345,11 @@ fn prune_removes_expired_records() {
         tariff_id: None,
         group_id: None,
         disabled: false,
+        email: None,
+        status: awg_identity::UserStatus::Active,
+        totp_secret_sealed: None,
+        totp_enabled: false,
+        recovery_codes: Vec::new(),
         created_at: now,
         updated_at: now,
     };

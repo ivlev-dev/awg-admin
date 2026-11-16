@@ -13,7 +13,9 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 use awg_storage::{Store, Table};
 
-use crate::domain::{PasswordHasher, User, UserRepository};
+use crate::domain::{
+    EmailVerification, EmailVerificationRepository, PasswordHasher, User, UserRepository,
+};
 
 pub struct RedbUserRepository {
     store: Arc<Store>,
@@ -40,6 +42,19 @@ impl UserRepository for RedbUserRepository {
         Ok(users
             .into_iter()
             .find(|u| u.login.eq_ignore_ascii_case(login)))
+    }
+
+    fn find_by_email(&self, email: &str) -> CoreResult<Option<User>> {
+        let wanted = email.trim();
+        let users: Vec<User> = self
+            .store
+            .list(Table::Users)
+            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
+        Ok(users.into_iter().find(|u| {
+            u.email
+                .as_deref()
+                .is_some_and(|value| value.trim().eq_ignore_ascii_case(wanted))
+        }))
     }
 
     fn list(&self) -> CoreResult<Vec<User>> {
@@ -88,5 +103,74 @@ impl PasswordHasher for Argon2Hasher {
             .argon
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
+    }
+}
+
+pub struct RedbEmailVerificationRepository {
+    store: Arc<Store>,
+}
+
+impl RedbEmailVerificationRepository {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self { store }
+    }
+}
+
+impl EmailVerificationRepository for RedbEmailVerificationRepository {
+    fn find(&self, token_hash: &str) -> CoreResult<Option<EmailVerification>> {
+        self.store
+            .get(Table::EmailVerifications, token_hash)
+            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+    }
+
+    fn save(&self, token_hash: &str, verification: &EmailVerification) -> CoreResult<()> {
+        self.store
+            .put(Table::EmailVerifications, token_hash, verification)
+            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CaptureMailer {
+    sent: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+}
+
+impl CaptureMailer {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn sent(&self) -> Vec<(String, String)> {
+        self.sent
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
+    pub fn last(&self) -> Option<(String, String)> {
+        self.sent().pop()
+    }
+
+    pub fn clear(&self) {
+        self.sent
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+    }
+}
+
+impl crate::domain::Mailer for CaptureMailer {
+    fn send_verification<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+    ) -> crate::domain::MailerFuture<'a> {
+        Box::pin(async move {
+            self.sent
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((email.to_string(), link.to_string()));
+            Ok(())
+        })
     }
 }

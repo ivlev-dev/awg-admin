@@ -6,6 +6,7 @@ mod directory;
 mod error;
 mod grpc;
 mod logging;
+mod mailer;
 mod metrics;
 mod models;
 mod rate_limit;
@@ -26,7 +27,10 @@ use awg_clients::{
     DeviceService, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
     RedbShareLinkRepository, ShareService,
 };
-use awg_identity::{Argon2Hasher, IdentityService, JwtIssuer, RedbUserRepository, TokenIssuer};
+use awg_identity::{
+    Argon2Hasher, IdentityService, JwtIssuer, RedbEmailVerificationRepository, RedbUserRepository,
+    TokenIssuer,
+};
 use awg_network::{
     NetworkService, RedbCidrPoolRepository, RedbGroupRepository, RedbInterfaceRepository,
     RedbNodeRepository,
@@ -60,6 +64,7 @@ async fn main() -> Result<()> {
 
     let store = Arc::new(Store::open(&config.db_path)?);
     let sealer = Arc::new(Sealer::from_master_key(&config.master_key)?);
+    let mailer = mailer::build_mailer(&config)?;
 
     let identity = {
         let users = Arc::new(RedbUserRepository::new(store.clone()));
@@ -72,6 +77,7 @@ async fn main() -> Result<()> {
             &config.jwt_audience,
             store.clone(),
         ));
+        let verifications = Arc::new(RedbEmailVerificationRepository::new(store.clone()));
         {
             let tokens = tokens.clone();
             tokio::spawn(async move {
@@ -90,7 +96,15 @@ async fn main() -> Result<()> {
                 }
             });
         }
-        Arc::new(IdentityService::new(users, hasher, tokens))
+        Arc::new(IdentityService::new(
+            users,
+            hasher,
+            tokens,
+            verifications,
+            mailer,
+            sealer.clone(),
+            config.public_url.clone(),
+        ))
     };
 
     let tariffs = {
@@ -196,13 +210,25 @@ async fn main() -> Result<()> {
         config.refresh_rate_limit,
         Duration::from_secs(config.refresh_rate_window_secs),
     ));
+    let register_limiter = Arc::new(SlidingWindowLimiter::new(
+        config.register_rate_limit,
+        Duration::from_secs(config.register_rate_window_secs),
+    ));
+    let resend_limiter = Arc::new(SlidingWindowLimiter::new(
+        config.resend_rate_limit,
+        Duration::from_secs(config.resend_rate_window_secs),
+    ));
 
     {
         let login_limiter = login_limiter.clone();
         let refresh_limiter = refresh_limiter.clone();
+        let register_limiter = register_limiter.clone();
+        let resend_limiter = resend_limiter.clone();
         let period = config
             .login_rate_window_secs
             .max(config.refresh_rate_window_secs)
+            .max(config.register_rate_window_secs)
+            .max(config.resend_rate_window_secs)
             .max(60);
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(period));
@@ -211,6 +237,8 @@ async fn main() -> Result<()> {
                 ticker.tick().await;
                 login_limiter.cleanup();
                 refresh_limiter.cleanup();
+                register_limiter.cleanup();
+                resend_limiter.cleanup();
             }
         });
     }
@@ -238,6 +266,8 @@ async fn main() -> Result<()> {
         audit,
         login_limiter,
         refresh_limiter,
+        register_limiter,
+        resend_limiter,
     });
 
     {
@@ -288,6 +318,7 @@ async fn main() -> Result<()> {
         env = config.environment.as_str(),
         production = config.is_production(),
         log_format = log_format.as_str(),
+        mail_mode = config.mail_mode.as_str(),
         "admin API listening (h2c + http/1.1)"
     );
     axum::serve(
