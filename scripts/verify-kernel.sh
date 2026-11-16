@@ -22,13 +22,14 @@ usage() {
 
 Использование:
   scripts/verify-kernel.sh                     # dry-run: только чтение, команды печатаются
-  scripts/verify-kernel.sh --apply             # реальная проверка, нужен root
+  scripts/verify-kernel.sh --apply             # реальная проверка, нужен root: одноразовый netns (unshare -n)
   scripts/verify-kernel.sh --apply --netns     # проверка в приватном user+net namespace, root не нужен
   scripts/verify-kernel.sh --inspect awg0      # только чтение параметров живого интерфейса
 
 Опции:
-  --apply             выполнить проверку (по умолчанию dry-run)
-  --netns             выполнять всё в одноразовом user+net namespace (безопасно, без root)
+  --apply             выполнить проверку (по умолчанию dry-run); проверки всегда идут
+                      в новом netns, хост не затрагивается
+  --netns             без root: private user+net namespace (unshare -rn)
   --ifname NAME       имя временного интерфейса (по умолчанию awgverify0), будет удалён
   --inspect NAME      прочитать живой интерфейс и выйти
   --no-traffic        не проверять сквозной трафик и счётчики

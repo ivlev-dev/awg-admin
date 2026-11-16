@@ -8,7 +8,7 @@
 
 | Скрипт | Что проверяет | Нужен root | Нужен реальный домен |
 |---|---|---|---|
-| `scripts/verify-kernel.sh` | модуль `amneziawg`, `ip link add … type amneziawg`, `SetDevice` (H1–H4Range, S1–S4, HPK, RandomTrailers), `REPLACE_PEERS`, счётчики, ICMP между двумя AWG-интерфейсами | только для `--apply` без `--netns` | нет |
+| `scripts/verify-kernel.sh` | модуль `amneziawg`, `ip link add … type amneziawg`, `SetDevice` (H1–H4Range, S1–S4, HPK, RandomTrailers), `REPLACE_PEERS`, счётчики, ICMP между двумя AWG-интерфейсами | нет: `--apply` всегда работает в одноразовом netns (root) или `--netns` (user+net) | нет |
 | `scripts/verify-dataplane.sh` | HTB egress/IFB ingress, `u32`, лимиты 1 kbit, `inet awg_admin` + `fwd_<ifname>`, изоляция и разрешённые пары на veth | нет при доступных user namespaces | нет |
 | `scripts/verify-tls.sh` | редирект http→https, HTTP/2, HSTS, сертификат, `/api/v1/health`, HTTP/3, статический аудит Traefik | нет | для ACME — да |
 
@@ -19,20 +19,23 @@
 
 ## Матрица проверки на текущей машине
 
-Проверочный хост: Linux 7.3.4, модуль `amneziawg` 3.1.20261113-02 (DKMS),
-`iproute2` 7.3.0, `nftables` 1.1.7, `curl` 8.23.0 с HTTP/3, Docker 29.9.3,
-нерабочий root (uid 1000), доступны unprivileged user namespaces.
+Проверочный хост (прогон 16.11.2026): Linux 7.3.4-1-cachyos-bore-lto, модуль
+`amneziawg` 3.1.20261113-02 (DKMS, загружен), `iproute2` 7.3.0, `nftables` 1.1.7,
+`curl` 8.23.0 с HTTP/3, Docker 29.9.3, uid 1000, `sudo -n` требует пароль,
+unprivileged user namespaces доступны (`unshare -rn`), root-only `unshare -n` — нет.
 
-| Блокер | Проверено здесь | Требует отдельного хоста/домена |
+| Блокер | Проверено здесь | Осталось |
 |---|---|---|
-| 1. Ядро/SetDevice/REPLACE_PEERS/счётчики | да: `verify-kernel.sh --apply --netns` — все пункты `ok` | e2e через реальный worker + admin |
-| 2. tc HTB + IFB + u32 и лимиты | да: `verify-dataplane.sh --apply` — структура, трафик, счётчики классов | hairpin `iifname == oifname` и замер реальной полосы между устройствами |
-| 3. nftables forwarding | да: таблица/цепь/правила, ICMP разрешённой пары, изоляция | реальная пара устройств на одном AWG-интерфейсе |
-| 4. Docker build | нет: образы `awg-admin`/`awg-worker` отсутствуют | сборка на хосте с сетью до git-зависимости |
-| 5. TLS/ACME | частично: `verify-tls.sh --local` — Traefik + self-signed, h2, h3, health | ACME на реальном домене с DNS и портами 80/443 |
-| 6. Мастер-ключ | нет: `.env` отсутствует | запущенный admin с redb |
-| 7. HTTP/3 за Traefik | да: локальный Traefik, `curl --http3-only` → `http_version=3` | UDP/443 на реальном хосте |
+| 1. Ядро/SetDevice/REPLACE_PEERS/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns | e2e с реальными клиентами и замер полосы |
+| 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | статистика в API/UI: netlink `GetDevice` падает с `EOPNOTSUPP` (см. «Фактический прогон» и п. 13 сводки) |
+| 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; на реальном AWG htb/ingress/IFB применяются | повторный `tc qdisc replace` падает на этом ядре — worker не может обновить tc после первого reconcile; живая полоса |
+| 3. nftables forwarding | да: таблица/цепь/правила, ICMP разрешённой пары, изоляция; live worker создаёт `fwd_<ifname>` | hairpin `iifname == oifname` на реальном интерфейсе и трафик между устройствами |
+| 4. Docker build | да: образы `awg-admin`/`awg-worker`/`awg-frontend` есть, стек запущен, admin/frontend healthy | чистая пересборка на CI-хосте |
+| 5. TLS/ACME | частично: `verify-tls.sh --local` — redirect, h2, h3, health; живой стенд отдаёт h2/h3, но с TRAEFIK DEFAULT CERT | ACME на реальном домене; `Host(...)` и HSTS в конфигурации отсутствуют |
+| 6. Мастер-ключ | да: `.env` с `AWG_MASTER_KEY`/`AWG_JWT_SECRET`, предупреждения об эфемерном ключе нет, профиль устройства читается | рестарт admin на данных production и проверка того же `.conf` |
+| 7. HTTP/3 за Traefik | да: локальный Traefik и живой стенд, `curl --http3-only` → `http_version=3`, `Alt-Svc: h3` | UDP/443 на реальном хосте за firewall |
 | 8. WebTransport | не реализовано в коде — проверять нечего | — |
+
 
 ## Общие предусловия
 
@@ -67,9 +70,13 @@ command -v shellcheck >/dev/null && shellcheck scripts/verify-*.sh
 ```bash
 ./scripts/verify-kernel.sh                       # dry-run: только чтение и печать команд
 ./scripts/verify-kernel.sh --apply --netns       # без root, всё в одноразовом user+net namespace
-sudo ./scripts/verify-kernel.sh --apply          # на хосте, временный интерфейс awgverify0
+sudo ./scripts/verify-kernel.sh --apply          # root: тоже одноразовый netns (unshare -n), хост не меняется
 ./scripts/verify-kernel.sh --inspect awg0        # только чтение живого интерфейса
 ```
+
+`--apply` всегда переисполняет скрипт в новом network namespace; `--netns`
+влияет только на способ входа (root: `unshare -n`, без root: `unshare -rn`).
+Поэтому `awgverify0` на хосте не появляется даже при запуске от root.
 
 Скрипт проверяет:
 
@@ -119,6 +126,52 @@ cat /var/lib/awg-worker/counters.json | jq .   # offset/last по ключу "<i
    (`domain/mod.rs`). Агрегат по интерфейсу считается из сырых байтов и может
    уменьшиться — см. п. 11 в разделе расхождений.
 
+### Фактический прогон (16.11.2026)
+
+Нода, группа, пул, интерфейс и устройства созданы через REST API
+(`POST /api/v1/{groups,pools,nodes,interfaces,devices}`), токен ноды передан в
+`AWG_NODE_ID`/`AWG_NODE_TOKEN`, worker запущен
+`docker compose --profile worker up -d` с `AWG_DRY_RUN=true`, затем с `false`.
+
+- dry-run: worker подключился, admin записал `worker connected` и
+  `worker applied state`; `GET /api/v1/nodes` → `online: true`; в логах
+  `dry-run: ip link add dev mvawg7`, `netlink set mvawg7 peers=2`,
+  `nft ... fwd_mvawg7`; `awg_worker_online 1` в `/metrics`.
+- live: контейнер privileged, `/lib/modules` примонтирован, модуль загружен,
+  поэтому состояние применилось к хосту. `mvawg7` создан; `awg show` (из
+  privileged-контейнера: чтение netlink требует CAP_NET_ADMIN) показывает
+  H1–H4, S1–S4, HeaderProtectionKey, `random trailers: on` и 2 пира с
+  ожидаемыми AllowedIPs. nft создал `fwd_mvawg7`; tc применил htb 1:,
+  классы 1:100/1:1000, u32 и IFB `ifb-mvawg7`.
+- сквозной handshake: в host netns поднят второй AWG-интерфейс с конфигом
+  устройства из `GET /devices/{id}/profiles/{iface}` (Endpoint заменён на
+  `127.0.0.1:51830`). На `mvawg7` появились `latest handshake` и
+  `transfer: 1.36 KiB received, 710 B sent`. ICMP-ответы не вернулись, но
+  handshake и счётчики ядра подтверждены.
+- **статистика не работает:** `GET /api/v1/devices/{id}/stats` и
+  `/stats/overview` остаются нулевыми, worker каждые 2 с пишет
+  `failed to read counters ... kernel rejected request: Operation not supported
+  (os error 95)`. Причина: `read_interface` отправляет `WG_CMD_GET_DEVICE` без
+  `NLM_F_DUMP`, а в ядре команда зарегистрирована только как dump
+  (`/usr/src/amneziawg-1.0.0/netlink.c`: `.start`/`.dumpit`, без `.doit`),
+  поэтому genl отвечает `EOPNOTSUPP`. В dry-run ошибка скрыта заглушкой.
+- **tc не переживает повторный reconcile:** на этом ядре второй
+  `tc qdisc replace ... root ... htb` возвращает
+  `Change operation not supported by specified qdisc`; `tc qdisc del` + `add`
+  работает. Worker вызывает `replace` при каждом применении, поэтому после
+  первого успешного reconcile следующее изменение состояния падает на
+  `apply tc`, а nft-цепь остаётся от предыдущей ревизии (наблюдалось
+  `worker failed to apply state ... apply tc ...`). `ingress replace`
+  идемпотентен.
+- предусловия, без которых live-проверка ничего не проверяет:
+  пул без `gateway` даёт `configure <ifname> mtu ... addresses []` — у
+  интерфейса нет адреса; устройства пользователя без тарифа не попадают в
+  `user_limits`, и tc не применяется вообще (даже если у устройства заданы
+  `down_kbps`/`up_kbps`).
+
+После прогона worker удалён, интерфейс и IFB удалены через reconcile,
+тестовые сущности удалены из API; admin/frontend/traefik оставлены работать.
+
 ### Откат
 
 ```bash
@@ -136,6 +189,10 @@ docker compose --profile worker down
 - `awg show <ifname>` содержит H1–H4, S1–S4, HPK и `random trailers: on`;
 - реальный handshake и ненулевые счётчики; после пересоздания интерфейса
   статистика в UI не убывает.
+
+На 16.11.2026 первые три пункта выполнены, четвёртый — нет: handshake
+проходит, но счётчики в API нулевые из-за дефекта netlink (п. 13 сводки).
+Блокер не закрыт.
 
 ---
 
@@ -171,6 +228,8 @@ docker compose --profile worker down
 - `ingress` qdisc, `mirred` в `ifb-awgtest0`, HTB и фильтр `ip src` на IFB;
 - ICMP через два netns: разрешённая пара проходит, счётчики классов egress и IFB растут;
 - после `flush chain` + один `drop` трафик блокируется (изоляция);
+- повторный `tc qdisc replace` на root htb и на ingress (worker выполняет их
+  при каждом reconcile);
 - повторный `tc filter add` (как при каждом reconcile worker) — дубликат фильтра;
   скрипт печатает `[warn]`.
 
@@ -207,18 +266,33 @@ ip link del ifb-<ifname> 2>/dev/null || true
 - `verify-dataplane.sh --apply` — 0 провалов (warn о дубликатах фильтров допустим);
 - на реальном интерфейсе классы и фильтры соответствуют схеме выше;
 - iperf3 подтверждает ограничение устройства и суммы пользователя;
-- квота `1 kbit` реально ограничивает трафик.
+- квота `1 kbit` реально ограничивает трафик;
+- повторный reconcile не ломает tc.
+
+На проверочной машине (Linux 7.3.4, iproute2 7.3.0) последний пункт не
+выполняется: второй `tc qdisc replace ... root ... htb` возвращает
+`Change operation not supported by specified qdisc`, скрипт печатает `[fail]`.
+`ingress replace` идемпотентен, `tc qdisc del` + `add` работают. Это дефект
+worker (вызывает `replace` на каждом reconcile), а не проверки: в live-режиме
+после первого применения любое изменение состояния падает на `apply tc`.
 
 ### Замечания, найденные при проверке
 
 - `tc filter add` не идемпотентен: каждый reconcile добавляет новый фильтр,
   старые не удаляются. Shaping не ломается, но набор правил растёт. Нужен
   `filter replace` или предварительный `flush`.
+- `tc qdisc replace` для root htb не идемпотентен на проверочном ядре (см.
+  выше); worker должен либо удалять qdisc перед созданием, либо проверять
+  `tc qdisc show` и менять только изменившееся.
 - `DesiredInterface.group_down_kbps`/`group_up_kbps` в `tc.rs` не используются:
   корневой класс считается как сумма `user_limits`. Если `user_limits` пуст,
   корень получает `10gbit`.
 - `tc.rs` создаёт классы только для пиров с ненулевым лимитом в данном
   направлении; пир с `down_kbps = 0` не получает egress-класс.
+- Если у владельца устройств нет тарифа, `user_limits` пуст и tc не применяется
+  целиком, даже когда у устройств заданы `down_kbps`/`up_kbps`. Для live-проверки
+  нужен пользователь с тарифом и устройства этого пользователя; пул должен
+  иметь `gateway`, иначе у AWG-интерфейса не будет адреса.
 
 ---
 
@@ -266,7 +340,8 @@ nft delete chain inet awg_admin fwd_<ifname>
 
 ### Критерий «блокер закрыт»
 
-- `verify-dataplane.sh --apply` — 0 провалов;
+- `verify-dataplane.sh --apply` — 0 провалов по nftables/трафику (общий код
+  возврата сейчас 1 из-за проверки повторного `tc qdisc replace`, см. блокер 2);
 - на реальном интерфейсе по умолчанию устройства изолированы;
 - разрешённая в UI пара обменивается трафиком в обе стороны;
 - `nft list chain inet awg_admin fwd_<ifname>` содержит ожидаемые пары и `drop`.
@@ -326,8 +401,15 @@ docker image rm awg-admin:latest awg-worker:latest awg-frontend:latest
 
 ### Текущий статус
 
-На проверочной машине присутствует только `awg-frontend:latest`; образы
-`awg-admin`/`awg-worker` не собирались. Блокер открыт.
+На проверочной машине есть образы `awg-admin:latest` (uid 10001),
+`awg-worker:latest`, `awg-frontend:latest`; `docker compose up -d` поднимает
+admin и frontend (`healthy`) и traefik, worker подключается и применяет
+состояние. Чистая пересборка без кеша здесь не выполнялась.
+
+В worker-образе есть `ip`, `tc`, `nft`, `modprobe` (iproute2 6.1.0, nftables
+1.0.6), но нет утилиты `awg`: диагностировать конфигурацию приходится из
+privileged-контейнера с хостовым `awg` или через API. Для netlink это не нужно,
+но для приёмки удобнее добавить `amneziawg-tools` в образ.
 
 ---
 
@@ -387,6 +469,26 @@ docker compose stop traefik
 - `--local --no-hsts-check --no-static` без fail: редирект, h2, цепочка, health, h3;
 - на реальном домене сертификат валиден и выдан Let's Encrypt, h2/h3 работают,
   health 200, HSTS с `max-age`.
+
+### Результат прогона здесь (16.11.2026)
+
+- `./scripts/verify-tls.sh --static` → код 1: `[fail]` на отсутствии `Host(...)`
+  в правилах роутеров; `[warn]` — нет h2c, нет HSTS, `AWG_DOMAIN` не используется.
+- `./scripts/verify-tls.sh --local` → код 1, 2 провала: тот же `Host(...)` в
+  `docker-compose.yml` (статические проверки смотрят production-конфиг, а не
+  локальный Traefik) и HSTS. Остальное `ok`: редирект 301, HTTP/2, цепочка
+  self-signed CA, SAN `localhost`, `/api/v1/health`, HTTP/3
+  (`http_version=3`), `Alt-Svc: h3`.
+- живой стенд (`docker compose ps`: admin, frontend, traefik): `https://localhost/`
+  отвечает по HTTP/2 и HTTP/3 (`curl --http3-only` → `3`), `Alt-Svc: h3=":443"`,
+  редирект `http://localhost/` → 301 `https://localhost/`, `/api/v1/health` через
+  Traefik — 200, напрямую в admin — h2c (`http_version=2`). Сертификат —
+  `CN=TRAEFIK DEFAULT CERT` (self-signed), HSTS отсутствует: ACME не выпускал
+  сертификат, потому что у роутеров нет `Host(...)` и не задан реальный домен.
+- `./scripts/verify-tls.sh --url https://localhost --http-url http://localhost/
+  --self-signed --no-static --no-hsts-check` → код 0: redirect 301, h2, h3,
+  health; предупреждение — SAN/CN не содержит `localhost` (default cert Traefik).
+
 
 ### Замечания, найденные при проверке
 
@@ -544,18 +646,20 @@ WebTransport в репозитории отсутствует: нет завис
 
 | Пункт TODO | Фактическое состояние |
 |---|---|
-| 1. Реальный kernel | `verify-kernel.sh` проверяет модуль, `ip link`, `SetDevice`-параметры, `REPLACE_PEERS`, счётчики и ICMP на реальном ядре. Осталось e2e через worker. Монотонность гарантирована для per-peer счётчиков; интерфейсные тоталы считаются из сырых байт и могут уменьшиться после reload |
-| 2. tc ingress/egress | Структура HTB/IFB/u32 и лимиты проверяются; hairpin и полоса — только на реальном интерфейсе. Найден дублирующийся `tc filter add`; `group_down/up_kbps` не используются |
-| 3. nftables forwarding | Таблица/цепь/правила и изоляция проверяются на veth; hairpin `iifname == oifname` — только на реальном AWG |
-| 4. Docker build | Образы `awg-admin`/`awg-worker` не собирались; на машине есть только `awg-frontend` |
-| 5. TLS/ACME | Локальный Traefik с self-signed проходит (redirect, h2, h3, health); ACME требует домен. Нет правила `Host(...)` (ACME не выпустит сертификат), HSTS не настроен; `AWG_DOMAIN` не используется в compose |
-| 6. Секреты | Логика эфемерного ключа подтверждена (`config.rs`); `.env` на проверочной машине отсутствует, пункт не закрыт |
-| 7. HTTP/3 backend | HTTP/3 работает на Traefik (проверено локально); backend остаётся h2c/HTTP1.1, это соответствует архитектуре |
+| 1. Реальный kernel | `verify-kernel.sh` проверяет модуль, `ip link`, `SetDevice`-параметры, `REPLACE_PEERS`, счётчики и ICMP на реальном ядре. E2E через worker выполнен в dry-run и live: интерфейс, пиры и handshake подтверждены; статистика не работает из-за дефекта netlink (п. 13). Монотонность гарантирована для per-peer счётчиков; интерфейсные тоталы считаются из сырых байт и могут уменьшиться после reload |
+| 2. tc ingress/egress | Структура HTB/IFB/u32 и лимиты проверяются; hairpin и полоса — только на реальном интерфейсе. На реальном AWG htb/ingress/IFB применяются. Найдены дублирующийся `tc filter add` и неидемпотентный `tc qdisc replace` (п. 14); `group_down/up_kbps` не используются; без тарифа пользователя tc не применяется |
+| 3. nftables forwarding | Таблица/цепь/правила и изоляция проверяются на veth; live worker создаёт `fwd_<ifname>`; hairpin `iifname == oifname` — только на реальном AWG |
+| 4. Docker build | Образы `awg-admin` (uid 10001), `awg-worker`, `awg-frontend` есть; стек поднят, admin/frontend healthy, worker применяет состояние. Чистая пересборка без кеша не выполнялась |
+| 5. TLS/ACME | Локальный Traefik с self-signed проходит (redirect, h2, h3, health); живой стенд отдаёт h2/h3 с TRAEFIK DEFAULT CERT. ACME требует домен. Нет правила `Host(...)` (ACME не выпустит сертификат), HSTS не настроен; `AWG_DOMAIN` не используется в compose |
+| 6. Секреты | `.env` есть: `AWG_MASTER_KEY` и `AWG_JWT_SECRET` заданы, предупреждения об эфемерном ключе в логах нет, профиль устройства читается. Рестарт admin на тех же данных не выполнялся |
+| 7. HTTP/3 backend | HTTP/3 работает на Traefik (локально и на стенде); backend остаётся h2c/HTTP1.1, это соответствует архитектуре |
 | 8. WebTransport | Не реализовано: только WebSocket `/api/v1/ws/stats` |
 | 9. Аудит | Вне зоны проверки; таблица есть, записи не создаются (по TODO) |
 | 10. Rate limiting | Вне зоны проверки; на момент проверки в рабочем дереве появился `rate_limit.rs` (параллельные правки) |
 | 11. Монотонность счётчиков | `CounterBook` нормализует только peer-счётчики (`rx_total`/`tx_total` пира). Верхнеуровневые `InterfaceReport.rx_total/tx_total` считаются из сырых `peer.rx_bytes` (`worker/src/application/mod.rs`), поэтому после пересоздания интерфейса агрегат по интерфейсу может уменьшиться. Проверять монотонность нужно по пирам/устройствам |
 | 12. Очистка при удалении интерфейса | `ReconcileService.known` — множество в памяти процесса: интерфейс, удалённый из desired state, пока worker был остановлен, не будет вычищен после рестарта (teardown выполняется только для известных в этой сессии) |
+| 13. Статистика worker | `worker/src/infrastructure/netlink.rs: read_interface` отправляет `WG_CMD_GET_DEVICE` без `NLM_F_DUMP`; в ядре команда только dump-only → `EOPNOTSUPP`, статистика в live-режиме не собирается. В dry-run дефект скрыт заглушкой `InterfaceRuntime::default()` |
+| 14. Повторный reconcile tc | `TcShaper::apply_egress` вызывает `tc qdisc replace` при каждом применении; на проверочном ядре второй вызов возвращает `Change operation not supported by specified qdisc`, поэтому после первого reconcile изменения tc (и nft, который идёт после tc) не применяются |
 
 Дополнительно:
 
@@ -572,38 +676,63 @@ WebTransport в репозитории отсутствует: нет завис
   могут уменьшиться, хотя тоталы устройств монотонны. Проверять в UI нужно
   в первую очередь значения по устройствам.
 
-## Результаты прогона на проверочной машине
+## Результаты прогона на проверочной машине (16.11.2026)
 
 Ниже — фактический результат, не заменяет приёмку на production.
 
-- Окружение: Linux 7.3.4, `amneziawg` 3.1.20261113-02, `iproute2` 7.3.0,
-  `nftables` 1.1.7, `curl` 8.23.0 (HTTP3), Docker 29.9.3, uid 1000,
-  unprivileged user namespaces доступны.
-- `scripts/verify-kernel.sh --apply --netns`: 0 провалов — модуль, `ip link
-  add/del`, `SetDevice` (H1–H4/S1–S4/Jc/Jmin/Jmax/HPK/RandomTrailers),
-  `REPLACE_PEERS`, счётчики, ICMP между двумя AWG-интерфейсами.
-- `scripts/verify-dataplane.sh --apply`: 0 провалов, 1 предупреждение —
-  дубликат `u32`-фильтра; HTB/IFB/u32, счётчики классов, изоляция
-  подтверждены.
-- `scripts/verify-tls.sh --static`: падает на отсутствии `Host(...)` в
-  правилах роутеров (ACME не выпустит сертификат); предупреждения — HSTS,
-  h2c, `AWG_DOMAIN`.
-- `scripts/verify-tls.sh --local --no-hsts-check --no-static`: 0 провалов —
-  редирект, h2, цепочка self-signed, `/api/v1/health`, HTTP/3 (`http_version=3`).
-- Не проверялось здесь: e2e worker с реальными клиентами, ACME на домене,
-  сборка `awg-admin`/`awg-worker`, WebTransport.
+Окружение: Linux 7.3.4-1-cachyos-bore-lto, `amneziawg` 3.1.20261113-02 (DKMS,
+загружен), `iproute2` 7.3.0, `nftables` 1.1.7, `curl` 8.23.0 (HTTP/3, ngtcp2),
+Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged user namespaces
+доступны, `unshare -n` без root запрещён.
+
+| Команда | Код | Результат |
+|---|---|---|
+| `bash -n scripts/verify-*.sh` | 0 | синтаксис в порядке; `shellcheck` на машине не установлен |
+| `scripts/verify-kernel.sh` | 0 | dry-run: 0 провалов, 0 предупреждений, 0 пропусков |
+| `scripts/verify-kernel.sh --apply --netns` | 0 | модуль 3.1+, `ip link add/del`, MTU, SetDevice (H1–H4/S1–S4/Jc/Jmin/Jmax/HPK/RandomTrailers), REPLACE_PEERS, счётчики, ICMP 0% потерь, handshake |
+| `scripts/verify-dataplane.sh` | 0 | dry-run: инструменты и user namespaces доступны |
+| `scripts/verify-dataplane.sh --apply` | 1 | 1 провал: повторный `tc qdisc replace` root htb; 1 предупреждение: дубликат u32-фильтра; остальное (htb/ifb/u32, квоты, счётчики, изоляция) — `ok` |
+| `scripts/verify-tls.sh --static` | 1 | провал: нет `Host(...)`; предупреждения: h2c, HSTS, `AWG_DOMAIN` |
+| `scripts/verify-tls.sh --local` | 1 | 2 провала (`Host(...)` в production compose, HSTS); редирект 301, h2, self-signed цепочка, health, h3 `http_version=3` — `ok` |
+| `scripts/verify-tls.sh --url https://localhost --self-signed --no-static --no-hsts-check` | 0 | живой стенд: redirect 301, h2, h3, health; 1 предупреждение — SAN/CN default-сертификата Traefik |
+| `docker compose ps` | 0 | admin и frontend `healthy`, traefik `Up` (порты 80/tcp, 443/tcp, 443/udp) |
+| worker, `AWG_DRY_RUN=true` | 0 | нода `online`, `worker applied state`, `awg_worker_online 1`, в логах желаемые команды для `mvawg7` |
+| worker, `AWG_DRY_RUN=false` | 0 | первый reconcile: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers, 2 пира, nft-цепь, htb/IFB/u32; handshake с тестовым клиентом (1.36 KiB rx / 710 B tx). Статистика в API — нули; второй reconcile падает на `apply tc` |
+
+`--apply` без `--netns` (root-путь) не запускался: `sudo -n true` требует пароль,
+а `sudo` без `-n` в этой сессии не запрашивается. `--apply --netns` выполняет
+те же проверки в user+net namespace, поэтому функционально это эквивалентно;
+различие только в способе получения CAP_NET_ADMIN.
+
+Что осталось проверить (здесь не проверялось):
+
+- ACME на реальном домене: сертификат Let's Encrypt, `acme.json`, автопродление;
+  сейчас живой стенд отдаёт TRAEFIK DEFAULT CERT, HSTS и `Host(...)` отсутствуют.
+- hairpin-трафик между двумя устройствами на одном AWG-интерфейсе
+  (`iifname == oifname`) и ICMP в обе стороны; в live-прогоне ответы не вернулись.
+- живая полоса: iperf3 и соответствие `down_kbps`/`up_kbps` и групповым лимитам.
+- монотонность статистики после пересоздания интерфейса — недостижима, пока
+  worker не читает счётчики (п. 13 сводки).
+- чистая пересборка образов без кеша и WebTransport.
+
+Состояние стенда после прогона: worker удалён, admin/frontend/traefik оставлены
+работать (полный `docker compose down` остановил бы общий стенд); временные
+`mvawg7`/`ifb-mvawg7`/`mvcli0`, пустая таблица `inet awg_admin` и
+`/var/lib/awg-worker` удалены; тестовые нода, группа, пул, интерфейс, устройства,
+пользователь и тариф удалены через API. Тома `awg-data` и `traefik-letsencrypt`
+не трогались.
 
 ## Чек-лист приёмки
 
-- [ ] `verify-kernel.sh --apply --netns` — 0 провалов
-- [ ] worker с `AWG_DRY_RUN=false` применяет состояние, `awg show` содержит H1–H4/S1–S4/HPK/RandomTrailers
-- [ ] реальный handshake и счётчики; после пересоздания интерфейса статистика не убывает
-- [ ] `verify-dataplane.sh --apply` — 0 провалов
+- [x] `verify-kernel.sh --apply --netns` — 0 провалов (16.11.2026)
+- [x] worker с `AWG_DRY_RUN=false` применяет состояние, `awg show` содержит H1–H4/S1–S4/HPK/RandomTrailers (16.11.2026)
+- [ ] реальный handshake и счётчики; после пересоздания интерфейса статистика не убывает — handshake есть, счётчики в API не собираются (п. 13)
+- [ ] `verify-dataplane.sh --apply` — 0 провалов: на проверочном ядре 1 провал (повторный `qdisc replace`, п. 14)
 - [ ] iperf3 подтверждает лимиты устройства и пользователя, квота 1 kbit
-- [ ] nftables: изоляция по умолчанию и разрешённые пары на реальном интерфейсе
-- [ ] `docker compose build` + `docker compose ps` — образы healthy
-- [ ] `verify-tls.sh --local --no-hsts-check --no-static` — 0 провалов
+- [ ] nftables: изоляция по умолчанию и разрешённые пары на реальном интерфейсе (цепь создаётся, hairpin-трафик не проверен)
+- [x] `docker compose ps` — admin/frontend healthy, traefik up; чистая пересборка образов не проверена
+- [x] `verify-tls.sh --local --no-hsts-check --no-static` — 0 провалов (16.11.2026)
 - [ ] реальный домен: Let's Encrypt, h2, h3, `/api/v1/health`, HSTS (если принято требование)
-- [ ] фиксированный `AWG_MASTER_KEY`, профиль читается после рестарта admin
-- [ ] HTTP/3: `curl --http3-only` → `http_version=3`, `Alt-Svc: h3`
-- [ ] WebTransport: зафиксировано как не реализовано либо реализовано и проверено
+- [x] фиксированный `AWG_MASTER_KEY`, профиль читается (рестарт admin с теми же данными не выполнялся)
+- [x] HTTP/3: `curl --http3-only` → `http_version=3`, `Alt-Svc: h3` (локально и на стенде)
+- [x] WebTransport: зафиксировано как не реализовано

@@ -112,6 +112,28 @@ cd frontend && pnpm build
 docker compose --profile worker build
 ```
 
+### E2E (Playwright)
+
+Браузерные тесты живут в `frontend/e2e` и запускаются против уже поднятого
+стека (`http://127.0.0.1:8081`, `admin`/`admin12345`). В CI их поднимает job
+`e2e`: `docker compose up -d --build`, ожидание `/api/v1/health`, затем
+Chromium и Firefox.
+
+```bash
+cd frontend
+pnpm exec playwright install --with-deps chromium firefox  # один раз
+pnpm e2e                       # headless, оба проекта
+pnpm e2e --project=chromium    # только Chromium
+pnpm e2e:headed                # с видимым браузером
+pnpm e2e:report                # открыть HTML-отчёт
+```
+
+Адрес и учётные данные переопределяются `E2E_BASE_URL`, `E2E_ADMIN_LOGIN`,
+`E2E_ADMIN_PASSWORD`. Данные для тестов создаются через API и уникальны по
+timestamp, поэтому повторные прогоны не конфликтуют. Отчёт:
+`frontend/playwright-report`, артефакты падений: `frontend/test-results`
+(trace и screenshot сохраняются только при ошибке).
+
 ## Проверка production-блокеров
 
 Блокеры, которые нельзя проверить в обычном CI (реальное ядро `amneziawg`,
@@ -125,6 +147,15 @@ docker compose --profile worker build
 ./scripts/verify-tls.sh --static                 # аудит traefik.yml и docker-compose.yml
 ./scripts/verify-tls.sh --local --no-hsts-check --no-static  # Traefik + self-signed: h2, h3, health
 ```
+
+Фактический прогон 16.11.2026 (Linux 7.3.4, `amneziawg` 3.1, iproute2 7.3.0):
+`verify-kernel.sh --apply --netns` — 0 провалов; `verify-dataplane.sh --apply` —
+1 провал (повторный `tc qdisc replace` root htb не поддерживается ядром);
+`verify-tls.sh --local` — 2 провала (нет `Host(...)` в compose и HSTS), остальное
+`ok`; live worker создаёт интерфейс с H1–H4/S1–S4/HPK и пирами, handshake
+проходит, но статистика не собирается: netlink `GetDevice` отправляется без
+`NLM_F_DUMP`. Детали и ограничения — в
+[`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md).
 
 Полный чек-лист с предусловиями, откатом и критериями приёмки:
 [`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md).

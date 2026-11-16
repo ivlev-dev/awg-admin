@@ -59,19 +59,29 @@
 
 ### Блокеры перед production
 
-1. **Реальный kernel.** Автоматизированная проверка на локальном хосте:
-   `scripts/verify-kernel.sh --apply --netns` (модуль, `ip link add`, SetDevice,
-   H*Range, S1–S4, REPLACE_PEERS, счётчики, ICMP). Остаётся e2e через реальный
-   worker + admin на отдельном хосте.
-2. **tc ingress/egress.** Структура HTB/IFB/u32 и счётчики проверены
-   `scripts/verify-dataplane.sh`; на живом трафике между устройствами — нет.
-3. **nftables forwarding.** Таблица/цепь/правила и изоляция проверены
-   скриптом; реальная пара устройств на одном AWG-интерфейсе — нет.
+1. **Реальный kernel.** `scripts/verify-kernel.sh --apply --netns` — 0 провалов
+   (16.11.2026): модуль, `ip link add`, SetDevice, H*Range, S1–S4,
+   REPLACE_PEERS, счётчики, ICMP и handshake между двумя AWG в netns.
+   E2E worker: dry-run (`online`, `worker applied state`) и live (интерфейс,
+   пиры, HPK, RandomTrailers применены; handshake с тестовым клиентом прошёл).
+   Осталось: реальные клиенты и замер полосы. Статистика не работает — п. 11.
+2. **tc ingress/egress.** Структура HTB/IFB/u32, квоты, счётчики и изоляция
+   проверены; на реальном AWG htb/ingress/IFB применяются. Повторный reconcile
+   падает — п. 12. Без тарифа пользователя tc не применяется; пул без
+   `gateway` оставляет интерфейс без адреса. Осталось: живая полоса и hairpin.
+3. **nftables forwarding.** Таблица/цепь/правила и изоляция проверены на veth;
+   live worker создаёт `fwd_<ifname>` на реальном интерфейсе. Реальная пара
+   устройств на одном AWG-интерфейсе (hairpin `iifname == oifname`) — не
+   проверена.
 4. **Docker-образы.** Закрыто: сборка и запуск проверены, healthcheck'и зелёные.
 5. **TLS/ACME Traefik.** Локально проверены self-signed, HTTP/2, HTTP/3,
-   редирект и health. Выпуск Let's Encrypt на реальном домене не проверялся.
+   редирект и health; живой стенд отдаёт h2/h3 с TRAEFIK DEFAULT CERT.
+   `--static` падает: у роутеров нет `Host(...)`, HSTS не настроен. Выпуск
+   Let's Encrypt на реальном домене не проверялся.
 6. **Секреты.** В production старт падает без `AWG_MASTER_KEY` (32 байта
    base64), `AWG_JWT_SECRET` (32+ байта) и с дефолтным паролем администратора.
+   На проверочной машине `.env` с ключами есть, предупреждения об эфемерном
+   ключе нет, профиль читается; рестарт admin не выполнялся.
 7. **HTTP/3 backend.** Backend по-прежнему h2c; HTTP/3 терминирует Traefik.
    Это осознанное ограничение.
 8. **WebTransport.** Не реализован, используется WebSocket. Нужен h3 или
@@ -80,6 +90,21 @@
    с фильтрами и курсорной пагинацией, retention, UI-журнал `/audit`.
 10. **Rate limiting.** Закрыто: sliding window для login/refresh, 429 +
     `Retry-After`. В памяти процесса, при нескольких репликах лимиты не общие.
+11. **Статистика worker в live-режиме.** `backend/crates/worker/src/infrastructure/netlink.rs`
+    (`read_interface`) отправляет `WG_CMD_GET_DEVICE` без `NLM_F_DUMP`. В ядре
+    команда зарегистрирована только как dump (`.start`/`.dumpit`, без `.doit`),
+    поэтому ответ — `Operation not supported (os error 95)`. Worker каждые 2 с
+    пишет `failed to read counters`, API/UI показывают нули даже при реальном
+    handshake. Dry-run это скрывает: `read_interface` возвращает пустой runtime.
+    Нужно выставлять `NLM_F_DUMP` и читать multipart-ответ.
+12. **Повторный reconcile tc.** `TcShaper::apply_egress` вызывает
+    `tc qdisc replace` при каждом применении. На проверочном ядре (Linux 7.3.4,
+    iproute2 7.3.0) второй `replace` root htb возвращает
+    `Change operation not supported by specified qdisc`; после первого
+    успешного reconcile любое изменение состояния падает на `apply tc`, а nft
+    (применяется после tc) остаётся от предыдущей ревизии. `ingress replace`
+    идемпотентен, `qdisc del` + `add` работают. `scripts/verify-dataplane.sh`
+    теперь проверяет это отдельным пунктом.
 
 ### Функционал
 

@@ -31,6 +31,9 @@ test-backend:
 test-frontend:
 	cd frontend && pnpm test
 
+test-e2e:
+	cd frontend && pnpm e2e
+
 fmt:
 	cargo fmt --all
 

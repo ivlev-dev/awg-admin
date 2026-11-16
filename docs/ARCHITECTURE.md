@@ -22,7 +22,7 @@ Backend (`backend/crates/*`) разбит на доменные модули. З
 - `tariffs` — тарифы и лимиты.
 - `network` — группы, ноды, интерфейсы, пулы CIDR, obfuscation-настройки.
 - `clients` — устройства, пирь, профили, share-ссылки.
-- `statistics` — агрегация трафика, scope.
+- `statistics` — агрегация трафика, scope: часовые бакеты, дневные/месячные ряды на лету, retention.
 - `audit` — журнал действий: `AuditEntry`, `AuditRepository`, `RedbAuditRepository`, `AuditService`.
 - `orchestration` — worker registry, desired state, снапшот, приём статистики.
 - `proto` — protobuf-контракты gRPC.
@@ -134,6 +134,48 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
 - DI-индекс не разрешает alias `@/` для type-импортов интерфейсов — в конструкторах используйте относительные пути.
 - `lazy` + `Suspense` внутри `Show` требует обёртки с единственным корнем (`PageSlot`), иначе при смене маршрута остаётся осиротевший DOM.
 
+## Тесты
+
+Уровни проверки:
+
+- backend — `cargo test --workspace` (юнит- и интеграционные тесты крейтов);
+- frontend — `cd frontend && pnpm typecheck && pnpm test` (Vitest + happy-dom);
+- границы слоёв — `cd frontend && pnpm arch:check` (dependency-cruiser);
+- e2e — `cd frontend && pnpm e2e` (Playwright, спеки в `frontend/e2e`).
+
+E2E работают против поднятого стека: nginx раздаёт SPA на `:8081` и проксирует
+`/api` в admin. `baseURL` задаётся `E2E_BASE_URL` (по умолчанию
+`http://127.0.0.1:8081`), учётные данные администратора —
+`E2E_ADMIN_LOGIN`/`E2E_ADMIN_PASSWORD` (по умолчанию `admin`/`admin12345`).
+Проекты — Chromium и Firefox. В CI включены `retries: 1`, trace и screenshot
+только при падении; HTML-отчёт складывается в `frontend/playwright-report`,
+сырые артефакты — в `frontend/test-results`.
+
+Покрытие:
+
+- `auth.spec.ts` — вход, неверный пароль, выход, скрытие и запрет
+  adminOnly-разделов (`/audit`, `/users`) для роли `user`;
+- `navigation.spec.ts` — все разделы через sidebar, заголовки, отсутствие
+  ошибок загрузки lazy-чанков и JS-исключений;
+- `forwarding.spec.ts` — устройства A/B/C одного пользователя, включение пар
+  A↔B и B↔C, сохранение A↔C запрещённой после перезагрузки;
+- `quota.spec.ts` — квота тарифа в профиле пользователя и колонка «Квота»
+  в списке пользователей;
+- `audit.spec.ts` — фильтр по актору, пустая выдача и сброс фильтров.
+
+Фикстуры создаются через API в `beforeAll` с уникальным timestamp-суффиксом:
+группа, пул, нода, интерфейс, тариф, пользователь и устройства. Спеки не
+зависят от данных, созданных другими прогонами; в CI БД эфемерная и удаляется
+через `docker compose down -v`.
+
+```bash
+cd frontend
+pnpm exec playwright install --with-deps chromium firefox  # один раз
+pnpm e2e                       # оба проекта
+pnpm e2e --project=chromium    # только Chromium
+pnpm e2e:headed                # с видимым браузером
+```
+
 ## Хранилище (redb)
 
 `Store` — единственное подключение к redb-файлу (`AWG_DB_PATH`, по умолчанию
@@ -225,6 +267,19 @@ backup не трогается. Нельзя указать путь самог�
 ### Статистика
 
 worker читает счётчики интерфейсов → `CounterBook` нормализует переполнения/перезагрузки → `StatsSnapshot` по gRPC → admin агрегирует в `statistics` → раздаёт по WebSocket `/api/v1/ws/stats`.
+
+`statistics` хранит только часовые бакеты `TrafficBuckets` (`scope`, `hour`,
+`rx`, `tx`); счётчики устройств лежат в `PeerCounters`. Дневные и месячные
+ряды для `GET /api/v1/stats/aggregate` строятся на лету из часовых бакетов
+(`StatsService::daily`/`monthly`) с группировкой по UTC-суткам и календарным
+месяцам; материализованных дневных/месячных таблиц нет. Окно запроса
+ограничено 366 днями для `day` и 3660 днями для `month`.
+
+Срок хранения часовых бакетов задаётся настройкой `stats_retention_days`
+(`PUT /api/v1/settings`, clamp `7..3650`, по умолчанию `90`). Фоновая задача в
+`admin` раз в час перечитывает `SettingsStore` и вызывает
+`StatsService::cleanup(keep_days)`, поэтому новое значение применяется без
+перезапуска; количество удалённых бакетов пишется в лог.
 
 ### Аутентификация и сессии
 

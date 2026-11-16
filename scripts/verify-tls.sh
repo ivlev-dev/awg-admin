@@ -349,6 +349,13 @@ check_certificate() {
 check_hsts() {
   local headers
   headers=$(curl "${CURL_ARGS[@]}" -sSI "$URL/" 2>/dev/null || true)
+
+  if printf '%s\n' "$headers" | grep -qi '^alt-svc:.*h3'; then
+    ok "Alt-Svc анонсирует HTTP/3"
+  else
+    warn "Alt-Svc без h3: клиенты не узнают про HTTP/3"
+  fi
+
   if [ "$HSTS_CHECK" -eq 0 ]; then
     skip "проверка HSTS отключена (--no-hsts-check)"
     return
@@ -361,12 +368,6 @@ check_hsts() {
     fi
   else
     fail "HSTS отсутствует (Strict-Transport-Security не отдаётся)"
-  fi
-
-  if printf '%s\n' "$headers" | grep -qi '^alt-svc:.*h3'; then
-    ok "Alt-Svc анонсирует HTTP/3"
-  else
-    warn "Alt-Svc без h3: клиенты не узнают про HTTP/3"
   fi
 }
 

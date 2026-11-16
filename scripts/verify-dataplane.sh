@@ -37,7 +37,9 @@ usage() {
            фильтры u32 match ip dst; лимит 1 kbit (блокировка по квоте);
   ingress: qdisc ingress, mirred redirect в ifb-<ifname>, HTB и u32 match ip src;
   nftables: таблица inet awg_admin, цепь fwd_<ifname>, разрешающая пара + drop;
-  трафик:  ping через два netns, счётчики классов растут, изоляция блокирует.
+  трафик:  ping через два netns, счётчики классов растут, изоляция блокирует;
+  повторный reconcile: tc qdisc replace (root htb и ingress) и tc filter add
+           выполняются worker-ом при каждом изменении состояния.
 
 Ограничение: на veth нельзя воспроизвести hairpin iifname == oifname одного
 AWG-интерфейса. Проверяется эквивалентная пара iifname/oifname на двух veth;
@@ -284,6 +286,24 @@ sysctl -qw net.ipv4.conf.all.rp_filter=0
   return 0
 }
 
+check_reapply_idempotency() {
+  section "Повторный reconcile: qdisc replace"
+
+  print_cmd tc qdisc replace dev dp-r2 root handle 1: htb default 1
+  if tc qdisc replace dev dp-r2 root handle 1: htb default 1 2>"$WORKDIR/replace.err"; then
+    ok "повторный tc qdisc replace идемпотентен"
+  else
+    fail "повторный tc qdisc replace завершился ошибкой: $(cat "$WORKDIR/replace.err"): worker вызывает replace при каждом reconcile, поэтому после первого применения tc перестанет обновляться"
+  fi
+
+  print_cmd tc qdisc replace dev dp-r1 handle ffff: ingress
+  if tc qdisc replace dev dp-r1 handle ffff: ingress 2>"$WORKDIR/ingress.err"; then
+    ok "повторный ingress replace идемпотентен"
+  else
+    fail "повторный ingress replace завершился ошибкой: $(cat "$WORKDIR/ingress.err")"
+  fi
+}
+
 apply_nft() {
   section "nftables: inet awg_admin, цепь $CHAIN"
 
@@ -392,6 +412,7 @@ run_scenario() {
   create_router_links
   apply_egress
   apply_ingress
+  check_reapply_idempotency
   apply_nft
   check_filter_idempotency
   traffic_checks
