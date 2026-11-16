@@ -1,0 +1,15 @@
+FROM rust:1.90-bookworm AS builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang cmake protobuf-compiler pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY backend ./backend
+RUN cargo build --release -p awg-worker
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    iproute2 nftables kmod ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=builder /app/target/release/awg-worker /usr/local/bin/awg-worker
+ENTRYPOINT ["/usr/local/bin/awg-worker"]

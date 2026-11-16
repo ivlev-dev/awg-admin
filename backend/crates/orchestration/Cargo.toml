@@ -1,0 +1,16 @@
+[package]
+name = "awg-orchestration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+awg-shared = { path = "../shared" }
+awg-statistics = { path = "../statistics" }
+awg-proto = { path = "../proto" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+tokio.workspace = true
+sha2.workspace = true

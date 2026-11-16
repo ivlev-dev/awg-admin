@@ -1,0 +1,446 @@
+import { computed, reactive } from "@ivlev-dev/silent-core";
+
+import { api, session, toasts } from "@/app/container";
+import type { InterfaceInput } from "@/application/api";
+import { plural } from "@/domain/format";
+import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
+
+const DEFAULT_ENDPOINT_PORT = "443";
+const DEFAULT_LISTEN_PORT = "51820";
+const DEFAULT_MTU = "1420";
+
+export class InterfacesPageVM {
+  @reactive accessor interfaces: InterfaceInfo[] = [];
+  @reactive accessor groups: Group[] = [];
+  @reactive accessor nodes: NodeInfo[] = [];
+  @reactive accessor loading = true;
+  @reactive accessor busy = false;
+  @reactive accessor error: string | null = null;
+
+  @reactive accessor search = "";
+  @reactive accessor groupFilter = "";
+  @reactive accessor nodeFilter = "";
+
+  @reactive accessor createOpen = false;
+  @reactive accessor formGroupId = "";
+  @reactive accessor formNodeId = "";
+  @reactive accessor formName = "";
+  @reactive accessor formLabel = "";
+  @reactive accessor formEndpointHost = "";
+  @reactive accessor formEndpointPort = DEFAULT_ENDPOINT_PORT;
+  @reactive accessor formListenPort = DEFAULT_LISTEN_PORT;
+  @reactive accessor formMtu = DEFAULT_MTU;
+  @reactive accessor formError: string | null = null;
+
+  @reactive accessor editing: InterfaceInfo | null = null;
+  @reactive accessor editLabel = "";
+  @reactive accessor editHost = "";
+  @reactive accessor editEndpointPort = "";
+  @reactive accessor editListenPort = "";
+  @reactive accessor editMtu = "";
+  @reactive accessor editEnabled = true;
+  @reactive accessor editError: string | null = null;
+
+  @reactive accessor rotated: InterfaceInfo | null = null;
+  @reactive accessor rotatedCopied = false;
+
+  created(): void {
+    void this.load();
+  }
+
+  get isAdmin(): boolean {
+    return session.isAdmin;
+  }
+
+  get ownGroupId(): string | null {
+    return session.user?.group_id ?? null;
+  }
+
+  @computed
+  get visible(): InterfaceInfo[] {
+    const query = this.search.trim().toLowerCase();
+    const groupId = this.isAdmin ? this.groupFilter : this.ownGroupId ?? "";
+    return this.interfaces.filter((item) => {
+      if (!this.isAdmin && (!this.ownGroupId || item.group_id !== this.ownGroupId)) return false;
+      if (groupId && item.group_id !== groupId) return false;
+      if (this.nodeFilter && item.node_id !== this.nodeFilter) return false;
+      if (!query) return true;
+      return item.name.toLowerCase().includes(query) || item.label.toLowerCase().includes(query);
+    });
+  }
+
+  @computed
+  get hasInterfaces(): boolean {
+    return this.interfaces.length > 0;
+  }
+
+  @computed
+  get filtersActive(): boolean {
+    return this.search.trim().length > 0 || this.groupFilter.length > 0 || this.nodeFilter.length > 0;
+  }
+
+  @computed
+  get canCreate(): boolean {
+    return (
+      this.formGroupId.length > 0 &&
+      this.formNodeId.length > 0 &&
+      this.formName.trim().length > 0 &&
+      this.formEndpointHost.trim().length > 0 &&
+      isPort(this.formEndpointPort) &&
+      isPort(this.formListenPort) &&
+      isMtu(this.formMtu) &&
+      !this.busy
+    );
+  }
+
+  @computed
+  get canSaveEdit(): boolean {
+    return (
+      this.editing !== null &&
+      this.editHost.trim().length > 0 &&
+      isPort(this.editEndpointPort) &&
+      isPort(this.editListenPort) &&
+      isMtu(this.editMtu) &&
+      !this.busy
+    );
+  }
+
+  async load(): Promise<void> {
+    this.loading = true;
+    this.error = null;
+    try {
+      const [interfaces, groups, nodes] = await Promise.all([
+        api.listInterfaces(),
+        api.listGroups(),
+        api.listNodes(),
+      ]);
+      this.interfaces = sortInterfaces(interfaces);
+      this.groups = groups;
+      this.nodes = nodes;
+      this.syncFilters();
+    } catch (error) {
+      this.error = messageOf(error, "Не удалось загрузить интерфейсы");
+    } finally {
+      this.loading = false;
+    }
+  }
+
+  setSearch(event: Event): void {
+    this.search = (event.target as HTMLInputElement).value;
+  }
+
+  setGroupFilter(value: string): void {
+    this.groupFilter = value;
+  }
+
+  setNodeFilter(value: string): void {
+    this.nodeFilter = value;
+  }
+
+  resetFilters(): void {
+    this.search = "";
+    this.groupFilter = "";
+    this.nodeFilter = "";
+  }
+
+  openCreate(): void {
+    this.createOpen = true;
+    this.formError = null;
+    this.formGroupId = this.isAdmin
+      ? this.groupFilter || this.groups[0]?.id || ""
+      : this.ownGroupId ?? "";
+    this.formNodeId = this.nodeFilter || this.nodes[0]?.id || "";
+    this.formName = "";
+    this.formLabel = "";
+    this.formEndpointHost = "";
+    this.formEndpointPort = DEFAULT_ENDPOINT_PORT;
+    this.formListenPort = DEFAULT_LISTEN_PORT;
+    this.formMtu = DEFAULT_MTU;
+  }
+
+  closeCreate(): void {
+    if (this.busy) return;
+    this.createOpen = false;
+    this.formError = null;
+  }
+
+  setFormGroup(value: string): void {
+    this.formGroupId = value;
+  }
+
+  setFormNode(value: string): void {
+    this.formNodeId = value;
+  }
+
+  setFormName(event: Event): void {
+    this.formName = (event.target as HTMLInputElement).value;
+  }
+
+  setFormLabel(event: Event): void {
+    this.formLabel = (event.target as HTMLInputElement).value;
+  }
+
+  setFormEndpointHost(event: Event): void {
+    this.formEndpointHost = (event.target as HTMLInputElement).value;
+  }
+
+  setFormEndpointPort(event: Event): void {
+    this.formEndpointPort = (event.target as HTMLInputElement).value;
+  }
+
+  setFormListenPort(event: Event): void {
+    this.formListenPort = (event.target as HTMLInputElement).value;
+  }
+
+  setFormMtu(event: Event): void {
+    this.formMtu = (event.target as HTMLInputElement).value;
+  }
+
+  async submitCreate(event: Event): Promise<void> {
+    event.preventDefault();
+    if (!this.canCreate) return;
+    this.busy = true;
+    this.formError = null;
+    const input: InterfaceInput = {
+      group_id: this.formGroupId,
+      node_id: this.formNodeId,
+      name: this.formName.trim(),
+      label: this.formLabel.trim(),
+      endpoint_host: this.formEndpointHost.trim(),
+      endpoint_port: Number(this.formEndpointPort),
+      listen_port: Number(this.formListenPort),
+      mtu: Number(this.formMtu),
+    };
+    try {
+      const created = await api.createInterface(input);
+      this.interfaces = sortInterfaces([...this.interfaces, created]);
+      this.createOpen = false;
+      toasts.success(`Интерфейс «${created.name}» создан`);
+    } catch (error) {
+      const message = messageOf(error, "Не удалось создать интерфейс");
+      this.formError = message;
+      toasts.error(message);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  openEdit(item: InterfaceInfo): void {
+    this.editing = item;
+    this.editError = null;
+    this.editLabel = item.label;
+    this.editHost = item.endpoint_host;
+    this.editEndpointPort = String(item.endpoint_port);
+    this.editListenPort = String(item.listen_port);
+    this.editMtu = String(item.mtu);
+    this.editEnabled = item.enabled;
+  }
+
+  closeEdit(): void {
+    if (this.busy) return;
+    this.editing = null;
+    this.editError = null;
+  }
+
+  setEditLabel(event: Event): void {
+    this.editLabel = (event.target as HTMLInputElement).value;
+  }
+
+  setEditHost(event: Event): void {
+    this.editHost = (event.target as HTMLInputElement).value;
+  }
+
+  setEditEndpointPort(event: Event): void {
+    this.editEndpointPort = (event.target as HTMLInputElement).value;
+  }
+
+  setEditListenPort(event: Event): void {
+    this.editListenPort = (event.target as HTMLInputElement).value;
+  }
+
+  setEditMtu(event: Event): void {
+    this.editMtu = (event.target as HTMLInputElement).value;
+  }
+
+  setEditEnabled(event: Event): void {
+    this.editEnabled = (event.target as HTMLInputElement).checked;
+  }
+
+  async submitEdit(event: Event): Promise<void> {
+    event.preventDefault();
+    const current = this.editing;
+    if (!current || !this.canSaveEdit) return;
+    this.busy = true;
+    this.editError = null;
+    try {
+      const updated = await api.updateInterface(current.id, {
+        label: this.editLabel.trim(),
+        endpoint_host: this.editHost.trim(),
+        endpoint_port: Number(this.editEndpointPort),
+        listen_port: Number(this.editListenPort),
+        mtu: Number(this.editMtu),
+        enabled: this.editEnabled,
+      });
+      this.replace(updated);
+      this.editing = null;
+      toasts.success(`Интерфейс «${updated.name}» обновлён`);
+    } catch (error) {
+      const message = messageOf(error, "Не удалось обновить интерфейс");
+      this.editError = message;
+      toasts.error(message);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async rotate(item: InterfaceInfo): Promise<void> {
+    if (this.busy) return;
+    const confirmed = window.confirm(
+      `Перевыпустить ключи интерфейса «${item.name}»?\n\nВсе клиентские конфиги нужно перевыпустить заново: старый публичный ключ перестанет работать.`,
+    );
+    if (!confirmed) return;
+    this.busy = true;
+    try {
+      const updated = await api.rotateInterface(item.id);
+      this.replace(updated);
+      this.rotated = updated;
+      this.rotatedCopied = false;
+      toasts.success("Ключи интерфейса перевыпущены");
+    } catch (error) {
+      toasts.error(messageOf(error, "Не удалось перевыпустить ключи"));
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  closeRotated(): void {
+    this.rotated = null;
+    this.rotatedCopied = false;
+  }
+
+  async copyRotatedPublicKey(): Promise<void> {
+    const key = this.rotated?.public_key;
+    if (!key) return;
+    const copied = await copyText(key);
+    this.rotatedCopied = copied;
+    if (copied) {
+      toasts.success("Публичный ключ скопирован");
+    } else {
+      toasts.error("Не удалось скопировать ключ");
+    }
+  }
+
+  async remove(item: InterfaceInfo): Promise<void> {
+    if (this.busy) return;
+    const confirmed = window.confirm(
+      `Удалить интерфейс «${item.name}»?\n\nВсе пиры и клиентские конфиги этого интерфейса перестанут работать.`,
+    );
+    if (!confirmed) return;
+    this.busy = true;
+    try {
+      await api.deleteInterface(item.id);
+      this.interfaces = this.interfaces.filter((current) => current.id !== item.id);
+      toasts.success(`Интерфейс «${item.name}» удалён`);
+    } catch (error) {
+      toasts.error(messageOf(error, "Не удалось удалить интерфейс"));
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  async copyPublicKey(item: InterfaceInfo): Promise<void> {
+    const copied = await copyText(item.public_key);
+    if (copied) {
+      toasts.success("Публичный ключ скопирован");
+    } else {
+      toasts.error("Не удалось скопировать ключ");
+    }
+  }
+
+  async copyEndpoint(item: InterfaceInfo): Promise<void> {
+    const copied = await copyText(this.endpoint(item));
+    if (copied) {
+      toasts.success("Endpoint скопирован");
+    } else {
+      toasts.error("Не удалось скопировать endpoint");
+    }
+  }
+
+  endpoint(item: InterfaceInfo): string {
+    const host = item.endpoint_host.includes(":") ? `[${item.endpoint_host}]` : item.endpoint_host;
+    return `${host}:${item.endpoint_port}`;
+  }
+
+  peersLabel(item: InterfaceInfo): string {
+    return `${item.peers} ${plural(item.peers, "пир", "пира", "пиров")}`;
+  }
+
+  obfHeaders(item: InterfaceInfo): string {
+    const { h1, h2, h3, h4 } = item.obf;
+    return `H1 ${h1.lo}–${h1.hi} · H2 ${h2.lo}–${h2.hi} · H3 ${h3.lo}–${h3.hi} · H4 ${h4.lo}–${h4.hi}`;
+  }
+
+  obfSigned(item: InterfaceInfo): string {
+    const { s1, s2, s3, s4 } = item.obf;
+    return `S1 ${s1} · S2 ${s2} · S3 ${s3} · S4 ${s4}`;
+  }
+
+  private syncFilters(): void {
+    if (this.groupFilter && !this.groups.some((group) => group.id === this.groupFilter)) {
+      this.groupFilter = "";
+    }
+    if (this.nodeFilter && !this.nodes.some((node) => node.id === this.nodeFilter)) {
+      this.nodeFilter = "";
+    }
+  }
+
+  private replace(item: InterfaceInfo): void {
+    this.interfaces = sortInterfaces(
+      this.interfaces.map((current) => (current.id === item.id ? item : current)),
+    );
+  }
+}
+
+function messageOf(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
+
+function isPort(value: string): boolean {
+  if (!/^\d+$/.test(value.trim())) return false;
+  const port = Number(value);
+  return port >= 1 && port <= 65535;
+}
+
+function isMtu(value: string): boolean {
+  if (!/^\d+$/.test(value.trim())) return false;
+  const mtu = Number(value);
+  return mtu >= 576 && mtu <= 9000;
+}
+
+function sortInterfaces(items: InterfaceInfo[]): InterfaceInfo[] {
+  return [...items].sort(
+    (left, right) =>
+      left.group_name.localeCompare(right.group_name) || left.name.localeCompare(right.name),
+  );
+}
+
+async function copyText(value: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+      await navigator.clipboard.writeText(value);
+      return true;
+    }
+    const area = document.createElement("textarea");
+    area.value = value;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.top = "-1000px";
+    document.body.appendChild(area);
+    area.select();
+    const copied = document.execCommand("copy");
+    document.body.removeChild(area);
+    return copied;
+  } catch {
+    return false;
+  }
+}

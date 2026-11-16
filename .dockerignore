@@ -1,0 +1,11 @@
+.git
+.scratch
+target
+frontend/node_modules
+frontend/dist
+Any-Tech-ARCHITECT
+docs
+*.md
+.env
+.env.*
+!.env.example

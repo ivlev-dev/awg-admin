@@ -1,0 +1,128 @@
+syntax = "proto3";
+
+package awg.admin.v1;
+
+service WorkerGateway {
+  rpc Session(stream WorkerMessage) returns (stream ServerMessage);
+}
+
+message WorkerMessage {
+  oneof payload {
+    Hello hello = 1;
+    ApplyResult apply_result = 2;
+    StatsSnapshot stats = 3;
+    Heartbeat heartbeat = 4;
+  }
+}
+
+message ServerMessage {
+  oneof payload {
+    DesiredState state = 1;
+    Ping ping = 2;
+    Ack ack = 3;
+  }
+}
+
+message Hello {
+  string node_id = 1;
+  string token = 2;
+  string version = 3;
+}
+
+message Heartbeat {
+  int64 at = 1;
+}
+
+message Ping {
+  int64 at = 1;
+}
+
+message Ack {
+  string revision = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message ApplyResult {
+  string revision = 1;
+  bool ok = 2;
+  string error = 3;
+}
+
+message StatsSnapshot {
+  string revision = 1;
+  repeated InterfaceStats interfaces = 2;
+  int64 at = 3;
+}
+
+message InterfaceStats {
+  string interface_id = 1;
+  repeated PeerStats peers = 2;
+  uint64 rx_total = 3;
+  uint64 tx_total = 4;
+  int64 epoch = 5;
+}
+
+message PeerStats {
+  string device_id = 1;
+  string public_key = 2;
+  uint64 rx_total = 3;
+  uint64 tx_total = 4;
+  int64 last_handshake = 5;
+}
+
+message DesiredState {
+  string revision = 1;
+  repeated DesiredInterface interfaces = 2;
+  int64 generated_at = 3;
+}
+
+message DesiredInterface {
+  string id = 1;
+  string name = 2;
+  uint32 listen_port = 3;
+  uint32 mtu = 4;
+  string private_key = 5;
+  string public_key = 6;
+  bool enabled = 7;
+  string h1 = 8;
+  string h2 = 9;
+  string h3 = 10;
+  string h4 = 11;
+  uint32 s1 = 12;
+  uint32 s2 = 13;
+  uint32 s3 = 14;
+  uint32 s4 = 15;
+  string header_protection_key = 16;
+  bool random_trailers = 17;
+  repeated string addresses = 18;
+  repeated DesiredPeer peers = 19;
+  uint32 group_down_kbps = 20;
+  uint32 group_up_kbps = 21;
+  repeated ForwardingRule forwarding = 22;
+  repeated UserLimit user_limits = 23;
+}
+
+message UserLimit {
+  string user_id = 1;
+  uint32 group_down_kbps = 2;
+  uint32 group_up_kbps = 3;
+}
+
+message DesiredPeer {
+  string device_id = 1;
+  string public_key = 2;
+  string preshared_key = 3;
+  repeated string allowed_ips = 4;
+  repeated string addresses = 5;
+  uint32 down_kbps = 6;
+  uint32 up_kbps = 7;
+  string user_id = 8;
+}
+
+message ForwardingRule {
+  string from_device_id = 1;
+  string to_device_id = 2;
+  string from_ip = 3;
+  string to_ip = 4;
+}

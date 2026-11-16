@@ -1,0 +1,18 @@
+FROM rust:1.90-bookworm AS builder
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    clang cmake protobuf-compiler pkg-config libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+COPY Cargo.toml Cargo.lock ./
+COPY backend ./backend
+RUN cargo build --release -p awg-admin
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+RUN useradd --system --uid 10001 --gid nogroup awg \
+    && mkdir -p /data && chown -R awg:nogroup /data
+COPY --from=builder /app/target/release/awg-admin /usr/local/bin/awg-admin
+USER awg
+EXPOSE 8080 9090
+ENTRYPOINT ["/usr/local/bin/awg-admin"]

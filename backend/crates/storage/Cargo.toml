@@ -1,0 +1,14 @@
+[package]
+name = "awg-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+redb.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true

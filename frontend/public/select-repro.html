@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Select repro</title>
+    <style>
+      body { font: 15px system-ui, sans-serif; padding: 24px; display: grid; gap: 24px; max-width: 560px; }
+      label { display: grid; gap: 6px; }
+      select { min-height: 40px; padding: 8px 12px; border: 1px solid #ccc; border-radius: 10px; width: 100%; }
+    </style>
+  </head>
+  <body>
+    <h1>Firefox select repro</h1>
+    <p>Откройте в Firefox и нажмите на каждый селект. Запишите номера, которые не открываются.</p>
+
+    <label>1. Обычный нативный select (контроль)
+      <select><option>alpha</option><option>beta</option><option>gamma</option></select>
+    </label>
+
+    <label>2. Опции добавлены динамически после загрузки
+      <select id="dynamic"></select>
+    </label>
+
+    <label>3. value переустанавливается каждые 100 мс (аналог reactive effect)
+      <select id="value-loop"><option>alpha</option><option>beta</option><option>gamma</option></select>
+    </label>
+
+    <label>4. selected на опциях переустанавливается каждые 100 мс
+      <select id="selected-loop"><option selected>alpha</option><option>beta</option><option>gamma</option></select>
+    </label>
+
+    <label>5. Внутри form + делегированные обработчики на document (как в silent)
+      <form>
+        <select id="delegated"><option>alpha</option><option>beta</option><option>gamma</option></select>
+      </form>
+    </label>
+
+    <label>6. С CSS-классом .select и родителем position:relative
+      <span style="position: relative; display: block">
+        <select class="select"><option>alpha</option><option>beta</option><option>gamma</option></select>
+      </span>
+    </label>
+
+    <script>
+      const dynamic = document.getElementById("dynamic");
+      setTimeout(() => {
+        for (const text of ["alpha", "beta", "gamma"]) {
+          const option = document.createElement("option");
+          option.value = text;
+          option.textContent = text;
+          dynamic.append(option);
+        }
+      }, 100);
+
+      const valueLoop = document.getElementById("value-loop");
+      setInterval(() => {
+        valueLoop.value = valueLoop.value;
+      }, 100);
+
+      const selectedLoop = document.getElementById("selected-loop");
+      setInterval(() => {
+        for (const option of selectedLoop.options) {
+          option.selected = option.value === "alpha";
+        }
+      }, 100);
+
+      for (const type of ["mousedown", "click", "change", "focus"]) {
+        document.addEventListener(type, () => {}, true);
+        document.addEventListener(type, () => {});
+      }
+    </script>
+  </body>
+</html>

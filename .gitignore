@@ -1,0 +1,12 @@
+/target
+/frontend/node_modules
+/frontend/dist
+/frontend/.vite
+/data
+/.env
+/.playwright-mcp
+/.scratch
+/Any-Tech-ARCHITECT
+*.redb
+*.log
+.DS_Store

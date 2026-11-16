@@ -1,0 +1,20 @@
+[package]
+name = "awg-clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+awg-shared = { path = "../shared" }
+awg-storage = { path = "../storage" }
+awg-network = { path = "../network" }
+awg-identity = { path = "../identity" }
+awg-tariffs = { path = "../tariffs" }
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+ipnet.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+base64 = "0.22"

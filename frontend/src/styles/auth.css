@@ -1,0 +1,79 @@
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  background: var(--bg);
+}
+
+.auth__brand {
+  display: none;
+  position: relative;
+  overflow: hidden;
+  background:
+    radial-gradient(700px 500px at 15% 10%, rgba(124, 108, 246, 0.4), transparent 65%),
+    radial-gradient(600px 500px at 90% 90%, rgba(34, 211, 238, 0.18), transparent 60%),
+    linear-gradient(160deg, #0b1020 0%, #0b1430 55%, #0a1024 100%);
+  color: #fff;
+  padding: 48px;
+}
+
+.auth__brand::after {
+  content: "";
+  position: absolute;
+  right: -140px;
+  bottom: -180px;
+  width: 520px;
+  height: 520px;
+  border-radius: 50%;
+  border: 1px solid rgba(139, 139, 240, 0.22);
+  box-shadow: 0 0 0 60px rgba(139, 139, 240, 0.06), 0 0 0 130px rgba(139, 139, 240, 0.04);
+}
+
+.auth__brand-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 540px;
+}
+
+.auth__features { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }
+.auth__feature {
+  display: flex; align-items: center; gap: 10px;
+  color: #cdd6ef; font-size: var(--t-sm);
+}
+.auth__feature svg { color: #b9b9ff; }
+
+.auth__form {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px 40px;
+}
+
+.auth__card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--surface);
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--r-4);
+  padding: 24px;
+  box-shadow: var(--shadow-2);
+}
+
+.auth__password { position: relative; display: flex; gap: 6px; }
+.auth__password .input { padding-right: 44px; }
+.auth__password .btn { position: absolute; right: 0; top: 0; height: 40px; }
+
+.auth__footer { margin-top: 20px; padding-top: 16px; border-top: var(--hairline) solid var(--border); }
+
+@media (min-width: 640px) {
+  .auth__form { padding: 48px 24px; }
+  .auth__card { padding: 32px; }
+}
+
+@media (min-width: 1024px) {
+  .auth { grid-template-columns: minmax(420px, 1.05fr) minmax(420px, 0.95fr); }
+  .auth__brand { display: block; }
+}

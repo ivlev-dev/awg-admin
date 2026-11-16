@@ -1,0 +1,64 @@
+services:
+  admin:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.admin
+    image: awg-admin-dev
+    env_file: .env
+    environment:
+      AWG_BIND: 0.0.0.0:8080
+      AWG_GRPC_BIND: 0.0.0.0:9090
+      AWG_DB_PATH: /data/awg-admin.redb
+    volumes:
+      - .:/app
+      - awg-data:/data
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - cargo install cargo-watch --quiet 2>/dev/null || true; cargo watch -x 'run -p awg-admin'
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+
+  frontend:
+    image: node:22-bookworm-slim
+    working_dir: /app/frontend
+    volumes:
+      - ./frontend:/app/frontend
+    command:
+      - sh
+      - -c
+      - corepack enable && pnpm install && pnpm dev --host
+    ports:
+      - "5173:5173"
+
+  worker:
+    profiles: ["worker"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    image: awg-worker-dev
+    network_mode: host
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - /lib/modules:/lib/modules:ro
+      - /var/lib/awg-worker:/var/lib/awg-worker
+    env_file: .env
+    environment:
+      AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
+      AWG_NODE_ID: ${AWG_NODE_ID:-}
+      AWG_NODE_TOKEN: ${AWG_NODE_TOKEN:-}
+      AWG_DRY_RUN: "true"
+      AWG_COUNTERS_PATH: /var/lib/awg-worker/counters.json
+      AWG_STATS_INTERVAL_SECS: ${AWG_STATS_INTERVAL_SECS:-2}
+
+volumes:
+  awg-data:
+  cargo-registry:
+  cargo-git:

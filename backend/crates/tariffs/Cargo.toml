@@ -1,0 +1,12 @@
+[package]
+name = "awg-tariffs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+awg-shared = { path = "../shared" }
+awg-storage = { path = "../storage" }
+serde.workspace = true
+uuid.workspace = true
+chrono.workspace = true
