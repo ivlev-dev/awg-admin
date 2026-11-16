@@ -2,10 +2,21 @@ import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import { DefaultImportService } from "@/application/import/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
 import { DefaultNodesService } from "@/application/nodes/service";
+import { DefaultUsersService } from "@/application/users/service";
 import type { ImportRepository } from "@/domain/import/repository";
+import type { InterfacesRepository } from "@/domain/interfaces/repository";
+import type {
+  ClientsApplyResult,
+  ClientsPreview,
+  ImportApplyResult,
+  ImportInput,
+  ImportPreview,
+} from "@/domain/import/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
-import type { ImportResult, NodeInfo } from "@/domain/types";
+import type { UsersRepository } from "@/domain/users/repository";
+import type { ImportResult, InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import { ImportVM } from "./ImportPage.vm";
 
 const NODE_OFFLINE: NodeInfo = {
@@ -28,14 +39,21 @@ const NODE_ONLINE: NodeInfo = {
   interfaces: 1,
 };
 
-const RESULT: ImportResult = {
-  group_id: "g1",
-  interface_id: "i1",
-  imported_devices: 2,
-  failed_devices: [],
+const OWNER: User = {
+  id: "u1",
+  login: "owner",
+  email: "owner@example.com",
+  status: "active",
+  totp_enabled: false,
+  role: "user",
+  tariff_id: null,
+  group_id: null,
+  disabled: false,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
 };
 
-const SERVER_CONFIG = "[Interface]\nPrivateKey = server-key";
+const SERVER_CONFIG = "[Interface]\nPrivateKey = server-key\nListenPort = 51820";
 
 const CLIENT_ONE = `[Interface]
 Address = 10.8.0.2/24
@@ -50,6 +68,94 @@ PrivateKey = client-b
 
 [Peer]
 PublicKey = peer-b`;
+
+const PREVIEW: ImportPreview = {
+  group: { name: "Imported" },
+  interfaces: [
+    {
+      index: 0,
+      name: "awg0",
+      public_key: "server-pub",
+      clients: [
+        { name: "client-1", status: "create", address: "10.8.0.2/24", reason: null },
+        { name: "client-2", status: "duplicate", address: "10.8.0.3/24", reason: "address is used" },
+        { name: "client-3", status: "error", address: null, reason: "invalid key" },
+      ],
+      counts: { create: 1, duplicate: 1, error: 1 },
+    },
+  ],
+  summary: { create: 1, duplicate: 1, error: 1, interfaces: 1 },
+  warnings: ["public key check"],
+};
+
+const APPLY: ImportApplyResult = {
+  ...PREVIEW,
+  created: {
+    group_id: "g1",
+    interfaces: [{ id: "i1", name: "awg0", device_ids: ["d1", "d2"] }],
+  },
+};
+
+const EXISTING_INTERFACE: InterfaceInfo = {
+  id: "i1",
+  group_id: "g1",
+  group_name: "Main",
+  node_id: "n2",
+  node_name: "node-2",
+  name: "awg0",
+  label: "Office",
+  endpoint_host: "vpn.example.com",
+  endpoint_port: 51820,
+  listen_port: 51820,
+  mtu: 1280,
+  public_key: "server-pub",
+  obf: {
+    h1: { lo: 1, hi: 2 },
+    h2: { lo: 1, hi: 2 },
+    h3: { lo: 1, hi: 2 },
+    h4: { lo: 1, hi: 2 },
+    s1: 1,
+    s2: 2,
+    s3: 3,
+    s4: 4,
+    header_protection_key: "key",
+    random_trailers: false,
+  },
+  enabled: true,
+  peers: 2,
+};
+
+const CLIENTS_PREVIEW: ClientsPreview = {
+  interfaces: [
+    {
+      id: "i1",
+      name: "awg0",
+      group_id: "g1",
+      group_name: "Main",
+      node_id: "n2",
+      public_key: "server-pub",
+      clients: [
+        { name: "client-1", status: "create", address: "10.8.0.2/24", reason: null },
+        { name: "client-2", status: "error", address: null, reason: "interface not found" },
+      ],
+      counts: { create: 1, duplicate: 0, error: 1 },
+    },
+  ],
+  summary: { create: 1, duplicate: 0, error: 1, interfaces: 1 },
+  warnings: ["auto match"],
+};
+
+const CLIENTS_APPLIED: ClientsApplyResult = {
+  ...CLIENTS_PREVIEW,
+  created: { interfaces: [{ id: "i1", device_ids: ["d1"] }] },
+};
+
+const LEGACY_RESULT: ImportResult = {
+  group_id: "g1",
+  interface_id: "i1",
+  imported_devices: 1,
+  failed_devices: [],
+};
 
 function nodesHarness(nodes: NodeInfo[]): {
   repository: NodesRepository;
@@ -68,51 +174,172 @@ function nodesHarness(nodes: NodeInfo[]): {
   };
 }
 
-function importHarness(result: ImportResult): {
-  repository: ImportRepository;
-  importConfig: ReturnType<typeof vi.fn>;
+function usersHarness(users: User[]): {
+  repository: UsersRepository;
+  listUsers: ReturnType<typeof vi.fn>;
 } {
-  const importConfig = vi.fn(async () => result);
+  const listUsers = vi.fn(async () => users.map((user) => ({ ...user })));
   return {
-    importConfig,
-    repository: { importConfig },
+    listUsers,
+    repository: {
+      listUsers,
+      listPending: vi.fn(async () => []),
+      createUser: vi.fn(async () => {
+        throw new Error("createUser is not used in this test");
+      }),
+      updateUser: vi.fn(async () => {
+        throw new Error("updateUser is not used in this test");
+      }),
+      deleteUser: vi.fn(async () => undefined),
+      resetPassword: vi.fn(async () => undefined),
+      approveUser: vi.fn(async () => {
+        throw new Error("approveUser is not used in this test");
+      }),
+      rejectUser: vi.fn(async () => {
+        throw new Error("rejectUser is not used in this test");
+      }),
+    },
   };
 }
 
-function setup(nodeList: NodeInfo[] = [NODE_OFFLINE, NODE_ONLINE]) {
+function interfacesHarness(items: InterfaceInfo[]): {
+  repository: InterfacesRepository;
+  listInterfaces: ReturnType<typeof vi.fn>;
+} {
+  const listInterfaces = vi.fn(async () => items.map((item) => ({ ...item })));
+  return {
+    listInterfaces,
+    repository: {
+      listInterfaces,
+      createInterface: vi.fn(async () => {
+        throw new Error("createInterface is not used in this test");
+      }),
+      updateInterface: vi.fn(async () => {
+        throw new Error("updateInterface is not used in this test");
+      }),
+      rotateInterface: vi.fn(async () => {
+        throw new Error("rotateInterface is not used in this test");
+      }),
+      deleteInterface: vi.fn(async () => undefined),
+    },
+  };
+}
+
+function importHarness(
+  result: ImportPreview = PREVIEW,
+  applied: ImportApplyResult = APPLY,
+  clientsPreview: ClientsPreview = CLIENTS_PREVIEW,
+  clientsApplied: ClientsApplyResult = CLIENTS_APPLIED,
+): {
+  repository: ImportRepository;
+  preview: ReturnType<typeof vi.fn>;
+  apply: ReturnType<typeof vi.fn>;
+  previewClients: ReturnType<typeof vi.fn>;
+  applyClients: ReturnType<typeof vi.fn>;
+  importConfig: ReturnType<typeof vi.fn>;
+} {
+  const preview = vi.fn(async (_input: ImportInput) => result);
+  const apply = vi.fn(async (_input: ImportInput) => applied);
+  const previewClients = vi.fn(async () => clientsPreview);
+  const applyClients = vi.fn(async () => clientsApplied);
+  const importConfig = vi.fn(async () => LEGACY_RESULT);
+  return {
+    preview,
+    apply,
+    previewClients,
+    applyClients,
+    importConfig,
+    repository: { preview, apply, previewClients, applyClients, importConfig },
+  };
+}
+
+function inputEvent(value: string): Event {
+  return { target: { value } } as unknown as Event;
+}
+
+function fileEvent(files: File[]): Event {
+  return { target: { files, value: "config.conf" } } as unknown as Event;
+}
+
+function setup(
+  nodeList: NodeInfo[] = [NODE_OFFLINE, NODE_ONLINE],
+  userList: User[] = [OWNER],
+  interfaceList: InterfaceInfo[] = [EXISTING_INTERFACE],
+) {
   const nodes = nodesHarness(nodeList);
-  const imports = importHarness(RESULT);
+  const users = usersHarness(userList);
+  const interfaces = interfacesHarness(interfaceList);
+  const imports = importHarness();
   window.history.replaceState(null, "", "/import");
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new ImportVM(
     new DefaultImportService(imports.repository),
     new DefaultNodesService(nodes.repository),
+    new DefaultUsersService(users.repository),
+    new DefaultInterfacesService(interfaces.repository),
     router,
     toasts,
   );
-  return { vm, nodes, imports, router, toasts };
+  return { vm, nodes, users, interfaces, imports, router, toasts };
+}
+
+function fillInterface(
+  vm: ImportVM,
+  index: number,
+  options: { clientsText?: string; endpointHost?: string } = {},
+): void {
+  const draft = vm.interfaces[index];
+  if (!draft) throw new Error(`interface ${index} is missing`);
+  draft.serverConfig = SERVER_CONFIG;
+  draft.endpointHost = options.endpointHost ?? "vpn.example.com";
+  if (options.clientsText !== undefined) {
+    draft.clientsText = options.clientsText;
+    vm.parseClients(index, false);
+  }
 }
 
 function fillValid(vm: ImportVM): void {
-  vm.serverConfig = SERVER_CONFIG;
   vm.groupName = "Imported";
   vm.groupDescription = "  ";
-  vm.endpointHost = "vpn.example.com";
-  vm.clientsText = `${CLIENT_ONE}\n---\n${CLIENT_TWO}`;
+  fillInterface(vm, 0, { clientsText: `${CLIENT_ONE}\n---\n${CLIENT_TWO}` });
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve: (value: T) => void = () => undefined;
+  let reject: (error: unknown) => void = () => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
 }
 
 describe("ImportPageVM", () => {
-  it("загружает ноды и выбирает первую онлайн-ноду", async () => {
-    const { vm, nodes } = setup();
+  it("загружает ноды и владельцев, выбирает онлайн-ноду", async () => {
+    const { vm, nodes, users, interfaces } = setup();
 
     await vm.created();
 
     expect(nodes.listNodes).toHaveBeenCalledTimes(1);
+    expect(users.listUsers).toHaveBeenCalledTimes(1);
+    expect(interfaces.listInterfaces).toHaveBeenCalledTimes(1);
     expect(vm.nodes).toEqual([NODE_OFFLINE, NODE_ONLINE]);
+    expect(vm.owners).toEqual([OWNER]);
+    expect(vm.interfaceList).toEqual([EXISTING_INTERFACE]);
     expect(vm.nodesLoading).toBe(false);
+    expect(vm.ownersLoading).toBe(false);
+    expect(vm.interfacesLoading).toBe(false);
     expect(vm.nodeId).toBe(NODE_ONLINE.id);
     expect(vm.nodesError).toBeNull();
+    expect(vm.ownersError).toBeNull();
+    expect(vm.interfacesError).toBeNull();
+    expect(vm.ownerOptions.map((option) => option.value)).toEqual(["", OWNER.id]);
+    expect(vm.interfaceOptions.map((option) => option.value)).toEqual(["", EXISTING_INTERFACE.id]);
   });
 
   it("выбирает первую ноду, если онлайн-нод нет", async () => {
@@ -123,54 +350,97 @@ describe("ImportPageVM", () => {
     expect(vm.nodeId).toBe(NODE_OFFLINE.id);
   });
 
-  it("показывает ошибку загрузки нод", async () => {
-    const { vm, nodes, toasts } = setup();
+  it("показывает ошибки загрузки нод и владельцев", async () => {
+    const { vm, nodes, users, toasts } = setup();
     vi.mocked(nodes.listNodes).mockRejectedValueOnce(new Error("Ноды недоступны"));
+    vi.mocked(users.listUsers).mockRejectedValueOnce(new Error("Пользователи недоступны"));
 
     await vm.loadNodes();
+    await vm.loadOwners();
 
-    expect(vm.nodesLoading).toBe(false);
     expect(vm.nodesError).toBe("Ноды недоступны");
+    expect(vm.ownersError).toBe("Пользователи недоступны");
     expect(vm.nodes).toEqual([]);
-    expect(toasts.items.at(-1)).toMatchObject({ kind: "error", message: "Ноды недоступны" });
+    expect(vm.owners).toEqual([]);
+    expect(toasts.items.map((item) => item.message)).toContain("Ноды недоступны");
+    expect(toasts.items.map((item) => item.message)).toContain("Пользователи недоступны");
   });
 
-  it("разбирает клиентские конфиги и подписывает их уникальными именами", async () => {
+  it("разбирает клиентов в нескольких интерфейсах", async () => {
     const { vm, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.addInterface();
 
-    vm.clientsText = `${CLIENT_ONE}\n---\n${CLIENT_TWO}\n---\n${CLIENT_ONE}`;
-    const parsed = vm.parseClients();
+    expect(vm.interfaces).toHaveLength(2);
+    expect(vm.interfaces[1]?.name).toBe("awg1");
+    fillInterface(vm, 1, { clientsText: CLIENT_TWO });
 
-    expect(parsed).toBe(3);
-    expect(vm.clients.map((client) => client.name)).toEqual(["client-1", "client-2", "client-3"]);
-    expect(vm.clients[0]?.config).toBe(CLIENT_ONE);
+    expect(vm.interfaces[0]?.clients.map((client) => client.name)).toEqual([
+      "client-1",
+      "client-2",
+    ]);
+    expect(vm.interfaces[1]?.clients.map((client) => client.name)).toEqual(["client-1"]);
+    expect(vm.totalClients).toBe(3);
+    vm.parseClients(1);
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "success",
-      message: "Разобрано конфигов: 3",
+      message: "Разобрано конфигов: 1",
     });
   });
 
   it("не разбирает пустой текст клиентских конфигов", () => {
     const { vm, toasts } = setup();
 
-    vm.clientsText = "   ";
-
-    expect(vm.parseClients()).toBe(0);
-    expect(vm.clients).toEqual([]);
+    expect(vm.parseClients(0)).toBe(0);
+    expect(vm.interfaces[0]?.clients).toEqual([]);
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "error",
       message: "Вставьте клиентские конфиги",
     });
   });
 
-  it("не уведомляет при разборе без notify", () => {
+  it("синхронизирует текст при вводе и удалении клиентов", () => {
+    const { vm } = setup();
+
+    vm.setClientsText(0, inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
+
+    expect(vm.interfaces[0]?.clients).toHaveLength(2);
+    expect(vm.interfaces[0]?.clients[0]?.config).toBe(CLIENT_ONE);
+
+    vm.removeClient(0, 0);
+
+    expect(vm.interfaces[0]?.clients).toHaveLength(1);
+    expect(vm.interfaces[0]?.clientsText).toBe(CLIENT_TWO);
+  });
+
+  it("берёт имена клиентов из имён файлов", async () => {
     const { vm, toasts } = setup();
 
-    vm.clientsText = CLIENT_ONE;
+    await vm.setClientFiles(0, fileEvent([
+      new File([CLIENT_ONE], "laptop.conf", { type: "text/plain" }),
+      new File([CLIENT_TWO], "laptop.conf", { type: "text/plain" }),
+    ]));
 
-    expect(vm.parseClients(false)).toBe(1);
-    expect(toasts.items).toHaveLength(0);
-    expect(vm.clients).toHaveLength(1);
+    expect(vm.interfaces[0]?.clients.map((client) => client.name)).toEqual(["laptop", "laptop-2"]);
+    expect(vm.interfaces[0]?.clientsText).toContain(CLIENT_ONE);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Загружено конфигов: 2",
+    });
+  });
+
+  it("загружает серверный конфиг из файла", async () => {
+    const { vm, toasts } = setup();
+
+    await vm.setInterfaceServerFile(0, fileEvent([new File([SERVER_CONFIG], "server.conf")]));
+
+    expect(vm.interfaces[0]?.serverConfig).toBe(SERVER_CONFIG);
+    expect(vm.serverConfigValid(0)).toBe(true);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Загружен серверный конфиг server.conf",
+    });
   });
 
   it("извлекает адрес, ключ пира и превью конфига", () => {
@@ -183,175 +453,342 @@ describe("ImportPageVM", () => {
     expect(vm.clientPreview(CLIENT_ONE).split("\n")).toHaveLength(6);
   });
 
-  it("проверяет совпадение ключей пиров", () => {
+  it("проверяет совпадение ключей пиров по интерфейсам", () => {
     const { vm } = setup();
 
-    vm.clients = [
+    vm.interfaces[0]!.clients = [
       { name: "a", config: CLIENT_ONE },
       { name: "b", config: CLIENT_TWO },
     ];
-    expect(vm.distinctClientKeys).toEqual(["peer-a", "peer-b"]);
-    expect(vm.clientKeysMismatch).toBe(true);
-    expect(vm.clientsWithoutKey).toBe(0);
+    expect(vm.clientKeysMismatch(0)).toBe(true);
+    expect(vm.clientsWithoutKey(0)).toBe(0);
 
-    vm.clients = [
+    vm.interfaces[0]!.clients = [
       { name: "a", config: CLIENT_ONE },
       { name: "b", config: "[Interface]\nAddress = 10.0.0.2/24" },
     ];
-    expect(vm.distinctClientKeys).toEqual(["peer-a"]);
-    expect(vm.clientKeysMismatch).toBe(false);
-    expect(vm.clientsWithoutKey).toBe(1);
+    expect(vm.clientKeysMismatch(0)).toBe(false);
+    expect(vm.clientsWithoutKey(0)).toBe(1);
   });
 
-  it("импортирует конфиги и показывает успешный результат", async () => {
-    const { vm, imports, router, toasts } = setup();
+  it("валидирует серверный конфиг, порты, MTU и CIDR", async () => {
+    const { vm } = setup();
+    await vm.created();
+
+    expect(vm.serverConfigValid(0)).toBe(false);
+    expect(vm.serverConfigWarning(0)).toBeNull();
+
+    vm.interfaces[0]!.serverConfig = "PrivateKey = only";
+    expect(vm.serverConfigWarning(0)).toBe("В конфиге не найден блок [Interface] с PrivateKey.");
+
+    vm.interfaces[0]!.serverConfig = SERVER_CONFIG;
+    vm.interfaces[0]!.endpointHost = "vpn.example.com";
+    vm.interfaces[0]!.endpointPort = 0;
+    vm.interfaces[0]!.listenPort = 70_000;
+    vm.interfaces[0]!.mtu = 100;
+    vm.groupName = "Imported";
+
+    const messages = vm.interfaceIssues(0).map((issue) => vm.issueMessage(issue));
+    expect(messages).toContain("Порт должен быть от 1 до 65535");
+    expect(messages).toContain("MTU должен быть от 576 до 9000");
+
+    vm.baseCidr = "bad";
+    expect(vm.baseCidrError).toBe("Некорректный CIDR");
+    expect(vm.groupValid).toBe(false);
+  });
+
+  it("валидирует дубли имён интерфейсов и пулов", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.addInterface();
+    fillInterface(vm, 1);
+
+    vm.interfaces[1]!.name = "awg0";
+    expect(vm.issueMessage(vm.interfaceIssues(1)[0]!)).toBe(
+      "Имя интерфейса повторяется: awg0",
+    );
+
+    vm.interfaces[1]!.name = "awg1";
+    vm.interfaces[0]!.pools = [
+      { name: "default", cidr: "10.8.0.0/25", mode: "auto", gateway: "" },
+      { name: "default", cidr: "10.8.0.128/25", mode: "auto", gateway: "" },
+    ];
+
+    const messages = vm.interfaceIssues(0).map((issue) => vm.issueMessage(issue));
+    expect(messages).toContain("Имя пула повторяется: default");
+    expect(vm.poolError(0, 1)).toBe("Имя пула повторяется: default");
+  });
+
+  it("валидирует пересечение пулов и выход за base CIDR", async () => {
+    const { vm } = setup();
     await vm.created();
     fillValid(vm);
 
-    expect(vm.serverConfigValid).toBe(true);
-    expect(vm.paramsValid).toBe(true);
-    expect(vm.canImport).toBe(true);
+    vm.interfaces[0]!.pools = [
+      { name: "a", cidr: "10.8.0.0/24", mode: "auto", gateway: "" },
+      { name: "b", cidr: "10.8.0.128/25", mode: "auto", gateway: "" },
+    ];
+    expect(vm.poolError(0, 0)).toBe("Пулы пересекаются: a и b");
+    expect(vm.poolError(0, 1)).toBe("Пулы пересекаются: a и b");
 
-    await vm.importNow();
+    vm.interfaces[0]!.pools = [
+      { name: "a", cidr: "192.168.0.0/24", mode: "auto", gateway: "" },
+    ];
+    expect(vm.poolError(0, 0)).toBe("Пул должен входить в base CIDR");
+    expect(vm.valid).toBe(false);
+  });
 
-    expect(imports.importConfig).toHaveBeenCalledTimes(1);
-    expect(imports.importConfig).toHaveBeenCalledWith({
-      server_config: SERVER_CONFIG,
+  it("проверяет черновик и показывает статусы клиентов", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+
+    expect(vm.valid).toBe(true);
+    expect(vm.canPreview).toBe(true);
+
+    await vm.previewNow();
+
+    expect(imports.preview).toHaveBeenCalledTimes(1);
+    expect(imports.preview).toHaveBeenCalledWith({
       node_id: NODE_ONLINE.id,
       group_name: "Imported",
       group_description: "",
       base_cidr: "10.8.0.0/24",
-      pools: [
+      owner_user_id: null,
+      interfaces: [
         {
-          name: "default",
-          cidr: "10.8.0.0/24",
-          mode: "auto",
-          gateway: null,
+          server_config: SERVER_CONFIG,
+          name: "awg0",
+          label: "",
+          endpoint_host: "vpn.example.com",
+          endpoint_port: 51820,
+          listen_port: 51820,
+          mtu: 1280,
+          pools: [{ name: "default", cidr: "10.8.0.0/24", mode: "auto", gateway: null }],
+          clients: [
+            { name: "client-1", config: CLIENT_ONE },
+            { name: "client-2", config: CLIENT_TWO },
+          ],
         },
       ],
-      interface: {
-        name: "awg0",
-        endpoint_host: "vpn.example.com",
-        endpoint_port: 51820,
-        listen_port: 51820,
-        mtu: 1280,
-      },
-      clients: [
-        { name: "client-1", config: CLIENT_ONE },
-        { name: "client-2", config: CLIENT_TWO },
-      ],
-      owner_user_id: null,
     });
-    expect(vm.result).toEqual(RESULT);
-    expect(vm.importing).toBe(false);
-    expect(vm.error).toBeNull();
-    expect(vm.resultFailed).toEqual([]);
-    expect(vm.resultGroupPath).toBe("/groups/g1");
+    expect(vm.step).toBe(3);
+    expect(vm.preview).toEqual(PREVIEW);
+    expect(vm.previewSummary).toEqual(PREVIEW.summary);
+    expect(vm.previewStatusLabel("create")).toBe("создать");
+    expect(vm.previewStatusLabel("duplicate")).toBe("дубликат");
+    expect(vm.previewStatusLabel("error")).toBe("ошибка");
+    expect(vm.previewStatusClass("error")).toBe("badge badge--red");
+    expect(vm.previewClientAddress(PREVIEW.interfaces[0]!.clients[2]!)).toBe("—");
+    expect(vm.previewClientReason(PREVIEW.interfaces[0]!.clients[2]!)).toBe("invalid key");
+    expect(vm.previewWarnings).toEqual(["public key check"]);
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "success",
-      message: "Импортировано устройств: 2",
+      message: "Проверка завершена: создать 1, дубликатов 1, ошибок 1",
     });
-
-    vm.openGroup();
-    expect(router.path).toBe("/groups/g1");
   });
 
-  it("показывает ошибки импорта по устройствам", async () => {
+  it("не проверяет невалидную форму", async () => {
     const { vm, imports, toasts } = setup();
     await vm.created();
-    fillValid(vm);
-    const failed: ImportResult = {
-      group_id: "g1",
-      interface_id: "i1",
-      imported_devices: 1,
-      failed_devices: [{ name: "client-2", error: "Ключ уже используется" }],
-    };
-    vi.mocked(imports.importConfig).mockResolvedValueOnce(failed);
 
-    await vm.importNow();
+    await vm.previewNow();
 
-    expect(vm.result).toEqual(failed);
-    expect(vm.resultFailed).toEqual(failed.failed_devices);
-    expect(vm.resultGroupPath).toBe("/groups/g1");
-    expect(toasts.items.at(-1)).toMatchObject({
-      kind: "error",
-      message: "Импортировано 1, ошибок 1",
-    });
-  });
-
-  it("показывает ошибку импорта и сбрасывает состояние загрузки", async () => {
-    const { vm, imports, toasts } = setup();
-    await vm.created();
-    fillValid(vm);
-    vi.mocked(imports.importConfig).mockRejectedValueOnce(new Error("Некорректный конфиг сервера"));
-
-    await vm.importNow();
-
-    expect(vm.importing).toBe(false);
-    expect(vm.result).toBeNull();
-    expect(vm.error).toBe("Некорректный конфиг сервера");
-    expect(toasts.items.at(-1)).toMatchObject({
-      kind: "error",
-      message: "Некорректный конфиг сервера",
-    });
-  });
-
-  it("не отправляет импорт с невалидными параметрами", async () => {
-    const { vm, imports, toasts } = setup();
-
-    await vm.importNow();
-
-    expect(imports.importConfig).not.toHaveBeenCalled();
+    expect(imports.preview).not.toHaveBeenCalled();
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "error",
       message: "Заполните обязательные поля",
     });
   });
 
-  it("разбирает клиентов из текста перед импортом", async () => {
-    const { vm, imports } = setup();
-    await vm.created();
-    fillValid(vm);
-
-    expect(vm.clients).toEqual([]);
-    await vm.importNow();
-
-    expect(vm.clients).toHaveLength(2);
-    expect(imports.importConfig).toHaveBeenCalledTimes(1);
-  });
-
-  it("не отправляет импорт повторно во время выполнения", async () => {
-    const { vm, imports } = setup();
-    await vm.created();
-    fillValid(vm);
-    vm.importing = true;
-
-    await vm.importNow();
-
-    expect(imports.importConfig).not.toHaveBeenCalled();
-  });
-
-  it("сбрасывает форму", async () => {
+  it("сбрасывает план проверки при изменении формы", async () => {
     const { vm } = setup();
     await vm.created();
     fillValid(vm);
-    vm.parseClients();
-    vm.addPool();
+    await vm.previewNow();
+
+    expect(vm.preview).not.toBeNull();
+    expect(vm.step).toBe(3);
+
+    vm.setGroupName(inputEvent("Renamed"));
+
+    expect(vm.preview).toBeNull();
+    expect(vm.canApply).toBe(false);
+    expect(vm.step).toBe(2);
+    expect(vm.planInvalidated).toBe(true);
+  });
+
+  it("не применяет импорт без проверки", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+
+    await vm.applyNow();
+
+    expect(imports.apply).not.toHaveBeenCalled();
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Сначала выполните проверку",
+    });
+  });
+
+  it("применяет импорт после проверки и показывает результат", async () => {
+    const { vm, imports, router } = setup();
+    await vm.created();
+    fillValid(vm);
+    await vm.previewNow();
+
+    await vm.applyNow();
+
+    expect(imports.apply).toHaveBeenCalledTimes(1);
+    expect(vm.applied).toEqual(APPLY);
+    expect(vm.step).toBe(4);
+    expect(vm.applying).toBe(false);
+    expect(vm.applyError).toBeNull();
+    expect(vm.resultGroupId).toBe("g1");
+    expect(vm.resultGroupPath).toBe("/groups/g1");
+    expect(vm.resultInterfaceCount).toBe(1);
+    expect(vm.resultDeviceCount).toBe(2);
+    expect(vm.resultCreatedCount).toBe(1);
+    expect(vm.resultDuplicateCount).toBe(1);
+    expect(vm.resultErrorCount).toBe(1);
+    expect(vm.resultFailures).toEqual([
+      { interfaceName: "awg0", clientName: "client-3", reason: "invalid key" },
+    ]);
+
+    vm.openGroup();
+    expect(router.path).toBe("/groups/g1");
+
+    vm.openInterfaces();
+    expect(router.path).toBe("/interfaces");
+  });
+
+  it("показывает фатальную ошибку применения и откат", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+    await vm.previewNow();
+    vi.mocked(imports.apply).mockRejectedValueOnce(new Error("Сбой транзакции"));
+
+    await vm.applyNow();
+
+    expect(vm.applying).toBe(false);
+    expect(vm.applied).toBeNull();
+    expect(vm.applyError).toBe("Сбой транзакции");
+    expect(vm.step).toBe(3);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Сбой транзакции",
+    });
+  });
+
+  it("показывает ошибку проверки и сбрасывает состояние загрузки", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+    vi.mocked(imports.preview).mockRejectedValueOnce(new Error("Некорректный конфиг сервера"));
+
+    await vm.previewNow();
+
+    expect(vm.previewing).toBe(false);
+    expect(vm.preview).toBeNull();
+    expect(vm.previewError).toBe("Некорректный конфиг сервера");
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Некорректный конфиг сервера",
+    });
+  });
+
+  it("отбрасывает устаревшую проверку, если форма изменилась", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    fillValid(vm);
+    const pending = deferred<ImportPreview>();
+    vi.mocked(imports.preview).mockReturnValueOnce(pending.promise);
+
+    const request = vm.previewNow();
+    vm.setGroupName(inputEvent("Changed"));
+    pending.resolve(PREVIEW);
+    await request;
+
+    expect(vm.preview).toBeNull();
+    expect(vm.step).toBe(2);
+  });
+
+  it("не отправляет запрос повторно во время проверки", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.previewing = true;
+
+    await vm.previewNow();
+    await vm.applyNow();
+
+    expect(imports.preview).not.toHaveBeenCalled();
+    expect(imports.apply).not.toHaveBeenCalled();
+  });
+
+  it("управляет шагами мастера", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+
+    vm.goToStep(2);
+    expect(vm.step).toBe(2);
+
+    vm.goToStep(4);
+    expect(vm.step).toBe(2);
+
+    await vm.previewNow();
+    expect(vm.step).toBe(3);
+
+    vm.goToStep(1);
+    expect(vm.step).toBe(1);
+    vm.goToStep(2);
+    expect(vm.step).toBe(2);
+    vm.goToStep(3);
+    expect(vm.step).toBe(3);
+
+    vm.back();
+    expect(vm.step).toBe(2);
+
+    vm.next();
+    await vi.waitFor(() => {
+      expect(vm.preview).not.toBeNull();
+    });
+    expect(vm.step).toBe(3);
+
+    vm.next();
+    await vi.waitFor(() => {
+      expect(vm.step).toBe(4);
+    });
+  });
+
+  it("сбрасывает форму и сохраняет выбранную ноду", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.addInterface();
+    vm.ownerUserId = OWNER.id;
+    await vm.previewNow();
 
     vm.reset();
 
-    expect(vm.serverConfig).toBe("");
+    expect(vm.step).toBe(1);
     expect(vm.groupName).toBe("");
+    expect(vm.groupDescription).toBe("");
     expect(vm.baseCidr).toBe("10.8.0.0/24");
-    expect(vm.interfaceName).toBe("awg0");
-    expect(vm.endpointPort).toBe(51820);
-    expect(vm.listenPort).toBe(51820);
-    expect(vm.mtu).toBe(1280);
-    expect(vm.pools).toHaveLength(1);
-    expect(vm.clientsText).toBe("");
-    expect(vm.clients).toEqual([]);
-    expect(vm.result).toBeNull();
-    expect(vm.error).toBeNull();
+    expect(vm.ownerUserId).toBe("");
+    expect(vm.interfaces).toHaveLength(1);
+    expect(vm.interfaces[0]?.name).toBe("awg0");
+    expect(vm.interfaces[0]?.serverConfig).toBe("");
+    expect(vm.interfaces[0]?.clients).toEqual([]);
+    expect(vm.interfaces[0]?.clientsText).toBe("");
+    expect(vm.preview).toBeNull();
+    expect(vm.applied).toBeNull();
+    expect(vm.previewError).toBeNull();
+    expect(vm.applyError).toBeNull();
     expect(vm.nodeId).toBe(NODE_ONLINE.id);
   });
 
@@ -359,26 +796,247 @@ describe("ImportPageVM", () => {
     const { vm } = setup();
     await vm.created();
 
-    vm.addPool();
-    expect(vm.pools).toHaveLength(2);
-    expect(vm.pools[1]?.name).toBe("pool-2");
-    expect(vm.poolError(vm.pools[1]!)).toBeNull();
+    vm.setPoolCidr(0, 0, inputEvent("10.8.0.0/25"));
+    vm.addPool(0);
+    expect(vm.interfaces[0]?.pools).toHaveLength(2);
+    expect(vm.interfaces[0]?.pools[1]?.name).toBe("pool-2");
+    expect(vm.poolError(0, 1)).toBe("Пулы пересекаются: default и pool-2");
 
-    vm.pools[1]!.cidr = "192.168.0.0/24";
-    expect(vm.poolError(vm.pools[1]!)).toBe("Пул должен входить в base CIDR");
-    expect(vm.poolsValid).toBe(false);
+    vm.setPoolCidr(0, 1, inputEvent("10.8.0.128/25"));
+    expect(vm.poolError(0, 1)).toBeNull();
 
-    vm.removePool(1);
-    expect(vm.pools).toHaveLength(1);
+    vm.setPoolCidr(0, 1, inputEvent("192.168.0.0/24"));
+    expect(vm.poolError(0, 1)).toBe("Пул должен входить в base CIDR");
+    expect(vm.valid).toBe(false);
 
-    vm.interfaceName = " ";
-    vm.endpointHost = "host";
-    vm.mtu = 100;
-    expect(vm.interfaceValid).toBe(false);
+    vm.removePool(0, 1);
+    expect(vm.interfaces[0]?.pools).toHaveLength(1);
 
-    vm.endpointHost = "   ";
-    vm.mtu = 1280;
-    expect(vm.interfaceValid).toBe(false);
+    vm.removeInterface(0);
+    expect(vm.interfaces).toHaveLength(1);
+  });
+
+  it("переключает режимы импорта", () => {
+    const { vm } = setup();
+
+    expect(vm.mode).toBe("group");
+    vm.setMode("clients");
+    expect(vm.mode).toBe("clients");
+    vm.setMode("unknown");
+    expect(vm.mode).toBe("clients");
+    vm.setMode("group");
+    expect(vm.mode).toBe("group");
+  });
+
+  it("разбирает клиентов для импорта в интерфейс", () => {
+    const { vm, toasts } = setup();
+
+    vm.setClientsImportText(inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
+    expect(vm.clientsImport.map((client) => client.name)).toEqual(["client-1", "client-2"]);
+    expect(vm.clientsTotal).toBe(2);
+    expect(vm.clientsValid).toBe(true);
+
+    expect(vm.parseClientsImport()).toBe(2);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Разобрано конфигов: 2",
+    });
+
+    vm.removeClientsImport(0);
+    expect(vm.clientsImport).toHaveLength(1);
+    expect(vm.clientsImportText).toBe(CLIENT_TWO);
+  });
+
+  it("берёт имена клиентов из файлов для импорта в интерфейс", async () => {
+    const { vm, toasts } = setup();
+
+    await vm.setClientsImportFiles(fileEvent([
+      new File([CLIENT_ONE], "phone.conf", { type: "text/plain" }),
+      new File([CLIENT_TWO], "tablet.conf", { type: "text/plain" }),
+    ]));
+
+    expect(vm.clientsImport.map((client) => client.name)).toEqual(["phone", "tablet"]);
+    expect(vm.clientsImportText).toContain(CLIENT_ONE);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Загружено конфигов: 2",
+    });
+  });
+
+  it("проверяет клиентов с автоопределением интерфейса", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientsImportText(inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
+
+    await vm.previewClientsNow();
+
+    expect(imports.previewClients).toHaveBeenCalledWith({
+      interface_id: null,
+      owner_user_id: OWNER.id,
+      clients: [
+        { name: "client-1", config: CLIENT_ONE },
+        { name: "client-2", config: CLIENT_TWO },
+      ],
+    });
+    expect(vm.clientsStep).toBe(2);
+    expect(vm.clientsPreview).toEqual(CLIENTS_PREVIEW);
+    expect(vm.clientsPreviewSummary).toEqual(CLIENTS_PREVIEW.summary);
+    expect(vm.clientsPreviewInterfaces[0]?.group_name).toBe("Main");
+    expect(vm.clientsPreviewWarnings).toEqual(["auto match"]);
+    expect(
+      vm.previewStatusLabel(vm.clientsPreviewInterfaces[0]!.clients[1]!.status),
+    ).toBe("ошибка");
+    expect(vm.previewClientReason(vm.clientsPreviewInterfaces[0]!.clients[1]!)).toBe(
+      "interface not found",
+    );
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Проверка завершена: создать 1, дубликатов 0, ошибок 1",
+    });
+  });
+
+  it("передаёт выбранный интерфейс при проверке клиентов", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    vm.setClientInterface(EXISTING_INTERFACE.id);
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+
+    await vm.previewClientsNow();
+
+    expect(imports.previewClients).toHaveBeenCalledWith(
+      expect.objectContaining({ interface_id: EXISTING_INTERFACE.id }),
+    );
+  });
+
+  it("сбрасывает план клиентов при изменении формы", async () => {
+    const { vm } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+    await vm.previewClientsNow();
+
+    expect(vm.clientsPreview).not.toBeNull();
+    vm.setClientOwner(OWNER.id);
+
+    expect(vm.clientsPreview).toBeNull();
+    expect(vm.clientsStep).toBe(1);
+    expect(vm.clientsPlanInvalidated).toBe(true);
+    expect(vm.canApplyClients).toBe(false);
+  });
+
+  it("не применяет клиентов без проверки", async () => {
+    const { vm, imports, toasts } = setup();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+
+    await vm.applyClientsNow();
+
+    expect(imports.applyClients).not.toHaveBeenCalled();
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Сначала выполните проверку",
+    });
+  });
+
+  it("применяет клиентов и показывает результат с ошибками", async () => {
+    const { vm, imports, router } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
+    await vm.previewClientsNow();
+
+    await vm.applyClientsNow();
+
+    expect(imports.applyClients).toHaveBeenCalledTimes(1);
+    expect(imports.applyClients).toHaveBeenCalledWith({
+      interface_id: null,
+      owner_user_id: null,
+      clients: [
+        { name: "client-1", config: CLIENT_ONE },
+        { name: "client-2", config: CLIENT_TWO },
+      ],
+    });
+    expect(vm.clientsApplied).toEqual(CLIENTS_APPLIED);
+    expect(vm.clientsStep).toBe(3);
+    expect(vm.clientsApplying).toBe(false);
+    expect(vm.clientsApplyError).toBeNull();
+    expect(vm.clientsResultInterfaceCount).toBe(1);
+    expect(vm.clientsResultDeviceCount).toBe(1);
+    expect(vm.clientsResultCreatedCount).toBe(1);
+    expect(vm.clientsResultDuplicateCount).toBe(0);
+    expect(vm.clientsResultErrorCount).toBe(1);
+    expect(vm.clientsResultGroupId).toBe("g1");
+    expect(vm.clientsResultGroupPath).toBe("/groups/g1");
+    expect(vm.clientsResultFailures).toEqual([
+      {
+        interfaceName: "awg0",
+        groupName: "Main",
+        clientName: "client-2",
+        reason: "interface not found",
+      },
+    ]);
+
+    vm.openClientsGroup();
+    expect(router.path).toBe("/groups/g1");
+    vm.openInterfaces();
+    expect(router.path).toBe("/interfaces");
+  });
+
+  it("показывает фатальную ошибку импорта клиентов", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+    await vm.previewClientsNow();
+    vi.mocked(imports.applyClients).mockRejectedValueOnce(new Error("Транзакция прервана"));
+
+    await vm.applyClientsNow();
+
+    expect(vm.clientsApplying).toBe(false);
+    expect(vm.clientsApplied).toBeNull();
+    expect(vm.clientsApplyError).toBe("Транзакция прервана");
+    expect(vm.clientsStep).toBe(2);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Транзакция прервана",
+    });
+  });
+
+  it("показывает ошибку проверки клиентов", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+    vi.mocked(imports.previewClients).mockRejectedValueOnce(new Error("Нет интерфейсов"));
+
+    await vm.previewClientsNow();
+
+    expect(vm.clientsPreviewing).toBe(false);
+    expect(vm.clientsPreview).toBeNull();
+    expect(vm.clientsPreviewError).toBe("Нет интерфейсов");
+    expect(vm.clientsStep).toBe(2);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Нет интерфейсов",
+    });
+  });
+
+  it("сбрасывает импорт клиентов", async () => {
+    const { vm } = setup();
+    await vm.created();
+    vm.setClientInterface(EXISTING_INTERFACE.id);
+    vm.setClientOwner(OWNER.id);
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+    await vm.previewClientsNow();
+
+    vm.resetClientsImport();
+
+    expect(vm.clientsStep).toBe(1);
+    expect(vm.clientOwnerUserId).toBe("");
+    expect(vm.clientInterfaceId).toBe("");
+    expect(vm.clientsImportText).toBe("");
+    expect(vm.clientsImport).toEqual([]);
+    expect(vm.clientsPreview).toBeNull();
+    expect(vm.clientsApplied).toBeNull();
+    expect(vm.clientsPreviewError).toBeNull();
+    expect(vm.clientsApplyError).toBeNull();
+    expect(vm.clientsPlanInvalidated).toBe(false);
   });
 
   it("переходит к нодам через роутер", () => {

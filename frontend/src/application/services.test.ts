@@ -13,6 +13,13 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { ImportRepository } from "@/domain/import/repository";
+import type {
+  ClientsApplyResult,
+  ClientsPreview,
+  ImportApplyResult,
+  ImportInput,
+  ImportPreview,
+} from "@/domain/import/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { SettingsRepository } from "@/domain/settings/repository";
@@ -636,8 +643,57 @@ describe("SettingsService", () => {
 });
 
 describe("ImportService", () => {
+  const PREVIEW: ImportPreview = {
+    group: { name: "Main" },
+    interfaces: [
+      {
+        index: 0,
+        name: "wg0",
+        public_key: "server-pub",
+        clients: [{ name: "laptop", status: "create", address: "10.0.0.2/24", reason: null }],
+        counts: { create: 1, duplicate: 0, error: 0 },
+      },
+    ],
+    summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+    warnings: [],
+  };
+
+  const APPLIED: ImportApplyResult = {
+    ...PREVIEW,
+    created: {
+      group_id: "g1",
+      interfaces: [{ id: "i1", name: "wg0", device_ids: ["d1"] }],
+    },
+  };
+
+  const CLIENTS_PREVIEW: ClientsPreview = {
+    interfaces: [
+      {
+        id: "i1",
+        name: "wg0",
+        group_id: "g1",
+        group_name: "Main",
+        node_id: "n1",
+        public_key: "server-pub",
+        clients: [{ name: "laptop", status: "create", address: "10.0.0.2/24", reason: null }],
+        counts: { create: 1, duplicate: 0, error: 0 },
+      },
+    ],
+    summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+    warnings: [],
+  };
+
+  const CLIENTS_APPLIED: ClientsApplyResult = {
+    ...CLIENTS_PREVIEW,
+    created: { interfaces: [{ id: "i1", device_ids: ["d1"] }] },
+  };
+
   function makeImport(): ImportRepository {
     return {
+      preview: vi.fn(async () => PREVIEW),
+      apply: vi.fn(async () => APPLIED),
+      previewClients: vi.fn(async () => CLIENTS_PREVIEW),
+      applyClients: vi.fn(async () => CLIENTS_APPLIED),
       importConfig: vi.fn(async (): Promise<ImportResult> => ({
         group_id: "g1",
         interface_id: "i1",
@@ -647,13 +703,34 @@ describe("ImportService", () => {
     };
   }
 
-  const input = {
-    server_config: "[Interface]",
+  const input: ImportInput = {
     node_id: "n1",
     group_name: "Main",
     group_description: "",
     base_cidr: "10.0.0.0/24",
-    pools: [{ name: "pool", cidr: "10.0.1.0/24", mode: "auto" as const, gateway: null }],
+    owner_user_id: null,
+    interfaces: [
+      {
+        server_config: "[Interface]\nPrivateKey = key",
+        name: "wg0",
+        label: "",
+        endpoint_host: "vpn.example.com",
+        endpoint_port: 51820,
+        listen_port: 51820,
+        mtu: 1420,
+        pools: [{ name: "pool", cidr: "10.0.0.0/25", mode: "auto", gateway: null }],
+        clients: [{ name: "laptop", config: "[Peer]" }],
+      },
+    ],
+  };
+
+  const legacyInput = {
+    server_config: "[Interface]\nPrivateKey = key",
+    node_id: "n1",
+    group_name: "Main",
+    group_description: "",
+    base_cidr: "10.0.0.0/24",
+    pools: [{ name: "pool", cidr: "10.0.0.0/25", mode: "auto" as const, gateway: null }],
     interface: {
       name: "wg0",
       endpoint_host: "vpn.example.com",
@@ -665,20 +742,182 @@ describe("ImportService", () => {
     owner_user_id: null,
   };
 
+  it("rejects an invalid base CIDR", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({ ...input, base_cidr: "bad" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it("rejects an invalid pool CIDR", async () => {
     const service = new DefaultImportService(makeImport());
     await expect(
-      service.importConfig({
+      service.preview({
         ...input,
-        pools: [{ ...input.pools[0]!, cidr: "bad" }],
+        interfaces: [
+          {
+            ...input.interfaces[0]!,
+            pools: [{ ...input.interfaces[0]!.pools[0]!, cidr: "bad" }],
+          },
+        ],
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("delegates a valid import", async () => {
+  it("rejects a pool outside the base CIDR", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({
+        ...input,
+        interfaces: [
+          {
+            ...input.interfaces[0]!,
+            pools: [{ ...input.interfaces[0]!.pools[0]!, cidr: "192.168.0.0/24" }],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects duplicate interface names", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({
+        ...input,
+        interfaces: [input.interfaces[0]!, { ...input.interfaces[0]!, name: "WG0" }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects duplicate pool names", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({
+        ...input,
+        interfaces: [
+          {
+            ...input.interfaces[0]!,
+            pools: [
+              { ...input.interfaces[0]!.pools[0]!, name: "pool" },
+              { ...input.interfaces[0]!.pools[0]!, name: "Pool", cidr: "10.0.0.128/25" },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects overlapping pools", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({
+        ...input,
+        interfaces: [
+          {
+            ...input.interfaces[0]!,
+            pools: [
+              { ...input.interfaces[0]!.pools[0]!, name: "a", cidr: "10.0.0.0/24" },
+              { ...input.interfaces[0]!.pools[0]!, name: "b", cidr: "10.0.0.128/25" },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects a server config without [Interface] and PrivateKey", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.preview({
+        ...input,
+        interfaces: [{ ...input.interfaces[0]!, server_config: "PrivateKey = key" }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("delegates a valid preview", async () => {
     const repo = makeImport();
     const service = new DefaultImportService(repo);
-    await service.importConfig(input);
+    const result = await service.preview({
+      ...input,
+      group_name: "  Main  ",
+      interfaces: [{ ...input.interfaces[0]!, name: " wg0 " }],
+    });
+    expect(repo.preview).toHaveBeenCalledWith(
+      expect.objectContaining({
+        node_id: "n1",
+        group_name: "Main",
+        base_cidr: "10.0.0.0/24",
+        interfaces: [expect.objectContaining({ name: "wg0" })],
+      }),
+    );
+    expect(result).toEqual(PREVIEW);
+  });
+
+  it("delegates a valid apply", async () => {
+    const repo = makeImport();
+    const service = new DefaultImportService(repo);
+    const result = await service.apply(input);
+    expect(repo.apply).toHaveBeenCalledWith(
+      expect.objectContaining({ owner_user_id: null, interfaces: expect.any(Array) }),
+    );
+    expect(result).toEqual(APPLIED);
+  });
+
+  it("rejects an empty clients list", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.previewClients({ interface_id: null, owner_user_id: null, clients: [] }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects empty client configs", async () => {
+    const service = new DefaultImportService(makeImport());
+    await expect(
+      service.applyClients({
+        interface_id: null,
+        owner_user_id: null,
+        clients: [{ name: "laptop", config: "   " }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("normalizes a clients import and delegates", async () => {
+    const repo = makeImport();
+    const service = new DefaultImportService(repo);
+    const result = await service.previewClients({
+      interface_id: "  i1  ",
+      owner_user_id: "  ",
+      clients: [{ name: " laptop ", config: "[Peer]" }],
+    });
+    expect(repo.previewClients).toHaveBeenCalledWith({
+      interface_id: "i1",
+      owner_user_id: null,
+      clients: [{ name: "laptop", config: "[Peer]" }],
+    });
+    expect(result).toEqual(CLIENTS_PREVIEW);
+  });
+
+  it("delegates a clients apply with automatic matching", async () => {
+    const repo = makeImport();
+    const service = new DefaultImportService(repo);
+    const result = await service.applyClients({
+      interface_id: null,
+      owner_user_id: "u1",
+      clients: [{ name: "laptop", config: "[Peer]" }],
+    });
+    expect(repo.applyClients).toHaveBeenCalledWith({
+      interface_id: null,
+      owner_user_id: "u1",
+      clients: [{ name: "laptop", config: "[Peer]" }],
+    });
+    expect(result).toEqual(CLIENTS_APPLIED);
+  });
+
+  it("delegates a legacy import", async () => {
+    const repo = makeImport();
+    const service = new DefaultImportService(repo);
+    await service.importConfig(legacyInput);
     expect(repo.importConfig).toHaveBeenCalledWith(
       expect.objectContaining({ node_id: "n1", base_cidr: "10.0.0.0/24" }),
     );

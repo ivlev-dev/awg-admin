@@ -65,6 +65,13 @@ export function cidrContains(parent: string, child: string): boolean {
   return inner.start >= base.start && inner.end <= base.end;
 }
 
+export function cidrsOverlap(left: string, right: string): boolean {
+  const first = toRange(left);
+  const second = toRange(right);
+  if (!first || !second) return false;
+  return first.start <= second.end && second.start <= first.end;
+}
+
 function toRange(cidr: string): { start: number; end: number } | null {
   const match = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})\/(\d{1,2})$/.exec(cidr.trim());
   if (!match) return null;

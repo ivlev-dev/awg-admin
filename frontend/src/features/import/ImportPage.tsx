@@ -1,494 +1,841 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
-import type { ImportVM } from "./ImportPage.vm";
+import type { ImportStep, ImportVM, InterfaceDraft } from "./ImportPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { t, type TranslationKey } from "@/i18n";
 
-export function ImportPage(this: { vm: ImportVM }) {
+const STEPS: ReadonlyArray<{ step: ImportStep; labelKey: TranslationKey }> = [
+  { step: 1, labelKey: "import.steps.group" },
+  { step: 2, labelKey: "import.steps.interfaces" },
+  { step: 3, labelKey: "import.steps.preview" },
+  { step: 4, labelKey: "import.steps.result" },
+];
+
+function stepBadge(vm: ImportVM, step: ImportStep, labelKey: TranslationKey) {
+  const active = vm.step === step;
+  const done = vm.isStepDone(step);
   return (
-    <div class="stack">
-      <div class="page-head">
-        <div class="page-head__eyebrow">Администрирование</div>
-        <h1>Импорт конфигурации</h1>
-        <p>
-          Загрузите серверный конфиг AmneziaWG, опишите группу и интерфейс, затем добавьте клиентские
-          конфиги. Все шаги расположены на одном экране.
-        </p>
-      </div>
+    <button
+      class={`wizard-step ${active ? "is-active" : ""} ${done ? "is-done" : ""}`}
+      type="button"
+      aria-current={active ? "step" : undefined}
+      onClick={() => vm.goToStep(step)}
+    >
+      <span class="wizard-step__index">{done ? <Icon name="check" size={12} class="" /> : step}</span>
+      <span>{t(labelKey)}</span>
+    </button>
+  );
+}
 
-      <div class="actions-bar">
-        <span class={`badge ${this.vm.serverConfigValid ? "badge--green" : "badge--amber"}`}>
-          1. Серверный конфиг
-        </span>
-        <span class={`badge ${this.vm.paramsValid ? "badge--green" : "badge--amber"}`}>
-          2. Параметры
-        </span>
-        <span class={`badge ${this.vm.clients.length > 0 ? "badge--green" : "badge--amber"}`}>
-          3. Клиенты · {this.vm.clients.length}
-        </span>
-      </div>
-
-      <div class="alert alert--info">
-        <span class="strong">Проверьте public key.</span> Public key сервера, вычисленный из
-        PrivateKey серверного конфига, должен совпадать с PublicKey в блоке [Peer] каждого
-        клиентского конфига. Иначе клиент не импортируется.
-      </div>
-
-      <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
-      </Show>
-
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">1. Серверный конфиг</div>
-            <div class="card__sub">Вставьте содержимое .conf или загрузите файл</div>
-          </div>
-          <span class={`badge ${this.vm.serverConfigValid ? "badge--green" : "badge--amber"}`}>
-            {this.vm.serverConfigValid ? "готово" : "ожидает конфиг"}
-          </span>
+function groupStep(vm: ImportVM) {
+  return (
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <div class="card__title">{t("import.group.title")}</div>
+          <div class="card__sub">{t("import.group.subtitle")}</div>
         </div>
-        <div class="card__body stack">
-          <div class="row-between wrap">
-            <span class="small muted">Нужен блок [Interface] с PrivateKey и параметрами обфускации.</span>
-            <label class="btn btn--sm" style="cursor:pointer">
-              <Icon name="download" size={14} class="" />
-              Загрузить .conf
-              <input
-                type="file"
-                accept=".conf,.txt"
-                style="display:none"
-                onChange={(event: Event) => this.vm.setServerFile(event)}
-              />
-            </label>
+        <span class={`badge ${vm.groupValid ? "badge--green" : "badge--amber"}`}>
+          {vm.groupValid ? t("import.badge.ready") : t("import.badge.fillFields")}
+        </span>
+      </div>
+      <div class="card__body stack">
+        <div class="grid grid--2">
+          <div class="field">
+            <label for="import-group-name">{t("import.field.groupName")}</label>
+            <input
+              id="import-group-name"
+              class="input"
+              type="text"
+              placeholder={t("import.field.groupNamePlaceholder")}
+              value={vm.groupName}
+              onInput={(event: Event) => vm.setGroupName(event)}
+            />
           </div>
-          <textarea
-            class="textarea"
-            rows={12}
-            placeholder="[Interface]&#10;PrivateKey = ...&#10;ListenPort = 51820&#10;..."
-            value={this.vm.serverConfig}
-            onInput={(event: Event) => this.vm.setServerConfig(event)}
-          ></textarea>
-          <Show when={this.vm.serverConfigWarning}>
-            <div class="alert alert--warn">{this.vm.serverConfigWarning}</div>
-          </Show>
+          <div class="field">
+            <label for="import-base-cidr">{t("import.field.baseCidr")}</label>
+            <input
+              id="import-base-cidr"
+              class="input mono"
+              type="text"
+              placeholder="10.8.0.0/24"
+              value={vm.baseCidr}
+              onInput={(event: Event) => vm.setBaseCidr(event)}
+            />
+            <Show when={vm.baseCidr.trim().length > 0 && vm.baseCidrError !== null}>
+              <div class="hint" style="color:var(--red)">{vm.baseCidrError}</div>
+            </Show>
+          </div>
         </div>
-      </section>
 
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">2. Параметры группы и интерфейса</div>
-            <div class="card__sub">Группа, базовая сеть, нода, интерфейс и пулы адресов</div>
-          </div>
-          <span class={`badge ${this.vm.paramsValid ? "badge--green" : "badge--amber"}`}>
-            {this.vm.paramsValid ? "готово" : "заполните поля"}
-          </span>
+        <div class="field">
+          <label for="import-group-description">{t("import.field.groupDescription")}</label>
+          <input
+            id="import-group-description"
+            class="input"
+            type="text"
+            placeholder={t("import.field.groupDescriptionPlaceholder")}
+            value={vm.groupDescription}
+            onInput={(event: Event) => vm.setGroupDescription(event)}
+          />
         </div>
-        <div class="card__body stack">
-          <div class="grid grid--2">
-            <div class="field">
-              <label for="import-group-name">Имя группы</label>
-              <input
-                id="import-group-name"
-                class="input"
-                type="text"
-                placeholder="Офис"
-                value={this.vm.groupName}
-                onInput={(event: Event) => this.vm.setGroupName(event)}
+
+        <div class="grid grid--2">
+          <div class="field">
+            <label for="import-node">{t("import.field.node")}</label>
+            <Show
+              when={!vm.nodesLoading}
+              fallback={<div class="skeleton" style="height:40px"></div>}
+            >
+              <Select
+                id="import-node"
+                value={vm.nodeId}
+                options={vm.nodeOptions}
+                onChange={(value) => vm.setNode(value)}
+                disabled={vm.nodes.length === 0}
+                placeholder={t("import.nodes.empty")}
+                ariaLabel={t("import.field.node")}
               />
-            </div>
-            <div class="field">
-              <label for="import-base-cidr">base_cidr</label>
-              <input
-                id="import-base-cidr"
-                class="input mono"
-                type="text"
-                placeholder="10.8.0.0/24"
-                value={this.vm.baseCidr}
-                onInput={(event: Event) => this.vm.setBaseCidr(event)}
-              />
-              <Show when={!this.vm.baseCidrValid}>
-                <div class="xs" style="color:var(--red)">Некорректный CIDR</div>
-              </Show>
-            </div>
+            </Show>
+            <Show when={vm.nodesError}>
+              <div class="hint" style="color:var(--red)">{vm.nodesError}</div>
+            </Show>
+            <Show when={!vm.nodesLoading && vm.nodes.length === 0}>
+              <button class="btn btn--sm btn--ghost" type="button" onClick={() => vm.openNodes()}>
+                {t("import.action.nodes")}
+              </button>
+            </Show>
           </div>
 
           <div class="field">
-            <label for="import-group-description">Описание группы</label>
-            <input
-              id="import-group-description"
-              class="input"
-              type="text"
-              placeholder="Основная площадка"
-              value={this.vm.groupDescription}
-              onInput={(event: Event) => this.vm.setGroupDescription(event)}
-            />
+            <label for="import-owner">{t("import.field.owner")}</label>
+            <Show
+              when={!vm.ownersLoading}
+              fallback={<div class="skeleton" style="height:40px"></div>}
+            >
+              <Select
+                id="import-owner"
+                value={vm.ownerUserId}
+                options={vm.ownerOptions}
+                onChange={(value) => vm.setOwner(value)}
+                disabled={vm.owners.length === 0}
+                placeholder={t("import.owner.none")}
+                ariaLabel={t("import.field.owner")}
+              />
+            </Show>
+            <Show when={vm.ownersError}>
+              <div class="hint" style="color:var(--red)">{vm.ownersError}</div>
+            </Show>
           </div>
+        </div>
 
-          <div class="grid grid--2">
-            <div class="field">
-              <label for="import-node">Нода</label>
-              <Show
-                when={!this.vm.nodesLoading}
-                fallback={<div class="skeleton" style="height:40px"></div>}
-              >
-                <Select
-                  id="import-node"
-                  value={this.vm.nodeId}
-                  options={this.vm.nodes.map((node) => ({ value: node.id, label: `${node.name} · ${node.online ? "online" : "offline"}` }))}
-                  onChange={(value) => this.vm.setNode(value)}
-                  disabled={this.vm.nodes.length === 0}
-                  placeholder="Нет доступных нод"
-                  ariaLabel="Нода"
-                />
-              </Show>
-              <Show when={this.vm.nodesError}>
-                <div class="hint" style="color:var(--red)">{this.vm.nodesError}</div>
-              </Show>
-              <Show when={!this.vm.nodesLoading && this.vm.nodes.length === 0}>
-                <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.openNodes()}>
-                  Перейти к нодам
-                </button>
-              </Show>
-            </div>
-            <div class="field">
-              <label for="import-interface-name">Имя интерфейса</label>
-              <input
-                id="import-interface-name"
-                class="input mono"
-                type="text"
-                placeholder="awg0"
-                value={this.vm.interfaceName}
-                onInput={(event: Event) => this.vm.setInterfaceName(event)}
-              />
-            </div>
-          </div>
-
-          <div class="grid grid--2">
-            <div class="field">
-              <label for="import-endpoint-host">Endpoint host</label>
-              <input
-                id="import-endpoint-host"
-                class="input mono"
-                type="text"
-                placeholder="vpn.example.com"
-                value={this.vm.endpointHost}
-                onInput={(event: Event) => this.vm.setEndpointHost(event)}
-              />
-            </div>
-            <div class="field">
-              <label for="import-endpoint-port">Endpoint port</label>
-              <input
-                id="import-endpoint-port"
-                class="input mono"
-                type="number"
-                min="1"
-                max="65535"
-                value={this.vm.endpointPort}
-                onInput={(event: Event) => this.vm.setEndpointPort(event)}
-              />
-            </div>
-            <div class="field">
-              <label for="import-listen-port">Listen port</label>
-              <input
-                id="import-listen-port"
-                class="input mono"
-                type="number"
-                min="1"
-                max="65535"
-                value={this.vm.listenPort}
-                onInput={(event: Event) => this.vm.setListenPort(event)}
-              />
-            </div>
-            <div class="field">
-              <label for="import-mtu">MTU</label>
-              <input
-                id="import-mtu"
-                class="input mono"
-                type="number"
-                min="576"
-                max="9000"
-                value={this.vm.mtu}
-                onInput={(event: Event) => this.vm.setMtu(event)}
-              />
-            </div>
-          </div>
-
-          <div class="section-title">
-            <h2>Пулы CIDR</h2>
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.addPool()}>
-              <Icon name="plus" size={14} class="" /> Добавить пул
-            </button>
-          </div>
-
-          <Show
-            when={this.vm.pools.length > 0}
-            fallback={
-              <div class="empty">
-                <div class="empty__title">Нет пулов</div>
-                <div class="small">Добавьте хотя бы один пул, чтобы клиенты получили адреса.</div>
-              </div>
-            }
+        <div class="actions-bar">
+          <button class="btn" type="button" onClick={() => vm.reset()}>
+            {t("import.action.reset")}
+          </button>
+          <button
+            class="btn btn--primary"
+            type="button"
+            disabled={!vm.groupValid}
+            onClick={() => vm.next()}
           >
-            <div class="stack-sm">
-              <For each={this.vm.pools}>
-                {(pool, index) => (
-                  <div class="panel" style="padding:12px">
-                    <div class="grid grid--2">
-                      <div class="field">
-                        <label>Имя пула</label>
-                        <input
-                          class="input"
-                          type="text"
-                          placeholder="default"
-                          value={pool.name}
-                          onInput={(event: Event) => this.vm.setPoolName(index(), event)}
-                        />
-                      </div>
-                      <div class="field">
-                        <label>CIDR</label>
-                        <input
-                          class="input mono"
-                          type="text"
-                          placeholder="10.8.0.0/24"
-                          value={pool.cidr}
-                          onInput={(event: Event) => this.vm.setPoolCidr(index(), event)}
-                        />
-                      </div>
-                      <div class="field">
-                        <label>Режим</label>
-                        <Select
-                          value={pool.mode}
-                          options={[
-                            { value: "auto", label: "Авто" },
-                            { value: "rf_only", label: "Только РФ" },
-                            { value: "external_only", label: "Только внешние" },
-                          ]}
-                          onChange={(value) => this.vm.setPoolMode(index(), value)}
-                          ariaLabel="Режим пула"
-                        />
-                      </div>
-                      <div class="field">
-                        <label>Gateway</label>
-                        <input
-                          class="input mono"
-                          type="text"
-                          placeholder="необязательно"
-                          value={pool.gateway}
-                          onInput={(event: Event) => this.vm.setPoolGateway(index(), event)}
-                        />
-                      </div>
-                    </div>
-                    <Show when={this.vm.poolError(pool)}>
-                      <div class="xs" style="color:var(--red);margin-top:8px">
-                        {this.vm.poolError(pool)}
-                      </div>
-                    </Show>
-                    <div class="row-between" style="margin-top:8px">
-                      <span class="xs muted">
-                        Должен входить в {this.vm.baseCidr || "base CIDR"}
-                      </span>
-                      <button
-                        class="btn btn--sm btn--danger"
-                        type="button"
-                        onClick={() => this.vm.removePool(index())}
-                      >
-                        <Icon name="trash" size={14} class="" /> Удалить
-                      </button>
-                    </div>
+            {t("import.action.next")}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function poolsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: number) {
+  return (
+    <div class="stack-sm">
+      <div class="section-title">
+        <h2>{t("import.pools.title")}</h2>
+        <button class="btn btn--sm" type="button" onClick={() => vm.addPool(interfaceIndex)}>
+          <Icon name="plus" size={14} class="" />
+          {t("import.pools.add")}
+        </button>
+      </div>
+
+      <Show
+        when={draft.pools.length > 0}
+        fallback={
+          <div class="empty">
+            <div class="empty__title">{t("import.pools.emptyTitle")}</div>
+            <div class="small">{t("import.pools.emptyText")}</div>
+          </div>
+        }
+      >
+        <div class="stack-sm">
+          <For each={draft.pools}>
+            {(pool, poolIndex) => (
+              <div class="panel" style="padding:12px">
+                <div class="grid grid--2">
+                  <div class="field">
+                    <label>{t("import.pool.name")}</label>
+                    <input
+                      class="input"
+                      type="text"
+                      placeholder="default"
+                      value={pool.name}
+                      onInput={(event: Event) => vm.setPoolName(interfaceIndex, poolIndex(), event)}
+                    />
                   </div>
-                )}
-              </For>
-            </div>
-          </Show>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">3. Клиентские конфиги</div>
-            <div class="card__sub">
-              Вставьте конфиги через разделитель --- или загрузите несколько файлов
-            </div>
-          </div>
-          <span class={`badge ${this.vm.clients.length > 0 ? "badge--green" : "badge--amber"}`}>
-            {this.vm.clients.length} шт.
-          </span>
-        </div>
-        <div class="card__body stack">
-          <textarea
-            class="textarea"
-            rows={8}
-            placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
-            value={this.vm.clientsText}
-            onInput={(event: Event) => this.vm.setClientsText(event)}
-          ></textarea>
-
-          <div class="actions-bar">
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.parseClients()}>
-              <Icon name="import" size={14} class="" /> Разобрать конфиги
-            </button>
-            <label class="btn btn--sm" style="cursor:pointer">
-              <Icon name="download" size={14} class="" />
-              Загрузить файлы
-              <input
-                type="file"
-                accept=".conf,.txt"
-                multiple
-                style="display:none"
-                onChange={(event: Event) => this.vm.setClientFiles(event)}
-              />
-            </label>
-            <span class="xs muted">
-              Имена можно отредактировать после разбора. Изменения в поле выше применяются кнопкой
-              «Разобрать конфиги».
-            </span>
-          </div>
-
-          <Show when={this.vm.clientKeysMismatch}>
-            <div class="alert alert--warn">
-              Клиенты указывают на разные PublicKey. Проверьте, что все они относятся к одному
-              серверу.
-            </div>
-          </Show>
-          <Show when={this.vm.clientsWithoutKey > 0}>
-            <div class="alert alert--warn">
-              У {this.vm.clientsWithoutKey} клиент(ов) не найден PublicKey в блоке [Peer].
-            </div>
-          </Show>
-
-          <Show
-            when={this.vm.clients.length > 0}
-            fallback={
-              <div class="empty">
-                <div class="empty__title">Клиенты не добавлены</div>
-                <div class="small">
-                  Можно импортировать только сервер — клиентов добавите позже.
+                  <div class="field">
+                    <label>{t("import.pool.cidr")}</label>
+                    <input
+                      class="input mono"
+                      type="text"
+                      placeholder="10.8.0.0/24"
+                      value={pool.cidr}
+                      onInput={(event: Event) => vm.setPoolCidr(interfaceIndex, poolIndex(), event)}
+                    />
+                  </div>
+                  <div class="field">
+                    <label>{t("import.pool.mode")}</label>
+                    <Select
+                      value={pool.mode}
+                      options={[
+                        { value: "auto", label: t("import.pool.mode.auto") },
+                        { value: "rf_only", label: t("import.pool.mode.rfOnly") },
+                        { value: "external_only", label: t("import.pool.mode.externalOnly") },
+                      ]}
+                      onChange={(value) => vm.setPoolMode(interfaceIndex, poolIndex(), value)}
+                      ariaLabel={t("import.pool.mode")}
+                    />
+                  </div>
+                  <div class="field">
+                    <label>{t("import.pool.gateway")}</label>
+                    <input
+                      class="input mono"
+                      type="text"
+                      placeholder={t("import.pool.gatewayPlaceholder")}
+                      value={pool.gateway}
+                      onInput={(event: Event) => vm.setPoolGateway(interfaceIndex, poolIndex(), event)}
+                    />
+                  </div>
+                </div>
+                <Show when={vm.poolError(interfaceIndex, poolIndex())}>
+                  <div class="xs" style="color:var(--red);margin-top:8px">
+                    {vm.poolError(interfaceIndex, poolIndex())}
+                  </div>
+                </Show>
+                <div class="row-between wrap" style="margin-top:8px">
+                  <span class="xs muted">
+                    {t("import.pool.inBase", { cidr: vm.baseCidr || t("import.preview.none") })}
+                  </span>
+                  <button
+                    class="btn btn--sm btn--danger"
+                    type="button"
+                    onClick={() => vm.removePool(interfaceIndex, poolIndex())}
+                  >
+                    <Icon name="trash" size={14} class="" />
+                    {t("import.pools.remove")}
+                  </button>
                 </div>
               </div>
-            }
-          >
-            <div class="stack-sm">
-              <For each={this.vm.clients}>
-                {(client, index) => (
-                  <div class="panel">
-                    <div class="card__body stack-sm">
-                      <div class="row-between wrap">
-                        <div class="field grow">
-                          <label>Имя устройства</label>
-                          <input
-                            class="input"
-                            type="text"
-                            value={client.name}
-                            onInput={(event: Event) => this.vm.setClientName(index(), event)}
-                          />
-                        </div>
-                        <button
-                          class="btn btn--sm btn--ghost"
-                          type="button"
-                          onClick={() => this.vm.removeClient(index())}
-                          aria-label="Удалить клиента"
-                        >
-                          <Icon name="trash" size={16} class="" />
-                        </button>
-                      </div>
-                      <div class="actions-bar">
-                        <span class="badge badge--blue">{this.vm.clientAddress(client.config)}</span>
-                        <Show
-                          when={this.vm.clientPeerKey(client.config)}
-                          fallback={<span class="badge badge--amber">нет PublicKey</span>}
-                        >
-                          <span class="badge mono truncate" style="max-width:100%">
-                            {this.vm.clientPeerKey(client.config)}
-                          </span>
-                        </Show>
-                      </div>
-                      <pre class="code code--light" style="max-height:150px">{this.vm.clientPreview(client.config)}</pre>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: number) {
+  return (
+    <div class="stack-sm">
+      <div class="section-title">
+        <h2>{t("import.interface.clientsTitle")}</h2>
+        <span class={`badge ${draft.clients.length > 0 ? "badge--green" : "badge--amber"}`}>
+          {t("import.badge.count", { count: draft.clients.length })}
+        </span>
+      </div>
+
+      <textarea
+        class="textarea"
+        rows={8}
+        placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
+        value={draft.clientsText}
+        onInput={(event: Event) => vm.setClientsText(interfaceIndex, event)}
+      ></textarea>
+
+      <div class="actions-bar">
+        <button class="btn btn--sm" type="button" onClick={() => vm.parseClients(interfaceIndex)}>
+          <Icon name="import" size={14} class="" />
+          {t("import.interface.parse")}
+        </button>
+        <label class="btn btn--sm" style="cursor:pointer">
+          <Icon name="download" size={14} class="" />
+          {t("import.interface.uploadClients")}
+          <input
+            type="file"
+            accept=".conf,.txt"
+            multiple
+            style="display:none"
+            onChange={(event: Event) => vm.setClientFiles(interfaceIndex, event)}
+          />
+        </label>
+        <span class="xs muted">{t("import.interface.syncHint")}</span>
+      </div>
+
+      <Show when={vm.clientKeysMismatch(interfaceIndex)}>
+        <div class="alert alert--warn">{t("import.warn.clientKeysMismatch")}</div>
+      </Show>
+      <Show when={vm.clientsWithoutKey(interfaceIndex) > 0}>
+        <div class="alert alert--warn">
+          {t("import.warn.clientsWithoutKey", { count: vm.clientsWithoutKey(interfaceIndex) })}
+        </div>
+      </Show>
+
+      <Show
+        when={draft.clients.length > 0}
+        fallback={
+          <div class="empty">
+            <div class="empty__title">{t("import.interface.clientsEmptyTitle")}</div>
+            <div class="small">{t("import.interface.clientsEmptyText")}</div>
+          </div>
+        }
+      >
+        <div class="stack-sm">
+          <For each={draft.clients}>
+            {(client, clientIndex) => (
+              <div class="panel">
+                <div class="card__body stack-sm">
+                  <div class="row-between wrap">
+                    <div class="field grow">
+                      <label>{t("import.interface.clientName")}</label>
+                      <input
+                        class="input"
+                        type="text"
+                        value={client.name}
+                        onInput={(event: Event) =>
+                          vm.setClientName(interfaceIndex, clientIndex(), event)
+                        }
+                      />
                     </div>
+                    <button
+                      class="btn btn--sm btn--ghost"
+                      type="button"
+                      aria-label={t("import.interface.removeClient")}
+                      onClick={() => vm.removeClient(interfaceIndex, clientIndex())}
+                    >
+                      <Icon name="trash" size={16} class="" />
+                    </button>
                   </div>
-                )}
+                  <div class="actions-bar">
+                    <span class="badge badge--blue">{vm.clientAddress(client.config)}</span>
+                    <Show
+                      when={vm.clientPeerKey(client.config)}
+                      fallback={<span class="badge badge--amber">{t("import.interface.noPublicKey")}</span>}
+                    >
+                      <span class="badge mono truncate" style="max-width:100%">
+                        {vm.clientPeerKey(client.config)}
+                      </span>
+                    </Show>
+                  </div>
+                  <pre class="code code--light" style="max-height:150px">{vm.clientPreview(client.config)}</pre>
+                </div>
+              </div>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+}
+
+function interfaceCard(vm: ImportVM, draft: InterfaceDraft, index: number) {
+  return (
+    <div class="panel">
+      <div class="card__head">
+        <div>
+          <div class="card__title">{t("import.interface.title", { index: index + 1 })}</div>
+          <div class="card__sub">{draft.name || t("import.interface.name")}</div>
+        </div>
+        <div class="actions-bar">
+          <span class={`badge ${vm.serverConfigValid(index) ? "badge--green" : "badge--amber"}`}>
+            {vm.serverConfigValid(index) ? t("import.badge.ready") : t("import.badge.waitingConfig")}
+          </span>
+          <button
+            class="btn btn--sm btn--danger"
+            type="button"
+            disabled={vm.interfaces.length <= 1}
+            aria-label={t("import.interfaces.remove")}
+            onClick={() => vm.removeInterface(index)}
+          >
+            <Icon name="trash" size={14} class="" />
+            {t("import.interfaces.remove")}
+          </button>
+        </div>
+      </div>
+      <div class="card__body stack">
+        <div class="row-between wrap">
+          <span class="small muted">{t("import.interface.serverConfigHint")}</span>
+          <label class="btn btn--sm" style="cursor:pointer">
+            <Icon name="download" size={14} class="" />
+            {t("import.interface.loadServer")}
+            <input
+              type="file"
+              accept=".conf,.txt"
+              style="display:none"
+              onChange={(event: Event) => vm.setInterfaceServerFile(index, event)}
+            />
+          </label>
+        </div>
+        <div class="field">
+          <label>{t("import.interface.serverConfig")}</label>
+          <textarea
+            class="textarea"
+            rows={12}
+            placeholder={t("import.interface.serverPlaceholder")}
+            value={draft.serverConfig}
+            onInput={(event: Event) => vm.setInterfaceServerConfig(index, event)}
+          ></textarea>
+        </div>
+        <Show when={vm.serverConfigWarning(index)}>
+          <div class="alert alert--warn">{vm.serverConfigWarning(index)}</div>
+        </Show>
+
+        <div class="grid grid--2">
+          <div class="field">
+            <label>{t("import.interface.name")}</label>
+            <input
+              class="input mono"
+              type="text"
+              placeholder="awg0"
+              value={draft.name}
+              onInput={(event: Event) => vm.setInterfaceName(index, event)}
+            />
+          </div>
+          <div class="field">
+            <label>{t("import.interface.label")}</label>
+            <input
+              class="input"
+              type="text"
+              placeholder="Office"
+              value={draft.label}
+              onInput={(event: Event) => vm.setInterfaceLabel(index, event)}
+            />
+          </div>
+        </div>
+
+        <div class="grid grid--2">
+          <div class="field">
+            <label>{t("import.interface.endpointHost")}</label>
+            <input
+              class="input mono"
+              type="text"
+              placeholder="vpn.example.com"
+              value={draft.endpointHost}
+              onInput={(event: Event) => vm.setEndpointHost(index, event)}
+            />
+          </div>
+          <div class="field">
+            <label>{t("import.interface.endpointPort")}</label>
+            <input
+              class="input mono"
+              type="number"
+              min="1"
+              max="65535"
+              value={draft.endpointPort}
+              onInput={(event: Event) => vm.setEndpointPort(index, event)}
+            />
+          </div>
+          <div class="field">
+            <label>{t("import.interface.listenPort")}</label>
+            <input
+              class="input mono"
+              type="number"
+              min="1"
+              max="65535"
+              value={draft.listenPort}
+              onInput={(event: Event) => vm.setListenPort(index, event)}
+            />
+          </div>
+          <div class="field">
+            <label>{t("import.interface.mtu")}</label>
+            <input
+              class="input mono"
+              type="number"
+              min="576"
+              max="9000"
+              value={draft.mtu}
+              onInput={(event: Event) => vm.setMtu(index, event)}
+            />
+          </div>
+        </div>
+
+        {poolsBlock(vm, draft, index)}
+        {clientsBlock(vm, draft, index)}
+
+        <Show when={vm.interfaceIssues(index).length > 0}>
+          <div class="alert alert--error">
+            <div class="strong">{t("import.validation.title")}</div>
+            <ul style="margin:8px 0 0;padding-left:18px">
+              <For each={vm.interfaceIssues(index)}>
+                {(issue) => <li class="small">{vm.issueMessage(issue)}</li>}
               </For>
-            </div>
-          </Show>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card__body row-between wrap">
-          <div class="stack-sm">
-            <div class="strong">Готовы к импорту</div>
-            <div class="xs muted">
-              Кластер: {this.vm.nodes.find((node) => node.id === this.vm.nodeId)?.name ?? "нода не выбрана"}
-              {" · "}
-              клиентов: {this.vm.clients.length}
-            </div>
+            </ul>
           </div>
-          <div class="actions-bar">
-            <button class="btn" type="button" onClick={() => this.vm.reset()}>
-              Сбросить
-            </button>
-            <button
-              class="btn btn--primary"
-              type="button"
-              disabled={!this.vm.canImport}
-              onClick={() => this.vm.importNow()}
-            >
-              <Show
-                when={this.vm.importing}
-                fallback={
-                  <>
-                    <Icon name="import" size={16} class="" />
-                    <span>Импортировать</span>
-                  </>
-                }
-              >
-                <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                <span>Импортируем…</span>
-              </Show>
-            </button>
-          </div>
-        </div>
-      </section>
+        </Show>
+      </div>
+    </div>
+  );
+}
 
-      <Show when={this.vm.result}>
+function interfacesStep(vm: ImportVM) {
+  return (
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <div class="card__title">{t("import.interfaces.title")}</div>
+          <div class="card__sub">{t("import.interfaces.subtitle")}</div>
+        </div>
+        <div class="actions-bar">
+          <span class={`badge ${vm.valid ? "badge--green" : "badge--amber"}`}>
+            {vm.valid ? t("import.badge.ready") : t("import.badge.fillFields")}
+          </span>
+          <button class="btn btn--sm" type="button" onClick={() => vm.addInterface()}>
+            <Icon name="plus" size={14} class="" />
+            {t("import.interfaces.add")}
+          </button>
+        </div>
+      </div>
+      <div class="card__body stack">
+        <div class="alert alert--info">{t("import.warn.publicKey")}</div>
+
+        <Show
+          when={vm.interfaces.length > 0}
+          fallback={
+            <div class="empty">
+              <div class="empty__title">{t("import.interfaces.emptyTitle")}</div>
+              <div class="small">{t("import.interfaces.emptyText")}</div>
+            </div>
+          }
+        >
+          <div class="stack">
+            <For each={vm.interfaces}>
+              {(draft, index) => interfaceCard(vm, draft, index())}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={vm.planInvalidated}>
+          <div class="alert alert--warn">{t("import.preview.stale")}</div>
+        </Show>
+
+        <Show when={!vm.valid}>
+          <div class="alert alert--warn">{t("import.validation.hasErrors")}</div>
+        </Show>
+
+        <div class="actions-bar">
+          <button class="btn" type="button" onClick={() => vm.back()}>
+            {t("import.action.back")}
+          </button>
+          <button
+            class="btn btn--primary"
+            type="button"
+            disabled={!vm.canPreview}
+            onClick={() => vm.next()}
+          >
+            <Icon name="check" size={16} class="" />
+            {t("import.preview.action")}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function previewStep(vm: ImportVM) {
+  return (
+    <div class="stack">
+      <Show when={vm.previewError}>
+        <div class="alert alert--error">{vm.previewError}</div>
+      </Show>
+
+      <Show when={vm.applyError}>
+        <div class="alert alert--error">
+          <div class="strong">{t("import.apply.fatal")}</div>
+          <div>{vm.applyError}</div>
+          <div class="small" style="margin-top:4px">{t("import.apply.rollback")}</div>
+        </div>
+      </Show>
+
+      <Show
+        when={vm.preview}
+        fallback={
+          <section class="card">
+            <div class="card__head">
+              <div>
+                <div class="card__title">{t("import.preview.title")}</div>
+                <div class="card__sub">{t("import.preview.subtitle")}</div>
+              </div>
+              <span class="badge badge--amber">{t("import.preview.emptyTitle")}</span>
+            </div>
+            <div class="card__body stack">
+              <div class="empty">
+                <div class="empty__title">{t("import.preview.emptyTitle")}</div>
+                <div class="small">{t("import.preview.emptyText")}</div>
+              </div>
+              <div class="actions-bar">
+                <button class="btn" type="button" onClick={() => vm.back()}>
+                  {t("import.preview.back")}
+                </button>
+                <button
+                  class="btn btn--primary"
+                  type="button"
+                  disabled={!vm.canPreview}
+                  onClick={() => vm.previewNow()}
+                >
+                  <Show
+                    when={vm.previewing}
+                    fallback={
+                      <>
+                        <Icon name="check" size={16} class="" />
+                        {t("import.preview.action")}
+                      </>
+                    }
+                  >
+                    <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                    {t("import.preview.checking")}
+                  </Show>
+                </button>
+              </div>
+            </div>
+          </section>
+        }
+      >
         <section class="card">
           <div class="card__head">
             <div>
-              <div class="card__title">Результат импорта</div>
-              <div class="card__sub">Группа и интерфейс созданы на выбранной ноде</div>
+              <div class="card__title">{t("import.preview.title")}</div>
+              <div class="card__sub">{t("import.preview.subtitle")}</div>
             </div>
-            <span class="badge badge--green">
-              устройств: {this.vm.result?.imported_devices ?? 0}
+            <span class="badge badge--blue">
+              {t("import.preview.group", { name: vm.preview?.group.name ?? "" })}
             </span>
           </div>
           <div class="card__body stack">
-            <div class="alert alert--info">
-              Импортировано устройств: {this.vm.result?.imported_devices ?? 0}. Ошибок:{" "}
-              {this.vm.resultFailed.length}.
+            <div class="grid grid--4">
+              <div class="stat">
+                <div class="stat__label">{t("import.preview.summary.create")}</div>
+                <div class="stat__value">{vm.previewSummary?.create ?? 0}</div>
+              </div>
+              <div class="stat">
+                <div class="stat__label">{t("import.preview.summary.duplicate")}</div>
+                <div class="stat__value">{vm.previewSummary?.duplicate ?? 0}</div>
+              </div>
+              <div class="stat">
+                <div class="stat__label">{t("import.preview.summary.error")}</div>
+                <div class="stat__value">{vm.previewSummary?.error ?? 0}</div>
+              </div>
+              <div class="stat">
+                <div class="stat__label">{t("import.preview.summary.interfaces")}</div>
+                <div class="stat__value">{vm.previewSummary?.interfaces ?? 0}</div>
+              </div>
             </div>
-            <Show
-              when={this.vm.resultFailed.length > 0}
-              fallback={<div class="alert alert--info">Все клиенты импортированы без ошибок.</div>}
-            >
+
+            <Show when={vm.previewWarnings.length > 0}>
+              <div class="alert alert--warn">
+                <div class="strong">{t("import.preview.warnings")}</div>
+                <ul style="margin:8px 0 0;padding-left:18px">
+                  <For each={vm.previewWarnings}>
+                    {(warning) => <li class="small">{warning}</li>}
+                  </For>
+                </ul>
+              </div>
+            </Show>
+
+            <div class="actions-bar">
+              <button class="btn" type="button" onClick={() => vm.back()}>
+                {t("import.preview.back")}
+              </button>
+              <button
+                class="btn"
+                type="button"
+                disabled={!vm.canPreview}
+                onClick={() => vm.previewNow()}
+              >
+                {t("import.preview.recheck")}
+              </button>
+              <button
+                class="btn btn--primary"
+                type="button"
+                disabled={!vm.canApply}
+                onClick={() => vm.applyNow()}
+              >
+                <Show
+                  when={vm.applying}
+                  fallback={
+                    <>
+                      <Icon name="import" size={16} class="" />
+                      {t("import.preview.apply")}
+                    </>
+                  }
+                >
+                  <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                  {t("import.preview.applying")}
+                </Show>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <For each={vm.previewInterfaces}>
+          {(iface) => (
+            <section class="card">
+              <div class="card__head">
+                <div>
+                  <div class="card__title">
+                    {t("import.preview.interface")} #{iface.index + 1} · {iface.name}
+                  </div>
+                  <div class="card__sub mono truncate">{t("import.preview.publicKey")}: {vm.previewKey(iface)}</div>
+                </div>
+                <div class="actions-bar">
+                  <span class="badge badge--green">
+                    {t("import.preview.summary.create")}: {iface.counts.create}
+                  </span>
+                  <span class="badge badge--amber">
+                    {t("import.preview.summary.duplicate")}: {iface.counts.duplicate}
+                  </span>
+                  <span class="badge badge--red">
+                    {t("import.preview.summary.error")}: {iface.counts.error}
+                  </span>
+                </div>
+              </div>
+              <div class="card__body">
+                <div class="table-wrap">
+                  <table class="table table--cards">
+                    <thead>
+                      <tr>
+                        <th>{t("import.preview.client")}</th>
+                        <th>{t("import.preview.status")}</th>
+                        <th>{t("import.preview.address")}</th>
+                        <th>{t("import.preview.reason")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={iface.clients}>
+                        {(client) => (
+                          <tr>
+                            <td data-label={t("import.preview.client")}>
+                              <span class="strong">{client.name}</span>
+                            </td>
+                            <td data-label={t("import.preview.status")}>
+                              <span class={vm.previewStatusClass(client.status)}>
+                                {vm.previewStatusLabel(client.status)}
+                              </span>
+                            </td>
+                            <td data-label={t("import.preview.address")} class="mono small">
+                              {vm.previewClientAddress(client)}
+                            </td>
+                            <td data-label={t("import.preview.reason")} class="small">
+                              {vm.previewClientReason(client)}
+                            </td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </section>
+          )}
+        </For>
+      </Show>
+    </div>
+  );
+}
+
+function resultStep(vm: ImportVM) {
+  return (
+    <Show
+      when={vm.applied}
+      fallback={
+        <section class="card">
+          <div class="card__body stack">
+            <div class="empty">
+              <div class="empty__title">{t("import.result.title")}</div>
+              <div class="small">{t("import.preview.emptyText")}</div>
+            </div>
+          </div>
+        </section>
+      }
+    >
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <div class="card__title">{t("import.result.title")}</div>
+            <div class="card__sub">{t("import.result.subtitle")}</div>
+          </div>
+          <span class="badge badge--blue">{t("import.result.group", { id: vm.resultGroupId })}</span>
+        </div>
+        <div class="card__body stack">
+          <div class="grid grid--4">
+            <div class="stat">
+              <div class="stat__label">{t("import.result.interfaces")}</div>
+              <div class="stat__value">{vm.resultInterfaceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.result.devices")}</div>
+              <div class="stat__value">{vm.resultDeviceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.preview.summary.duplicate")}</div>
+              <div class="stat__value">{vm.resultDuplicateCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.preview.summary.error")}</div>
+              <div class="stat__value">{vm.resultErrorCount}</div>
+            </div>
+          </div>
+
+          <div class="stack-sm">
+            <For each={vm.resultInterfaces}>
+              {(iface) => (
+                <div class="panel" style="padding:12px">
+                  <div class="row-between wrap">
+                    <span class="strong mono">{iface.name}</span>
+                    <span class="badge badge--blue">
+                      {t("import.result.interfaceDevices", { count: iface.device_ids.length })}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <Show
+            when={vm.resultFailures.length > 0}
+            fallback={<div class="alert alert--info">{t("import.result.noFailures")}</div>}
+          >
+            <div class="stack-sm">
+              <div class="strong">{t("import.result.failures")}</div>
               <div class="table-wrap">
                 <table class="table table--cards">
                   <thead>
                     <tr>
-                      <th>Клиент</th>
-                      <th>Ошибка</th>
+                      <th>{t("import.preview.interface")}</th>
+                      <th>{t("import.result.failedClient")}</th>
+                      <th>{t("import.result.failedReason")}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <For each={this.vm.resultFailed}>
+                    <For each={vm.resultFailures}>
                       {(failure) => (
                         <tr>
-                          <td data-label="Клиент">
-                            <span class="strong">{failure.name}</span>
+                          <td data-label={t("import.preview.interface")} class="mono small">
+                            {failure.interfaceName}
                           </td>
-                          <td data-label="Ошибка" class="small">
-                            {failure.error}
+                          <td data-label={t("import.result.failedClient")}>
+                            <span class="strong">{failure.clientName}</span>
+                          </td>
+                          <td data-label={t("import.result.failedReason")} class="small">
+                            {failure.reason}
                           </td>
                         </tr>
                       )}
@@ -496,18 +843,551 @@ export function ImportPage(this: { vm: ImportVM }) {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </Show>
+
+          <div class="actions-bar">
+            <button class="btn btn--primary" type="button" onClick={() => vm.openGroup()}>
+              <Icon name="groups" size={16} class="" />
+              {t("import.result.openGroup")}
+            </button>
+            <button class="btn" type="button" onClick={() => vm.openInterfaces()}>
+              <Icon name="interfaces" size={16} class="" />
+              {t("import.result.openInterfaces")}
+            </button>
+            <button class="btn" type="button" onClick={() => vm.reset()}>
+              {t("import.result.newImport")}
+            </button>
+          </div>
+        </div>
+      </section>
+    </Show>
+  );
+}
+
+function clientsFormStep(vm: ImportVM) {
+  return (
+    <section class="card">
+      <div class="card__head">
+        <div>
+          <div class="card__title">{t("import.clients.title")}</div>
+          <div class="card__sub">{t("import.clients.subtitle")}</div>
+        </div>
+        <span class={`badge ${vm.clientsValid ? "badge--green" : "badge--amber"}`}>
+          {t("import.badge.count", { count: vm.clientsTotal })}
+        </span>
+      </div>
+      <div class="card__body stack">
+        <div class="grid grid--2">
+          <div class="field">
+            <label for="import-client-owner">{t("import.clients.owner")}</label>
+            <Show
+              when={!vm.ownersLoading}
+              fallback={<div class="skeleton" style="height:40px"></div>}
+            >
+              <Select
+                id="import-client-owner"
+                value={vm.clientOwnerUserId}
+                options={vm.ownerOptions}
+                onChange={(value) => vm.setClientOwner(value)}
+                disabled={vm.owners.length === 0}
+                placeholder={t("import.owner.none")}
+                ariaLabel={t("import.clients.owner")}
+              />
             </Show>
+            <Show when={vm.ownersError}>
+              <div class="hint" style="color:var(--red)">{vm.ownersError}</div>
+            </Show>
+          </div>
+
+          <div class="field">
+            <label for="import-client-interface">{t("import.clients.interface")}</label>
+            <Show
+              when={!vm.interfacesLoading}
+              fallback={<div class="skeleton" style="height:40px"></div>}
+            >
+              <Select
+                id="import-client-interface"
+                value={vm.clientInterfaceId}
+                options={vm.interfaceOptions}
+                onChange={(value) => vm.setClientInterface(value)}
+                disabled={vm.interfaceList.length === 0}
+                placeholder={t("import.clients.interfaceAuto")}
+                ariaLabel={t("import.clients.interface")}
+              />
+            </Show>
+            <Show when={vm.interfacesError}>
+              <div class="hint" style="color:var(--red)">{vm.interfacesError}</div>
+            </Show>
+          </div>
+        </div>
+
+        <div class="section-title">
+          <h2>{t("import.clients.configsTitle")}</h2>
+          <span class={`badge ${vm.clientsTotal > 0 ? "badge--green" : "badge--amber"}`}>
+            {t("import.badge.count", { count: vm.clientsTotal })}
+          </span>
+        </div>
+
+        <textarea
+          class="textarea"
+          rows={10}
+          placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
+          value={vm.clientsImportText}
+          onInput={(event: Event) => vm.setClientsImportText(event)}
+        ></textarea>
+
+        <div class="actions-bar">
+          <button class="btn btn--sm" type="button" onClick={() => vm.parseClientsImport()}>
+            <Icon name="import" size={14} class="" />
+            {t("import.interface.parse")}
+          </button>
+          <label class="btn btn--sm" style="cursor:pointer">
+            <Icon name="download" size={14} class="" />
+            {t("import.interface.uploadClients")}
+            <input
+              type="file"
+              accept=".conf,.txt"
+              multiple
+              style="display:none"
+              onChange={(event: Event) => vm.setClientsImportFiles(event)}
+            />
+          </label>
+          <span class="xs muted">{t("import.clients.configsHint")}</span>
+        </div>
+
+        <Show
+          when={vm.clientsImport.length > 0}
+          fallback={
+            <div class="empty">
+              <div class="empty__title">{t("import.interface.clientsEmptyTitle")}</div>
+              <div class="small">{t("import.clients.validation")}</div>
+            </div>
+          }
+        >
+          <div class="stack-sm">
+            <For each={vm.clientsImport}>
+              {(client, index) => (
+                <div class="panel" style="padding:12px">
+                  <div class="row-between wrap">
+                    <div class="field grow">
+                      <label>{t("import.interface.clientName")}</label>
+                      <input
+                        class="input"
+                        type="text"
+                        value={client.name}
+                        onInput={(event: Event) => vm.setClientsImportName(index(), event)}
+                      />
+                    </div>
+                    <button
+                      class="btn btn--sm btn--ghost"
+                      type="button"
+                      aria-label={t("import.interface.removeClient")}
+                      onClick={() => vm.removeClientsImport(index())}
+                    >
+                      <Icon name="trash" size={16} class="" />
+                    </button>
+                  </div>
+                  <div class="actions-bar" style="margin-top:8px">
+                    <span class="badge badge--blue">{vm.clientAddress(client.config)}</span>
+                    <Show
+                      when={vm.clientPeerKey(client.config)}
+                      fallback={<span class="badge badge--amber">{t("import.interface.noPublicKey")}</span>}
+                    >
+                      <span class="badge mono truncate" style="max-width:100%">
+                        {vm.clientPeerKey(client.config)}
+                      </span>
+                    </Show>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <Show when={vm.clientsPlanInvalidated}>
+          <div class="alert alert--warn">{t("import.clients.stale")}</div>
+        </Show>
+
+        <div class="actions-bar">
+          <button class="btn" type="button" onClick={() => vm.resetClientsImport()}>
+            {t("import.action.reset")}
+          </button>
+          <button
+            class="btn btn--primary"
+            type="button"
+            disabled={!vm.canPreviewClients}
+            onClick={() => vm.clientsNext()}
+          >
+            <Show
+              when={vm.clientsPreviewing}
+              fallback={
+                <>
+                  <Icon name="check" size={16} class="" />
+                  {t("import.clients.action.preview")}
+                </>
+              }
+            >
+              <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+              {t("import.preview.checking")}
+            </Show>
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function clientsPreviewStep(vm: ImportVM) {
+  return (
+    <div class="stack">
+      <Show when={vm.clientsPreviewError}>
+        <div class="alert alert--error">{vm.clientsPreviewError}</div>
+      </Show>
+
+      <Show when={vm.clientsApplyError}>
+        <div class="alert alert--error">
+          <div class="strong">{t("import.apply.fatal")}</div>
+          <div>{vm.clientsApplyError}</div>
+          <div class="small" style="margin-top:4px">{t("import.clients.rollback")}</div>
+        </div>
+      </Show>
+
+      <Show
+        when={vm.clientsPreview}
+        fallback={
+          <section class="card">
+            <div class="card__head">
+              <div>
+                <div class="card__title">{t("import.clients.preview.title")}</div>
+                <div class="card__sub">{t("import.clients.preview.subtitle")}</div>
+              </div>
+              <span class="badge badge--amber">{t("import.clients.preview.emptyTitle")}</span>
+            </div>
+            <div class="card__body stack">
+              <div class="empty">
+                <div class="empty__title">{t("import.clients.preview.emptyTitle")}</div>
+                <div class="small">{t("import.clients.preview.emptyText")}</div>
+              </div>
+              <div class="actions-bar">
+                <button class="btn" type="button" onClick={() => vm.clientsBack()}>
+                  {t("import.action.back")}
+                </button>
+                <button
+                  class="btn btn--primary"
+                  type="button"
+                  disabled={!vm.canPreviewClients}
+                  onClick={() => vm.previewClientsNow()}
+                >
+                  {t("import.clients.action.preview")}
+                </button>
+              </div>
+            </div>
+          </section>
+        }
+      >
+        <section class="card">
+          <div class="card__head">
+            <div>
+              <div class="card__title">{t("import.clients.preview.title")}</div>
+              <div class="card__sub">{t("import.clients.preview.subtitle")}</div>
+            </div>
             <div class="actions-bar">
-              <button class="btn btn--primary" type="button" onClick={() => this.vm.openGroup()}>
-                <Icon name="groups" size={16} class="" /> К группе
+              <Show when={vm.clientInterfaceId === ""}>
+                <span class="badge badge--blue">{t("import.clients.preview.auto")}</span>
+              </Show>
+              <span class="badge badge--green">
+                {t("import.preview.summary.create")}: {vm.clientsPreviewSummary?.create ?? 0}
+              </span>
+              <span class="badge badge--amber">
+                {t("import.preview.summary.duplicate")}: {vm.clientsPreviewSummary?.duplicate ?? 0}
+              </span>
+              <span class="badge badge--red">
+                {t("import.preview.summary.error")}: {vm.clientsPreviewSummary?.error ?? 0}
+              </span>
+            </div>
+          </div>
+          <div class="card__body stack">
+            <div class="table-wrap">
+              <table class="table table--cards">
+                <thead>
+                  <tr>
+                    <th>{t("import.clients.preview.interface")}</th>
+                    <th>{t("import.clients.preview.group")}</th>
+                    <th>{t("import.preview.client")}</th>
+                    <th>{t("import.preview.status")}</th>
+                    <th>{t("import.preview.address")}</th>
+                    <th>{t("import.preview.reason")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={vm.clientsPreviewInterfaces}>
+                    {(iface) => (
+                      <For each={iface.clients}>
+                        {(client) => (
+                          <tr>
+                            <td data-label={t("import.clients.preview.interface")}>
+                              <div class="strong mono">{iface.name}</div>
+                              <div class="xs muted">
+                                {t("import.clients.preview.node")}: {iface.node_id}
+                              </div>
+                            </td>
+                            <td data-label={t("import.clients.preview.group")} class="small">
+                              {iface.group_name}
+                            </td>
+                            <td data-label={t("import.preview.client")}>
+                              <span class="strong">{client.name}</span>
+                            </td>
+                            <td data-label={t("import.preview.status")}>
+                              <span class={vm.previewStatusClass(client.status)}>
+                                {vm.previewStatusLabel(client.status)}
+                              </span>
+                            </td>
+                            <td data-label={t("import.preview.address")} class="mono small">
+                              {vm.previewClientAddress(client)}
+                            </td>
+                            <td data-label={t("import.preview.reason")} class="small">
+                              {vm.previewClientReason(client)}
+                            </td>
+                          </tr>
+                        )}
+                      </For>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
+
+            <Show when={vm.clientsPreviewWarnings.length > 0}>
+              <div class="alert alert--warn">
+                <div class="strong">{t("import.preview.warnings")}</div>
+                <ul style="margin:8px 0 0;padding-left:18px">
+                  <For each={vm.clientsPreviewWarnings}>
+                    {(warning) => <li class="small">{warning}</li>}
+                  </For>
+                </ul>
+              </div>
+            </Show>
+
+            <div class="actions-bar">
+              <button class="btn" type="button" onClick={() => vm.clientsBack()}>
+                {t("import.action.back")}
               </button>
-              <button class="btn" type="button" onClick={() => this.vm.reset()}>
-                Новый импорт
+              <button
+                class="btn"
+                type="button"
+                disabled={!vm.canPreviewClients}
+                onClick={() => vm.previewClientsNow()}
+              >
+                {t("import.clients.action.recheck")}
+              </button>
+              <button
+                class="btn btn--primary"
+                type="button"
+                disabled={!vm.canApplyClients}
+                onClick={() => vm.applyClientsNow()}
+              >
+                <Show
+                  when={vm.clientsApplying}
+                  fallback={
+                    <>
+                      <Icon name="import" size={16} class="" />
+                      {t("import.clients.action.apply")}
+                    </>
+                  }
+                >
+                  <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                  {t("import.preview.applying")}
+                </Show>
               </button>
             </div>
           </div>
         </section>
       </Show>
+    </div>
+  );
+}
+
+function clientsResultStep(vm: ImportVM) {
+  return (
+    <Show
+      when={vm.clientsApplied}
+      fallback={
+        <section class="card">
+          <div class="card__body">
+            <div class="empty">
+              <div class="empty__title">{t("import.clients.result.title")}</div>
+              <div class="small">{t("import.clients.preview.emptyText")}</div>
+            </div>
+          </div>
+        </section>
+      }
+    >
+      <section class="card">
+        <div class="card__head">
+          <div>
+            <div class="card__title">{t("import.clients.result.title")}</div>
+            <div class="card__sub">{t("import.clients.result.subtitle")}</div>
+          </div>
+          <span class="badge badge--green">
+            {t("import.preview.summary.create")}: {vm.clientsResultCreatedCount}
+          </span>
+        </div>
+        <div class="card__body stack">
+          <div class="grid grid--4">
+            <div class="stat">
+              <div class="stat__label">{t("import.clients.result.interfaces")}</div>
+              <div class="stat__value">{vm.clientsResultInterfaceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.result.devices")}</div>
+              <div class="stat__value">{vm.clientsResultDeviceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.preview.summary.duplicate")}</div>
+              <div class="stat__value">{vm.clientsResultDuplicateCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.preview.summary.error")}</div>
+              <div class="stat__value">{vm.clientsResultErrorCount}</div>
+            </div>
+          </div>
+
+          <div class="stack-sm">
+            <For each={vm.clientsResultInterfaces}>
+              {(iface) => (
+                <div class="panel" style="padding:12px">
+                  <div class="row-between wrap">
+                    <div>
+                      <div class="strong mono">{iface.name}</div>
+                      <div class="xs muted">{iface.group_name}</div>
+                    </div>
+                    <span class="badge badge--blue">
+                      {t("import.result.interfaceDevices", {
+                        count:
+                          vm.clientsApplied?.created.interfaces.find((item) => item.id === iface.id)
+                            ?.device_ids.length ?? 0,
+                      })}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+
+          <Show
+            when={vm.clientsResultFailures.length > 0}
+            fallback={<div class="alert alert--info">{t("import.clients.result.noFailures")}</div>}
+          >
+            <div class="stack-sm">
+              <div class="strong">{t("import.clients.result.failures")}</div>
+              <div class="table-wrap">
+                <table class="table table--cards">
+                  <thead>
+                    <tr>
+                      <th>{t("import.clients.preview.interface")}</th>
+                      <th>{t("import.clients.preview.group")}</th>
+                      <th>{t("import.result.failedClient")}</th>
+                      <th>{t("import.result.failedReason")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={vm.clientsResultFailures}>
+                      {(failure) => (
+                        <tr>
+                          <td data-label={t("import.clients.preview.interface")} class="mono small">
+                            {failure.interfaceName}
+                          </td>
+                          <td data-label={t("import.clients.preview.group")} class="small">
+                            {failure.groupName}
+                          </td>
+                          <td data-label={t("import.result.failedClient")}>
+                            <span class="strong">{failure.clientName}</span>
+                          </td>
+                          <td data-label={t("import.result.failedReason")} class="small">
+                            {failure.reason}
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </Show>
+
+          <div class="actions-bar">
+            <button class="btn btn--primary" type="button" onClick={() => vm.openClientsGroup()}>
+              <Icon name="groups" size={16} class="" />
+              {t("import.clients.result.openGroup")}
+            </button>
+            <button class="btn" type="button" onClick={() => vm.openInterfaces()}>
+              <Icon name="interfaces" size={16} class="" />
+              {t("import.clients.result.openInterfaces")}
+            </button>
+            <button class="btn" type="button" onClick={() => vm.resetClientsImport()}>
+              {t("import.clients.result.newImport")}
+            </button>
+          </div>
+        </div>
+      </section>
+    </Show>
+  );
+}
+
+function clientsSection(vm: ImportVM) {
+  return (
+    <div class="stack">
+      <Show when={vm.clientsStep === 1}>{clientsFormStep(vm)}</Show>
+      <Show when={vm.clientsStep === 2}>{clientsPreviewStep(vm)}</Show>
+      <Show when={vm.clientsStep === 3}>{clientsResultStep(vm)}</Show>
+    </div>
+  );
+}
+
+export function ImportPage(this: { vm: ImportVM }) {
+  return (
+    <div class="stack">
+      <div class="page-head">
+        <div class="page-head__eyebrow">{t("import.eyebrow")}</div>
+        <h1>{t("import.title")}</h1>
+        <p>{t("import.subtitle")}</p>
+      </div>
+
+      <div class="tabs">
+        <button
+          class={`tab ${this.vm.mode === "group" ? "is-active" : ""}`}
+          type="button"
+          onClick={() => this.vm.setMode("group")}
+        >
+          {t("import.mode.group")}
+        </button>
+        <button
+          class={`tab ${this.vm.mode === "clients" ? "is-active" : ""}`}
+          type="button"
+          onClick={() => this.vm.setMode("clients")}
+        >
+          {t("import.mode.clients")}
+        </button>
+      </div>
+
+      <Show when={this.vm.mode === "group"}>
+        <div class="wizard-steps">
+          <For each={STEPS}>
+            {(item) => stepBadge(this.vm, item.step, item.labelKey)}
+          </For>
+          <span class="xs muted wizard-steps__hint">
+            {t("import.step.of", { step: this.vm.step })}
+          </span>
+        </div>
+
+        <Show when={this.vm.step === 1}>{groupStep(this.vm)}</Show>
+        <Show when={this.vm.step === 2}>{interfacesStep(this.vm)}</Show>
+        <Show when={this.vm.step === 3}>{previewStep(this.vm)}</Show>
+        <Show when={this.vm.step === 4}>{resultStep(this.vm)}</Show>
+      </Show>
+
+      <Show when={this.vm.mode === "clients"}>{clientsSection(this.vm)}</Show>
     </div>
   );
 }
