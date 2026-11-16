@@ -21,15 +21,15 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 525 тестов.
+  статические SVG-иконки, 558 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
 ## Проверено
 
-- `cargo test --workspace` — 166 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 188 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 525 тестов, зелёные.
+- `cd frontend && pnpm test` — 558 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -114,9 +114,11 @@
 
 ### Функционал
 
-- **Импорт**: поддержан один серверный конфиг + пачка клиентских для одного
-  интерфейса. Нет: нескольких интерфейсов за один импорт, серверных пиров без
-  клиентских конфигов, дедупликации, предпросмотра diff, отката.
+- **Импорт**: батч из нескольких интерфейсов, preview/apply, дедупликация по
+  public key, откат при фатальной ошибке, отдельный режим импорта клиентов в
+  существующий интерфейс с автоопределением по public key. Нет: серверных
+  пиров без клиентских конфигов (external peers) и diff-предпросмотра изменений
+  существующих устройств.
 - **CIDR-пулы**: режимы `auto/rf_only/external_only` — только метки и выдача
   адресов; маршрутизация делается вне проекта (так согласовано). Нет проверки
   пересечения с адресами других групп и резервирования шлюзов на уровне БД.
