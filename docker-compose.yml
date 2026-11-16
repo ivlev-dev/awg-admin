@@ -4,7 +4,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile.admin
     image: awg-admin:latest
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
@@ -26,8 +28,6 @@ services:
       - "traefik.http.routers.admin-api.service=admin"
       - "traefik.http.routers.admin-api.tls.certresolver=letsencrypt"
       - "traefik.http.services.admin.loadbalancer.server.port=8080"
-      - "traefik.http.services.admin.loadbalancer.serverstransport=h2c@docker"
-      - "traefik.http.serversTransports.h2c.protocol=h2c"
     networks:
       - web
 
@@ -39,6 +39,8 @@ services:
     depends_on:
       admin:
         condition: service_healthy
+    ports:
+      - "127.0.0.1:8081:80"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
@@ -51,7 +53,7 @@ services:
       - web
 
   traefik:
-    image: traefik:v3.3
+    image: ${TRAEFIK_IMAGE:-traefik:v3.6}
     command:
       - sh
       - -c
@@ -83,7 +85,9 @@ services:
     volumes:
       - /lib/modules:/lib/modules:ro
       - /var/lib/awg-worker:/var/lib/awg-worker
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
       AWG_NODE_ID: ${AWG_NODE_ID:-}

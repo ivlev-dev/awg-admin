@@ -4,7 +4,9 @@ services:
       context: .
       dockerfile: docker/Dockerfile.admin
     image: awg-admin-dev
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
@@ -49,7 +51,9 @@ services:
     volumes:
       - /lib/modules:/lib/modules:ro
       - /var/lib/awg-worker:/var/lib/awg-worker
-    env_file: .env
+    env_file:
+      - path: .env
+        required: false
     environment:
       AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
       AWG_NODE_ID: ${AWG_NODE_ID:-}

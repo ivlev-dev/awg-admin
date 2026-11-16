@@ -18,17 +18,31 @@
   `vpn://` кодек, временные share-ссылки.
 - Worker: gRPC-сессия, dry-run, netlink SetDevice, tc (HTB + IFB), nftables
   forwarding, персистентные монотонные счётчики (переживают reload интерфейса).
-- Frontend: silent + Vite + vitest, MVVM, кастомный роутер, кастомный Select,
-  светлая/тёмная темы, 7–8 адаптивных брейкпоинтов, графики, все основные экраны.
+- Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
+  infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
+  с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
+  статические SVG-иконки, 406 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
 ## Проверено
 
-- `cargo test --workspace` — 28 тестов, зелёные.
+- `cargo test --workspace` — 69 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 59 тестов, зелёные.
+- `cd frontend && pnpm test` — 406 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
+- `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
+  admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
+  подключается и применяет состояние.
+- Аудит: `GET /api/v1/audit`, записи для mutating-запросов; rate limiting логина
+  и refresh; production-конфиг падает без `AWG_MASTER_KEY`/`AWG_JWT_SECRET`.
+- JWT: `iss`/`aud`/`nbf`, ротация refresh с reuse detection, `/auth/sessions`,
+  `/auth/logout-all`, отзыв сессий при смене пароля/блокировке/удалении.
+- UI (Playwright, Chromium/Firefox): логин, обзор, клиенты, группы,
+  интерфейсы, ноды, статистика, настройки, профиль, тарифы, пользователи,
+  импорт; SVG во всех разделах в namespace `svg`; ошибок JS нет.
+- `scripts/verify-kernel.sh`, `verify-dataplane.sh`, `verify-tls.sh` — синтаксис
+  и dry-run проверены; см. `docs/PRODUCTION-VERIFICATION.md`.
 - REST-сценарий вручную: логин, тариф, группа, пулы, нода, интерфейс,
   пользователь, устройство, профиль (`.conf` + `vpn://`), share-ссылка,
   статистика, RBAC-отказы.
@@ -45,29 +59,27 @@
 
 ### Блокеры перед production
 
-1. **Реальный kernel.** Worker проверен только в `AWG_DRY_RUN=true`. Нужен хост
-   с загруженным `amneziawg`, проверить `ip link add … type amneziawg`,
-   `SetDevice` с `H*Range`, `REPLACE_PEERS`, чтение счётчиков.
-2. **tc ingress/egress на живом трафике.** Проверить HTB-классы (root 1:1,
-   пользовательские 1:100+i, устройства 1:1000+…), IFB, фильтры `u32`,
-   суммарные лимиты пользователя и устройства.
-3. **nftables forwarding.** Проверить изоляцию устройств и разрешённые пары
-   (`inet awg_admin`, цепь `fwd_<ifname>`).
-4. **Docker-образы не собирались.** `docker compose config` проходит, но
-   `docker compose build` не запускался (Rust release + git-зависимость).
-5. **TLS/ACME Traefik** не проверялся на реальном домене. Локально будет
-   self-signed; `letsencrypt` включён в labels. Нужен тест с настоящим доменом.
-6. **Секреты.** `AWG_MASTER_KEY` без значения генерируется эфемерно — после
-   рестарта приватные ключи устройств не расшифруются. В production обязателен
-   фиксированный ключ. Смените `AWG_ADMIN_PASSWORD` после первого входа.
-7. **HTTP/3 backend.** По требованию backend работает по h2c; HTTP/3
-   терминирует Traefik. Если нужен h3 именно от admin, потребуется TLS на
-   QUIC-порту (HTTP/3 без TLS невозможен).
-8. **WebTransport.** Сейчас только WebSocket. WT не реализован: нужен h3 или
-   проксирование WT через Traefik + клиентский fallback.
-9. **Аудит.** Таблица `audit` есть, записи не создаются. Нужно логировать
-   изменения пользователей/интерфейсов/устройств/тарифов.
-10. **Rate limiting / brute-force.** Нет ограничения попыток логина и запросов.
+1. **Реальный kernel.** Автоматизированная проверка на локальном хосте:
+   `scripts/verify-kernel.sh --apply --netns` (модуль, `ip link add`, SetDevice,
+   H*Range, S1–S4, REPLACE_PEERS, счётчики, ICMP). Остаётся e2e через реальный
+   worker + admin на отдельном хосте.
+2. **tc ingress/egress.** Структура HTB/IFB/u32 и счётчики проверены
+   `scripts/verify-dataplane.sh`; на живом трафике между устройствами — нет.
+3. **nftables forwarding.** Таблица/цепь/правила и изоляция проверены
+   скриптом; реальная пара устройств на одном AWG-интерфейсе — нет.
+4. **Docker-образы.** Закрыто: сборка и запуск проверены, healthcheck'и зелёные.
+5. **TLS/ACME Traefik.** Локально проверены self-signed, HTTP/2, HTTP/3,
+   редирект и health. Выпуск Let's Encrypt на реальном домене не проверялся.
+6. **Секреты.** В production старт падает без `AWG_MASTER_KEY` (32 байта
+   base64), `AWG_JWT_SECRET` (32+ байта) и с дефолтным паролем администратора.
+7. **HTTP/3 backend.** Backend по-прежнему h2c; HTTP/3 терминирует Traefik.
+   Это осознанное ограничение.
+8. **WebTransport.** Не реализован, используется WebSocket. Нужен h3 или
+   проксирование WT + клиентский fallback.
+9. **Аудит.** Закрыто: новый крейт `awg-audit`, middleware, `GET /api/v1/audit`.
+   Нет UI журнала аудита.
+10. **Rate limiting.** Закрыто: sliding window для login/refresh, 429 +
+    `Retry-After`. В памяти процесса, при нескольких репликах лимиты не общие.
 
 ### Функционал
 
@@ -87,13 +99,15 @@
 - **Ротация ключей интерфейса** инвалидирует клиентские конфиги; в UI есть
   предупреждение, но нет пакетного перевыпуска/доставки.
 - **Пользователи**: нет самостоятельной регистрации, сброса пароля по email,
-  MFA, SSO, сессий (список активных refresh-токенов).
+  MFA, SSO. Список активных refresh-сессий и их отзыв есть в API.
 - **Ноды**: токен выдаётся один раз и не ротируется; нет отзыва токена и
   отображения метрик воркера (CPU/RAM/версия ядра).
 - **Пиры**: нет QR, нет выбора нескольких интерфейсов при создании профиля,
   нет отдельного «профиля по умолчанию».
-- **Forwarding UI**: в карточке устройства можно разрешить обмен с другими
-  устройствами пользователя; нет матрицы «устройство × устройство».
+- **Forwarding UI**: сделано. Три режима (выкл / все свои / выбранные), матрица
+  «источник × назначение» по устройствам пользователя, симметричные пары по
+  умолчанию, список пар для мобильного, немедленное сохранение с откатом.
+  Ограничение бэкенда: только устройства одного пользователя.
 - **i18n**: только русский, строки захардкожены.
 - **A11y**: кастомный Select имеет aria/listbox и клавиатуру, но нет полного
   набора тестов и focus-trap в модалках.
@@ -102,13 +116,14 @@
 
 ### Инфраструктура и качество
 
-- Нет CI (GitHub Actions): fmt, clippy, cargo test, pnpm typecheck/test/build,
-  docker build.
+- CI добавлен: `.github/workflows/ci.yml` (fmt, clippy -D warnings, cargo test,
+  pnpm typecheck/test/build, сборка трёх Docker-образов).
 - Нет миграций/версионирования схемы redb. При изменении структур нужен
   version + migration.
 - Нет backup/restore redb и ротации файла.
 - Нет метрик Prometheus/OpenTelemetry и structured access-логов.
-- Нет e2e-тестов UI (Playwright MCP использовался вручную).
+- Нет автоматических e2e-тестов UI: Playwright использовался вручную; набор
+  можно закрепить в CI.
 - Нет нагрузочных тестов API и gRPC.
 - `docs/API.md` частично описывает DTO; стоит генерировать из кода/OpenAPI.
 - Комментарии в коде отсутствуют по требованию; сложные инварианты описаны в
@@ -137,7 +152,8 @@
    AWG_GRPC_URL=http://127.0.0.1:9090 AWG_NODE_ID=... AWG_NODE_TOKEN=... \
    AWG_DRY_RUN=false cargo run -p awg-worker
    ```
-5. Начните с блокеров: kernel/tc/nft проверка, Docker build, аудит, rate limit.
+5. Блокеры kernel/tc/nft/ TLS описаны в `docs/PRODUCTION-VERIFICATION.md`;
+   Docker, аудит, rate limit, JWT и CI уже закрыты.
 
 ## Особенности окружения
 
