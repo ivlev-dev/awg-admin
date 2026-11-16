@@ -4,7 +4,15 @@ import type { AuthSession, User } from "@/domain/types";
 import { ValidationError } from "../errors";
 import { requireText, validatePassword } from "../guards";
 
-export class AuthService {
+export interface AuthService {
+  login(input: LoginInput): Promise<AuthSession>;
+  refresh(refreshToken: string): Promise<AuthSession>;
+  logout(refreshToken: string | null): Promise<void>;
+  me(): Promise<User>;
+  changePassword(current: string | null, next: string): Promise<void>;
+}
+
+export class DefaultAuthService implements AuthService {
   constructor(private readonly repository: AuthRepository) {}
 
   async login(input: LoginInput): Promise<AuthSession> {

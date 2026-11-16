@@ -2,10 +2,10 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
-import { StatsService } from "@/application/stats/service";
+import type { StatsService } from "../../application/stats/service";
 import { formatBytes } from "@/domain/format";
 import type { Overview } from "@/domain/types";
-import { LiveStats } from "@/infrastructure/stats";
+import type { LiveStats } from "@/infrastructure/stats";
 
 export class OverviewVM {
   @reactive accessor data: Overview | null = null;

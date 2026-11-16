@@ -1,8 +1,8 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
-import { UsersService } from "@/application/users/service";
+import type { DevicesService } from "../../application/devices/service";
+import type { GroupsService } from "../../application/groups/service";
+import type { UsersService } from "../../application/users/service";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";

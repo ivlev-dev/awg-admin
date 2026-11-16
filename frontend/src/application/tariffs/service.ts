@@ -5,7 +5,14 @@ import { validateTariff } from "@/domain/validation";
 import { ValidationError } from "../errors";
 import { requireId, requireRate, requireText } from "../guards";
 
-export class TariffsService {
+export interface TariffsService {
+  listTariffs(): Promise<Tariff[]>;
+  createTariff(input: TariffInput): Promise<Tariff>;
+  updateTariff(id: string, input: Partial<TariffInput>): Promise<Tariff>;
+  deleteTariff(id: string): Promise<void>;
+}
+
+export class DefaultTariffsService implements TariffsService {
   constructor(private readonly repository: TariffsRepository) {}
 
   listTariffs(): Promise<Tariff[]> {

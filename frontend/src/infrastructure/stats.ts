@@ -45,11 +45,6 @@ export class LiveStats {
   private closedByUser = false;
 
   constructor(private readonly tokens: TokenStore) {
-    if (import.meta.env.MODE !== "test") {
-      const shared = (globalThis as { __awgLiveStats?: LiveStats }).__awgLiveStats;
-      if (shared) return shared;
-      (globalThis as { __awgLiveStats?: LiveStats }).__awgLiveStats = this;
-    }
   }
 
   connect(scope: string, id: string | null = null): void {

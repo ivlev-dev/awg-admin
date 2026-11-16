@@ -1,6 +1,6 @@
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultDevicesService } from "@/application/devices/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultUsersService } from "@/application/users/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -217,9 +217,9 @@ function setup(role: Role = "admin") {
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new ClientsPageVM(
-    new DevicesService(devices.repository),
-    new GroupsService(groups),
-    new UsersService(users),
+    new DefaultDevicesService(devices.repository),
+    new DefaultGroupsService(groups),
+    new DefaultUsersService(users),
     session,
     router,
     toasts,

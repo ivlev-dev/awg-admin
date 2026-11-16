@@ -2,7 +2,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
-import { TariffsService } from "@/application/tariffs/service";
+import type { TariffsService } from "../../application/tariffs/service";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
 import { validateTariff } from "@/domain/validation";

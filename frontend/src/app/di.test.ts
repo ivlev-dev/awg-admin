@@ -1,15 +1,18 @@
 import { DI_CREATE } from "@ivlev-dev/silent-di";
 
-import { AuthService } from "@/application/auth/service";
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
-import { ImportService } from "@/application/import/service";
-import { InterfacesService } from "@/application/interfaces/service";
-import { NodesService } from "@/application/nodes/service";
-import { SettingsService } from "@/application/settings/service";
-import { StatsService } from "@/application/stats/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultAuthService } from "../application/auth/service";
+import type { AuthService } from "../application/auth/service";
+import { DefaultDevicesService } from "../application/devices/service";
+import type { DevicesService } from "../application/devices/service";
+import { DefaultGroupsService } from "../application/groups/service";
+import { DefaultImportService } from "../application/import/service";
+import { DefaultInterfacesService } from "../application/interfaces/service";
+import { DefaultNodesService } from "../application/nodes/service";
+import { DefaultSettingsService } from "../application/settings/service";
+import { DefaultStatsService } from "../application/stats/service";
+import { DefaultTariffsService } from "../application/tariffs/service";
+import { DefaultUsersService } from "../application/users/service";
+import type { UsersService } from "../application/users/service";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { AuthRequestInterceptor } from "@/infrastructure/http/auth-request.interceptor";
 import { AuthResponseInterceptor } from "@/infrastructure/http/auth-response.interceptor";
@@ -37,17 +40,25 @@ function diCreate(ctor: unknown): unknown {
 }
 
 const SERVICES = [
-  AuthService,
-  UsersService,
-  TariffsService,
-  GroupsService,
-  NodesService,
-  InterfacesService,
-  DevicesService,
-  StatsService,
-  SettingsService,
-  ImportService,
+  DefaultAuthService,
+  DefaultUsersService,
+  DefaultTariffsService,
+  DefaultGroupsService,
+  DefaultNodesService,
+  DefaultInterfacesService,
+  DefaultDevicesService,
+  DefaultStatsService,
+  DefaultSettingsService,
+  DefaultImportService,
 ] as const;
+
+class ServiceAutowiringProbe {
+  constructor(
+    readonly auth: AuthService,
+    readonly users: UsersService,
+    readonly devices: DevicesService,
+  ) {}
+}
 
 const REPOSITORIES = [
   HttpAuthRepository,
@@ -115,6 +126,19 @@ describe("DI autodiscovery", () => {
     expect(second.backend.client).toBe(first.backend.client);
   });
 
+  it("autowires service interfaces to their default implementations", async () => {
+    const container = createAppContainer();
+    const probe = await container.resolve<ServiceAutowiringProbe>(ServiceAutowiringProbe);
+    const services = await resolveAppServices(container);
+
+    expect(probe.auth).toBeInstanceOf(DefaultAuthService);
+    expect(probe.users).toBeInstanceOf(DefaultUsersService);
+    expect(probe.devices).toBeInstanceOf(DefaultDevicesService);
+    expect(probe.auth).toBe(services.auth);
+    expect(probe.users).toBe(services.users);
+    expect(probe.devices).toBe(services.devices);
+  });
+
   it("resolves repositories to HTTP implementations", async () => {
     const { services } = await bootstrapApp();
     expect(services.repositories.auth).toBeInstanceOf(HttpAuthRepository);
@@ -158,7 +182,7 @@ describe("DI autodiscovery", () => {
     });
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
-    const auth = await container.resolve<AuthService>(AuthService);
+    const auth = await container.resolve<DefaultAuthService>(DefaultAuthService);
     const session = await auth.login({ login: "admin", password: "secret" });
 
     expect(session.token).toBe("access-1");

@@ -3,7 +3,7 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
-import { AuthService } from "@/application/auth/service";
+import { DefaultAuthService } from "@/application/auth/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
@@ -98,7 +98,7 @@ function makeHarness(
   const theme = new ThemeStore();
   const toasts = new ToastStore();
   return {
-    vm: new ProfilePageVM(session, new AuthService(auth), router, theme, toasts),
+    vm: new ProfilePageVM(session, new DefaultAuthService(auth), router, theme, toasts),
     session,
     router,
     theme,
@@ -366,7 +366,7 @@ describe("ProfilePageVM", () => {
     const harness = makeHarness();
     const container = createAppContainer();
     container.bind(Session, () => harness.session);
-    container.bind(AuthService, () => new AuthService(harness.auth));
+    container.bind(DefaultAuthService, () => new DefaultAuthService(harness.auth));
     container.bind(Router, () => harness.router);
     container.bind(ThemeStore, () => harness.theme);
     container.bind(ToastStore, () => harness.toasts);

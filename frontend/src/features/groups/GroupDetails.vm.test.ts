@@ -2,8 +2,8 @@ import { GroupDetailsVM } from "./GroupDetails.vm";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
-import { InterfacesService } from "@/application/interfaces/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
@@ -170,8 +170,8 @@ function makeVm(groupsRepo = new MemoryGroupsRepository()): {
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new GroupDetailsVM(
-    new GroupsService(groupsRepo),
-    new InterfacesService(interfacesRepo),
+    new DefaultGroupsService(groupsRepo),
+    new DefaultInterfacesService(interfacesRepo),
     router,
     toasts,
   );

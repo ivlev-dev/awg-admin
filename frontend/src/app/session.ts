@@ -15,11 +15,6 @@ export class Session implements AuthSessionState {
     private readonly auth: AuthRepository,
     private readonly tokens: TokenStore,
   ) {
-    if (import.meta.env.MODE !== "test") {
-      const shared = (globalThis as { __awgSession?: Session }).__awgSession;
-      if (shared) return shared;
-      (globalThis as { __awgSession?: Session }).__awgSession = this;
-    }
   }
 
   clear(): void {

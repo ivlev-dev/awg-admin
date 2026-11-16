@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "arch:check": "depcruise src --config .dependency-cruiser.cjs --webpack-config .dependency-cruiser.webpack.cjs",
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
@@ -12,13 +13,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ivlev-dev/silent": "^0.7.3",
-    "@ivlev-dev/silent-core": "^0.7.3",
-    "@ivlev-dev/silent-di": "^0.7.3",
-    "@ivlev-dev/silent-reactivity": "^0.7.3"
+    "@ivlev-dev/silent": "0.7.5",
+    "@ivlev-dev/silent-core": "0.7.5",
+    "@ivlev-dev/silent-di": "0.7.5",
+    "@ivlev-dev/silent-reactivity": "0.7.5"
   },
   "devDependencies": {
-    "@ivlev-dev/silent-vite": "^0.7.3",
+    "@ivlev-dev/silent-vite": "0.7.5",
+    "@swc/core": "^1.16.22",
+    "dependency-cruiser": "^18.7.2",
     "happy-dom": "^20.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",

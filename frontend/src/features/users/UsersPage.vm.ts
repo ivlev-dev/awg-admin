@@ -4,9 +4,9 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { validatePassword } from "@/application/guards";
-import { GroupsService } from "@/application/groups/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import type { GroupsService } from "../../application/groups/service";
+import type { TariffsService } from "../../application/tariffs/service";
+import type { UsersService } from "../../application/users/service";
 import type { Group, Role, Tariff, User } from "@/domain/types";
 
 export class UsersPageVM {

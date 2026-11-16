@@ -2,9 +2,9 @@ import { InterfacesPageVM } from "./InterfacesPage.vm";
 import { createAppContainer } from "@/app/di";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
-import { InterfacesService } from "@/application/interfaces/service";
-import { NodesService } from "@/application/nodes/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
@@ -236,9 +236,9 @@ function makeVm(current: User = ADMIN): Harness {
   const session = makeSession(current);
   const toasts = new ToastStore();
   const vm = new InterfacesPageVM(
-    new InterfacesService(interfacesRepo),
-    new GroupsService(groupsRepo),
-    new NodesService(nodesRepo),
+    new DefaultInterfacesService(interfacesRepo),
+    new DefaultGroupsService(groupsRepo),
+    new DefaultNodesService(nodesRepo),
     session,
     toasts,
   );

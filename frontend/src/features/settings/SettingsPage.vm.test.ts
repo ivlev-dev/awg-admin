@@ -1,7 +1,7 @@
 import { createAppContainer } from "@/app/di";
 import { ToastStore } from "@/app/toast";
 import { ValidationError } from "@/application/errors";
-import { SettingsService } from "@/application/settings/service";
+import { DefaultSettingsService } from "@/application/settings/service";
 import type { SettingsRepository } from "@/domain/settings/repository";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
 import { SettingsPageVM } from "./SettingsPage.vm";
@@ -66,13 +66,13 @@ class MemorySettingsRepository implements SettingsRepository {
 interface Harness {
   vm: SettingsPageVM;
   repo: MemorySettingsRepository;
-  service: SettingsService;
+  service: DefaultSettingsService;
   toasts: ToastStore;
 }
 
 function makeHarness(seed: Settings = SETTINGS): Harness {
   const repo = new MemorySettingsRepository(seed);
-  const service = new SettingsService(repo);
+  const service = new DefaultSettingsService(repo);
   const toasts = new ToastStore();
   return { vm: new SettingsPageVM(service, toasts), repo, service, toasts };
 }
@@ -363,7 +363,7 @@ describe("SettingsPageVM", () => {
   it("resolves constructor dependencies through the container", async () => {
     const harness = makeHarness();
     const container = createAppContainer();
-    container.bind(SettingsService, () => harness.service);
+    container.bind(DefaultSettingsService, () => harness.service);
     container.bind(ToastStore, () => harness.toasts);
 
     const vm = await container.resolve<SettingsPageVM>(SettingsPageVM);

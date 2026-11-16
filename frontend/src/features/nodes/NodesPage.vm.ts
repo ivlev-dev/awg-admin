@@ -2,7 +2,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { NodesService } from "@/application/nodes/service";
+import type { NodesService } from "../../application/nodes/service";
 import { plural, relativeTime } from "@/domain/format";
 import type { NodeCreated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";

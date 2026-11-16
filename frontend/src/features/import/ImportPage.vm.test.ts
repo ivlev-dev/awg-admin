@@ -1,8 +1,8 @@
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { ImportService } from "@/application/import/service";
-import { NodesService } from "@/application/nodes/service";
+import { DefaultImportService } from "@/application/import/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import type { ImportRepository } from "@/domain/import/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { ImportResult, NodeInfo } from "@/domain/types";
@@ -86,8 +86,8 @@ function setup(nodeList: NodeInfo[] = [NODE_OFFLINE, NODE_ONLINE]) {
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new ImportVM(
-    new ImportService(imports.repository),
-    new NodesService(nodes.repository),
+    new DefaultImportService(imports.repository),
+    new DefaultNodesService(nodes.repository),
     router,
     toasts,
   );

@@ -2,8 +2,8 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
-import { InterfacesService } from "@/application/interfaces/service";
+import type { GroupsService } from "../../application/groups/service";
+import type { InterfacesService } from "../../application/interfaces/service";
 import type { CidrPool, Group, InterfaceInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";
 

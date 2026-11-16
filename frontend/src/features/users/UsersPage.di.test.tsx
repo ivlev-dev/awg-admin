@@ -3,9 +3,9 @@ import { createComponent } from "@ivlev-dev/silent-core";
 import { createAppContainer } from "@/app/di";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultTariffsService } from "@/application/tariffs/service";
+import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
@@ -232,9 +232,9 @@ describe("UsersPageVM constructor DI", () => {
     session.user = ADMIN;
     const toasts = new ToastStore();
     const container = createAppContainer();
-    container.bind(UsersService, () => new UsersService(new StubUsersRepository()));
-    container.bind(TariffsService, () => new TariffsService(new StubTariffsRepository()));
-    container.bind(GroupsService, () => new GroupsService(new StubGroupsRepository()));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(new StubUsersRepository()));
+    container.bind(DefaultTariffsService, () => new DefaultTariffsService(new StubTariffsRepository()));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(new StubGroupsRepository()));
     container.bind(Session, () => session);
     container.bind(ToastStore, () => toasts);
 

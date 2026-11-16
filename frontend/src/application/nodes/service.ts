@@ -3,7 +3,13 @@ import type { NodeCreated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { requireId, requireText } from "../guards";
 
-export class NodesService {
+export interface NodesService {
+  listNodes(): Promise<NodeInfo[]>;
+  createNode(name: string): Promise<NodeCreated>;
+  deleteNode(id: string): Promise<void>;
+}
+
+export class DefaultNodesService implements NodesService {
   constructor(private readonly repository: NodesRepository) {}
 
   listNodes(): Promise<NodeInfo[]> {

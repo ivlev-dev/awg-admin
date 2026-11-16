@@ -3,7 +3,15 @@ import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { requireId, requireText, validatePassword } from "../guards";
 
-export class UsersService {
+export interface UsersService {
+  listUsers(): Promise<User[]>;
+  createUser(input: CreateUserInput): Promise<User>;
+  updateUser(id: string, input: UpdateUserInput): Promise<User>;
+  deleteUser(id: string): Promise<void>;
+  resetPassword(id: string, password: string): Promise<void>;
+}
+
+export class DefaultUsersService implements UsersService {
   constructor(private readonly repository: UsersRepository) {}
 
   listUsers(): Promise<User[]> {

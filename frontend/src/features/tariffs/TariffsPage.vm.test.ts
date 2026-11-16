@@ -1,5 +1,5 @@
 import { ToastStore } from "@/app/toast";
-import { TariffsService } from "@/application/tariffs/service";
+import { DefaultTariffsService } from "@/application/tariffs/service";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
@@ -80,13 +80,13 @@ class MemoryTariffsRepository implements TariffsRepository {
 interface SetupResult {
   vm: TariffsPageVM;
   repo: MemoryTariffsRepository;
-  service: TariffsService;
+  service: DefaultTariffsService;
   toasts: ToastStore;
 }
 
 function setup(seed: Tariff[] = [TARIFF, PRO]): SetupResult {
   const repo = new MemoryTariffsRepository(seed);
-  const service = new TariffsService(repo);
+  const service = new DefaultTariffsService(repo);
   const toasts = new ToastStore();
   const vm = new TariffsPageVM(service, toasts);
   return { vm, repo, service, toasts };

@@ -1,21 +1,117 @@
-import { For, Show } from "@ivlev-dev/silent-core";
+import { For, Show, Suspense, createSignal, lazy } from "@ivlev-dev/silent-core";
+import type { LazyOptions } from "@ivlev-dev/silent-core";
 
 import type { AppVM } from "./App.vm";
 import { Icon } from "@/components/Icon";
-import { Login } from "@/features/auth/Login";
-import { Overview } from "@/features/overview/Overview";
-import { NodesPage } from "@/features/nodes/NodesPage";
-import { InterfacesPage } from "@/features/interfaces/InterfacesPage";
-import { GroupsPage } from "@/features/groups/GroupsPage";
-import { GroupDetails } from "@/features/groups/GroupDetails";
-import { ClientsPage } from "@/features/clients/ClientsPage";
-import { ClientDetails } from "@/features/clients/ClientDetails";
-import { TariffsPage } from "@/features/tariffs/TariffsPage";
-import { UsersPage } from "@/features/users/UsersPage";
-import { ImportPage } from "@/features/import/ImportPage";
-import { StatsPage } from "@/features/stats/StatsPage";
-import { ProfilePage } from "@/features/profile/ProfilePage";
-import { SettingsPage } from "@/features/settings/SettingsPage";
+
+interface PageFailure {
+  readonly route: string;
+  readonly message: string;
+}
+
+const [pageFailure, setPageFailure] = createSignal<PageFailure | null>(null);
+
+function failureMessage(error: unknown): string {
+  if (error instanceof Error && error.message.length > 0) return error.message;
+  return "Неизвестная ошибка загрузки";
+}
+
+function pageOptions(route: string): LazyOptions {
+  return {
+    onError: (error: unknown): void => {
+      console.error(`Не удалось загрузить раздел ${route}`, error);
+      setPageFailure({ route, message: failureMessage(error) });
+    },
+  };
+}
+
+const Login = lazy(
+  () => import("@/features/auth/Login").then((module) => ({ default: module.Login })),
+  pageOptions("login"),
+);
+const Overview = lazy(
+  () => import("@/features/overview/Overview").then((module) => ({ default: module.Overview })),
+  pageOptions("overview"),
+);
+const ClientsPage = lazy(
+  () => import("@/features/clients/ClientsPage").then((module) => ({ default: module.ClientsPage })),
+  pageOptions("clients"),
+);
+const ClientDetails = lazy(
+  () => import("@/features/clients/ClientDetails").then((module) => ({ default: module.ClientDetails })),
+  pageOptions("client"),
+);
+const GroupsPage = lazy(
+  () => import("@/features/groups/GroupsPage").then((module) => ({ default: module.GroupsPage })),
+  pageOptions("groups"),
+);
+const GroupDetails = lazy(
+  () => import("@/features/groups/GroupDetails").then((module) => ({ default: module.GroupDetails })),
+  pageOptions("group"),
+);
+const InterfacesPage = lazy(
+  () => import("@/features/interfaces/InterfacesPage").then((module) => ({ default: module.InterfacesPage })),
+  pageOptions("interfaces"),
+);
+const NodesPage = lazy(
+  () => import("@/features/nodes/NodesPage").then((module) => ({ default: module.NodesPage })),
+  pageOptions("nodes"),
+);
+const TariffsPage = lazy(
+  () => import("@/features/tariffs/TariffsPage").then((module) => ({ default: module.TariffsPage })),
+  pageOptions("tariffs"),
+);
+const UsersPage = lazy(
+  () => import("@/features/users/UsersPage").then((module) => ({ default: module.UsersPage })),
+  pageOptions("users"),
+);
+const ImportPage = lazy(
+  () => import("@/features/import/ImportPage").then((module) => ({ default: module.ImportPage })),
+  pageOptions("import"),
+);
+const StatsPage = lazy(
+  () => import("@/features/stats/StatsPage").then((module) => ({ default: module.StatsPage })),
+  pageOptions("stats"),
+);
+const ProfilePage = lazy(
+  () => import("@/features/profile/ProfilePage").then((module) => ({ default: module.ProfilePage })),
+  pageOptions("profile"),
+);
+const SettingsPage = lazy(
+  () => import("@/features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })),
+  pageOptions("settings"),
+);
+
+function PageFallback() {
+  return (
+    <div class="stack" style="align-items:center;justify-content:center;min-height:240px;gap:12px">
+      <div class="spinner"></div>
+      <div class="small muted">Загрузка…</div>
+    </div>
+  );
+}
+
+function PageSlot(props: { readonly children?: unknown }) {
+  return (
+    <div class="page-slot">
+      <Suspense fallback={<PageFallback />}>{props.children}</Suspense>
+    </div>
+  );
+}
+
+function PageFailureNotice(props: { readonly title: string }) {
+  return (
+    <div class="stack">
+      <div class="alert alert--error">Не удалось загрузить раздел «{props.title}».</div>
+      <div class="xs muted">{pageFailure()?.message}</div>
+      <div>
+        <button class="btn btn--sm" type="button" onClick={() => window.location.reload()}>
+          Обновить страницу
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function sidebar(vm: AppVM) {
   return (
@@ -79,20 +175,80 @@ function sidebar(vm: AppVM) {
 function page(vm: AppVM) {
   return (
     <>
-      <Show when={vm.routeName === "overview"}><Overview /></Show>
-      <Show when={vm.routeName === "nodes"}><NodesPage /></Show>
-      <Show when={vm.routeName === "interfaces"}><InterfacesPage /></Show>
-      <Show when={vm.routeName === "groups"}><GroupsPage /></Show>
-      <Show when={vm.routeName === "group"}><GroupDetails /></Show>
-      <Show when={vm.routeName === "clients"}><ClientsPage /></Show>
-      <Show when={vm.routeName === "client"}><ClientDetails /></Show>
-      <Show when={vm.routeName === "tariffs"}><TariffsPage /></Show>
-      <Show when={vm.routeName === "users"}><UsersPage /></Show>
-      <Show when={vm.routeName === "import"}><ImportPage /></Show>
-      <Show when={vm.routeName === "stats"}><StatsPage /></Show>
-      <Show when={vm.routeName === "profile"}><ProfilePage /></Show>
-      <Show when={vm.routeName === "settings"}><SettingsPage /></Show>
+      <Show when={vm.routeName === "overview"}>
+        <PageSlot>
+          <Overview />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "nodes"}>
+        <PageSlot>
+          <NodesPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "interfaces"}>
+        <PageSlot>
+          <InterfacesPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "groups"}>
+        <PageSlot>
+          <GroupsPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "group"}>
+        <PageSlot>
+          <GroupDetails />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "clients"}>
+        <PageSlot>
+          <ClientsPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "client"}>
+        <PageSlot>
+          <ClientDetails />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "tariffs"}>
+        <PageSlot>
+          <TariffsPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "users"}>
+        <PageSlot>
+          <UsersPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "import"}>
+        <PageSlot>
+          <ImportPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "stats"}>
+        <PageSlot>
+          <StatsPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "profile"}>
+        <PageSlot>
+          <ProfilePage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "settings"}>
+        <PageSlot>
+          <SettingsPage />
+        </PageSlot>
+      </Show>
     </>
+  );
+}
+
+function content(vm: AppVM) {
+  return (
+    <Show when={pageFailure()?.route === vm.routeName} fallback={page(vm)}>
+      <PageFailureNotice title={vm.title} />
+    </Show>
   );
 }
 
@@ -108,7 +264,9 @@ export function App(this: { vm: AppVM }) {
       </Show>
 
       <Show when={!this.vm.booting && this.vm.routeName === "login"}>
-        <Login />
+        <PageSlot>
+          <Login />
+        </PageSlot>
       </Show>
 
       <Show when={this.vm.showShell}>
@@ -131,7 +289,7 @@ export function App(this: { vm: AppVM }) {
                 <div class="avatar avatar--sm">{this.vm.userInitial}</div>
               </button>
             </header>
-            <main class="content">{page(this.vm)}</main>
+            <main class="content">{content(this.vm)}</main>
           </div>
           <nav class="mobile-nav">
             <For each={this.vm.mobileNav}>

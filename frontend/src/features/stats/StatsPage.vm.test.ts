@@ -2,11 +2,11 @@ import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
-import { InterfacesService } from "@/application/interfaces/service";
-import { StatsService } from "@/application/stats/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultDevicesService } from "@/application/devices/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
+import { DefaultStatsService } from "@/application/stats/service";
+import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { DeviceStats } from "@/domain/devices/types";
@@ -304,11 +304,11 @@ function setup(role: Role = "admin") {
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new StatsVM(
-    new StatsService(stats.repository),
-    new DevicesService(devices.repository),
-    new GroupsService(groups),
-    new InterfacesService(interfaces),
-    new UsersService(users),
+    new DefaultStatsService(stats.repository),
+    new DefaultDevicesService(devices.repository),
+    new DefaultGroupsService(groups),
+    new DefaultInterfacesService(interfaces),
+    new DefaultUsersService(users),
     liveStats,
     session,
     router,

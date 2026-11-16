@@ -1,7 +1,7 @@
 import { createComponent } from "@ivlev-dev/silent-core";
 
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
+import { DefaultDevicesService } from "@/application/devices/service";
+import { DefaultGroupsService } from "@/application/groups/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -299,8 +299,8 @@ function setup(role: Role = "admin") {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness();
   const groups = groupsHarness([GROUP]);
-  const devicesService = new DevicesService(devices.repository);
-  const groupsService = new GroupsService(groups);
+  const devicesService = new DefaultDevicesService(devices.repository);
+  const groupsService = new DefaultGroupsService(groups);
   const session = makeSession(user);
   window.history.replaceState(null, "", "/clients/d1");
   const router = new Router();
@@ -439,7 +439,7 @@ describe("ClientDetailsVM", () => {
     const { repository, groupsService } = setup("admin");
     window.history.replaceState(null, "", "/clients");
     const vm = new ClientDetailsVM(
-      new DevicesService(repository),
+      new DefaultDevicesService(repository),
       groupsService,
       makeSession(ADMIN),
       new Router(),
@@ -879,8 +879,8 @@ describe("ClientDetailsVM", () => {
   it("резолвит VM через DI и монтирует представление с внедрёнными зависимостями", async () => {
     const { devicesService, groupsService, session, router, toasts } = setup("admin");
     const container = createAppContainer();
-    container.bind(DevicesService, () => devicesService);
-    container.bind(GroupsService, () => groupsService);
+    container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultGroupsService, () => groupsService);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
     container.bind(ToastStore, () => toasts);

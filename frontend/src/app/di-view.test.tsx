@@ -1,6 +1,6 @@
 import { createComponent } from "@ivlev-dev/silent-core";
 
-import { AuthService } from "@/application/auth/service";
+import type { AuthService } from "../application/auth/service";
 import { createAppContainer } from "./di";
 
 class DiProbeVM {
@@ -20,6 +20,6 @@ describe("constructor DI in views", () => {
     const container = createAppContainer();
     const result = createComponent(DiProbe, {}, { container });
     await result.ready;
-    expect(result.node.textContent).toBe("AuthService");
+    expect(result.node.textContent).toBe("DefaultAuthService");
   });
 });

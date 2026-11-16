@@ -2,7 +2,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
+import type { GroupsService } from "../../application/groups/service";
 import type { Group } from "@/domain/types";
 import { isCidr } from "@/domain/validation";
 

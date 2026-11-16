@@ -1,6 +1,9 @@
 import { vi } from "vitest";
-import { HttpApi, ApiError } from "./http";
+
+import { ApiError } from "./http/errors";
 import { LocalTokenStore } from "./storage";
+import { createHttpBackend, type HttpBackend } from "./http/backend";
+import type { User } from "@/domain/types";
 
 function mockResponse(status: number, body?: unknown): Response {
   const text = body === undefined ? "" : JSON.stringify(body);
@@ -12,9 +15,27 @@ function mockResponse(status: number, body?: unknown): Response {
   } as unknown as Response;
 }
 
-describe("HttpApi", () => {
+const USER: User = {
+  id: "u1",
+  login: "admin",
+  role: "admin",
+  tariff_id: null,
+  group_id: null,
+  disabled: false,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+};
+
+const SESSION = {
+  token: "access-1",
+  refresh_token: "refresh-1",
+  expires_in: 3600,
+  user: USER,
+};
+
+describe("HTTP backend", () => {
   let store: LocalTokenStore;
-  let api: HttpApi;
+  let backend: HttpBackend;
 
   beforeEach(() => {
     const storage = new Map<string, string>();
@@ -34,33 +55,25 @@ describe("HttpApi", () => {
     } as Storage;
     globalThis.localStorage.clear();
     store = new LocalTokenStore();
-    api = new HttpApi(store);
+    backend = createHttpBackend({
+      tokens: store,
+      config: { baseUrl: "/api/v1", timeoutMs: 1_000 },
+      session: { clear: () => store.clear() },
+    });
     globalThis.fetch = vi.fn() as unknown as typeof fetch;
   });
 
   it("login saves tokens", async () => {
-    const session = {
-      token: "access-1",
-      refresh_token: "refresh-1",
-      expires_in: 3600,
-      user: {
-        id: "u1",
-        login: "admin",
-        role: "admin",
-        tariff_id: null,
-        group_id: null,
-        disabled: false,
-        created_at: "2020-01-01T00:00:00Z",
-        updated_at: "2020-01-01T00:00:00Z",
-      },
-    };
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      mockResponse(200, session),
+      mockResponse(200, SESSION),
     );
 
-    const result = await api.login({ login: "admin", password: "secret" });
+    const result = await backend.repositories.auth.login({
+      login: "admin",
+      password: "secret",
+    });
 
-    expect(result).toEqual(session);
+    expect(result).toEqual(SESSION);
     expect(store.access()).toBe("access-1");
     expect(store.refresh()).toBe("refresh-1");
     expect(globalThis.fetch).toHaveBeenCalledWith(
@@ -72,10 +85,10 @@ describe("HttpApi", () => {
   it("sends Authorization header", async () => {
     store.set("tok-123", "ref-123");
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      mockResponse(200, { id: "u1" }),
+      mockResponse(200, USER),
     );
 
-    await api.me();
+    await backend.repositories.auth.me();
 
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/v1/auth/me",
@@ -89,34 +102,18 @@ describe("HttpApi", () => {
 
   it("refreshes on 401 and retries api requests", async () => {
     store.set("old-access", "old-refresh");
-    const listData = [{ id: "u1", login: "admin" }];
+    const listData = [USER];
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     fetchMock
       .mockResolvedValueOnce(mockResponse(401))
-      .mockResolvedValueOnce(
-        mockResponse(200, {
-          token: "new-access",
-          refresh_token: "new-refresh",
-          expires_in: 3600,
-          user: {
-            id: "u1",
-            login: "admin",
-            role: "admin",
-            tariff_id: null,
-            group_id: null,
-            disabled: false,
-            created_at: "2020-01-01T00:00:00Z",
-            updated_at: "2020-01-01T00:00:00Z",
-          },
-        }),
-      )
+      .mockResolvedValueOnce(mockResponse(200, SESSION))
       .mockResolvedValueOnce(mockResponse(200, listData));
 
-    const result = await api.listUsers();
+    const result = await backend.repositories.users.listUsers();
 
     expect(result).toEqual(listData);
-    expect(store.access()).toBe("new-access");
-    expect(store.refresh()).toBe("new-refresh");
+    expect(store.access()).toBe("access-1");
+    expect(store.refresh()).toBe("refresh-1");
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -126,7 +123,7 @@ describe("HttpApi", () => {
     );
 
     try {
-      await api.me();
+      await backend.repositories.auth.me();
       throw new Error("expected throw");
     } catch (error) {
       expect(error).toBeInstanceOf(ApiError);
@@ -143,7 +140,7 @@ describe("HttpApi", () => {
       mockResponse(200, [{ at: "2020-01-01T00:00:00Z", rx: 1, tx: 2 }]),
     );
 
-    const result = await api.series("device", "dev-1", 100, 200);
+    const result = await backend.repositories.stats.series("device", "dev-1", 100, 200);
 
     expect(result).toEqual([{ at: "2020-01-01T00:00:00Z", rx: 1, tx: 2 }]);
     expect(globalThis.fetch).toHaveBeenCalledWith(

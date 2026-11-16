@@ -4,7 +4,7 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
-import { HttpApi } from "@/infrastructure/http";
+import { DefaultUsersService } from "@/application/users/service";
 import { LiveStats } from "@/infrastructure/stats";
 import { AppVM } from "./App.vm";
 import { createAppContainer } from "./di";
@@ -453,22 +453,22 @@ describe("AppVM constructor DI", () => {
   });
 
   it("shares the bootstrap singleton graph with every child scope", async () => {
-    const legacy = await import("./container");
+    const appContainer = await import("./container");
     const container = createAppContainer();
-    legacy.bindAppServices(container);
+    appContainer.bindAppServices(container);
     const scope = container.createScope("probe");
 
     const session = await container.resolve<Session>(Session);
     const router = await container.resolve<Router>(Router);
     const toasts = await container.resolve<ToastStore>(ToastStore);
     const liveStats = await container.resolve<LiveStats>(LiveStats);
-    const api = await container.resolve<HttpApi>(HttpApi);
+    const users = await container.resolve<DefaultUsersService>(DefaultUsersService);
 
     expect(await scope.resolve<Session>(Session)).toBe(session);
     expect(await scope.resolve<Router>(Router)).toBe(router);
     expect(await scope.resolve<ToastStore>(ToastStore)).toBe(toasts);
     expect(await scope.resolve<LiveStats>(LiveStats)).toBe(liveStats);
-    expect(await scope.resolve<HttpApi>(HttpApi)).toBe(api);
+    expect(await scope.resolve<DefaultUsersService>(DefaultUsersService)).toBe(users);
     expect(await container.resolve<Session>(Session)).toBe(session);
   });
 });

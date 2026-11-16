@@ -1,8 +1,8 @@
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultTariffsService } from "@/application/tariffs/service";
+import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
@@ -294,9 +294,9 @@ interface SetupResult {
   toasts: ToastStore;
   session: Session;
   services: {
-    users: UsersService;
-    tariffs: TariffsService;
-    groups: GroupsService;
+    users: DefaultUsersService;
+    tariffs: DefaultTariffsService;
+    groups: DefaultGroupsService;
   };
 }
 
@@ -305,9 +305,9 @@ function setup(seed: User[] = [ADMIN, ALICE]): SetupResult {
   const tariffsRepo = new MemoryTariffsRepository([TARIFF]);
   const groupsRepo = new MemoryGroupsRepository([GROUP]);
   const services = {
-    users: new UsersService(usersRepo),
-    tariffs: new TariffsService(tariffsRepo),
-    groups: new GroupsService(groupsRepo),
+    users: new DefaultUsersService(usersRepo),
+    tariffs: new DefaultTariffsService(tariffsRepo),
+    groups: new DefaultGroupsService(groupsRepo),
   };
   const session = new Session(new FakeAuthRepository(ADMIN), new MemoryTokenStore());
   session.user = ADMIN;

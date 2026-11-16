@@ -1,7 +1,7 @@
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
-import { StatsService } from "@/application/stats/service";
+import { DefaultStatsService } from "@/application/stats/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { Overview, Role, StatsPoint, User } from "@/domain/types";
@@ -168,7 +168,7 @@ function setup(role: Role = "admin") {
   const liveStats = new LiveStats(tokens);
   const router = new Router();
   const vm = new OverviewVM(
-    new StatsService(stats.repository),
+    new DefaultStatsService(stats.repository),
     liveStats,
     session,
     router,

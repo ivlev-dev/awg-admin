@@ -4,7 +4,7 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
-import { AuthService } from "@/application/auth/service";
+import type { AuthService } from "../../application/auth/service";
 import { formatDate, initials } from "@/domain/format";
 
 export interface PermissionItem {

@@ -3,7 +3,12 @@ import type { Overview, StatsPoint } from "@/domain/types";
 import { ValidationError } from "../errors";
 import { requireText } from "../guards";
 
-export class StatsService {
+export interface StatsService {
+  overview(): Promise<Overview>;
+  series(scope: string, id: string | null, from: number, to: number): Promise<StatsPoint[]>;
+}
+
+export class DefaultStatsService implements StatsService {
   constructor(private readonly repository: StatsRepository) {}
 
   overview(): Promise<Overview> {

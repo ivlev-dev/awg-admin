@@ -3,7 +3,15 @@ import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/t
 import type { InterfaceInfo } from "@/domain/types";
 import { requireId, requireMtu, requirePort, requireText } from "../guards";
 
-export class InterfacesService {
+export interface InterfacesService {
+  listInterfaces(): Promise<InterfaceInfo[]>;
+  createInterface(input: InterfaceInput): Promise<InterfaceInfo>;
+  updateInterface(id: string, input: InterfaceUpdateInput): Promise<InterfaceInfo>;
+  rotateInterface(id: string): Promise<InterfaceInfo>;
+  deleteInterface(id: string): Promise<void>;
+}
+
+export class DefaultInterfacesService implements InterfacesService {
   constructor(private readonly repository: InterfacesRepository) {}
 
   listInterfaces(): Promise<InterfaceInfo[]> {

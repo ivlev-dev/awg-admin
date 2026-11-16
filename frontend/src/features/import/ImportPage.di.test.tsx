@@ -3,8 +3,8 @@ import { createComponent } from "@ivlev-dev/silent-core";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { ImportService } from "@/application/import/service";
-import { NodesService } from "@/application/nodes/service";
+import { DefaultImportService } from "@/application/import/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import type { ImportRepository } from "@/domain/import/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { ImportResult, NodeInfo } from "@/domain/types";
@@ -72,8 +72,8 @@ describe("ImportPageVM constructor DI", () => {
     const router = new Router();
     const toasts = new ToastStore();
     const container = createAppContainer();
-    container.bind(NodesService, () => new NodesService(nodes));
-    container.bind(ImportService, () => new ImportService(imports));
+    container.bind(DefaultNodesService, () => new DefaultNodesService(nodes));
+    container.bind(DefaultImportService, () => new DefaultImportService(imports));
     container.bind(Router, () => router);
     container.bind(ToastStore, () => toasts);
 

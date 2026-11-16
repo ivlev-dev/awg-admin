@@ -5,7 +5,11 @@ import { isCidr } from "@/domain/validation";
 import { ValidationError } from "../errors";
 import { requireId, requireMtu, requirePort, requireText } from "../guards";
 
-export class ImportService {
+export interface ImportService {
+  importConfig(input: ImportInput): Promise<ImportResult>;
+}
+
+export class DefaultImportService implements ImportService {
   constructor(private readonly repository: ImportRepository) {}
 
   async importConfig(input: ImportInput): Promise<ImportResult> {

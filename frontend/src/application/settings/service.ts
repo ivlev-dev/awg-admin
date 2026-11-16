@@ -6,7 +6,12 @@ const MIN_SHARE_TTL = 60;
 const MAX_SHARE_TTL = 30 * 86_400;
 const MIN_S_PADDING = 12;
 
-export class SettingsService {
+export interface SettingsService {
+  getSettings(): Promise<Settings>;
+  updateSettings(input: Partial<Settings>): Promise<Settings>;
+}
+
+export class DefaultSettingsService implements SettingsService {
   constructor(private readonly repository: SettingsRepository) {}
 
   getSettings(): Promise<Settings> {

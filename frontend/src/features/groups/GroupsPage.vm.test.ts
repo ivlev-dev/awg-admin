@@ -5,7 +5,7 @@ import { GroupsPage } from "./GroupsPage";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { GroupsService } from "@/application/groups/service";
+import { DefaultGroupsService } from "@/application/groups/service";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
@@ -95,7 +95,7 @@ function makeVm(repo: MemoryGroupsRepository = new MemoryGroupsRepository()): {
   router: Router;
   toasts: ToastStore;
 } {
-  const service = new GroupsService(repo);
+  const service = new DefaultGroupsService(repo);
   const router = new Router();
   const toasts = new ToastStore();
   return { vm: new GroupsPageVM(service, router, toasts), repo, router, toasts };
@@ -265,9 +265,9 @@ describe("GroupsPageVM", () => {
   it("mounts the view with an injected service", async () => {
     const repo = new MemoryGroupsRepository();
     repo.groups.set("g1", group());
-    const service = new GroupsService(repo);
+    const service = new DefaultGroupsService(repo);
     const container = createAppContainer();
-    container.bind(GroupsService, () => service);
+    container.bind(DefaultGroupsService, () => service);
     container.bind(Router, () => new Router());
     container.bind(ToastStore, () => new ToastStore());
 

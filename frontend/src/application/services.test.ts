@@ -1,14 +1,14 @@
-import { AuthService } from "@/application/auth/service";
-import { DevicesService } from "@/application/devices/service";
+import { DefaultAuthService } from "@/application/auth/service";
+import { DefaultDevicesService } from "@/application/devices/service";
 import { ValidationError } from "@/application/errors";
-import { GroupsService } from "@/application/groups/service";
-import { ImportService } from "@/application/import/service";
-import { InterfacesService } from "@/application/interfaces/service";
-import { NodesService } from "@/application/nodes/service";
-import { SettingsService } from "@/application/settings/service";
-import { StatsService } from "@/application/stats/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultImportService } from "@/application/import/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
+import { DefaultNodesService } from "@/application/nodes/service";
+import { DefaultSettingsService } from "@/application/settings/service";
+import { DefaultStatsService } from "@/application/stats/service";
+import { DefaultTariffsService } from "@/application/tariffs/service";
+import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { GroupsRepository } from "@/domain/groups/repository";
@@ -175,13 +175,13 @@ function makeAuth(): AuthRepository {
 describe("AuthService", () => {
   it("trims credentials and delegates login", async () => {
     const repo = makeAuth();
-    const service = new AuthService(repo);
+    const service = new DefaultAuthService(repo);
     await expect(service.login({ login: " admin ", password: "secret" })).resolves.toBe(SESSION);
     expect(repo.login).toHaveBeenCalledWith({ login: "admin", password: "secret" });
   });
 
   it("rejects empty credentials", async () => {
-    const service = new AuthService(makeAuth());
+    const service = new DefaultAuthService(makeAuth());
     await expect(service.login({ login: " ", password: "secret" })).rejects.toBeInstanceOf(
       ValidationError,
     );
@@ -192,13 +192,13 @@ describe("AuthService", () => {
 
   it("does not call logout without a refresh token", async () => {
     const repo = makeAuth();
-    const service = new AuthService(repo);
+    const service = new DefaultAuthService(repo);
     await service.logout(null);
     expect(repo.logout).not.toHaveBeenCalled();
   });
 
   it("rejects a short new password", async () => {
-    const service = new AuthService(makeAuth());
+    const service = new DefaultAuthService(makeAuth());
     await expect(service.changePassword("old", "short")).rejects.toBeInstanceOf(ValidationError);
   });
 });
@@ -215,7 +215,7 @@ describe("UsersService", () => {
   }
 
   it("validates password on create", async () => {
-    const service = new UsersService(makeUsers());
+    const service = new DefaultUsersService(makeUsers());
     await expect(
       service.createUser({
         login: "user",
@@ -229,7 +229,7 @@ describe("UsersService", () => {
 
   it("delegates update and delete", async () => {
     const repo = makeUsers();
-    const service = new UsersService(repo);
+    const service = new DefaultUsersService(repo);
     await service.updateUser(" u1 ", { disabled: true });
     await service.deleteUser(" u1 ");
     expect(repo.updateUser).toHaveBeenCalledWith("u1", { disabled: true });
@@ -248,7 +248,7 @@ describe("TariffsService", () => {
   }
 
   it("rejects an invalid tariff", async () => {
-    const service = new TariffsService(makeTariffs());
+    const service = new DefaultTariffsService(makeTariffs());
     await expect(
       service.createTariff({
         name: " ",
@@ -265,7 +265,7 @@ describe("TariffsService", () => {
 
   it("normalizes a valid tariff", async () => {
     const repo = makeTariffs();
-    const service = new TariffsService(repo);
+    const service = new DefaultTariffsService(repo);
     await service.createTariff({
       name: " Basic ",
       description: " plan ",
@@ -297,7 +297,7 @@ describe("GroupsService", () => {
   }
 
   it("rejects an invalid base CIDR", async () => {
-    const service = new GroupsService(makeGroups());
+    const service = new DefaultGroupsService(makeGroups());
     await expect(
       service.createGroup({
         name: "Main",
@@ -310,7 +310,7 @@ describe("GroupsService", () => {
 
   it("normalizes and delegates a pool", async () => {
     const repo = makeGroups();
-    const service = new GroupsService(repo);
+    const service = new DefaultGroupsService(repo);
     await service.createPool(" g1 ", {
       name: " pool ",
       cidr: "10.0.1.0/24",
@@ -337,13 +337,13 @@ describe("NodesService", () => {
   }
 
   it("requires a node name", async () => {
-    const service = new NodesService(makeNodes());
+    const service = new DefaultNodesService(makeNodes());
     await expect(service.createNode(" ")).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("trims a node name", async () => {
     const repo = makeNodes();
-    const service = new NodesService(repo);
+    const service = new DefaultNodesService(repo);
     await service.createNode(" node ");
     expect(repo.createNode).toHaveBeenCalledWith("node");
   });
@@ -372,7 +372,7 @@ describe("InterfacesService", () => {
   };
 
   it("rejects invalid ports and MTU", async () => {
-    const service = new InterfacesService(makeInterfaces());
+    const service = new DefaultInterfacesService(makeInterfaces());
     await expect(
       service.createInterface({ ...input, endpoint_port: 0 }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -383,7 +383,7 @@ describe("InterfacesService", () => {
 
   it("delegates rotation", async () => {
     const repo = makeInterfaces();
-    const service = new InterfacesService(repo);
+    const service = new DefaultInterfacesService(repo);
     await service.rotateInterface(" i1 ");
     expect(repo.rotateInterface).toHaveBeenCalledWith("i1");
   });
@@ -419,7 +419,7 @@ describe("DevicesService", () => {
   }
 
   it("requires a device name", async () => {
-    const service = new DevicesService(makeDevices());
+    const service = new DefaultDevicesService(makeDevices());
     await expect(
       service.createDevice({
         user_id: null,
@@ -433,7 +433,7 @@ describe("DevicesService", () => {
   });
 
   it("rejects a non-positive share TTL", async () => {
-    const service = new DevicesService(makeDevices());
+    const service = new DefaultDevicesService(makeDevices());
     await expect(
       service.createShare("d1", { interfaceId: "i1", format: "conf", ttlSecs: 0 }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -441,7 +441,7 @@ describe("DevicesService", () => {
 
   it("maps share input to the repository contract", async () => {
     const repo = makeDevices();
-    const service = new DevicesService(repo);
+    const service = new DefaultDevicesService(repo);
     await service.createShare(" d1 ", { interfaceId: " i1 ", format: "vpn", ttlSecs: 60 });
     expect(repo.createShare).toHaveBeenCalledWith("d1", {
       interfaceId: "i1",
@@ -470,7 +470,7 @@ describe("StatsService", () => {
   }
 
   it("rejects a reversed interval", async () => {
-    const service = new StatsService(makeStats());
+    const service = new DefaultStatsService(makeStats());
     await expect(service.series("device", null, 200, 100)).rejects.toBeInstanceOf(
       ValidationError,
     );
@@ -478,7 +478,7 @@ describe("StatsService", () => {
 
   it("delegates a valid interval", async () => {
     const repo = makeStats();
-    const service = new StatsService(repo);
+    const service = new DefaultStatsService(repo);
     await service.series(" device ", "d1", 100, 200);
     expect(repo.series).toHaveBeenCalledWith("device", "d1", 100, 200);
   });
@@ -493,7 +493,7 @@ describe("SettingsService", () => {
   }
 
   it("rejects a too small S padding", async () => {
-    const service = new SettingsService(makeSettings());
+    const service = new DefaultSettingsService(makeSettings());
     await expect(
       service.updateSettings({ obfuscation: { ...SETTINGS.obfuscation, s_min: 11 } }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -501,7 +501,7 @@ describe("SettingsService", () => {
 
   it("clamps the share TTL", async () => {
     const repo = makeSettings();
-    const service = new SettingsService(repo);
+    const service = new DefaultSettingsService(repo);
     await service.updateSettings({ share_default_ttl_secs: 1 });
     expect(repo.updateSettings).toHaveBeenCalledWith({ share_default_ttl_secs: 60 });
   });
@@ -538,7 +538,7 @@ describe("ImportService", () => {
   };
 
   it("rejects an invalid pool CIDR", async () => {
-    const service = new ImportService(makeImport());
+    const service = new DefaultImportService(makeImport());
     await expect(
       service.importConfig({
         ...input,
@@ -549,7 +549,7 @@ describe("ImportService", () => {
 
   it("delegates a valid import", async () => {
     const repo = makeImport();
-    const service = new ImportService(repo);
+    const service = new DefaultImportService(repo);
     await service.importConfig(input);
     expect(repo.importConfig).toHaveBeenCalledWith(
       expect.objectContaining({ node_id: "n1", base_cidr: "10.0.0.0/24" }),

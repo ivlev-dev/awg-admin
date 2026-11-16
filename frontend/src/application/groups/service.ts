@@ -5,7 +5,18 @@ import { isCidr } from "@/domain/validation";
 import { ValidationError } from "../errors";
 import { requireId, requireText } from "../guards";
 
-export class GroupsService {
+export interface GroupsService {
+  listGroups(): Promise<Group[]>;
+  createGroup(input: GroupInput): Promise<Group>;
+  updateGroup(id: string, input: Partial<GroupInput>): Promise<Group>;
+  deleteGroup(id: string): Promise<void>;
+  listPools(groupId: string): Promise<CidrPool[]>;
+  createPool(groupId: string, input: PoolInput): Promise<CidrPool>;
+  updatePool(id: string, input: Partial<PoolInput> & { enabled?: boolean }): Promise<CidrPool>;
+  deletePool(id: string): Promise<void>;
+}
+
+export class DefaultGroupsService implements GroupsService {
   constructor(private readonly repository: GroupsRepository) {}
 
   listGroups(): Promise<Group[]> {

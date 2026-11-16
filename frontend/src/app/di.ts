@@ -1,15 +1,15 @@
 import { Container } from "@ivlev-dev/silent-di";
 
-import { AuthService } from "@/application/auth/service";
-import { DevicesService } from "@/application/devices/service";
-import { GroupsService } from "@/application/groups/service";
-import { ImportService } from "@/application/import/service";
-import { InterfacesService } from "@/application/interfaces/service";
-import { NodesService } from "@/application/nodes/service";
-import { SettingsService } from "@/application/settings/service";
-import { StatsService } from "@/application/stats/service";
-import { TariffsService } from "@/application/tariffs/service";
-import { UsersService } from "@/application/users/service";
+import { DefaultAuthService, type AuthService } from "@/application/auth/service";
+import { DefaultDevicesService, type DevicesService } from "@/application/devices/service";
+import { DefaultGroupsService, type GroupsService } from "@/application/groups/service";
+import { DefaultImportService, type ImportService } from "@/application/import/service";
+import { DefaultInterfacesService, type InterfacesService } from "@/application/interfaces/service";
+import { DefaultNodesService, type NodesService } from "@/application/nodes/service";
+import { DefaultSettingsService, type SettingsService } from "@/application/settings/service";
+import { DefaultStatsService, type StatsService } from "@/application/stats/service";
+import { DefaultTariffsService, type TariffsService } from "@/application/tariffs/service";
+import { DefaultUsersService, type UsersService } from "@/application/users/service";
 import {
   createHttpBackend,
   type ApiRepositories,
@@ -81,16 +81,16 @@ export function createAppServices(options: AppOptions = {}): AppServices {
     session,
     backend,
     repositories,
-    auth: new AuthService(repositories.auth),
-    users: new UsersService(repositories.users),
-    tariffs: new TariffsService(repositories.tariffs),
-    groups: new GroupsService(repositories.groups),
-    nodes: new NodesService(repositories.nodes),
-    interfaces: new InterfacesService(repositories.interfaces),
-    devices: new DevicesService(repositories.devices),
-    stats: new StatsService(repositories.stats),
-    settings: new SettingsService(repositories.settings),
-    import: new ImportService(repositories.import),
+    auth: new DefaultAuthService(repositories.auth),
+    users: new DefaultUsersService(repositories.users),
+    tariffs: new DefaultTariffsService(repositories.tariffs),
+    groups: new DefaultGroupsService(repositories.groups),
+    nodes: new DefaultNodesService(repositories.nodes),
+    interfaces: new DefaultInterfacesService(repositories.interfaces),
+    devices: new DefaultDevicesService(repositories.devices),
+    stats: new DefaultStatsService(repositories.stats),
+    settings: new DefaultSettingsService(repositories.settings),
+    import: new DefaultImportService(repositories.import),
   };
 }
 
@@ -106,8 +106,8 @@ export function createAppContainer(options: AppContainerOptions = {}): Container
 }
 
 export async function resolveAppServices(container: Container): Promise<AppServices> {
-  const tokens: TokenStore = await container.resolve<LocalTokenStore>(LocalTokenStore);
-  const config: ApiConfig = await container.resolve<DefaultApiConfig>(DefaultApiConfig);
+  const tokens = await container.resolve<LocalTokenStore>(LocalTokenStore);
+  const config = await container.resolve<DefaultApiConfig>(DefaultApiConfig);
   const authRepository = await container.resolve<HttpAuthRepository>(HttpAuthRepository);
   const usersRepository = await container.resolve<HttpUsersRepository>(HttpUsersRepository);
   const tariffsRepository = await container.resolve<HttpTariffsRepository>(HttpTariffsRepository);
@@ -140,16 +140,16 @@ export async function resolveAppServices(container: Container): Promise<AppServi
     session,
     backend,
     repositories,
-    auth: await container.resolve<AuthService>(AuthService),
-    users: await container.resolve<UsersService>(UsersService),
-    tariffs: await container.resolve<TariffsService>(TariffsService),
-    groups: await container.resolve<GroupsService>(GroupsService),
-    nodes: await container.resolve<NodesService>(NodesService),
-    interfaces: await container.resolve<InterfacesService>(InterfacesService),
-    devices: await container.resolve<DevicesService>(DevicesService),
-    stats: await container.resolve<StatsService>(StatsService),
-    settings: await container.resolve<SettingsService>(SettingsService),
-    import: await container.resolve<ImportService>(ImportService),
+    auth: await container.resolve<DefaultAuthService>(DefaultAuthService),
+    users: await container.resolve<DefaultUsersService>(DefaultUsersService),
+    tariffs: await container.resolve<DefaultTariffsService>(DefaultTariffsService),
+    groups: await container.resolve<DefaultGroupsService>(DefaultGroupsService),
+    nodes: await container.resolve<DefaultNodesService>(DefaultNodesService),
+    interfaces: await container.resolve<DefaultInterfacesService>(DefaultInterfacesService),
+    devices: await container.resolve<DefaultDevicesService>(DefaultDevicesService),
+    stats: await container.resolve<DefaultStatsService>(DefaultStatsService),
+    settings: await container.resolve<DefaultSettingsService>(DefaultSettingsService),
+    import: await container.resolve<DefaultImportService>(DefaultImportService),
   };
 }
 

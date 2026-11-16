@@ -2,8 +2,8 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import { ImportService } from "@/application/import/service";
-import { NodesService } from "@/application/nodes/service";
+import type { ImportService } from "../../application/import/service";
+import type { NodesService } from "../../application/nodes/service";
 import type { ImportInput } from "@/domain/import/types";
 import type { ImportResult, NodeInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";

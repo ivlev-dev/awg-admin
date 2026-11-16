@@ -2,7 +2,7 @@ import { NodesPageVM } from "./NodesPage.vm";
 import { createAppContainer } from "@/app/di";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { NodesService } from "@/application/nodes/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { NodeCreated } from "@/domain/nodes/types";
@@ -113,7 +113,7 @@ function makeVm(current: User = ADMIN): Harness {
   const repo = new MemoryNodesRepository();
   const session = makeSession(current);
   const toasts = new ToastStore();
-  return { vm: new NodesPageVM(new NodesService(repo), session, toasts), repo, session, toasts };
+  return { vm: new NodesPageVM(new DefaultNodesService(repo), session, toasts), repo, session, toasts };
 }
 
 function submit(): Event {
