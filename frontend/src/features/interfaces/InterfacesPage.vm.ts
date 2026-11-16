@@ -1,8 +1,12 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, session, toasts } from "@/app/container";
-import type { InterfaceInput } from "@/application/api";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
+import { GroupsService } from "@/application/groups/service";
+import { InterfacesService } from "@/application/interfaces/service";
+import { NodesService } from "@/application/nodes/service";
 import { plural } from "@/domain/format";
+import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
 
 const DEFAULT_ENDPOINT_PORT = "443";
@@ -44,16 +48,24 @@ export class InterfacesPageVM {
   @reactive accessor rotated: InterfaceInfo | null = null;
   @reactive accessor rotatedCopied = false;
 
+  constructor(
+    private readonly interfacesService: InterfacesService,
+    private readonly groupsService: GroupsService,
+    private readonly nodesService: NodesService,
+    private readonly session: Session,
+    private readonly toasts: ToastStore,
+  ) {}
+
   created(): void {
     void this.load();
   }
 
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   get ownGroupId(): string | null {
-    return session.user?.group_id ?? null;
+    return this.session.user?.group_id ?? null;
   }
 
   @computed
@@ -110,9 +122,9 @@ export class InterfacesPageVM {
     this.error = null;
     try {
       const [interfaces, groups, nodes] = await Promise.all([
-        api.listInterfaces(),
-        api.listGroups(),
-        api.listNodes(),
+        this.interfacesService.listInterfaces(),
+        this.groupsService.listGroups(),
+        this.nodesService.listNodes(),
       ]);
       this.interfaces = sortInterfaces(interfaces);
       this.groups = groups;
@@ -212,14 +224,14 @@ export class InterfacesPageVM {
       mtu: Number(this.formMtu),
     };
     try {
-      const created = await api.createInterface(input);
+      const created = await this.interfacesService.createInterface(input);
       this.interfaces = sortInterfaces([...this.interfaces, created]);
       this.createOpen = false;
-      toasts.success(`Интерфейс «${created.name}» создан`);
+      this.toasts.success(`Интерфейс «${created.name}» создан`);
     } catch (error) {
       const message = messageOf(error, "Не удалось создать интерфейс");
       this.formError = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.busy = false;
     }
@@ -273,7 +285,7 @@ export class InterfacesPageVM {
     this.busy = true;
     this.editError = null;
     try {
-      const updated = await api.updateInterface(current.id, {
+      const updated = await this.interfacesService.updateInterface(current.id, {
         label: this.editLabel.trim(),
         endpoint_host: this.editHost.trim(),
         endpoint_port: Number(this.editEndpointPort),
@@ -283,11 +295,11 @@ export class InterfacesPageVM {
       });
       this.replace(updated);
       this.editing = null;
-      toasts.success(`Интерфейс «${updated.name}» обновлён`);
+      this.toasts.success(`Интерфейс «${updated.name}» обновлён`);
     } catch (error) {
       const message = messageOf(error, "Не удалось обновить интерфейс");
       this.editError = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.busy = false;
     }
@@ -301,13 +313,13 @@ export class InterfacesPageVM {
     if (!confirmed) return;
     this.busy = true;
     try {
-      const updated = await api.rotateInterface(item.id);
+      const updated = await this.interfacesService.rotateInterface(item.id);
       this.replace(updated);
       this.rotated = updated;
       this.rotatedCopied = false;
-      toasts.success("Ключи интерфейса перевыпущены");
+      this.toasts.success("Ключи интерфейса перевыпущены");
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось перевыпустить ключи"));
+      this.toasts.error(messageOf(error, "Не удалось перевыпустить ключи"));
     } finally {
       this.busy = false;
     }
@@ -324,9 +336,9 @@ export class InterfacesPageVM {
     const copied = await copyText(key);
     this.rotatedCopied = copied;
     if (copied) {
-      toasts.success("Публичный ключ скопирован");
+      this.toasts.success("Публичный ключ скопирован");
     } else {
-      toasts.error("Не удалось скопировать ключ");
+      this.toasts.error("Не удалось скопировать ключ");
     }
   }
 
@@ -338,11 +350,11 @@ export class InterfacesPageVM {
     if (!confirmed) return;
     this.busy = true;
     try {
-      await api.deleteInterface(item.id);
+      await this.interfacesService.deleteInterface(item.id);
       this.interfaces = this.interfaces.filter((current) => current.id !== item.id);
-      toasts.success(`Интерфейс «${item.name}» удалён`);
+      this.toasts.success(`Интерфейс «${item.name}» удалён`);
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось удалить интерфейс"));
+      this.toasts.error(messageOf(error, "Не удалось удалить интерфейс"));
     } finally {
       this.busy = false;
     }
@@ -351,18 +363,18 @@ export class InterfacesPageVM {
   async copyPublicKey(item: InterfaceInfo): Promise<void> {
     const copied = await copyText(item.public_key);
     if (copied) {
-      toasts.success("Публичный ключ скопирован");
+      this.toasts.success("Публичный ключ скопирован");
     } else {
-      toasts.error("Не удалось скопировать ключ");
+      this.toasts.error("Не удалось скопировать ключ");
     }
   }
 
   async copyEndpoint(item: InterfaceInfo): Promise<void> {
     const copied = await copyText(this.endpoint(item));
     if (copied) {
-      toasts.success("Endpoint скопирован");
+      this.toasts.success("Endpoint скопирован");
     } else {
-      toasts.error("Не удалось скопировать endpoint");
+      this.toasts.error("Не удалось скопировать endpoint");
     }
   }
 

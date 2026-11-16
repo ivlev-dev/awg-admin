@@ -1,12 +1,12 @@
 const ACCESS_KEY = "awg.access";
 const REFRESH_KEY = "awg.refresh";
 
-export type TokenStore = {
+export interface TokenStore {
   access(): string | null;
   refresh(): string | null;
   set(access: string, refresh: string): void;
   clear(): void;
-};
+}
 
 export class LocalTokenStore implements TokenStore {
   access(): string | null {
@@ -27,4 +27,3 @@ export class LocalTokenStore implements TokenStore {
     localStorage.removeItem(REFRESH_KEY);
   }
 }
-

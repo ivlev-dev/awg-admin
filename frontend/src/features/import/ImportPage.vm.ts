@@ -1,7 +1,10 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, router, toasts } from "@/app/container";
-import type { ImportInput } from "@/application/api";
+import { Router } from "@/app/router";
+import { ToastStore } from "@/app/toast";
+import { ImportService } from "@/application/import/service";
+import { NodesService } from "@/application/nodes/service";
+import type { ImportInput } from "@/domain/import/types";
 import type { ImportResult, NodeInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";
 
@@ -80,6 +83,13 @@ export class ImportVM {
   @reactive accessor importing = false;
   @reactive accessor error: string | null = null;
   @reactive accessor result: ImportResult | null = null;
+
+  constructor(
+    private readonly importService: ImportService,
+    private readonly nodesService: NodesService,
+    private readonly router: Router,
+    private readonly toasts: ToastStore,
+  ) {}
 
   async created(): Promise<void> {
     await this.loadNodes();
@@ -178,10 +188,10 @@ export class ImportVM {
     this.nodesLoading = true;
     this.nodesError = null;
     try {
-      this.nodes = await api.listNodes();
+      this.nodes = await this.nodesService.listNodes();
     } catch (error) {
       this.nodesError = error instanceof Error ? error.message : "Не удалось загрузить ноды";
-      toasts.error(this.nodesError);
+      this.toasts.error(this.nodesError);
     } finally {
       this.nodesLoading = false;
     }
@@ -197,9 +207,9 @@ export class ImportVM {
     if (!file) return;
     try {
       this.serverConfig = await readFileAsText(file);
-      toasts.success(`Загружен серверный конфиг ${file.name}`);
+      this.toasts.success(`Загружен серверный конфиг ${file.name}`);
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось прочитать файл");
+      this.toasts.error(error instanceof Error ? error.message : "Не удалось прочитать файл");
     } finally {
       input.value = "";
     }
@@ -293,7 +303,7 @@ export class ImportVM {
   parseClients(notify = true): number {
     const text = this.clientsText.trim();
     if (!text) {
-      toasts.error("Вставьте клиентские конфиги");
+      this.toasts.error("Вставьте клиентские конфиги");
       return 0;
     }
     const parts = text
@@ -301,7 +311,7 @@ export class ImportVM {
       .map((part) => part.trim())
       .filter((part) => part.length > 0);
     if (parts.length === 0) {
-      toasts.error("Не удалось найти клиентские конфиги");
+      this.toasts.error("Не удалось найти клиентские конфиги");
       return 0;
     }
     const used = new Set<string>();
@@ -309,7 +319,7 @@ export class ImportVM {
       name: uniqueName(`client-${index + 1}`, used),
       config,
     }));
-    if (notify) toasts.success(`Разобрано конфигов: ${parts.length}`);
+    if (notify) this.toasts.success(`Разобрано конфигов: ${parts.length}`);
     return parts.length;
   }
 
@@ -332,9 +342,9 @@ export class ImportVM {
           config: item.config,
         }));
       this.clients = [...this.clients, ...additions];
-      toasts.success(`Загружено конфигов: ${additions.length}`);
+      this.toasts.success(`Загружено конфигов: ${additions.length}`);
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось прочитать файлы");
+      this.toasts.error(error instanceof Error ? error.message : "Не удалось прочитать файлы");
     } finally {
       input.value = "";
     }
@@ -368,7 +378,7 @@ export class ImportVM {
       if (parsed === 0) return;
     }
     if (!this.canImport) {
-      toasts.error("Заполните обязательные поля");
+      this.toasts.error("Заполните обязательные поля");
       return;
     }
 
@@ -402,29 +412,29 @@ export class ImportVM {
     this.error = null;
     this.result = null;
     try {
-      const result = await api.importConfig(payload);
+      const result = await this.importService.importConfig(payload);
       this.result = result;
       if (result.failed_devices.length > 0) {
-        toasts.error(
+        this.toasts.error(
           `Импортировано ${result.imported_devices}, ошибок ${result.failed_devices.length}`,
         );
       } else {
-        toasts.success(`Импортировано устройств: ${result.imported_devices}`);
+        this.toasts.success(`Импортировано устройств: ${result.imported_devices}`);
       }
     } catch (error) {
       this.error = error instanceof Error ? error.message : "Не удалось выполнить импорт";
-      toasts.error(this.error);
+      this.toasts.error(this.error);
     } finally {
       this.importing = false;
     }
   }
 
   openGroup(): void {
-    router.navigate(this.resultGroupPath);
+    this.router.navigate(this.resultGroupPath);
   }
 
   openNodes(): void {
-    router.navigate("/nodes");
+    this.router.navigate("/nodes");
   }
 
   reset(): void {

@@ -13,6 +13,14 @@ let seq = 0;
 export class ToastStore {
   @reactive accessor items: ToastItem[] = [];
 
+  constructor() {
+    if (import.meta.env.MODE !== "test") {
+      const shared = (globalThis as { __awgToast?: ToastStore }).__awgToast;
+      if (shared) return shared;
+      (globalThis as { __awgToast?: ToastStore }).__awgToast = this;
+    }
+  }
+
   push(message: string, kind: ToastKind = "info", ttlMs = 4200): void {
     const id = ++seq;
     this.items = [...this.items, { id, kind, message }];

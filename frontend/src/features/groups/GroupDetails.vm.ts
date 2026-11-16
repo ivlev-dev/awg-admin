@@ -1,6 +1,9 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
-import { api, router, toasts } from "@/app/container";
+import { Router } from "@/app/router";
+import { ToastStore } from "@/app/toast";
+import { GroupsService } from "@/application/groups/service";
+import { InterfacesService } from "@/application/interfaces/service";
 import type { CidrPool, Group, InterfaceInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";
 
@@ -41,6 +44,13 @@ export class GroupDetailsVM {
   @reactive accessor poolError: string | null = null;
   @reactive accessor poolSaving = false;
 
+  constructor(
+    private readonly groupsService: GroupsService,
+    private readonly interfacesService: InterfacesService,
+    private readonly router: Router,
+    private readonly toasts: ToastStore,
+  ) {}
+
   created(): void {
     void this.load();
   }
@@ -52,7 +62,7 @@ export class GroupDetailsVM {
 
   @computed
   get groupId(): string {
-    return router.params.id ?? "";
+    return this.router.params.id ?? "";
   }
 
   @computed
@@ -108,7 +118,7 @@ export class GroupDetailsVM {
       return;
     }
     try {
-      const groups = await api.listGroups();
+      const groups = await this.groupsService.listGroups();
       const found = groups.find((item) => item.id === id) ?? null;
       if (!found) {
         this.group = null;
@@ -116,24 +126,27 @@ export class GroupDetailsVM {
         this.interfaces = [];
         return;
       }
-      const [pools, interfaces] = await Promise.all([api.listPools(id), api.listInterfaces()]);
+      const [pools, interfaces] = await Promise.all([
+        this.groupsService.listPools(id),
+        this.interfacesService.listInterfaces(),
+      ]);
       this.group = found;
       this.pools = pools;
       this.interfaces = interfaces.filter((item) => item.group_id === id);
     } catch (error) {
       this.error = messageOf(error, "Не удалось загрузить группу");
-      toasts.error(this.error);
+      this.toasts.error(this.error);
     } finally {
       this.loading = false;
     }
   }
 
   back(): void {
-    router.navigate("/groups");
+    this.router.navigate("/groups");
   }
 
   openInterfaces(): void {
-    router.navigate("/interfaces");
+    this.router.navigate("/interfaces");
   }
 
   poolModeBadge(mode: PoolMode): string {
@@ -198,7 +211,7 @@ export class GroupDetailsVM {
     this.formSaving = true;
     this.formError = null;
     try {
-      const updated = await api.updateGroup(id, {
+      const updated = await this.groupsService.updateGroup(id, {
         name,
         description: this.formDescription.trim(),
         base_cidr: baseCidr,
@@ -206,10 +219,10 @@ export class GroupDetailsVM {
       });
       this.group = updated;
       this.formOpen = false;
-      toasts.success(`Группа «${name}» обновлена`);
+      this.toasts.success(`Группа «${name}» обновлена`);
     } catch (error) {
       this.formError = messageOf(error, "Не удалось сохранить группу");
-      toasts.error(this.formError);
+      this.toasts.error(this.formError);
     } finally {
       this.formSaving = false;
     }
@@ -293,27 +306,27 @@ export class GroupDetailsVM {
     this.poolError = null;
     try {
       if (this.editingPool) {
-        await api.updatePool(this.editingPool.id, {
+        await this.groupsService.updatePool(this.editingPool.id, {
           name,
           mode: this.poolMode,
           gateway: gateway.length > 0 ? gateway : null,
           enabled: this.poolEnabled,
         });
-        toasts.success(`Пул «${name}» обновлён`);
+        this.toasts.success(`Пул «${name}» обновлён`);
       } else {
-        await api.createPool(id, {
+        await this.groupsService.createPool(id, {
           name,
           cidr,
           mode: this.poolMode,
           gateway: gateway.length > 0 ? gateway : null,
         });
-        toasts.success(`Пул «${name}» создан`);
+        this.toasts.success(`Пул «${name}» создан`);
       }
       this.poolOpen = false;
       await this.loadPools();
     } catch (error) {
       this.poolError = messageOf(error, "Не удалось сохранить пул");
-      toasts.error(this.poolError);
+      this.toasts.error(this.poolError);
     } finally {
       this.poolSaving = false;
     }
@@ -322,20 +335,20 @@ export class GroupDetailsVM {
   async removePool(pool: CidrPool): Promise<void> {
     if (!window.confirm(`Удалить пул «${pool.name}»?`)) return;
     try {
-      await api.deletePool(pool.id);
-      toasts.success(`Пул «${pool.name}» удалён`);
+      await this.groupsService.deletePool(pool.id);
+      this.toasts.success(`Пул «${pool.name}» удалён`);
       await this.loadPools();
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось удалить пул"));
+      this.toasts.error(messageOf(error, "Не удалось удалить пул"));
     }
   }
 
   private async loadPools(): Promise<void> {
     try {
-      this.pools = await api.listPools(this.groupId);
+      this.pools = await this.groupsService.listPools(this.groupId);
     } catch (error) {
       this.error = messageOf(error, "Не удалось обновить пулы");
-      toasts.error(this.error);
+      this.toasts.error(this.error);
     }
   }
 }

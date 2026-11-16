@@ -1,6 +1,12 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, session, toasts } from "@/app/container";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
+import { userMessage } from "@/application/errors";
+import { validatePassword } from "@/application/guards";
+import { GroupsService } from "@/application/groups/service";
+import { TariffsService } from "@/application/tariffs/service";
+import { UsersService } from "@/application/users/service";
 import type { Group, Role, Tariff, User } from "@/domain/types";
 
 export class UsersPageVM {
@@ -26,6 +32,14 @@ export class UsersPageVM {
   @reactive accessor resetTarget: User | null = null;
   @reactive accessor resetPassword = "";
 
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly tariffsService: TariffsService,
+    private readonly groupsService: GroupsService,
+    private readonly session: Session,
+    private readonly toasts: ToastStore,
+  ) {}
+
   created(): void {
     void this.load();
   }
@@ -35,15 +49,15 @@ export class UsersPageVM {
     this.error = null;
     try {
       const [users, tariffs, groups] = await Promise.all([
-        api.listUsers(),
-        api.listTariffs(),
-        api.listGroups(),
+        this.usersService.listUsers(),
+        this.tariffsService.listTariffs(),
+        this.groupsService.listGroups(),
       ]);
       this.users = users;
       this.tariffs = tariffs;
       this.groups = groups;
     } catch (error) {
-      this.error = error instanceof Error ? error.message : "Не удалось загрузить пользователей";
+      this.error = userMessage(error, "Не удалось загрузить пользователей");
     } finally {
       this.loading = false;
     }
@@ -56,7 +70,7 @@ export class UsersPageVM {
 
   @computed
   get selfId(): string {
-    return session.user?.id ?? "";
+    return this.session.user?.id ?? "";
   }
 
   tariffName(id: string | null): string {
@@ -127,33 +141,35 @@ export class UsersPageVM {
     this.formError = null;
     try {
       if (this.editingId) {
-        await api.updateUser(this.editingId, {
+        await this.usersService.updateUser(this.editingId, {
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
           group_id: this.groupId ? this.groupId : null,
           disabled: this.disabled,
         });
-        toasts.success("Пользователь обновлён");
+        this.toasts.success("Пользователь обновлён");
       } else {
-        if (this.password.length < 8) {
-          this.formError = "Пароль должен быть не короче 8 символов";
+        try {
+          validatePassword(this.password);
+        } catch (error) {
+          this.formError = userMessage(error, "Пароль должен быть не короче 8 символов");
           return;
         }
-        await api.createUser({
+        await this.usersService.createUser({
           login: this.login.trim(),
           password: this.password,
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
           group_id: this.groupId ? this.groupId : null,
         });
-        toasts.success("Пользователь создан");
+        this.toasts.success("Пользователь создан");
       }
       this.modalOpen = false;
       await this.load();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось сохранить пользователя";
+      const message = userMessage(error, "Не удалось сохранить пользователя");
       this.formError = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.saving = false;
     }
@@ -176,40 +192,42 @@ export class UsersPageVM {
 
   async submitReset(): Promise<void> {
     if (!this.resetTarget) return;
-    if (this.resetPassword.length < 8) {
-      toasts.error("Пароль должен быть не короче 8 символов");
+    try {
+      validatePassword(this.resetPassword);
+    } catch (error) {
+      this.toasts.error(userMessage(error, "Пароль должен быть не короче 8 символов"));
       return;
     }
     try {
-      await api.resetPassword(this.resetTarget.id, this.resetPassword);
-      toasts.success("Пароль обновлён");
+      await this.usersService.resetPassword(this.resetTarget.id, this.resetPassword);
+      this.toasts.success("Пароль обновлён");
       this.closeReset();
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось сбросить пароль");
+      this.toasts.error(userMessage(error, "Не удалось сбросить пароль"));
     }
   }
 
   async toggleDisabled(user: User): Promise<void> {
     try {
-      await api.updateUser(user.id, { disabled: !user.disabled });
+      await this.usersService.updateUser(user.id, { disabled: !user.disabled });
       await this.load();
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось изменить пользователя");
+      this.toasts.error(userMessage(error, "Не удалось изменить пользователя"));
     }
   }
 
   async remove(user: User): Promise<void> {
     if (user.id === this.selfId) {
-      toasts.error("Нельзя удалить собственную учётную запись");
+      this.toasts.error("Нельзя удалить собственную учётную запись");
       return;
     }
     if (!window.confirm(`Удалить пользователя ${user.login}?`)) return;
     try {
-      await api.deleteUser(user.id);
-      toasts.success("Пользователь удалён");
+      await this.usersService.deleteUser(user.id);
+      this.toasts.success("Пользователь удалён");
       await this.load();
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось удалить пользователя");
+      this.toasts.error(userMessage(error, "Не удалось удалить пользователя"));
     }
   }
 }

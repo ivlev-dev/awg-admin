@@ -1,8 +1,9 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
-import { router, theme } from "./container";
-import { session } from "./container";
-import type { ThemeMode } from "./theme";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
+import { ThemeStore, type ThemeMode } from "@/app/theme";
+import { ToastStore } from "@/app/toast";
 import { initials } from "@/domain/format";
 import type { IconName } from "@/components/Icon";
 
@@ -42,40 +43,47 @@ export class AppVM {
   @reactive accessor drawer = false;
   @reactive accessor menuOpen = false;
 
+  constructor(
+    private readonly session: Session,
+    private readonly router: Router,
+    private readonly theme: ThemeStore,
+    private readonly toastStore: ToastStore,
+  ) {}
+
   async created(): Promise<void> {
-    await session.init();
+    await this.session.init();
     this.booting = false;
     this.guard();
   }
 
   @computed
   get user() {
-    return session.user;
+    return this.session.user;
   }
 
   @computed
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
   get authenticated(): boolean {
-    return session.authenticated;
+    return this.session.authenticated;
   }
 
   @computed
   get routeName(): string {
-    return router.match.route.name;
+    return this.router.match.route.name;
   }
 
   @computed
   get params(): Record<string, string> {
-    return router.params;
+    return this.router.params;
   }
 
   @computed
   get title(): string {
-    return router.title;
+    return this.router.title;
   }
 
   @computed
@@ -85,7 +93,7 @@ export class AppVM {
 
   @computed
   get nav(): NavItem[] {
-    return this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["nodes", "groups", "import"].includes(item.path));
+    return this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path));
   }
 
   @computed
@@ -105,15 +113,18 @@ export class AppVM {
 
   @computed
   get themeMode(): ThemeMode {
-    return theme.mode;
+    return this.theme.mode;
   }
 
   @computed
   get themeEffective(): "light" | "dark" {
-    return theme.effective;
+    return this.theme.effective;
   }
 
-  @computed
+  get toasts(): ToastStore {
+    return this.toastStore;
+  }
+
   get name(): string {
     return this.user?.login ?? "Гость";
   }
@@ -124,13 +135,13 @@ export class AppVM {
   }
 
   isActive(path: string): boolean {
-    if (path === "/") return router.path === "/";
-    return router.path === path || router.path.startsWith(`${path}/`);
+    if (path === "/") return this.router.path === "/";
+    return this.router.path === path || this.router.path.startsWith(`${path}/`);
   }
 
   go(path: string): void {
     this.drawer = false;
-    router.navigate(path);
+    this.router.navigate(path);
   }
 
   toggleDrawer(): void {
@@ -138,16 +149,16 @@ export class AppVM {
   }
 
   toggleTheme(): void {
-    theme.toggle();
+    this.theme.toggle();
   }
 
   setTheme(mode: ThemeMode): void {
-    theme.set(mode);
+    this.theme.set(mode);
   }
 
   async logout(): Promise<void> {
-    await session.logout();
-    router.replace("/login");
+    await this.session.logout();
+    this.router.replace("/login");
   }
 
   @watch((vm: AppVM) => vm.routeName)
@@ -162,17 +173,17 @@ export class AppVM {
 
   guard(): void {
     if (this.booting) return;
-    const route = router.match.route;
-    if (!session.authenticated) {
-      if (!route.public) router.replace("/login");
+    const route = this.router.match.route;
+    if (!this.session.authenticated) {
+      if (!route.public) this.router.replace("/login");
       return;
     }
     if (route.name === "login") {
-      router.replace("/");
+      this.router.replace("/");
       return;
     }
-    if (route.adminOnly && !session.isAdmin) {
-      router.replace("/");
+    if (route.adminOnly && !this.session.isAdmin) {
+      this.router.replace("/");
     }
   }
 }

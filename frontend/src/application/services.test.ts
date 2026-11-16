@@ -1,0 +1,558 @@
+import { AuthService } from "@/application/auth/service";
+import { DevicesService } from "@/application/devices/service";
+import { ValidationError } from "@/application/errors";
+import { GroupsService } from "@/application/groups/service";
+import { ImportService } from "@/application/import/service";
+import { InterfacesService } from "@/application/interfaces/service";
+import { NodesService } from "@/application/nodes/service";
+import { SettingsService } from "@/application/settings/service";
+import { StatsService } from "@/application/stats/service";
+import { TariffsService } from "@/application/tariffs/service";
+import { UsersService } from "@/application/users/service";
+import type { AuthRepository } from "@/domain/auth/repository";
+import type { DevicesRepository } from "@/domain/devices/repository";
+import type { GroupsRepository } from "@/domain/groups/repository";
+import type { ImportRepository } from "@/domain/import/repository";
+import type { InterfacesRepository } from "@/domain/interfaces/repository";
+import type { NodesRepository } from "@/domain/nodes/repository";
+import type { SettingsRepository } from "@/domain/settings/repository";
+import type { StatsRepository } from "@/domain/stats/repository";
+import type { TariffsRepository } from "@/domain/tariffs/repository";
+import type { UsersRepository } from "@/domain/users/repository";
+import type {
+  AuthSession,
+  CidrPool,
+  Device,
+  Group,
+  ImportResult,
+  InterfaceInfo,
+  NodeInfo,
+  Overview,
+  Settings,
+  StatsPoint,
+  Tariff,
+  User,
+} from "@/domain/types";
+
+const USER: User = {
+  id: "u1",
+  login: "admin",
+  role: "admin",
+  tariff_id: null,
+  group_id: null,
+  disabled: false,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+};
+
+const SESSION: AuthSession = {
+  token: "access",
+  refresh_token: "refresh",
+  expires_in: 3600,
+  user: USER,
+};
+
+const TARIFF: Tariff = {
+  id: "t1",
+  name: "Basic",
+  description: "",
+  max_devices: 2,
+  device_down_kbps: 100,
+  device_up_kbps: 50,
+  group_down_kbps: 200,
+  group_up_kbps: 100,
+  traffic_quota_bytes: null,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+};
+
+const GROUP: Group = {
+  id: "g1",
+  name: "Main",
+  description: "",
+  base_cidr: "10.0.0.0/24",
+  forwarding_default: false,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+  interfaces: 0,
+  devices: 0,
+};
+
+const POOL: CidrPool = {
+  id: "p1",
+  group_id: "g1",
+  name: "pool",
+  cidr: "10.0.1.0/24",
+  mode: "auto",
+  gateway: null,
+  enabled: true,
+};
+
+const NODE: NodeInfo = {
+  id: "n1",
+  name: "node",
+  status: "online",
+  online: true,
+  last_seen: null,
+  version: null,
+  interfaces: 0,
+};
+
+const INTERFACE: InterfaceInfo = {
+  id: "i1",
+  group_id: "g1",
+  group_name: "Main",
+  node_id: "n1",
+  node_name: "node",
+  name: "wg0",
+  label: "",
+  endpoint_host: "vpn.example.com",
+  endpoint_port: 51820,
+  listen_port: 51820,
+  mtu: 1420,
+  public_key: "pk",
+  obf: {
+    h1: { lo: 100000, hi: 100100 },
+    h2: { lo: 1000000, hi: 1000100 },
+    h3: { lo: 2000000, hi: 2000100 },
+    h4: { lo: 3000000, hi: 3000100 },
+    s1: 12,
+    s2: 12,
+    s3: 12,
+    s4: 12,
+    header_protection_key: "hpk",
+    random_trailers: false,
+  },
+  enabled: true,
+  peers: 0,
+};
+
+const DEVICE: Device = {
+  id: "d1",
+  user_id: "u1",
+  group_id: "g1",
+  name: "laptop",
+  down_kbps: 100,
+  up_kbps: 50,
+  forwarding: { to_own_devices: false, allowed_devices: [] },
+  revoked: false,
+  created_at: "2020-01-01T00:00:00Z",
+  peers: [],
+  addresses: [],
+};
+
+const SETTINGS: Settings = {
+  obfuscation: {
+    profile: "http3",
+    intensity: "medium",
+    browser: "chrome",
+    mtu: 1420,
+    jc_min: 3,
+    jc_max: 4,
+    jmin_min: 10,
+    jmin_max: 20,
+    jmax_extra_min: 0,
+    jmax_extra_max: 10,
+    s_min: 12,
+    s_max: 20,
+    hosts: [],
+    random_trailers: false,
+    disable_cookies: false,
+  },
+  share_default_ttl_secs: 3600,
+};
+
+function makeAuth(): AuthRepository {
+  return {
+    login: vi.fn(async () => SESSION),
+    refresh: vi.fn(async () => SESSION),
+    logout: vi.fn(async () => undefined),
+    me: vi.fn(async () => USER),
+    changePassword: vi.fn(async () => undefined),
+  };
+}
+
+describe("AuthService", () => {
+  it("trims credentials and delegates login", async () => {
+    const repo = makeAuth();
+    const service = new AuthService(repo);
+    await expect(service.login({ login: " admin ", password: "secret" })).resolves.toBe(SESSION);
+    expect(repo.login).toHaveBeenCalledWith({ login: "admin", password: "secret" });
+  });
+
+  it("rejects empty credentials", async () => {
+    const service = new AuthService(makeAuth());
+    await expect(service.login({ login: " ", password: "secret" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await expect(service.login({ login: "admin", password: "" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+  });
+
+  it("does not call logout without a refresh token", async () => {
+    const repo = makeAuth();
+    const service = new AuthService(repo);
+    await service.logout(null);
+    expect(repo.logout).not.toHaveBeenCalled();
+  });
+
+  it("rejects a short new password", async () => {
+    const service = new AuthService(makeAuth());
+    await expect(service.changePassword("old", "short")).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("UsersService", () => {
+  function makeUsers(): UsersRepository {
+    return {
+      listUsers: vi.fn(async () => [USER]),
+      createUser: vi.fn(async () => USER),
+      updateUser: vi.fn(async () => USER),
+      deleteUser: vi.fn(async () => undefined),
+      resetPassword: vi.fn(async () => undefined),
+    };
+  }
+
+  it("validates password on create", async () => {
+    const service = new UsersService(makeUsers());
+    await expect(
+      service.createUser({
+        login: "user",
+        password: "123",
+        role: "user",
+        tariff_id: null,
+        group_id: null,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("delegates update and delete", async () => {
+    const repo = makeUsers();
+    const service = new UsersService(repo);
+    await service.updateUser(" u1 ", { disabled: true });
+    await service.deleteUser(" u1 ");
+    expect(repo.updateUser).toHaveBeenCalledWith("u1", { disabled: true });
+    expect(repo.deleteUser).toHaveBeenCalledWith("u1");
+  });
+});
+
+describe("TariffsService", () => {
+  function makeTariffs(): TariffsRepository {
+    return {
+      listTariffs: vi.fn(async () => [TARIFF]),
+      createTariff: vi.fn(async () => TARIFF),
+      updateTariff: vi.fn(async () => TARIFF),
+      deleteTariff: vi.fn(async () => undefined),
+    };
+  }
+
+  it("rejects an invalid tariff", async () => {
+    const service = new TariffsService(makeTariffs());
+    await expect(
+      service.createTariff({
+        name: " ",
+        description: "",
+        max_devices: 1,
+        device_down_kbps: 0,
+        device_up_kbps: 0,
+        group_down_kbps: 0,
+        group_up_kbps: 0,
+        traffic_quota_bytes: null,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("normalizes a valid tariff", async () => {
+    const repo = makeTariffs();
+    const service = new TariffsService(repo);
+    await service.createTariff({
+      name: " Basic ",
+      description: " plan ",
+      max_devices: 2,
+      device_down_kbps: 100,
+      device_up_kbps: 50,
+      group_down_kbps: 200,
+      group_up_kbps: 100,
+      traffic_quota_bytes: null,
+    });
+    expect(repo.createTariff).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "Basic", description: "plan" }),
+    );
+  });
+});
+
+describe("GroupsService", () => {
+  function makeGroups(): GroupsRepository {
+    return {
+      listGroups: vi.fn(async () => [GROUP]),
+      createGroup: vi.fn(async () => GROUP),
+      updateGroup: vi.fn(async () => GROUP),
+      deleteGroup: vi.fn(async () => undefined),
+      listPools: vi.fn(async () => [POOL]),
+      createPool: vi.fn(async () => POOL),
+      updatePool: vi.fn(async () => POOL),
+      deletePool: vi.fn(async () => undefined),
+    };
+  }
+
+  it("rejects an invalid base CIDR", async () => {
+    const service = new GroupsService(makeGroups());
+    await expect(
+      service.createGroup({
+        name: "Main",
+        description: "",
+        base_cidr: "10.0.0.0/33",
+        forwarding_default: false,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("normalizes and delegates a pool", async () => {
+    const repo = makeGroups();
+    const service = new GroupsService(repo);
+    await service.createPool(" g1 ", {
+      name: " pool ",
+      cidr: "10.0.1.0/24",
+      mode: "auto",
+      gateway: null,
+    });
+    expect(repo.createPool).toHaveBeenCalledWith(
+      "g1",
+      expect.objectContaining({ name: "pool", cidr: "10.0.1.0/24" }),
+    );
+  });
+});
+
+describe("NodesService", () => {
+  function makeNodes(): NodesRepository {
+    return {
+      listNodes: vi.fn(async () => [NODE]),
+      createNode: vi.fn(async () => ({
+        node: { id: "n1", name: "node", created_at: "2020-01-01T00:00:00Z" },
+        token: "token",
+      })),
+      deleteNode: vi.fn(async () => undefined),
+    };
+  }
+
+  it("requires a node name", async () => {
+    const service = new NodesService(makeNodes());
+    await expect(service.createNode(" ")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("trims a node name", async () => {
+    const repo = makeNodes();
+    const service = new NodesService(repo);
+    await service.createNode(" node ");
+    expect(repo.createNode).toHaveBeenCalledWith("node");
+  });
+});
+
+describe("InterfacesService", () => {
+  function makeInterfaces(): InterfacesRepository {
+    return {
+      listInterfaces: vi.fn(async () => [INTERFACE]),
+      createInterface: vi.fn(async () => INTERFACE),
+      updateInterface: vi.fn(async () => INTERFACE),
+      rotateInterface: vi.fn(async () => INTERFACE),
+      deleteInterface: vi.fn(async () => undefined),
+    };
+  }
+
+  const input = {
+    group_id: "g1",
+    node_id: "n1",
+    name: "wg0",
+    label: "",
+    endpoint_host: "vpn.example.com",
+    endpoint_port: 51820,
+    listen_port: 51820,
+    mtu: 1420,
+  };
+
+  it("rejects invalid ports and MTU", async () => {
+    const service = new InterfacesService(makeInterfaces());
+    await expect(
+      service.createInterface({ ...input, endpoint_port: 0 }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      service.createInterface({ ...input, mtu: 100 }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("delegates rotation", async () => {
+    const repo = makeInterfaces();
+    const service = new InterfacesService(repo);
+    await service.rotateInterface(" i1 ");
+    expect(repo.rotateInterface).toHaveBeenCalledWith("i1");
+  });
+});
+
+describe("DevicesService", () => {
+  function makeDevices(): DevicesRepository {
+    return {
+      listDevices: vi.fn(async () => [DEVICE]),
+      getDevice: vi.fn(async () => DEVICE),
+      createDevice: vi.fn(async () => DEVICE),
+      updateDevice: vi.fn(async () => DEVICE),
+      deleteDevice: vi.fn(async () => undefined),
+      listProfiles: vi.fn(async () => []),
+      getProfile: vi.fn(),
+      deviceStats: vi.fn(async () => ({
+        device_id: "d1",
+        today: { rx: 1, tx: 2 },
+        month: { rx: 3, tx: 4 },
+      })),
+      listShares: vi.fn(async () => []),
+      createShare: vi.fn(async () => ({
+        token: "share",
+        device_id: "d1",
+        interface_id: "i1",
+        format: "conf" as const,
+        expires_at: "2020-01-02T00:00:00Z",
+        created_at: "2020-01-01T00:00:00Z",
+        url: "https://example.com/s",
+      })),
+      revokeShare: vi.fn(async () => undefined),
+    };
+  }
+
+  it("requires a device name", async () => {
+    const service = new DevicesService(makeDevices());
+    await expect(
+      service.createDevice({
+        user_id: null,
+        group_id: "g1",
+        name: " ",
+        down_kbps: 0,
+        up_kbps: 0,
+        forwarding: null,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("rejects a non-positive share TTL", async () => {
+    const service = new DevicesService(makeDevices());
+    await expect(
+      service.createShare("d1", { interfaceId: "i1", format: "conf", ttlSecs: 0 }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("maps share input to the repository contract", async () => {
+    const repo = makeDevices();
+    const service = new DevicesService(repo);
+    await service.createShare(" d1 ", { interfaceId: " i1 ", format: "vpn", ttlSecs: 60 });
+    expect(repo.createShare).toHaveBeenCalledWith("d1", {
+      interfaceId: "i1",
+      format: "vpn",
+      ttlSecs: 60,
+    });
+  });
+});
+
+describe("StatsService", () => {
+  function makeStats(): StatsRepository {
+    return {
+      overview: vi.fn(async (): Promise<Overview> => ({
+        today: { rx: 1, tx: 2 },
+        month: { rx: 3, tx: 4 },
+        nodes_online: 1,
+        nodes_total: 1,
+        interfaces: 1,
+        groups: 1,
+        devices: 1,
+        users: 1,
+        top_devices: [],
+      })),
+      series: vi.fn(async (): Promise<StatsPoint[]> => []),
+    };
+  }
+
+  it("rejects a reversed interval", async () => {
+    const service = new StatsService(makeStats());
+    await expect(service.series("device", null, 200, 100)).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+  });
+
+  it("delegates a valid interval", async () => {
+    const repo = makeStats();
+    const service = new StatsService(repo);
+    await service.series(" device ", "d1", 100, 200);
+    expect(repo.series).toHaveBeenCalledWith("device", "d1", 100, 200);
+  });
+});
+
+describe("SettingsService", () => {
+  function makeSettings(): SettingsRepository {
+    return {
+      getSettings: vi.fn(async () => SETTINGS),
+      updateSettings: vi.fn(async () => SETTINGS),
+    };
+  }
+
+  it("rejects a too small S padding", async () => {
+    const service = new SettingsService(makeSettings());
+    await expect(
+      service.updateSettings({ obfuscation: { ...SETTINGS.obfuscation, s_min: 11 } }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("clamps the share TTL", async () => {
+    const repo = makeSettings();
+    const service = new SettingsService(repo);
+    await service.updateSettings({ share_default_ttl_secs: 1 });
+    expect(repo.updateSettings).toHaveBeenCalledWith({ share_default_ttl_secs: 60 });
+  });
+});
+
+describe("ImportService", () => {
+  function makeImport(): ImportRepository {
+    return {
+      importConfig: vi.fn(async (): Promise<ImportResult> => ({
+        group_id: "g1",
+        interface_id: "i1",
+        imported_devices: 1,
+        failed_devices: [],
+      })),
+    };
+  }
+
+  const input = {
+    server_config: "[Interface]",
+    node_id: "n1",
+    group_name: "Main",
+    group_description: "",
+    base_cidr: "10.0.0.0/24",
+    pools: [{ name: "pool", cidr: "10.0.1.0/24", mode: "auto" as const, gateway: null }],
+    interface: {
+      name: "wg0",
+      endpoint_host: "vpn.example.com",
+      endpoint_port: 51820,
+      listen_port: 51820,
+      mtu: 1420,
+    },
+    clients: [{ name: "laptop", config: "[Peer]" }],
+    owner_user_id: null,
+  };
+
+  it("rejects an invalid pool CIDR", async () => {
+    const service = new ImportService(makeImport());
+    await expect(
+      service.importConfig({
+        ...input,
+        pools: [{ ...input.pools[0]!, cidr: "bad" }],
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("delegates a valid import", async () => {
+    const repo = makeImport();
+    const service = new ImportService(repo);
+    await service.importConfig(input);
+    expect(repo.importConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ node_id: "n1", base_cidr: "10.0.0.0/24" }),
+    );
+  });
+});

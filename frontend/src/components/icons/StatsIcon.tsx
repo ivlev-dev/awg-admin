@@ -1,0 +1,24 @@
+import type { IconProps } from "./types";
+
+export function StatsIcon(props: IconProps) {
+  const size = props.size ?? 20;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      width={size}
+      height={size}
+      class={props.class ?? "nav-item__icon"}
+      aria-hidden="true"
+    >
+      <path d="M4 20V10" />
+      <path d="M10 20V4" />
+      <path d="M16 20v-7" />
+      <path d="M22 20H2" />
+    </svg>
+  );
+}

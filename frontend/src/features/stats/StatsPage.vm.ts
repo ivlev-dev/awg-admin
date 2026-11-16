@@ -1,8 +1,16 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, liveStats, router, session, toasts } from "@/app/container";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
+import { DevicesService } from "@/application/devices/service";
+import { GroupsService } from "@/application/groups/service";
+import { InterfacesService } from "@/application/interfaces/service";
+import { StatsService } from "@/application/stats/service";
+import { UsersService } from "@/application/users/service";
 import { formatBytes } from "@/domain/format";
 import type { Device, Group, InterfaceInfo, StatsPoint, TrafficTotals, User } from "@/domain/types";
+import { LiveStats } from "@/infrastructure/stats";
 
 type Scope = "global" | "user" | "group" | "interface" | "device";
 type RangeKey = "24h" | "7d" | "30d";
@@ -73,7 +81,7 @@ async function mapWithLimit<T, R>(
 }
 
 export class StatsVM {
-  @reactive accessor scope: Scope = session.isAdmin ? "global" : "user";
+  @reactive accessor scope: Scope = "user";
   @reactive accessor entityId: string | null = null;
   @reactive accessor rangeKey: RangeKey = "24h";
   @reactive accessor series: StatsPoint[] = [];
@@ -92,7 +100,23 @@ export class StatsVM {
   private seriesRequest = 0;
   private statsRequest = 0;
 
+  constructor(
+    private readonly statsService: StatsService,
+    private readonly devicesService: DevicesService,
+    private readonly groupsService: GroupsService,
+    private readonly interfacesService: InterfacesService,
+    private readonly usersService: UsersService,
+    private readonly liveStats: LiveStats,
+    private readonly session: Session,
+    private readonly router: Router,
+    private readonly toasts: ToastStore,
+  ) {
+    this.scope = session.isAdmin ? "global" : "user";
+  }
+
   async created(): Promise<void> {
+    if (!this.session.authenticated) return;
+    this.scope = this.session.isAdmin ? "global" : "user";
     await this.loadEntities();
     this.ensureEntityId();
     await Promise.all([this.loadSeries(), this.loadDeviceStats()]);
@@ -100,13 +124,13 @@ export class StatsVM {
 
   unmounted(): void {
     if (!this.liveEnabled) return;
-    liveStats.disconnect();
-    liveStats.reset();
+    this.liveStats.disconnect();
+    this.liveStats.reset();
   }
 
   @computed
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
@@ -181,7 +205,7 @@ export class StatsVM {
   get scopeId(): string | null {
     if (this.scope === "global") return null;
     if (this.scope === "user") {
-      return this.isAdmin ? this.entityId : session.user?.id ?? null;
+      return this.isAdmin ? this.entityId : this.session.user?.id ?? null;
     }
     return this.entityId;
   }
@@ -213,43 +237,43 @@ export class StatsVM {
 
   @computed
   get liveConnected(): boolean {
-    return liveStats.connected;
+    return this.liveStats.connected;
   }
 
   @computed
   get liveBadgeClass(): string {
-    return this.liveEnabled && liveStats.connected ? "badge--green" : "badge--amber";
+    return this.liveEnabled && this.liveStats.connected ? "badge--green" : "badge--amber";
   }
 
   @computed
   get liveBadgeLabel(): string {
     if (!this.liveEnabled) return "офлайн";
-    return liveStats.connected ? "LIVE" : "подключение…";
+    return this.liveStats.connected ? "LIVE" : "подключение…";
   }
 
   @computed
   get liveError(): string | null {
-    return liveStats.error;
+    return this.liveStats.error;
   }
 
   @computed
   get liveTodayRx(): string {
-    return formatBytes(liveStats.today.rx);
+    return formatBytes(this.liveStats.today.rx);
   }
 
   @computed
   get liveTodayTx(): string {
-    return formatBytes(liveStats.today.tx);
+    return formatBytes(this.liveStats.today.tx);
   }
 
   @computed
   get liveTodayTotal(): string {
-    return formatBytes(liveStats.today.rx + liveStats.today.tx);
+    return formatBytes(this.liveStats.today.rx + this.liveStats.today.tx);
   }
 
   @computed
   get liveMonthTotal(): string {
-    return formatBytes(liveStats.month.rx + liveStats.month.tx);
+    return formatBytes(this.liveStats.month.rx + this.liveStats.month.tx);
   }
 
   @computed
@@ -291,16 +315,16 @@ export class StatsVM {
   toggleLive(): void {
     if (this.liveEnabled) {
       this.liveEnabled = false;
-      liveStats.disconnect();
+      this.liveStats.disconnect();
       return;
     }
     if (this.requiresEntity && !this.scopeId) {
-      toasts.error("Выберите сущность для Live-режима");
+      this.toasts.error("Выберите сущность для Live-режима");
       return;
     }
     this.liveEnabled = true;
-    liveStats.reset();
-    liveStats.connect(this.scope, this.scopeId);
+    this.liveStats.reset();
+    this.liveStats.connect(this.scope, this.scopeId);
   }
 
   async loadEntities(): Promise<void> {
@@ -309,21 +333,21 @@ export class StatsVM {
     try {
       if (this.isAdmin) {
         const [users, groups, interfaces, devices] = await Promise.all([
-          api.listUsers(),
-          api.listGroups(),
-          api.listInterfaces(),
-          api.listDevices(),
+          this.usersService.listUsers(),
+          this.groupsService.listGroups(),
+          this.interfacesService.listInterfaces(),
+          this.devicesService.listDevices(),
         ]);
         this.users = users;
         this.groups = groups;
         this.interfaces = interfaces;
         this.devices = devices;
       } else {
-        this.devices = await api.listDevices();
+        this.devices = await this.devicesService.listDevices();
       }
     } catch (error) {
       this.entitiesError = error instanceof Error ? error.message : "Не удалось загрузить списки";
-      toasts.error(this.entitiesError);
+      this.toasts.error(this.entitiesError);
     } finally {
       this.entitiesLoading = false;
     }
@@ -341,13 +365,13 @@ export class StatsVM {
     try {
       const to = Math.floor(Date.now() / 1000);
       const from = to - this.rangeSeconds;
-      const points = await api.series(this.scope, this.scopeId, from, to);
+      const points = await this.statsService.series(this.scope, this.scopeId, from, to);
       if (request !== this.seriesRequest) return;
       this.series = points;
     } catch (error) {
       if (request !== this.seriesRequest) return;
       this.error = error instanceof Error ? error.message : "Не удалось загрузить статистику";
-      toasts.error(this.error);
+      this.toasts.error(this.error);
     } finally {
       if (request === this.seriesRequest) this.seriesLoading = false;
     }
@@ -364,7 +388,7 @@ export class StatsVM {
     try {
       const rows = await mapWithLimit(this.devices, 4, async (device) => {
         try {
-          const stats = await api.deviceStats(device.id);
+          const stats = await this.devicesService.deviceStats(device.id);
           return { device, today: stats.today, month: stats.month, failed: false };
         } catch {
           return {
@@ -378,12 +402,12 @@ export class StatsVM {
       if (request !== this.statsRequest) return;
       this.deviceRows = rows;
       if (rows.length > 0 && rows.every((row) => row.failed)) {
-        toasts.error("Не удалось загрузить статистику устройств");
+        this.toasts.error("Не удалось загрузить статистику устройств");
       }
     } catch (error) {
       if (request === this.statsRequest) {
         this.deviceRows = [];
-        toasts.error(
+        this.toasts.error(
           error instanceof Error ? error.message : "Не удалось загрузить статистику устройств",
         );
       }
@@ -398,7 +422,7 @@ export class StatsVM {
 
   exportCsv(): void {
     if (this.series.length === 0) {
-      toasts.error("Нет данных для экспорта");
+      this.toasts.error("Нет данных для экспорта");
       return;
     }
     const lines = ["at,rx,tx"];
@@ -418,7 +442,7 @@ export class StatsVM {
   }
 
   openDevice(id: string): void {
-    router.navigate(`/clients/${id}`);
+    this.router.navigate(`/clients/${id}`);
   }
 
   private ensureEntityId(): void {
@@ -435,10 +459,10 @@ export class StatsVM {
     if (!this.liveEnabled) return;
     if (this.requiresEntity && !this.scopeId) {
       this.liveEnabled = false;
-      liveStats.disconnect();
+      this.liveStats.disconnect();
       return;
     }
-    liveStats.reset();
-    liveStats.connect(this.scope, this.scopeId);
+    this.liveStats.reset();
+    this.liveStats.connect(this.scope, this.scopeId);
   }
 }

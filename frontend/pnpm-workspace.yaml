@@ -1,7 +1,7 @@
 minimumReleaseAgeExclude:
-  - '@ivlev-dev/silent-core@0.7.2'
-  - '@ivlev-dev/silent-di@0.7.2'
-  - '@ivlev-dev/silent-reactivity@0.7.2'
-  - '@ivlev-dev/silent-swc@0.7.2'
-  - '@ivlev-dev/silent-vite@0.7.2'
-  - '@ivlev-dev/silent@0.7.2'
+  - '@ivlev-dev/silent-core@0.7.3'
+  - '@ivlev-dev/silent-di@0.7.3'
+  - '@ivlev-dev/silent-reactivity@0.7.3'
+  - '@ivlev-dev/silent-swc@0.7.3'
+  - '@ivlev-dev/silent-vite@0.7.3'
+  - '@ivlev-dev/silent@0.7.3'

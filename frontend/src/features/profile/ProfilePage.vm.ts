@@ -1,7 +1,10 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, router, session, theme, toasts } from "@/app/container";
-import type { ThemeMode } from "@/app/theme";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
+import { ThemeStore, type ThemeMode } from "@/app/theme";
+import { ToastStore } from "@/app/toast";
+import { AuthService } from "@/application/auth/service";
 import { formatDate, initials } from "@/domain/format";
 
 export interface PermissionItem {
@@ -65,6 +68,14 @@ const THEME_OPTIONS: ThemeOption[] = [
 ];
 
 export class ProfilePageVM {
+  constructor(
+    private readonly session: Session,
+    private readonly auth: AuthService,
+    private readonly router: Router,
+    private readonly theme: ThemeStore,
+    private readonly toasts: ToastStore,
+  ) {}
+
   @reactive accessor currentPassword = "";
   @reactive accessor nextPassword = "";
   @reactive accessor repeatPassword = "";
@@ -72,7 +83,7 @@ export class ProfilePageVM {
 
   @computed
   get login(): string {
-    return session.user?.login ?? "Гость";
+    return this.session.user?.login ?? "Гость";
   }
 
   @computed
@@ -82,17 +93,17 @@ export class ProfilePageVM {
 
   @computed
   get userId(): string {
-    return session.user?.id ?? "—";
+    return this.session.user?.id ?? "—";
   }
 
   @computed
   get createdAtLabel(): string {
-    return formatDate(session.user?.created_at);
+    return formatDate(this.session.user?.created_at);
   }
 
   @computed
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
@@ -120,7 +131,7 @@ export class ProfilePageVM {
 
   @computed
   get effectiveTheme(): "light" | "dark" {
-    return theme.effective;
+    return this.theme.effective;
   }
 
   @computed
@@ -149,11 +160,11 @@ export class ProfilePageVM {
   }
 
   isTheme(mode: ThemeMode): boolean {
-    return theme.mode === mode;
+    return this.theme.mode === mode;
   }
 
   setTheme(mode: ThemeMode): void {
-    theme.set(mode);
+    this.theme.set(mode);
   }
 
   setCurrentPassword(event: Event): void {
@@ -172,34 +183,34 @@ export class ProfilePageVM {
     event.preventDefault();
     if (this.saving) return;
     if (this.currentPassword.length === 0) {
-      toasts.error("Введите текущий пароль");
+      this.toasts.error("Введите текущий пароль");
       return;
     }
     if (this.nextPassword.length < 8) {
-      toasts.error("Новый пароль должен содержать минимум 8 символов");
+      this.toasts.error("Новый пароль должен содержать минимум 8 символов");
       return;
     }
     if (this.nextPassword !== this.repeatPassword) {
-      toasts.error("Пароли не совпадают");
+      this.toasts.error("Пароли не совпадают");
       return;
     }
 
     this.saving = true;
     try {
-      await api.changePassword(this.currentPassword, this.nextPassword);
+      await this.auth.changePassword(this.currentPassword, this.nextPassword);
       this.currentPassword = "";
       this.nextPassword = "";
       this.repeatPassword = "";
-      toasts.success("Пароль обновлён");
+      this.toasts.success("Пароль обновлён");
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось изменить пароль");
+      this.toasts.error(error instanceof Error ? error.message : "Не удалось изменить пароль");
     } finally {
       this.saving = false;
     }
   }
 
   async logout(): Promise<void> {
-    await session.logout();
-    router.replace("/login");
+    await this.session.logout();
+    this.router.replace("/login");
   }
 }

@@ -2,7 +2,6 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { AppVM } from "./App.vm";
 import { Icon } from "@/components/Icon";
-import { toasts } from "./container";
 import { Login } from "@/features/auth/Login";
 import { Overview } from "@/features/overview/Overview";
 import { NodesPage } from "@/features/nodes/NodesPage";
@@ -159,9 +158,9 @@ export function App(this: { vm: AppVM }) {
       </Show>
 
       <div class="toast-stack" aria-live="polite">
-        <For each={toasts.items}>
+        <For each={this.vm.toasts.items}>
           {(item) => (
-            <div class={`toast toast--${item.kind}`} onClick={() => toasts.dismiss(item.id)}>
+            <div class={`toast toast--${item.kind}`} onClick={() => this.vm.toasts.dismiss(item.id)}>
               <span class="grow">{item.message}</span>
               <Icon name="close" size={14} class="" />
             </div>

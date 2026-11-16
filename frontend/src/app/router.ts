@@ -70,6 +70,11 @@ export class Router {
   @reactive accessor search = window.location.search;
 
   constructor() {
+    if (import.meta.env.MODE !== "test") {
+      const shared = (globalThis as { __awgRouter?: Router }).__awgRouter;
+      if (shared) return shared;
+      (globalThis as { __awgRouter?: Router }).__awgRouter = this;
+    }
     window.addEventListener("popstate", () => {
       this.path = normalize(window.location.pathname);
       this.search = window.location.search;

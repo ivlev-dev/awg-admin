@@ -1,10 +1,24 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, router, session, toasts } from "@/app/container";
+import { DevicesService } from "@/application/devices/service";
+import { GroupsService } from "@/application/groups/service";
+import { UsersService } from "@/application/users/service";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
 import { plural } from "@/domain/format";
 import type { Device, Group, User } from "@/domain/types";
 
 export class ClientsPageVM {
+  constructor(
+    private readonly devicesService: DevicesService,
+    private readonly groupsService: GroupsService,
+    private readonly usersService: UsersService,
+    private readonly session: Session,
+    private readonly router: Router,
+    private readonly toasts: ToastStore,
+  ) {}
+
   @reactive accessor devices: Device[] = [];
   @reactive accessor groups: Group[] = [];
   @reactive accessor users: User[] = [];
@@ -28,7 +42,7 @@ export class ClientsPageVM {
 
   @computed
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
@@ -56,10 +70,10 @@ export class ClientsPageVM {
   async load(): Promise<void> {
     this.loading = true;
     try {
-      const groupsPromise = this.isAdmin ? api.listGroups() : Promise.resolve<Group[]>([]);
-      const usersPromise = this.isAdmin ? api.listUsers() : Promise.resolve<User[]>([]);
+      const groupsPromise = this.isAdmin ? this.groupsService.listGroups() : Promise.resolve<Group[]>([]);
+      const usersPromise = this.isAdmin ? this.usersService.listUsers() : Promise.resolve<User[]>([]);
       const [devices, groups, users] = await Promise.all([
-        api.listDevices(),
+        this.devicesService.listDevices(),
         groupsPromise,
         usersPromise,
       ]);
@@ -67,7 +81,7 @@ export class ClientsPageVM {
       this.groups = groups;
       this.users = users;
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось загрузить клиентов"));
+      this.toasts.error(messageOf(error, "Не удалось загрузить клиентов"));
     } finally {
       this.loading = false;
     }
@@ -107,7 +121,7 @@ export class ClientsPageVM {
 
   openCreate(): void {
     this.formName = "";
-    this.formUserId = this.isAdmin ? "" : session.user?.id ?? "";
+    this.formUserId = this.isAdmin ? "" : this.session.user?.id ?? "";
     this.formGroupId = this.isAdmin ? this.groupFilter : "";
     this.formDown = "0";
     this.formUp = "0";
@@ -122,16 +136,16 @@ export class ClientsPageVM {
 
   async create(): Promise<void> {
     if (!this.canCreate) return;
-    const userId = this.isAdmin ? this.formUserId : session.user?.id ?? "";
+    const userId = this.isAdmin ? this.formUserId : this.session.user?.id ?? "";
     if (!userId) {
-      toasts.error("Не удалось определить пользователя устройства");
+      this.toasts.error("Не удалось определить пользователя устройства");
       return;
     }
     this.submitting = true;
     try {
-      const device = await api.createDevice({
+      const device = await this.devicesService.createDevice({
         user_id: userId,
-        group_id: this.isAdmin ? this.formGroupId || null : session.user?.group_id ?? null,
+        group_id: this.isAdmin ? this.formGroupId || null : this.session.user?.group_id ?? null,
         name: this.formName.trim(),
         down_kbps: parseKbps(this.formDown),
         up_kbps: parseKbps(this.formUp),
@@ -141,23 +155,23 @@ export class ClientsPageVM {
         },
       });
       this.createOpen = false;
-      toasts.success(`Устройство «${device.name}» создано`);
+      this.toasts.success(`Устройство «${device.name}» создано`);
       await this.load();
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось создать устройство"));
+      this.toasts.error(messageOf(error, "Не удалось создать устройство"));
     } finally {
       this.submitting = false;
     }
   }
 
   openDevice(id: string): void {
-    router.navigate(`/clients/${id}`);
+    this.router.navigate(`/clients/${id}`);
   }
 
   userLogin(id: string): string {
     const user = this.users.find((item) => item.id === id);
     if (user) return user.login;
-    if (session.user?.id === id) return session.user.login;
+    if (this.session.user?.id === id) return this.session.user.login;
     return "—";
   }
 

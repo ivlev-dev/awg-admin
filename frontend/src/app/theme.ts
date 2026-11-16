@@ -8,6 +8,11 @@ export class ThemeStore {
   @reactive accessor mode: ThemeMode = readMode();
 
   constructor() {
+    if (import.meta.env.MODE !== "test") {
+      const shared = (globalThis as { __awgThemeStore?: ThemeStore }).__awgThemeStore;
+      if (shared) return shared;
+      (globalThis as { __awgThemeStore?: ThemeStore }).__awgThemeStore = this;
+    }
     this.apply();
     window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
       if (this.mode === "system") this.apply();

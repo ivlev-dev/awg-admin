@@ -7,119 +7,35 @@ import type {
   InterfaceInfo,
   NodeInfo,
   Overview,
-  PoolMode,
   Profile,
-  Role,
   Settings,
   ShareFormat,
   ShareLink,
   StatsPoint,
   Tariff,
   User,
-  Forwarding,
 } from "@/domain/types";
+import type { LoginInput } from "@/domain/auth/types";
+import type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { TariffInput } from "@/domain/tariffs/types";
+import type { GroupInput, PoolInput } from "@/domain/groups/types";
+import type { NodeCreated } from "@/domain/nodes/types";
+import type { InterfaceInput } from "@/domain/interfaces/types";
+import type { DeviceInput, DeviceStats, DeviceUpdateInput } from "@/domain/devices/types";
+import type { ImportInput } from "@/domain/import/types";
 
-export interface LoginInput {
-  login: string;
-  password: string;
-}
-
-export interface CreateUserInput {
-  login: string;
-  password: string;
-  role: Role;
-  tariff_id: string | null;
-  group_id: string | null;
-}
-
-export interface UpdateUserInput {
-  role?: Role;
-  tariff_id?: string | null;
-  group_id?: string | null;
-  disabled?: boolean;
-}
-
-export interface TariffInput {
-  name: string;
-  description: string;
-  max_devices: number;
-  device_down_kbps: number;
-  device_up_kbps: number;
-  group_down_kbps: number;
-  group_up_kbps: number;
-  traffic_quota_bytes: number | null;
-}
-
-export interface GroupInput {
-  name: string;
-  description: string;
-  base_cidr: string;
-  forwarding_default: boolean;
-}
-
-export interface PoolInput {
-  name: string;
-  cidr: string;
-  mode: PoolMode;
-  gateway: string | null;
-}
-
-export interface InterfaceInput {
-  group_id: string;
-  node_id: string;
-  name: string;
-  label: string;
-  endpoint_host: string;
-  endpoint_port: number;
-  listen_port: number;
-  mtu: number;
-}
-
-export interface DeviceInput {
-  user_id: string | null;
-  group_id: string | null;
-  name: string;
-  down_kbps: number;
-  up_kbps: number;
-  forwarding: Forwarding | null;
-}
-
-export interface DeviceUpdateInput {
-  name?: string;
-  down_kbps?: number;
-  up_kbps?: number;
-  forwarding?: Forwarding;
-  revoked?: boolean;
-}
-
-export interface ImportInput {
-  server_config: string;
-  node_id: string;
-  group_name: string;
-  group_description: string;
-  base_cidr: string;
-  pools: PoolInput[];
-  interface: {
-    name: string;
-    endpoint_host: string;
-    endpoint_port: number;
-    listen_port: number;
-    mtu: number;
-  };
-  clients: Array<{ name: string; config: string }>;
-  owner_user_id: string | null;
-}
-
-export interface NodeCreated {
-  node: { id: string; name: string; created_at: string };
-  token: string;
-}
-
-export interface DeviceStats {
-  device_id: string;
-  today: { rx: number; tx: number };
-  month: { rx: number; tx: number };
-}
+export type { LoginInput } from "@/domain/auth/types";
+export type { CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+export type { TariffInput } from "@/domain/tariffs/types";
+export type { GroupInput, PoolInput } from "@/domain/groups/types";
+export type { NodeCreated } from "@/domain/nodes/types";
+export type { InterfaceInput } from "@/domain/interfaces/types";
+export type {
+  DeviceInput,
+  DeviceStats,
+  DeviceUpdateInput,
+} from "@/domain/devices/types";
+export type { ImportInput } from "@/domain/import/types";
 
 export interface AdminApi {
   login(input: LoginInput): Promise<AuthSession>;

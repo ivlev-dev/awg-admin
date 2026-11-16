@@ -12,13 +12,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ivlev-dev/silent": "^0.7.2",
-    "@ivlev-dev/silent-core": "^0.7.2",
-    "@ivlev-dev/silent-di": "^0.7.2",
-    "@ivlev-dev/silent-reactivity": "^0.7.2"
+    "@ivlev-dev/silent": "^0.7.3",
+    "@ivlev-dev/silent-core": "^0.7.3",
+    "@ivlev-dev/silent-di": "^0.7.3",
+    "@ivlev-dev/silent-reactivity": "^0.7.3"
   },
   "devDependencies": {
-    "@ivlev-dev/silent-vite": "^0.7.2",
+    "@ivlev-dev/silent-vite": "^0.7.3",
     "happy-dom": "^20.0.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",

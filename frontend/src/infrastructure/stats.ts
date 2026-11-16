@@ -1,7 +1,7 @@
 import { reactive } from "@ivlev-dev/silent-core";
 
 import type { TrafficTotals } from "@/domain/types";
-import type { LocalTokenStore } from "./storage";
+import type { TokenStore } from "./storage";
 
 export interface TrafficItem {
   device_id: string;
@@ -44,9 +44,19 @@ export class LiveStats {
   private timer: number | null = null;
   private closedByUser = false;
 
-  constructor(private readonly tokens: LocalTokenStore) {}
+  constructor(private readonly tokens: TokenStore) {
+    if (import.meta.env.MODE !== "test") {
+      const shared = (globalThis as { __awgLiveStats?: LiveStats }).__awgLiveStats;
+      if (shared) return shared;
+      (globalThis as { __awgLiveStats?: LiveStats }).__awgLiveStats = this;
+    }
+  }
 
   connect(scope: string, id: string | null = null): void {
+    if (scope !== "global" && !id) {
+      this.disconnect();
+      return;
+    }
     const changed = this.scope?.scope !== scope || this.scope?.id !== id;
     this.scope = { scope, id };
     this.closedByUser = false;

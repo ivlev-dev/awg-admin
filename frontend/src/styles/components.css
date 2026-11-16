@@ -96,6 +96,15 @@
 .table tbody tr:hover { background: var(--surface-2); }
 .table .cell-actions { display: flex; justify-content: flex-end; gap: 6px; }
 
+.matrix-table th:not(:first-child),
+.matrix-table td:not(:first-child) { text-align: center; min-width: 48px; }
+.matrix-table th:first-child,
+.matrix-table td:first-child { min-width: 168px; }
+.matrix-table .matrix-mode { min-height: 32px; font-size: var(--t-xs); padding: 4px var(--sp-2); }
+.matrix-table input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.matrix-table input[type="checkbox"]:disabled { cursor: default; opacity: 0.65; }
+.forwarding-pairs { display: grid; gap: var(--sp-2); }
+
 @media (max-width: 767px) {
   .table--cards thead { display: none; }
   .table--cards, .table--cards tbody, .table--cards tr, .table--cards td { display: block; width: 100%; }

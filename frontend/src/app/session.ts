@@ -1,27 +1,40 @@
 import { reactive } from "@ivlev-dev/silent-core";
 
+import type { AuthSessionState } from "../application/auth/session-state";
+import type { AuthRepository } from "../domain/auth/repository";
 import type { User } from "@/domain/types";
-import type { HttpApi } from "@/infrastructure/http";
-import type { LocalTokenStore } from "@/infrastructure/storage";
+import type { TokenStore } from "../infrastructure/storage";
 
-export class Session {
+export class Session implements AuthSessionState {
   @reactive accessor user: User | null = null;
   @reactive accessor ready = false;
   @reactive accessor busy = false;
   @reactive accessor error: string | null = null;
 
   constructor(
-    private readonly api: HttpApi,
-    private readonly tokens: LocalTokenStore,
-  ) {}
+    private readonly auth: AuthRepository,
+    private readonly tokens: TokenStore,
+  ) {
+    if (import.meta.env.MODE !== "test") {
+      const shared = (globalThis as { __awgSession?: Session }).__awgSession;
+      if (shared) return shared;
+      (globalThis as { __awgSession?: Session }).__awgSession = this;
+    }
+  }
+
+  clear(): void {
+    this.tokens.clear();
+    this.user = null;
+  }
 
   async init(): Promise<void> {
+    if (this.ready) return;
     if (!this.tokens.access()) {
       this.ready = true;
       return;
     }
     try {
-      this.user = await this.api.me();
+      this.user = await this.auth.me();
     } catch {
       this.tokens.clear();
       this.user = null;
@@ -34,7 +47,7 @@ export class Session {
     this.busy = true;
     this.error = null;
     try {
-      const session = await this.api.login({ login, password });
+      const session = await this.auth.login({ login, password });
       this.user = session.user;
       return true;
     } catch (error) {
@@ -49,7 +62,7 @@ export class Session {
     const refresh = this.tokens.refresh();
     if (refresh) {
       try {
-        await this.api.logout(refresh);
+        await this.auth.logout(refresh);
       } catch {
         // Token is cleared locally even when the server is unreachable.
       }
@@ -60,7 +73,7 @@ export class Session {
 
   async reload(): Promise<void> {
     try {
-      this.user = await this.api.me();
+      this.user = await this.auth.me();
     } catch {
       this.user = null;
     }

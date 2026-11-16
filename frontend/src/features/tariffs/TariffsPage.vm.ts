@@ -1,9 +1,11 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, toasts } from "@/app/container";
-import { validateTariff } from "@/domain/validation";
+import { ToastStore } from "@/app/toast";
+import { userMessage } from "@/application/errors";
+import { TariffsService } from "@/application/tariffs/service";
+import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
-import type { TariffInput } from "@/application/api";
+import { validateTariff } from "@/domain/validation";
 
 export class TariffsPageVM {
   @reactive accessor tariffs: Tariff[] = [];
@@ -24,6 +26,11 @@ export class TariffsPageVM {
   @reactive accessor group_up_kbps = 0;
   @reactive accessor quotaGb = "";
 
+  constructor(
+    private readonly tariffsService: TariffsService,
+    private readonly toasts: ToastStore,
+  ) {}
+
   created(): void {
     void this.load();
   }
@@ -32,9 +39,9 @@ export class TariffsPageVM {
     this.loading = true;
     this.error = null;
     try {
-      this.tariffs = await api.listTariffs();
+      this.tariffs = await this.tariffsService.listTariffs();
     } catch (error) {
-      this.error = error instanceof Error ? error.message : "Не удалось загрузить тарифы";
+      this.error = userMessage(error, "Не удалось загрузить тарифы");
     } finally {
       this.loading = false;
     }
@@ -156,18 +163,18 @@ export class TariffsPageVM {
     this.formError = null;
     try {
       if (this.editingId) {
-        await api.updateTariff(this.editingId, input);
-        toasts.success("Тариф обновлён");
+        await this.tariffsService.updateTariff(this.editingId, input);
+        this.toasts.success("Тариф обновлён");
       } else {
-        await api.createTariff(input);
-        toasts.success("Тариф создан");
+        await this.tariffsService.createTariff(input);
+        this.toasts.success("Тариф создан");
       }
       this.modalOpen = false;
       await this.load();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Не удалось сохранить тариф";
+      const message = userMessage(error, "Не удалось сохранить тариф");
       this.formError = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.saving = false;
     }
@@ -176,11 +183,11 @@ export class TariffsPageVM {
   async remove(id: string): Promise<void> {
     if (!window.confirm("Удалить тариф?")) return;
     try {
-      await api.deleteTariff(id);
-      toasts.success("Тариф удалён");
+      await this.tariffsService.deleteTariff(id);
+      this.toasts.success("Тариф удалён");
       await this.load();
     } catch (error) {
-      toasts.error(error instanceof Error ? error.message : "Не удалось удалить тариф");
+      this.toasts.error(userMessage(error, "Не удалось удалить тариф"));
     }
   }
 }

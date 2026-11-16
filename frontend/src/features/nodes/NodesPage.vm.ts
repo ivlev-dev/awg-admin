@@ -1,8 +1,10 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, session, toasts } from "@/app/container";
-import type { NodeCreated } from "@/application/api";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
+import { NodesService } from "@/application/nodes/service";
 import { plural, relativeTime } from "@/domain/format";
+import type { NodeCreated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 
 export class NodesPageVM {
@@ -18,12 +20,18 @@ export class NodesPageVM {
   @reactive accessor createdNode: NodeCreated | null = null;
   @reactive accessor tokenCopied = false;
 
+  constructor(
+    private readonly nodesService: NodesService,
+    private readonly session: Session,
+    private readonly toasts: ToastStore,
+  ) {}
+
   created(): void {
     void this.load();
   }
 
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
@@ -40,7 +48,7 @@ export class NodesPageVM {
     this.loading = true;
     this.error = null;
     try {
-      const nodes = await api.listNodes();
+      const nodes = await this.nodesService.listNodes();
       this.nodes = [...nodes].sort(
         (left, right) => Number(right.online) - Number(left.online) || left.name.localeCompare(right.name),
       );
@@ -79,16 +87,16 @@ export class NodesPageVM {
     this.busy = true;
     this.formError = null;
     try {
-      const result = await api.createNode(this.name.trim());
+      const result = await this.nodesService.createNode(this.name.trim());
       this.createdNode = result;
       this.createOpen = false;
       this.name = "";
-      toasts.success(`Нода «${result.node.name}» создана`);
+      this.toasts.success(`Нода «${result.node.name}» создана`);
       await this.load();
     } catch (error) {
       const message = messageOf(error, "Не удалось создать ноду");
       this.formError = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.busy = false;
     }
@@ -100,9 +108,9 @@ export class NodesPageVM {
     const copied = await copyText(token);
     this.tokenCopied = copied;
     if (copied) {
-      toasts.success("Токен скопирован");
+      this.toasts.success("Токен скопирован");
     } else {
-      toasts.error("Не удалось скопировать токен");
+      this.toasts.error("Не удалось скопировать токен");
     }
   }
 
@@ -114,11 +122,11 @@ export class NodesPageVM {
     if (!confirmed) return;
     this.busy = true;
     try {
-      await api.deleteNode(node.id);
-      toasts.success(`Нода «${node.name}» удалена`);
+      await this.nodesService.deleteNode(node.id);
+      this.toasts.success(`Нода «${node.name}» удалена`);
       await this.load();
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось удалить ноду"));
+      this.toasts.error(messageOf(error, "Не удалось удалить ноду"));
     } finally {
       this.busy = false;
     }

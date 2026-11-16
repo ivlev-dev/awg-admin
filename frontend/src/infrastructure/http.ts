@@ -30,203 +30,181 @@ import type {
   TariffInput,
   UpdateUserInput,
 } from "@/application/api";
-import type { LocalTokenStore } from "./storage";
+import type { TokenStore } from "./storage";
+import type { HttpBackend } from "./http/backend";
+import { createHttpBackend } from "./http/backend";
+import { DEFAULT_TIMEOUT_MS } from "./http/config";
 
-export class ApiError extends Error {
-  readonly status: number;
-  readonly code: string;
-
-  constructor(status: number, code: string, message: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
-
-type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
+export { ApiError } from "./http/errors";
 
 export class HttpApi implements AdminApi {
-  private refreshing: Promise<boolean> | null = null;
+  private readonly backend: HttpBackend;
 
-  constructor(
-    private readonly tokens: LocalTokenStore,
-    private readonly base: string = "/api/v1",
-  ) {}
-
-  async login(input: LoginInput): Promise<AuthSession> {
-    const session = await this.request<AuthSession>("POST", "/auth/login", input, false);
-    this.tokens.set(session.token, session.refresh_token);
-    return session;
-  }
-
-  async refresh(refreshToken: string): Promise<AuthSession> {
-    const session = await this.request<AuthSession>(
-      "POST",
-      "/auth/refresh",
-      { refresh_token: refreshToken },
-      false,
-    );
-    this.tokens.set(session.token, session.refresh_token);
-    return session;
-  }
-
-  async logout(refreshToken: string): Promise<void> {
-    try {
-      await this.request<void>("POST", "/auth/logout", { refresh_token: refreshToken }, false);
-    } finally {
-      this.tokens.clear();
-    }
-  }
-
-  me(): Promise<User> {
-    return this.request<User>("GET", "/auth/me");
-  }
-
-  async changePassword(current: string | null, next: string): Promise<void> {
-    await this.request<void>("POST", "/auth/password", {
-      current_password: current,
-      new_password: next,
+  constructor(tokens: TokenStore, base = "/api/v1", backend?: HttpBackend) {
+    this.backend = backend ?? createHttpBackend({
+      tokens,
+      config: { baseUrl: base, timeoutMs: DEFAULT_TIMEOUT_MS },
+      session: { clear: () => tokens.clear() },
     });
   }
 
+  login(input: LoginInput): Promise<AuthSession> {
+    return this.backend.repositories.auth.login(input);
+  }
+
+  refresh(refreshToken: string): Promise<AuthSession> {
+    return this.backend.repositories.auth.refresh(refreshToken);
+  }
+
+  logout(refreshToken: string): Promise<void> {
+    return this.backend.repositories.auth.logout(refreshToken);
+  }
+
+  me(): Promise<User> {
+    return this.backend.repositories.auth.me();
+  }
+
+  changePassword(current: string | null, next: string): Promise<void> {
+    return this.backend.repositories.auth.changePassword(current, next);
+  }
+
   listUsers(): Promise<User[]> {
-    return this.request<User[]>("GET", "/users");
+    return this.backend.repositories.users.listUsers();
   }
 
   createUser(input: CreateUserInput): Promise<User> {
-    return this.request<User>("POST", "/users", input);
+    return this.backend.repositories.users.createUser(input);
   }
 
   updateUser(id: string, input: UpdateUserInput): Promise<User> {
-    return this.request<User>("PATCH", `/users/${id}`, input);
+    return this.backend.repositories.users.updateUser(id, input);
   }
 
-  async deleteUser(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/users/${id}`);
+  deleteUser(id: string): Promise<void> {
+    return this.backend.repositories.users.deleteUser(id);
   }
 
-  async resetPassword(id: string, password: string): Promise<void> {
-    await this.request<void>("POST", `/users/${id}/password`, { new_password: password });
+  resetPassword(id: string, password: string): Promise<void> {
+    return this.backend.repositories.users.resetPassword(id, password);
   }
 
   listTariffs(): Promise<Tariff[]> {
-    return this.request<Tariff[]>("GET", "/tariffs");
+    return this.backend.repositories.tariffs.listTariffs();
   }
 
   createTariff(input: TariffInput): Promise<Tariff> {
-    return this.request<Tariff>("POST", "/tariffs", input);
+    return this.backend.repositories.tariffs.createTariff(input);
   }
 
   updateTariff(id: string, input: Partial<TariffInput>): Promise<Tariff> {
-    return this.request<Tariff>("PATCH", `/tariffs/${id}`, input);
+    return this.backend.repositories.tariffs.updateTariff(id, input);
   }
 
-  async deleteTariff(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/tariffs/${id}`);
+  deleteTariff(id: string): Promise<void> {
+    return this.backend.repositories.tariffs.deleteTariff(id);
   }
 
   listGroups(): Promise<Group[]> {
-    return this.request<Group[]>("GET", "/groups");
+    return this.backend.repositories.groups.listGroups();
   }
 
   createGroup(input: GroupInput): Promise<Group> {
-    return this.request<Group>("POST", "/groups", input);
+    return this.backend.repositories.groups.createGroup(input);
   }
 
   updateGroup(id: string, input: Partial<GroupInput>): Promise<Group> {
-    return this.request<Group>("PATCH", `/groups/${id}`, input);
+    return this.backend.repositories.groups.updateGroup(id, input);
   }
 
-  async deleteGroup(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/groups/${id}`);
+  deleteGroup(id: string): Promise<void> {
+    return this.backend.repositories.groups.deleteGroup(id);
   }
 
   listPools(groupId: string): Promise<CidrPool[]> {
-    return this.request<CidrPool[]>("GET", `/groups/${groupId}/pools`);
+    return this.backend.repositories.groups.listPools(groupId);
   }
 
   createPool(groupId: string, input: PoolInput): Promise<CidrPool> {
-    return this.request<CidrPool>("POST", `/groups/${groupId}/pools`, input);
+    return this.backend.repositories.groups.createPool(groupId, input);
   }
 
   updatePool(id: string, input: Partial<PoolInput> & { enabled?: boolean }): Promise<CidrPool> {
-    return this.request<CidrPool>("PATCH", `/pools/${id}`, input);
+    return this.backend.repositories.groups.updatePool(id, input);
   }
 
-  async deletePool(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/pools/${id}`);
+  deletePool(id: string): Promise<void> {
+    return this.backend.repositories.groups.deletePool(id);
   }
 
   listNodes(): Promise<NodeInfo[]> {
-    return this.request<NodeInfo[]>("GET", "/nodes");
+    return this.backend.repositories.nodes.listNodes();
   }
 
   createNode(name: string): Promise<NodeCreated> {
-    return this.request<NodeCreated>("POST", "/nodes", { name });
+    return this.backend.repositories.nodes.createNode(name);
   }
 
-  async deleteNode(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/nodes/${id}`);
+  deleteNode(id: string): Promise<void> {
+    return this.backend.repositories.nodes.deleteNode(id);
   }
 
   listInterfaces(): Promise<InterfaceInfo[]> {
-    return this.request<InterfaceInfo[]>("GET", "/interfaces");
+    return this.backend.repositories.interfaces.listInterfaces();
   }
 
   createInterface(input: InterfaceInput): Promise<InterfaceInfo> {
-    return this.request<InterfaceInfo>("POST", "/interfaces", input);
+    return this.backend.repositories.interfaces.createInterface(input);
   }
 
   updateInterface(
     id: string,
     input: Partial<Omit<InterfaceInput, "group_id" | "node_id" | "name">> & { enabled?: boolean },
   ): Promise<InterfaceInfo> {
-    return this.request<InterfaceInfo>("PATCH", `/interfaces/${id}`, input);
+    return this.backend.repositories.interfaces.updateInterface(id, input);
   }
 
   rotateInterface(id: string): Promise<InterfaceInfo> {
-    return this.request<InterfaceInfo>("POST", `/interfaces/${id}/rotate`);
+    return this.backend.repositories.interfaces.rotateInterface(id);
   }
 
-  async deleteInterface(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/interfaces/${id}`);
+  deleteInterface(id: string): Promise<void> {
+    return this.backend.repositories.interfaces.deleteInterface(id);
   }
 
   listDevices(): Promise<Device[]> {
-    return this.request<Device[]>("GET", "/devices");
+    return this.backend.repositories.devices.listDevices();
   }
 
   getDevice(id: string): Promise<Device> {
-    return this.request<Device>("GET", `/devices/${id}`);
+    return this.backend.repositories.devices.getDevice(id);
   }
 
   createDevice(input: DeviceInput): Promise<Device> {
-    return this.request<Device>("POST", "/devices", input);
+    return this.backend.repositories.devices.createDevice(input);
   }
 
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device> {
-    return this.request<Device>("PATCH", `/devices/${id}`, input);
+    return this.backend.repositories.devices.updateDevice(id, input);
   }
 
-  async deleteDevice(id: string): Promise<void> {
-    await this.request<void>("DELETE", `/devices/${id}`);
+  deleteDevice(id: string): Promise<void> {
+    return this.backend.repositories.devices.deleteDevice(id);
   }
 
   listProfiles(id: string): Promise<Profile[]> {
-    return this.request<Profile[]>("GET", `/devices/${id}/profiles`);
+    return this.backend.repositories.devices.listProfiles(id);
   }
 
   getProfile(id: string, interfaceId: string): Promise<Profile> {
-    return this.request<Profile>("GET", `/devices/${id}/profiles/${interfaceId}`);
+    return this.backend.repositories.devices.getProfile(id, interfaceId);
   }
 
   deviceStats(id: string): Promise<DeviceStats> {
-    return this.request<DeviceStats>("GET", `/devices/${id}/stats`);
+    return this.backend.repositories.devices.deviceStats(id);
   }
 
   listShares(id: string): Promise<ShareLink[]> {
-    return this.request<ShareLink[]>("GET", `/devices/${id}/shares`);
+    return this.backend.repositories.devices.listShares(id);
   }
 
   createShare(
@@ -235,96 +213,34 @@ export class HttpApi implements AdminApi {
     format: ShareFormat,
     ttlSecs?: number,
   ): Promise<ShareLink> {
-    return this.request<ShareLink>("POST", `/devices/${id}/shares`, {
-      interface_id: interfaceId,
+    return this.backend.repositories.devices.createShare(id, {
+      interfaceId,
       format,
-      ttl_secs: ttlSecs ?? null,
+      ...(ttlSecs !== undefined ? { ttlSecs } : {}),
     });
   }
 
-  async revokeShare(token: string): Promise<void> {
-    await this.request<void>("DELETE", `/shares/${token}`);
+  revokeShare(token: string): Promise<void> {
+    return this.backend.repositories.devices.revokeShare(token);
   }
 
   overview(): Promise<Overview> {
-    return this.request<Overview>("GET", "/stats/overview");
+    return this.backend.repositories.stats.overview();
   }
 
   series(scope: string, id: string | null, from: number, to: number): Promise<StatsPoint[]> {
-    const params = new URLSearchParams({
-      scope,
-      from: String(from),
-      to: String(to),
-    });
-    if (id) params.set("id", id);
-    return this.request<StatsPoint[]>("GET", `/stats/series?${params.toString()}`);
+    return this.backend.repositories.stats.series(scope, id, from, to);
   }
 
   getSettings(): Promise<Settings> {
-    return this.request<Settings>("GET", "/settings");
+    return this.backend.repositories.settings.getSettings();
   }
 
   updateSettings(input: Partial<Settings>): Promise<Settings> {
-    return this.request<Settings>("PUT", "/settings", input);
+    return this.backend.repositories.settings.updateSettings(input);
   }
 
   importConfig(input: ImportInput): Promise<ImportResult> {
-    return this.request<ImportResult>("POST", "/import", input);
-  }
-
-  private async request<T>(
-    method: Method,
-    path: string,
-    body?: unknown,
-    auth = true,
-    retried = false,
-  ): Promise<T> {
-    const headers: Record<string, string> = { Accept: "application/json" };
-    if (body !== undefined) headers["Content-Type"] = "application/json";
-    const token = this.tokens.access();
-    if (auth && token) headers.Authorization = `Bearer ${token}`;
-
-    const response = await fetch(`${this.base}${path}`, {
-      method,
-      headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(20_000),
-    });
-
-    if (response.status === 401 && auth && !retried) {
-      const refreshed = await this.tryRefresh();
-      if (refreshed) {
-        return this.request<T>(method, path, body, auth, true);
-      }
-    }
-
-    if (!response.ok) {
-      const error = await response.json().catch(() => null);
-      const code = error?.error?.code ?? "http_error";
-      const message = error?.error?.message ?? `HTTP ${response.status}`;
-      if (response.status === 401) this.tokens.clear();
-      throw new ApiError(response.status, code, message);
-    }
-
-    if (response.status === 204) return undefined as T;
-    const text = await response.text();
-    if (!text) return undefined as T;
-    return JSON.parse(text) as T;
-  }
-
-  private tryRefresh(): Promise<boolean> {
-    if (this.refreshing) return this.refreshing;
-    const refreshToken = this.tokens.refresh();
-    if (!refreshToken) return Promise.resolve(false);
-    this.refreshing = this.refresh(refreshToken)
-      .then(() => true)
-      .catch(() => {
-        this.tokens.clear();
-        return false;
-      })
-      .finally(() => {
-        this.refreshing = null;
-      });
-    return this.refreshing;
+    return this.backend.repositories.import.importConfig(input);
   }
 }

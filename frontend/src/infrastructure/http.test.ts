@@ -87,9 +87,9 @@ describe("HttpApi", () => {
     );
   });
 
-  it("refreshes on 401 and retries", async () => {
+  it("refreshes on 401 and retries api requests", async () => {
     store.set("old-access", "old-refresh");
-    const meData = { id: "u1", login: "admin" };
+    const listData = [{ id: "u1", login: "admin" }];
     const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
     fetchMock
       .mockResolvedValueOnce(mockResponse(401))
@@ -110,11 +110,11 @@ describe("HttpApi", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(mockResponse(200, meData));
+      .mockResolvedValueOnce(mockResponse(200, listData));
 
-    const result = await api.me();
+    const result = await api.listUsers();
 
-    expect(result).toEqual(meData);
+    expect(result).toEqual(listData);
     expect(store.access()).toBe("new-access");
     expect(store.refresh()).toBe("new-refresh");
     expect(fetchMock).toHaveBeenCalledTimes(3);

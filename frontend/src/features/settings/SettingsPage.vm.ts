@@ -1,6 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { api, toasts } from "@/app/container";
+import { ToastStore } from "@/app/toast";
+import { SettingsService } from "@/application/settings/service";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
 
 export type ObfuscationProfile = ObfuscationSettings["profile"];
@@ -48,6 +49,11 @@ const BROWSER_OPTIONS: Choice<ObfuscationBrowser>[] = [
 ];
 
 export class SettingsPageVM {
+  constructor(
+    private readonly settingsService: SettingsService,
+    private readonly toasts: ToastStore,
+  ) {}
+
   @reactive accessor loading = true;
   @reactive accessor loaded = false;
   @reactive accessor saving = false;
@@ -123,13 +129,13 @@ export class SettingsPageVM {
     this.loading = true;
     this.error = null;
     try {
-      const settings = await api.getSettings();
+      const settings = await this.settingsService.getSettings();
       this.apply(settings);
       this.loaded = true;
     } catch (error) {
       this.loaded = false;
       this.error = messageOf(error, "Не удалось загрузить настройки");
-      toasts.error(this.error);
+      this.toasts.error(this.error);
     } finally {
       this.loading = false;
     }
@@ -140,11 +146,11 @@ export class SettingsPageVM {
     if (!this.canSave) return;
     this.saving = true;
     try {
-      const settings = await api.updateSettings(this.buildInput());
+      const settings = await this.settingsService.updateSettings(this.buildInput());
       this.apply(settings);
-      toasts.success("Настройки сохранены");
+      this.toasts.success("Настройки сохранены");
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось сохранить настройки"));
+      this.toasts.error(messageOf(error, "Не удалось сохранить настройки"));
     } finally {
       this.saving = false;
     }

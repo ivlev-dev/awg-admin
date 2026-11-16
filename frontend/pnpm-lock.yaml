@@ -9,21 +9,21 @@ importers:
   .:
     dependencies:
       '@ivlev-dev/silent':
-        specifier: ^0.7.2
-        version: 0.7.2(vite@8.3.8(@types/node@26.6.6))
+        specifier: ^0.7.3
+        version: 0.7.3(vite@8.3.8(@types/node@26.6.6))
       '@ivlev-dev/silent-core':
-        specifier: ^0.7.2
-        version: 0.7.2
+        specifier: ^0.7.3
+        version: 0.7.3
       '@ivlev-dev/silent-di':
-        specifier: ^0.7.2
-        version: 0.7.2
+        specifier: ^0.7.3
+        version: 0.7.3
       '@ivlev-dev/silent-reactivity':
-        specifier: ^0.7.2
-        version: 0.7.2
+        specifier: ^0.7.3
+        version: 0.7.3
     devDependencies:
       '@ivlev-dev/silent-vite':
-        specifier: ^0.7.2
-        version: 0.7.2(vite@8.3.8(@types/node@26.6.6))
+        specifier: ^0.7.3
+        version: 0.7.3(vite@8.3.8(@types/node@26.6.6))
       happy-dom:
         specifier: ^20.0.0
         version: 20.14.6
@@ -48,30 +48,30 @@ packages:
   '@emnapi/wasi-threads@2.2.0':
     resolution: {integrity: sha512-JP7OYH38Q7+pyTAe14raZHLQIK7BDKbdwji+Xi3pcd/6QkJYQH3SX4wu6EplGrGJWRepoNzedfm0G3B9Z4e9Rw==}
 
-  '@ivlev-dev/silent-core@0.7.2':
-    resolution: {integrity: sha512-oAklkoVImppm6qpdtK0dJagcU+YAlvGMcb6K4fnEGI06EGFYlX1ZTqIaNwX0rqRcLygZBw4OYcx95P+ZWL8tfg==}
+  '@ivlev-dev/silent-core@0.7.3':
+    resolution: {integrity: sha512-Xi53nlnJfOS7lv0IwoGMHvyBGRPxnPS5hIpJzvr/Z24Fs3GQRKGHQwTDQdUoJIqYsh8hdGv3E/UewhOjfyg7Iw==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-di@0.7.2':
-    resolution: {integrity: sha512-q3XMgs3eqa8+ZynhFRJBQn0vhJcDqGZnUTaItUZm3ja/0ban6xxu+0vgSzZCnARM+XCCl4T9I4aOtD4LpFM+Hw==}
+  '@ivlev-dev/silent-di@0.7.3':
+    resolution: {integrity: sha512-sV3XAWS9I9ACGpo4DicMMr6fKzMOawiYQOX0Bcn3quM4+4pFCaqN6JRQjPZqUBUEZcgnhTB5EgC1OYlptk/R3A==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-reactivity@0.7.2':
-    resolution: {integrity: sha512-A9/FzngzKycg6ulgyy9VedyiOu2j2/Khx98GHBftK2/fxE6LY3JUKkMGxKelm9Hi2DIAT6eBfuigCEADa2vnsQ==}
+  '@ivlev-dev/silent-reactivity@0.7.3':
+    resolution: {integrity: sha512-If76jSWDVeX66/cdra/DCplNWh0o9qDMcHAmPWjPNzbnr8DtIuhK4dLmuiQPjZZHRJh9NH9jfJOJNKT/p0opZw==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-swc@0.7.2':
-    resolution: {integrity: sha512-Ppza6bij/hPQ4g6sWW3a4eQtGKo7jq3ZMgdX0sOBuZXOzd9f48FkCFQ0tIQRGLMWUg2Z8NDooqtyZRVOtlB1cg==}
+  '@ivlev-dev/silent-swc@0.7.3':
+    resolution: {integrity: sha512-uzVoTD/vgmBW3qqYP3ggxYeH/tNIbqXJcUTEAXS2R6FYKIdCTdWyYM6AMBqcwyfVbgOI+B3bNgRmXt2nCFrIsw==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-vite@0.7.2':
-    resolution: {integrity: sha512-wT6FsYAZvkqwQuGab3K0NSumkwy/9EzyDGwuXlGBwG6GYNNoK5LcGjqlO8BxbEPM7wfCXVMlM2I2Waoa2/qdNQ==}
+  '@ivlev-dev/silent-vite@0.7.3':
+    resolution: {integrity: sha512-oPgtal3kCi+xl2Iz53mKpfWBU0jZFmyx7+GcKFQ5XAS5Xq6bjpsQmNeB1XtQ/nWEHLZpvL0YXP3nbaYPG8j3YA==}
     engines: {node: '>=22'}
     peerDependencies:
       vite: '>=8'
 
-  '@ivlev-dev/silent@0.7.2':
-    resolution: {integrity: sha512-zBJUTxYUSkuMwZmd9p9STMkjXS0kbYKcxebv2VxnYbqfcHhpAig25PgdbCdt5jON6WHl2W2zQnLHdjn+zQ94UQ==}
+  '@ivlev-dev/silent@0.7.3':
+    resolution: {integrity: sha512-dwN/E7UEHtR49yl5zzWPDniFyFrdRZ7LJw2qu8nxCeATiV5NZ2WIxTNseLgxgfkEGu5IvwgqLraUpS8c08DATQ==}
     engines: {node: '>=22'}
     peerDependencies:
       vite: '>=8'
@@ -684,28 +684,28 @@ snapshots:
       tslib: 2.9.1
     optional: true
 
-  '@ivlev-dev/silent-core@0.7.2':
+  '@ivlev-dev/silent-core@0.7.3':
     dependencies:
-      '@ivlev-dev/silent-di': 0.7.2
-      '@ivlev-dev/silent-reactivity': 0.7.2
+      '@ivlev-dev/silent-di': 0.7.3
+      '@ivlev-dev/silent-reactivity': 0.7.3
 
-  '@ivlev-dev/silent-di@0.7.2': {}
+  '@ivlev-dev/silent-di@0.7.3': {}
 
-  '@ivlev-dev/silent-reactivity@0.7.2': {}
+  '@ivlev-dev/silent-reactivity@0.7.3': {}
 
-  '@ivlev-dev/silent-swc@0.7.2': {}
+  '@ivlev-dev/silent-swc@0.7.3': {}
 
-  '@ivlev-dev/silent-vite@0.7.2(vite@8.3.8(@types/node@26.6.6))':
+  '@ivlev-dev/silent-vite@0.7.3(vite@8.3.8(@types/node@26.6.6))':
     dependencies:
-      '@ivlev-dev/silent-swc': 0.7.2
+      '@ivlev-dev/silent-swc': 0.7.3
       vite: 8.3.8(@types/node@26.6.6)
 
-  '@ivlev-dev/silent@0.7.2(vite@8.3.8(@types/node@26.6.6))':
+  '@ivlev-dev/silent@0.7.3(vite@8.3.8(@types/node@26.6.6))':
     dependencies:
-      '@ivlev-dev/silent-core': 0.7.2
-      '@ivlev-dev/silent-di': 0.7.2
-      '@ivlev-dev/silent-reactivity': 0.7.2
-      '@ivlev-dev/silent-vite': 0.7.2(vite@8.3.8(@types/node@26.6.6))
+      '@ivlev-dev/silent-core': 0.7.3
+      '@ivlev-dev/silent-di': 0.7.3
+      '@ivlev-dev/silent-reactivity': 0.7.3
+      '@ivlev-dev/silent-vite': 0.7.3(vite@8.3.8(@types/node@26.6.6))
       vite: 8.3.8(@types/node@26.6.6)
 
   '@jridgewell/sourcemap-codec@1.6.0': {}

@@ -1,11 +1,58 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
-import { api, router, session, toasts } from "@/app/container";
-import type { DeviceStats } from "@/application/api";
+import { DevicesService } from "@/application/devices/service";
+import { GroupsService } from "@/application/groups/service";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
+import { ToastStore } from "@/app/toast";
+import type { DeviceStats } from "@/domain/devices/types";
 import { formatBytes, formatRate } from "@/domain/format";
-import type { Device, Group, PeerInfo, Profile, ShareFormat, ShareLink } from "@/domain/types";
+import type {
+  Device,
+  Forwarding,
+  Group,
+  PeerInfo,
+  Profile,
+  ShareFormat,
+  ShareLink,
+} from "@/domain/types";
+
+export type ForwardingMode = "off" | "all" | "selected";
+
+export interface ForwardingRow {
+  id: string;
+  name: string;
+  addresses: string[];
+  mode: ForwardingMode;
+  allowed: string[];
+}
+
+export interface ForwardingPair {
+  aId: string;
+  bId: string;
+  label: string;
+  allowed: boolean;
+  detail: string;
+  disabled: boolean;
+}
+
+const FORWARDING_MODES: ForwardingMode[] = ["off", "all", "selected"];
+
+const FORWARDING_MODE_LABELS: Record<ForwardingMode, string> = {
+  off: "Выключено",
+  all: "Все мои устройства",
+  selected: "Только выбранные",
+};
 
 export class ClientDetailsVM {
+  constructor(
+    private readonly devicesService: DevicesService,
+    private readonly groupsService: GroupsService,
+    private readonly session: Session,
+    private readonly router: Router,
+    private readonly toasts: ToastStore,
+  ) {}
+
   @reactive accessor device: Device | null = null;
   @reactive accessor profiles: Profile[] = [];
   @reactive accessor shares: ShareLink[] = [];
@@ -26,8 +73,11 @@ export class ClientDetailsVM {
   @reactive accessor editName = "";
   @reactive accessor editDown = "0";
   @reactive accessor editUp = "0";
-  @reactive accessor forwardingOwn = false;
-  @reactive accessor allowedIds: string[] = [];
+  @reactive accessor forwardingMode: ForwardingMode = "off";
+  @reactive accessor forwardingSelected: string[] = [];
+  @reactive accessor forwardingRows: ForwardingRow[] = [];
+  @reactive accessor forwardingSymmetric = true;
+  @reactive accessor forwardingBusy = false;
 
   created(): void {
     void this.load();
@@ -35,7 +85,7 @@ export class ClientDetailsVM {
 
   @computed
   get deviceId(): string {
-    return router.params["id"] ?? "";
+    return this.router.params["id"] ?? "";
   }
 
   @watch((vm: ClientDetailsVM) => vm.deviceId)
@@ -46,7 +96,7 @@ export class ClientDetailsVM {
 
   @computed
   get isAdmin(): boolean {
-    return session.isAdmin;
+    return this.session.isAdmin;
   }
 
   @computed
@@ -70,7 +120,7 @@ export class ClientDetailsVM {
     const device = this.device;
     if (!device || !device.group_id) return "Без группы";
     if (!this.isAdmin) {
-      return device.group_id === session.user?.group_id ? "Ваша группа" : device.group_id;
+      return device.group_id === this.session.user?.group_id ? "Ваша группа" : device.group_id;
     }
     return this.groups.find((group) => group.id === device.group_id)?.name ?? device.group_id;
   }
@@ -88,9 +138,10 @@ export class ClientDetailsVM {
   @computed
   get forwardingLabel(): string {
     const forwarding = this.device?.forwarding;
-    if (!forwarding?.to_own_devices) return "Выключено";
-    const count = forwarding.allowed_devices.length;
-    return count > 0 ? `Свои устройства · ${count}` : "Свои устройства";
+    const mode = modeOfForwarding(forwarding);
+    if (mode === "all") return "Все свои устройства";
+    if (mode === "selected") return `Выбрано ${forwarding?.allowed_devices.length ?? 0}`;
+    return "Выключено";
   }
 
   @computed
@@ -122,12 +173,84 @@ export class ClientDetailsVM {
   get otherDevices(): Device[] {
     const device = this.device;
     if (!device) return [];
-    return this.allDevices.filter((item) => item.user_id === device.user_id && item.id !== device.id);
+    return this.allDevices.filter(
+      (item) => item.user_id === device.user_id && item.id !== device.id && !item.revoked,
+    );
+  }
+
+  @computed
+  get forwardingModeOptions(): Array<{ value: ForwardingMode; label: string; hint?: string }> {
+    return FORWARDING_MODES.map((value) => ({
+      value,
+      label: FORWARDING_MODE_LABELS[value],
+      ...(value === "all" ? { hint: "Разрешает все пары сразу" } : {}),
+    }));
+  }
+
+  @computed
+  get forwardingError(): string | null {
+    if (this.forwardingMode !== "selected") return null;
+    const device = this.device;
+    if (device && this.forwardingSelected.includes(device.id)) {
+      return "Нельзя выбрать само устройство";
+    }
+    if (this.forwardingSelected.length === 0) {
+      return "Выберите хотя бы одно устройство или другой режим";
+    }
+    return null;
+  }
+
+  @computed
+  get forwardingBulk(): boolean {
+    return this.forwardingRows.some((row) => row.mode === "all");
+  }
+
+  @computed
+  get forwardingMatrixReady(): boolean {
+    return this.forwardingRows.length > 1;
+  }
+
+  @computed
+  get forwardingPairs(): ForwardingPair[] {
+    const rows = this.forwardingRows;
+    const pairs: ForwardingPair[] = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const a = rows[i];
+      if (!a) continue;
+      for (let j = i + 1; j < rows.length; j += 1) {
+        const b = rows[j];
+        if (!b) continue;
+        const forward = this.rowAllows(a, b.id);
+        const backward = this.rowAllows(b, a.id);
+        const label = `${a.name} ↔ ${b.name}`;
+        const detail = forward && backward
+          ? "разрешено"
+          : forward
+            ? `только ${a.name} → ${b.name}`
+            : backward
+              ? `только ${b.name} → ${a.name}`
+              : "запрещено";
+        pairs.push({
+          aId: a.id,
+          bId: b.id,
+          label,
+          allowed: forward && backward,
+          detail,
+          disabled: this.forwardingBusy || a.mode === "all" || b.mode === "all",
+        });
+      }
+    }
+    return pairs;
   }
 
   @computed
   get canSave(): boolean {
-    return this.device !== null && this.editName.trim().length > 0 && !this.saving;
+    return (
+      this.device !== null &&
+      this.editName.trim().length > 0 &&
+      !this.saving &&
+      this.forwardingError === null
+    );
   }
 
   @computed
@@ -165,16 +288,19 @@ export class ClientDetailsVM {
     this.shares = [];
     this.stats = null;
     this.allDevices = [];
+    this.forwardingRows = [];
     this.groups = [];
     this.activeProfileId = "";
     this.shareInterfaceId = "";
     try {
-      const groupsPromise: Promise<Group[]> = this.isAdmin ? api.listGroups() : Promise.resolve([]);
-      const devicePromise: Promise<Device> = api.getDevice(id);
-      const profilesPromise: Promise<Profile[]> = api.listProfiles(id);
-      const sharesPromise: Promise<ShareLink[]> = api.listShares(id);
-      const statsPromise: Promise<DeviceStats> = api.deviceStats(id);
-      const devicesPromise: Promise<Device[]> = api.listDevices();
+      const groupsPromise: Promise<Group[]> = this.isAdmin
+        ? this.groupsService.listGroups()
+        : Promise.resolve([]);
+      const devicePromise: Promise<Device> = this.devicesService.getDevice(id);
+      const profilesPromise: Promise<Profile[]> = this.devicesService.listProfiles(id);
+      const sharesPromise: Promise<ShareLink[]> = this.devicesService.listShares(id);
+      const statsPromise: Promise<DeviceStats> = this.devicesService.deviceStats(id);
+      const devicesPromise: Promise<Device[]> = this.devicesService.listDevices();
       const [device, profiles, shares, stats, devices, groups] = await Promise.all([
         devicePromise,
         profilesPromise,
@@ -189,6 +315,7 @@ export class ClientDetailsVM {
       this.stats = stats;
       this.allDevices = devices;
       this.groups = groups;
+      this.buildForwardingRows(device);
       this.hydrateForm(device);
       if (!profiles.some((profile) => profile.interface_id === this.activeProfileId)) {
         this.activeProfileId = profiles[0]?.interface_id ?? "";
@@ -199,7 +326,7 @@ export class ClientDetailsVM {
     } catch (error) {
       const message = messageOf(error, "Не удалось загрузить устройство");
       this.error = message;
-      toasts.error(message);
+      this.toasts.error(message);
     } finally {
       this.loading = false;
     }
@@ -217,18 +344,120 @@ export class ClientDetailsVM {
     this.editUp = (event.target as HTMLInputElement).value;
   }
 
-  setForwarding(event: Event): void {
-    this.forwardingOwn = (event.target as HTMLInputElement).checked;
+  setForwardingMode(value: string): void {
+    this.forwardingMode = parseForwardingMode(value);
   }
 
-  isAllowed(id: string): boolean {
-    return this.allowedIds.includes(id);
+  setForwardingSymmetric(event: Event): void {
+    this.forwardingSymmetric = (event.target as HTMLInputElement).checked;
   }
 
-  toggleAllowed(id: string): void {
-    this.allowedIds = this.allowedIds.includes(id)
-      ? this.allowedIds.filter((item) => item !== id)
-      : [...this.allowedIds, id];
+  isForwardingSelected(id: string): boolean {
+    return this.forwardingSelected.includes(id);
+  }
+
+  toggleForwardingSelected(id: string): void {
+    if (this.device?.id === id) return;
+    this.forwardingSelected = this.forwardingSelected.includes(id)
+      ? this.forwardingSelected.filter((item) => item !== id)
+      : [...this.forwardingSelected, id];
+  }
+
+  isForwardingCellChecked(rowId: string, targetId: string): boolean {
+    const row = this.findRow(rowId);
+    return row ? this.rowAllows(row, targetId) : false;
+  }
+
+  isForwardingCellDisabled(rowId: string, targetId: string): boolean {
+    if (this.forwardingBusy || rowId === targetId) return true;
+    const row = this.findRow(rowId);
+    return !row || row.mode !== "selected";
+  }
+
+  forwardingPairTitle(rowId: string, targetId: string): string {
+    const row = this.findRow(rowId);
+    const target = this.findRow(targetId);
+    if (!row || !target || row.id === target.id) return "";
+    const pair = this.forwardingSymmetric
+      ? `${row.name} ↔ ${target.name}`
+      : `${row.name} → ${target.name}`;
+    return `${pair}: ${this.rowAllows(row, target.id) ? "разрешено" : "запрещено"}`;
+  }
+
+  async setForwardingRowMode(rowId: string, value: string): Promise<void> {
+    if (this.forwardingBusy) return;
+    const row = this.findRow(rowId);
+    const mode = parseForwardingMode(value);
+    if (!row || row.mode === mode) return;
+    const snapshot = this.snapshotRows();
+    const next: ForwardingRow =
+      mode === "off"
+        ? { ...row, mode, allowed: [] }
+        : { ...row, mode };
+    this.replaceRow(next);
+    if (mode === "selected" && next.allowed.length === 0) return;
+    await this.persistRows(
+      [{ rowId: next.id, forwarding: forwardingPayload(next.mode, next.allowed) }],
+      snapshot,
+    );
+  }
+
+  async toggleForwardingCell(rowId: string, targetId: string): Promise<void> {
+    if (this.forwardingBusy || rowId === targetId) return;
+    const row = this.findRow(rowId);
+    const target = this.findRow(targetId);
+    if (!row || !target || row.mode !== "selected") return;
+    const snapshot = this.snapshotRows();
+    const grant = !row.allowed.includes(targetId);
+    const nextRow = this.rowWithAllowed(row, grant ? [...row.allowed, targetId] : row.allowed.filter((id) => id !== targetId));
+    this.replaceRow(nextRow);
+    const changes: Array<{ rowId: string; forwarding: Forwarding }> = [
+      { rowId: nextRow.id, forwarding: forwardingPayload(nextRow.mode, nextRow.allowed) },
+    ];
+    if (this.forwardingSymmetric && target.mode !== "all") {
+      const mirrorAllowed = grant
+        ? [...target.allowed, rowId]
+        : target.allowed.filter((id) => id !== rowId);
+      if (target.mode === "selected" || grant) {
+        const nextTarget = this.rowWithAllowed(target, mirrorAllowed);
+        this.replaceRow(nextTarget);
+        changes.push({
+          rowId: nextTarget.id,
+          forwarding: forwardingPayload(nextTarget.mode, nextTarget.allowed),
+        });
+      }
+    }
+    await this.persistRows(changes, snapshot);
+  }
+
+  async toggleForwardingPair(aId: string, bId: string): Promise<void> {
+    if (this.forwardingBusy || aId === bId) return;
+    const a = this.findRow(aId);
+    const b = this.findRow(bId);
+    if (!a || !b) return;
+    if (a.mode === "all" || b.mode === "all") {
+      this.toasts.error("Отключите режим «Все мои устройства», чтобы настроить пару точечно");
+      return;
+    }
+    const snapshot = this.snapshotRows();
+    const bothAllowed = this.rowAllows(a, bId) && this.rowAllows(b, aId);
+    const nextA = this.rowWithAllowed(
+      a,
+      bothAllowed ? a.allowed.filter((id) => id !== bId) : [...a.allowed, bId],
+    );
+    const nextB = this.rowWithAllowed(
+      b,
+      bothAllowed ? b.allowed.filter((id) => id !== aId) : [...b.allowed, aId],
+    );
+    this.replaceRow(nextA);
+    this.replaceRow(nextB);
+    await this.persistRows(
+      [
+        { rowId: nextA.id, forwarding: forwardingPayload(nextA.mode, nextA.allowed) },
+        { rowId: nextB.id, forwarding: forwardingPayload(nextB.mode, nextB.allowed) },
+      ],
+      snapshot,
+    );
   }
 
   selectProfile(interfaceId: string): void {
@@ -253,25 +482,26 @@ export class ClientDetailsVM {
     if (!device || !this.canSave) return;
     const name = this.editName.trim();
     if (!name) {
-      toasts.error("Имя устройства не может быть пустым");
+      this.toasts.error("Имя устройства не может быть пустым");
       return;
     }
     this.saving = true;
     try {
-      const updated = await api.updateDevice(device.id, {
+      const updated = await this.devicesService.updateDevice(device.id, {
         name,
         down_kbps: parseKbps(this.editDown),
         up_kbps: parseKbps(this.editUp),
-        forwarding: {
-          to_own_devices: this.forwardingOwn,
-          allowed_devices: [...this.allowedIds],
-        },
+        forwarding: forwardingPayload(
+          this.forwardingMode,
+          this.orderedAllowed(this.forwardingSelected),
+        ),
       });
       this.device = updated;
+      this.applyRowFromDevice(updated);
       this.hydrateForm(updated);
-      toasts.success("Настройки сохранены");
+      this.toasts.success("Настройки сохранены");
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось сохранить настройки"));
+      this.toasts.error(messageOf(error, "Не удалось сохранить настройки"));
     } finally {
       this.saving = false;
     }
@@ -283,11 +513,11 @@ export class ClientDetailsVM {
     if (!window.confirm(`Отозвать устройство «${device.name}»?`)) return;
     this.actionBusy = true;
     try {
-      await api.updateDevice(device.id, { revoked: true });
-      toasts.success("Устройство отозвано");
+      await this.devicesService.updateDevice(device.id, { revoked: true });
+      this.toasts.success("Устройство отозвано");
       this.back();
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось отозвать устройство"));
+      this.toasts.error(messageOf(error, "Не удалось отозвать устройство"));
     } finally {
       this.actionBusy = false;
     }
@@ -299,11 +529,11 @@ export class ClientDetailsVM {
     if (!window.confirm(`Удалить устройство «${device.name}»? Действие необратимо.`)) return;
     this.actionBusy = true;
     try {
-      await api.deleteDevice(device.id);
-      toasts.success("Устройство удалено");
+      await this.devicesService.deleteDevice(device.id);
+      this.toasts.success("Устройство удалено");
       this.back();
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось удалить устройство"));
+      this.toasts.error(messageOf(error, "Не удалось удалить устройство"));
     } finally {
       this.actionBusy = false;
     }
@@ -314,16 +544,15 @@ export class ClientDetailsVM {
     if (!device || !this.canCreateShare) return;
     this.shareBusy = true;
     try {
-      const share = await api.createShare(
-        device.id,
-        this.shareInterfaceId,
-        this.shareFormat,
-        this.shareTtl,
-      );
+      const share = await this.devicesService.createShare(device.id, {
+        interfaceId: this.shareInterfaceId,
+        format: this.shareFormat,
+        ttlSecs: this.shareTtl,
+      });
       this.shares = [share, ...this.shares];
-      toasts.success("Временная ссылка создана");
+      this.toasts.success("Временная ссылка создана");
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось создать ссылку"));
+      this.toasts.error(messageOf(error, "Не удалось создать ссылку"));
     } finally {
       this.shareBusy = false;
     }
@@ -333,11 +562,11 @@ export class ClientDetailsVM {
     if (this.shareBusy) return;
     this.shareBusy = true;
     try {
-      await api.revokeShare(token);
+      await this.devicesService.revokeShare(token);
       this.shares = this.shares.filter((share) => share.token !== token);
-      toasts.success("Ссылка отозвана");
+      this.toasts.success("Ссылка отозвана");
     } catch (error) {
-      toasts.error(messageOf(error, "Не удалось отозвать ссылку"));
+      this.toasts.error(messageOf(error, "Не удалось отозвать ссылку"));
     } finally {
       this.shareBusy = false;
     }
@@ -345,14 +574,14 @@ export class ClientDetailsVM {
 
   async copyText(value: string, label: string): Promise<void> {
     if (!value) {
-      toasts.error("Нечего копировать");
+      this.toasts.error("Нечего копировать");
       return;
     }
     try {
       await navigator.clipboard.writeText(value);
-      toasts.success(`Скопировано: ${label.toLowerCase()}`);
+      this.toasts.success(`Скопировано: ${label.toLowerCase()}`);
     } catch {
-      toasts.error("Не удалось скопировать в буфер обмена");
+      this.toasts.error("Не удалось скопировать в буфер обмена");
     }
   }
 
@@ -381,7 +610,7 @@ export class ClientDetailsVM {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    toasts.success("Файл профиля скачан");
+    this.toasts.success("Файл профиля скачан");
   }
 
   interfaceName(interfaceId: string): string {
@@ -389,16 +618,145 @@ export class ClientDetailsVM {
   }
 
   back(): void {
-    router.navigate("/clients");
+    this.router.navigate("/clients");
   }
 
   private hydrateForm(device: Device): void {
     this.editName = device.name;
     this.editDown = String(device.down_kbps);
     this.editUp = String(device.up_kbps);
-    this.forwardingOwn = device.forwarding?.to_own_devices ?? false;
-    this.allowedIds = [...(device.forwarding?.allowed_devices ?? [])];
+    this.forwardingMode = modeOfForwarding(device.forwarding);
+    this.forwardingSelected =
+      this.forwardingMode === "selected" ? [...device.forwarding.allowed_devices] : [];
   }
+
+  private buildForwardingRows(device: Device): void {
+    this.forwardingRows = this.allDevices
+      .filter((item) => item.user_id === device.user_id && !item.revoked)
+      .map((item) => {
+        const mode = modeOfForwarding(item.forwarding);
+        return {
+          id: item.id,
+          name: item.name,
+          addresses: [...item.addresses],
+          mode,
+          allowed: mode === "selected" ? this.orderedAllowed(item.forwarding.allowed_devices) : [],
+        };
+      });
+  }
+
+  private findRow(rowId: string): ForwardingRow | undefined {
+    return this.forwardingRows.find((row) => row.id === rowId);
+  }
+
+  private rowAllows(row: ForwardingRow, targetId: string): boolean {
+    if (row.id === targetId) return false;
+    if (row.mode === "all") return true;
+    return row.mode === "selected" && row.allowed.includes(targetId);
+  }
+
+  private rowWithAllowed(row: ForwardingRow, allowed: string[]): ForwardingRow {
+    const unique = this.orderedAllowed(Array.from(new Set(allowed)));
+    return { ...row, allowed: unique, mode: unique.length > 0 ? "selected" : "off" };
+  }
+
+  private orderedAllowed(ids: string[]): string[] {
+    const order = new Map(this.forwardingRows.map((row, index) => [row.id, index]));
+    return [...ids].sort(
+      (a, b) => (order.get(a) ?? Number.MAX_SAFE_INTEGER) - (order.get(b) ?? Number.MAX_SAFE_INTEGER),
+    );
+  }
+
+  private snapshotRows(): ForwardingRow[] {
+    return this.forwardingRows.map((row) => ({ ...row, addresses: [...row.addresses], allowed: [...row.allowed] }));
+  }
+
+  private replaceRow(next: ForwardingRow): void {
+    this.forwardingRows = this.forwardingRows.map((row) => (row.id === next.id ? next : row));
+    if (this.device?.id === next.id) this.syncFormForwarding();
+  }
+
+  private applyRowFromDevice(device: Device): void {
+    const mode = modeOfForwarding(device.forwarding);
+    const exists = this.forwardingRows.some((row) => row.id === device.id);
+    if (!exists) return;
+    this.forwardingRows = this.forwardingRows.map((row) =>
+      row.id === device.id
+        ? {
+            id: row.id,
+            name: device.name,
+            addresses: [...device.addresses],
+            mode,
+            allowed: mode === "selected" ? this.orderedAllowed(device.forwarding.allowed_devices) : [],
+          }
+        : row,
+    );
+    if (this.device?.id === device.id) {
+      this.device = { ...this.device, name: device.name, forwarding: device.forwarding };
+      this.syncFormForwarding();
+    }
+  }
+
+  private syncFormForwarding(): void {
+    const device = this.device;
+    if (!device) return;
+    const row = this.findRow(device.id);
+    if (!row) return;
+    this.forwardingMode = row.mode;
+    this.forwardingSelected = [...row.allowed];
+  }
+
+  private async persistRows(
+    changes: Array<{ rowId: string; forwarding: Forwarding }>,
+    snapshot: ForwardingRow[],
+  ): Promise<void> {
+    if (changes.length === 0) return;
+    this.forwardingBusy = true;
+    try {
+      for (let index = 0; index < changes.length; index += 1) {
+        const change = changes[index];
+        if (!change) continue;
+        try {
+          const updated = await this.devicesService.updateDevice(change.rowId, {
+            forwarding: change.forwarding,
+          });
+          this.applyRowFromDevice(updated);
+        } catch (error) {
+          const failed = changes.slice(index).map((item) => item.rowId);
+          this.restoreRows(snapshot, failed);
+          this.toasts.error(messageOf(error, "Не удалось сохранить forwarding"));
+          return;
+        }
+      }
+    } finally {
+      this.forwardingBusy = false;
+    }
+  }
+
+  private restoreRows(snapshot: ForwardingRow[], rowIds: string[]): void {
+    this.forwardingRows = this.forwardingRows.map((row) => {
+      if (!rowIds.includes(row.id)) return row;
+      const previous = snapshot.find((item) => item.id === row.id);
+      return previous ? { ...previous, addresses: [...previous.addresses], allowed: [...previous.allowed] } : row;
+    });
+    if (this.device && rowIds.includes(this.device.id)) this.syncFormForwarding();
+  }
+}
+
+function modeOfForwarding(forwarding: Forwarding | null | undefined): ForwardingMode {
+  if (!forwarding) return "off";
+  if (forwarding.to_own_devices) return "all";
+  return forwarding.allowed_devices.length > 0 ? "selected" : "off";
+}
+
+function forwardingPayload(mode: ForwardingMode, allowed: string[]): Forwarding {
+  if (mode === "all") return { to_own_devices: true, allowed_devices: [] };
+  if (mode === "selected") return { to_own_devices: false, allowed_devices: [...allowed] };
+  return { to_own_devices: false, allowed_devices: [] };
+}
+
+function parseForwardingMode(value: string): ForwardingMode {
+  return value === "all" || value === "selected" ? value : "off";
 }
 
 function messageOf(error: unknown, fallback: string): string {

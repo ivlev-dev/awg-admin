@@ -1,26 +1,32 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import { router, session } from "@/app/container";
+import { Router } from "@/app/router";
+import { Session } from "@/app/session";
 
 export class LoginVM {
+  constructor(
+    private readonly session: Session,
+    private readonly router: Router,
+  ) {}
+
   @reactive accessor login = "";
   @reactive accessor password = "";
   @reactive accessor showPassword = false;
 
   created(): void {
-    if (session.authenticated) {
-      router.replace("/");
+    if (this.session.authenticated) {
+      this.router.replace("/");
     }
   }
 
   @computed
   get busy(): boolean {
-    return session.busy;
+    return this.session.busy;
   }
 
   @computed
   get error(): string | null {
-    return session.error;
+    return this.session.error;
   }
 
   @computed
@@ -43,9 +49,9 @@ export class LoginVM {
   async submit(event: Event): Promise<void> {
     event.preventDefault();
     if (!this.canSubmit) return;
-    const success = await session.login(this.login.trim(), this.password);
+    const success = await this.session.login(this.login.trim(), this.password);
     if (success) {
-      router.replace("/");
+      this.router.replace("/");
     }
   }
 }

@@ -220,42 +220,67 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
 
                     <hr class="divider" />
 
-                    <label class="checkbox">
-                      <input
-                        type="checkbox"
-                        checked={this.vm.forwardingOwn}
-                        onChange={(event: Event) => this.vm.setForwarding(event)}
-                      />
-                      <span>Разрешить трафик между своими устройствами</span>
-                    </label>
+                    <div class="stack-sm">
+                      <div class="xs muted">Forwarding с этого устройства</div>
+                      <div class="stack-sm" role="radiogroup" aria-label="Режим forwarding">
+                        <For each={this.vm.forwardingModeOptions}>
+                          {(option) => (
+                            <label class="radio">
+                              <input
+                                type="radio"
+                                name="forwarding-mode"
+                                value={option.value}
+                                checked={this.vm.forwardingMode === option.value}
+                                onChange={() => this.vm.setForwardingMode(option.value)}
+                              />
+                              <span>
+                                {option.label}
+                                <Show when={option.hint}>
+                                  <span class="xs muted" style="margin-left:8px">{option.hint}</span>
+                                </Show>
+                              </span>
+                            </label>
+                          )}
+                        </For>
+                      </div>
 
-                    <Show when={this.vm.forwardingOwn}>
-                      <Show
-                        when={this.vm.otherDevices.length > 0}
-                        fallback={<div class="small muted">Других устройств у пользователя нет.</div>}
-                      >
-                        <div class="stack-sm">
-                          <div class="xs muted">Разрешённые устройства</div>
-                          <For each={this.vm.otherDevices}>
-                            {(device) => (
-                              <label class="checkbox">
-                                <input
-                                  type="checkbox"
-                                  checked={this.vm.isAllowed(device.id)}
-                                  onChange={() => this.vm.toggleAllowed(device.id)}
-                                />
-                                <span>
-                                  {device.name}
-                                  <span class="xs mono muted" style="margin-left:8px">
-                                    {device.addresses.join(", ")}
-                                  </span>
-                                </span>
-                              </label>
-                            )}
-                          </For>
+                      <Show when={this.vm.forwardingMode === "all"}>
+                        <div class="alert alert--info">
+                          Разрешает трафик на все ваши устройства — сразу все пары.
                         </div>
                       </Show>
-                    </Show>
+
+                      <Show when={this.vm.forwardingMode === "selected"}>
+                        <div class="stack-sm">
+                          <div class="xs muted">С этого устройства → на выбранные</div>
+                          <Show
+                            when={this.vm.otherDevices.length > 0}
+                            fallback={<div class="small muted">Других активных устройств у пользователя нет.</div>}
+                          >
+                            <For each={this.vm.otherDevices}>
+                              {(device) => (
+                                <label class="checkbox">
+                                  <input
+                                    type="checkbox"
+                                    checked={this.vm.isForwardingSelected(device.id)}
+                                    onChange={() => this.vm.toggleForwardingSelected(device.id)}
+                                  />
+                                  <span>
+                                    {device.name}
+                                    <span class="xs mono muted" style="margin-left:8px">
+                                      {device.addresses.join(", ")}
+                                    </span>
+                                  </span>
+                                </label>
+                              )}
+                            </For>
+                          </Show>
+                          <Show when={this.vm.forwardingError}>
+                            <div class="alert alert--error">{this.vm.forwardingError}</div>
+                          </Show>
+                        </div>
+                      </Show>
+                    </div>
 
                     <button
                       class="btn btn--primary"
@@ -271,6 +296,136 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                   </div>
                 </section>
               </div>
+
+              <section class="card">
+                <div class="card__head">
+                  <div>
+                    <div class="card__title">Матрица forwarding</div>
+                    <div class="card__sub">
+                      Строка разрешает трафик на столбец. Каждая пара настраивается независимо.
+                    </div>
+                  </div>
+                  <label class="switch">
+                    <input
+                      type="checkbox"
+                      checked={this.vm.forwardingSymmetric}
+                      onChange={(event: Event) => this.vm.setForwardingSymmetric(event)}
+                    />
+                    <span class="track"></span>
+                    <span>Симметрично</span>
+                  </label>
+                </div>
+                <div class="card__body stack">
+                  <Show
+                    when={this.vm.forwardingMatrixReady}
+                    fallback={
+                      <div class="small muted">
+                        Нужно минимум два активных устройства у пользователя.
+                      </div>
+                    }
+                  >
+                    <Show when={this.vm.forwardingBulk}>
+                      <div class="alert alert--info">
+                        Строки в режиме «Все мои устройства» разрешают все пары сразу — точечные
+                        отметки для них недоступны.
+                      </div>
+                    </Show>
+
+                    <Show when={this.vm.forwardingBusy}>
+                      <div class="row xs muted" style="gap:8px;align-items:center">
+                        <span class="spinner" style="width:14px;height:14px"></span>
+                        <span>Сохраняем forwarding…</span>
+                      </div>
+                    </Show>
+
+                    <div class="table-wrap">
+                      <table class="table matrix-table">
+                        <thead>
+                          <tr>
+                            <th>Источник</th>
+                            <For each={this.vm.forwardingRows}>
+                              {(column) => (
+                                <th title={column.addresses.join(", ")}>{column.name}</th>
+                              )}
+                            </For>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={this.vm.forwardingRows}>
+                            {(row) => (
+                              <tr>
+                                <td>
+                                  <div class="stack-sm">
+                                    <span class="small strong">{row.name}</span>
+                                    <select
+                                      class="select matrix-mode"
+                                      aria-label={`Режим forwarding для ${row.name}`}
+                                      onChange={(event: Event) => {
+                                        void this.vm.setForwardingRowMode(
+                                          row.id,
+                                          (event.target as HTMLSelectElement).value,
+                                        );
+                                      }}
+                                    >
+                                      <For each={this.vm.forwardingModeOptions}>
+                                        {(option) => (
+                                          <option value={option.value} selected={option.value === row.mode}>
+                                            {option.label}
+                                          </option>
+                                        )}
+                                      </For>
+                                    </select>
+                                    <span class="xs mono muted">{row.addresses.join(", ")}</span>
+                                  </div>
+                                </td>
+                                <For each={this.vm.forwardingRows}>
+                                  {(column) => (
+                                    <td class="matrix-cell">
+                                      <Show when={row.id !== column.id} fallback={<span class="xs muted">—</span>}>
+                                        <input
+                                          type="checkbox"
+                                          checked={this.vm.isForwardingCellChecked(row.id, column.id)}
+                                          disabled={this.vm.isForwardingCellDisabled(row.id, column.id)}
+                                          title={this.vm.forwardingPairTitle(row.id, column.id)}
+                                          aria-label={this.vm.forwardingPairTitle(row.id, column.id)}
+                                          onChange={() => {
+                                            void this.vm.toggleForwardingCell(row.id, column.id);
+                                          }}
+                                        />
+                                      </Show>
+                                    </td>
+                                  )}
+                                </For>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div class="forwarding-pairs">
+                      <div class="xs muted">Пары устройств</div>
+                      <For each={this.vm.forwardingPairs}>
+                        {(pair) => (
+                          <label class="checkbox">
+                            <input
+                              type="checkbox"
+                              checked={pair.allowed}
+                              disabled={pair.disabled}
+                              onChange={() => {
+                                void this.vm.toggleForwardingPair(pair.aId, pair.bId);
+                              }}
+                            />
+                            <span>
+                              {pair.label} — {pair.detail}
+                            </span>
+                          </label>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                </div>
+              </section>
 
               <section class="card">
                 <div class="card__head">

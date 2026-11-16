@@ -11,10 +11,6 @@ function buildPath(values: number[], width: number, height: number, padding = 2)
     .join(" ");
 }
 
-function svgBackground(svg: string): string {
-  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
-}
-
 export function Sparkline(props: {
   values: number[];
   width?: number;
@@ -27,12 +23,26 @@ export function Sparkline(props: {
   const stroke = props.stroke ?? "var(--accent)";
   const line = buildPath(props.values, width, height);
   const area = props.fill && line ? `${line} L${width - 2},${height - 2} L2,${height - 2} Z` : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}"><path d="${line}" fill="none" stroke="${stroke}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>${area ? `<path d="${area}" fill="${stroke}" opacity="0.14"/>` : ""}</svg>`;
+
   return (
-    <span
-      style={`display:block;width:${width}px;height:${height}px;background:${svgBackground(svg)} center / 100% 100% no-repeat`}
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      width={width}
+      height={height}
+      fill="none"
       aria-hidden="true"
-    ></span>
+      style="display:block"
+    >
+      <path
+        d={line}
+        fill="none"
+        stroke={stroke}
+        stroke-width="1.8"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      />
+      <path d={area} fill={stroke} opacity="0.14" />
+    </svg>
   );
 }
 
@@ -61,28 +71,68 @@ export function AreaChart(props: { data: ChartDatum[]; height?: number; showTx?:
       .join(" ");
   const rxPath = toPath(rx);
   const txPath = toPath(tx);
-  const grid = [0.25, 0.5, 0.75]
-    .map((ratio) => {
-      const y = pad + (height - pad * 2) * ratio;
-      return `<line x1="${pad}" x2="${width - pad}" y1="${y}" y2="${y}" stroke="var(--border)" stroke-width="1" stroke-dasharray="4 6"/>`;
-    })
-    .join("");
-  const area =
-    props.data.length > 1 && rxPath
-      ? `<path d="${rxPath} L${width - pad},${height - pad} L${pad},${height - pad} Z" fill="var(--accent)" opacity="0.16"/>`
-      : "";
-  const lines =
-    props.data.length > 1
-      ? `<path d="${rxPath}" fill="none" stroke="var(--accent)" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>${props.showTx === false ? "" : `<path d="${txPath}" fill="none" stroke="var(--brand-3)" stroke-width="1.8" stroke-dasharray="5 5" stroke-linecap="round"/>`}`
-      : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">${grid}${area}${lines}</svg>`;
+  const gridY = (ratio: number) => pad + (height - pad * 2) * ratio;
+  const hasSeries = props.data.length > 1;
+  const rxLine = hasSeries ? rxPath : "";
+  const txLine = hasSeries && props.showTx !== false ? txPath : "";
+  const area = hasSeries && rxPath ? `${rxPath} L${width - pad},${height - pad} L${pad},${height - pad} Z` : "";
 
   return (
-    <div
-      role="img"
-      aria-label="График трафика"
-      style={`width:100%;height:${height}px;background:${svgBackground(svg)} center / 100% 100% no-repeat`}
-    ></div>
+    <div role="img" aria-label="График трафика" style={`width:100%;height:${height}px`}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        width="100%"
+        height={height}
+        preserveAspectRatio="none"
+        fill="none"
+        style="display:block"
+      >
+        <line
+          x1={pad}
+          x2={width - pad}
+          y1={gridY(0.25)}
+          y2={gridY(0.25)}
+          stroke="var(--border)"
+          stroke-width="1"
+          stroke-dasharray="4 6"
+        />
+        <line
+          x1={pad}
+          x2={width - pad}
+          y1={gridY(0.5)}
+          y2={gridY(0.5)}
+          stroke="var(--border)"
+          stroke-width="1"
+          stroke-dasharray="4 6"
+        />
+        <line
+          x1={pad}
+          x2={width - pad}
+          y1={gridY(0.75)}
+          y2={gridY(0.75)}
+          stroke="var(--border)"
+          stroke-width="1"
+          stroke-dasharray="4 6"
+        />
+        <path d={area} fill="var(--accent)" opacity="0.16" />
+        <path
+          d={rxLine}
+          fill="none"
+          stroke="var(--accent)"
+          stroke-width="2.2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <path
+          d={txLine}
+          fill="none"
+          stroke="var(--brand-3)"
+          stroke-width="1.8"
+          stroke-dasharray="5 5"
+          stroke-linecap="round"
+        />
+      </svg>
+    </div>
   );
 }
 
