@@ -52,6 +52,7 @@ pub async fn middleware(
         ip,
         details: Some(format!("{method} {path}")),
     });
+    crate::metrics::record_audit(method.as_str(), response.status().as_u16());
     if let Err(error) = state.audit.record(entry) {
         tracing::warn!(%error, "failed to record audit entry");
     }
@@ -80,6 +81,7 @@ pub fn record_login(
         ip,
         details,
     });
+    crate::metrics::record_audit(Method::POST.as_str(), status);
     if let Err(error) = state.audit.record(entry) {
         tracing::warn!(%error, "failed to record audit entry");
     }

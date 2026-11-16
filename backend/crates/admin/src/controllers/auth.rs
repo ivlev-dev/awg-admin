@@ -24,6 +24,8 @@ pub async fn login(
     let ip = client_ip(&headers, Some(peer));
     let key = rate_key(ip.as_deref(), &request.login);
     if let Err(retry_after) = state.login_limiter.check(&key) {
+        crate::metrics::record_rate_limited("login");
+        crate::metrics::record_login("rate_limited");
         record_login(
             &state,
             ip,
@@ -45,6 +47,7 @@ pub async fn login(
         Ok(session) => session,
         Err(error) => {
             let api_error = ApiError::from(error);
+            crate::metrics::record_login("failure");
             record_login(
                 &state,
                 ip,
@@ -57,6 +60,7 @@ pub async fn login(
         }
     };
     state.login_limiter.reset(&key);
+    crate::metrics::record_login("success");
     record_login(
         &state,
         ip,
@@ -82,6 +86,7 @@ pub async fn refresh(
     let ip = client_ip(&headers, Some(peer));
     let key = format!("refresh:{}", ip.unwrap_or_else(|| "unknown".into()));
     if let Err(retry_after) = state.refresh_limiter.check(&key) {
+        crate::metrics::record_rate_limited("refresh");
         return Err(ApiError::TooManyRequests {
             message: "too many refresh attempts, try again later".into(),
             retry_after,

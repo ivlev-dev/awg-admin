@@ -5,6 +5,7 @@ pub mod groups;
 pub mod import;
 pub mod interfaces;
 pub mod nodes;
+pub mod quota;
 pub mod settings;
 pub mod share;
 pub mod stats;

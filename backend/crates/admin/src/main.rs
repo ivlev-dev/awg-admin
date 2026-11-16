@@ -5,6 +5,8 @@ mod controllers;
 mod directory;
 mod error;
 mod grpc;
+mod logging;
+mod metrics;
 mod models;
 mod rate_limit;
 mod routes;
@@ -36,7 +38,6 @@ use awg_statistics::{RedbStatsRepository, StatsHub, StatsService};
 use awg_storage::Store;
 use awg_tariffs::{RedbTariffRepository, TariffService};
 use tokio::net::TcpListener;
-use tracing_subscriber::EnvFilter;
 
 use crate::config::Config;
 use crate::directory::{DevicesAdapter, NodesAdapter};
@@ -48,11 +49,8 @@ use crate::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .init();
+    let log_format = logging::LogFormat::from_env()?;
+    logging::init(log_format);
 
     let config = Arc::new(Config::from_env()?);
     if let Some(parent) = std::path::Path::new(&config.db_path).parent() {
@@ -279,6 +277,7 @@ async fn main() -> Result<()> {
         bind = %config.bind,
         env = config.environment.as_str(),
         production = config.is_production(),
+        log_format = log_format.as_str(),
         "admin API listening (h2c + http/1.1)"
     );
     axum::serve(

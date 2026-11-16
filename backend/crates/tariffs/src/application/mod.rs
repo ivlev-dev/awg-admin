@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
 
-use crate::domain::{Tariff, TariffRepository};
+use crate::domain::{QuotaState, Tariff, TariffRepository};
 
 #[derive(Debug, Clone)]
 pub struct NewTariff {
@@ -104,6 +104,20 @@ impl TariffService {
 
     pub fn delete(&self, id: Uuid) -> CoreResult<()> {
         self.repo.delete(id)
+    }
+
+    pub fn quota_state_for(
+        &self,
+        tariff_id: Option<Uuid>,
+        used_bytes: u64,
+    ) -> CoreResult<QuotaState> {
+        let Some(tariff_id) = tariff_id else {
+            return Ok(QuotaState::unlimited(used_bytes));
+        };
+        Ok(match self.repo.find(tariff_id)? {
+            Some(tariff) => tariff.quota_state(used_bytes),
+            None => QuotaState::unlimited(used_bytes),
+        })
     }
 }
 

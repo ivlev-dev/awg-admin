@@ -110,6 +110,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/stats/overview", get(controllers::stats::overview))
         .route("/stats/series", get(controllers::stats::series))
+        .route("/quota", get(controllers::quota::current))
+        .route("/quota/users", get(controllers::quota::users))
         .route(
             "/settings",
             get(controllers::settings::get).put(controllers::settings::update),
@@ -118,12 +120,12 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/import", post(controllers::import::run))
         .route("/ws/stats", get(ws::stats_ws))
         .route("/share/{token}", get(controllers::share::download))
-        .layer(DefaultBodyLimit::max(16 * 1024 * 1024))
-        .with_state(state.clone());
+        .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
 
     let cors = build_cors(&state.config.cors_origins);
 
     Router::new()
+        .route(crate::metrics::METRICS_PATH, get(crate::metrics::scrape))
         .nest("/api/v1", api)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -131,6 +133,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         ))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
+        .layer(middleware::from_fn(crate::metrics::middleware))
+        .with_state(state)
 }
 
 async fn health(State(_): State<Arc<AppState>>) -> axum::Json<serde_json::Value> {

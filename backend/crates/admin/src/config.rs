@@ -60,6 +60,7 @@ pub struct ConfigInput {
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
+    pub metrics_token: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -84,6 +85,7 @@ pub struct Config {
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
+    pub metrics_token: Option<String>,
 }
 
 impl Config {
@@ -159,6 +161,19 @@ impl Config {
             .filter(|s| !s.is_empty())
             .collect();
 
+        let metrics_token = non_empty(&input.metrics_token).map(|value| value.trim().to_string());
+        if metrics_token.is_none() {
+            if production {
+                tracing::warn!(
+                    "AWG_METRICS_TOKEN is not set; /metrics is served without authentication and must not be reachable from untrusted networks"
+                );
+            } else {
+                tracing::warn!(
+                    "AWG_METRICS_TOKEN is not set; /metrics is served without authentication"
+                );
+            }
+        }
+
         Ok(Self {
             environment: input.environment,
             bind,
@@ -180,6 +195,7 @@ impl Config {
             login_rate_window_secs: input.login_rate_window_secs.max(1),
             refresh_rate_limit: input.refresh_rate_limit,
             refresh_rate_window_secs: input.refresh_rate_window_secs.max(1),
+            metrics_token,
         })
     }
 }
@@ -243,6 +259,7 @@ fn input_from_env() -> Result<ConfigInput> {
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
         refresh_rate_limit: env_u32("AWG_REFRESH_RATE_LIMIT", 60),
         refresh_rate_window_secs: env_u64("AWG_REFRESH_RATE_WINDOW_SECS", 300),
+        metrics_token: env_optional("AWG_METRICS_TOKEN"),
     })
 }
 
@@ -300,6 +317,7 @@ mod tests {
             login_rate_window_secs: 300,
             refresh_rate_limit: 60,
             refresh_rate_window_secs: 300,
+            metrics_token: None,
         }
     }
 
@@ -411,6 +429,21 @@ mod tests {
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.login_rate_window_secs, 1);
         assert_eq!(config.refresh_rate_window_secs, 1);
+    }
+
+    #[test]
+    fn metrics_token_is_optional_and_trimmed() {
+        let mut input = base_input(Environment::Development);
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.metrics_token, None);
+
+        input.metrics_token = Some("  scrape-token  ".into());
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.metrics_token.as_deref(), Some("scrape-token"));
+
+        input.metrics_token = Some("   ".into());
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.metrics_token, None);
     }
 
     #[test]

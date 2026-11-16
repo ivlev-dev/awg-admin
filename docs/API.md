@@ -63,6 +63,8 @@
 | DELETE | `/shares/{token}` | user | — | `{ok:true}` |
 | GET | `/stats/overview` | user/admin | — | `OverviewView` |
 | GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
+| GET | `/quota` | user/admin | — | `QuotaView` (только своя квота) |
+| GET | `/quota/users` | admin | — | `QuotaUserView[]` |
 | GET | `/settings` | admin | — | `ObfuscationView` + share TTL |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | то же |
 | GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
@@ -134,6 +136,61 @@ stateless: после logout/logout-all ранее выданный access де�
 Ошибки аутентификации: `401 unauthorized` — нет/некорректный Bearer-заголовок;
 `403 forbidden` — неверная подпись, `exp`/`nbf`/`iss`/`aud`/`kind`, отозванный
 refresh, повтор refresh, заблокированный или удалённый пользователь.
+
+## Квота трафика
+
+Квота месячная. Учитывается сумма `rx + tx` пользователя за текущий
+календарный месяц UTC: `period_start` — первое число месяца `00:00:00`,
+`period_end` — последняя секунда месяца (`23:59:59`), `reset_at` — момент
+сброса квоты, `period_end + 1 секунда`, то есть `00:00:00` первого числа
+следующего месяца. Все значения — ISO8601/RFC3339 в UTC.
+
+`GET /api/v1/quota` доступен ролям `user` и `admin` и всегда возвращает квоту
+текущего пользователя; параметры с чужим идентификатором не принимаются.
+Ответ `QuotaView`:
+
+```json
+{
+  "used_bytes": 52428800,
+  "quota_bytes": 107374182400,
+  "exceeded": false,
+  "remaining_bytes": 107321753600,
+  "percent": 4.9,
+  "period_start": "2026-11-01T00:00:00Z",
+  "period_end": "2026-11-30T23:59:59Z",
+  "reset_at": "2026-12-01T00:00:00Z"
+}
+```
+
+- `used_bytes` — сумма `rx + tx` за текущий период.
+- `quota_bytes` — лимит тарифа (`traffic_quota_bytes`); `null`, если у
+  пользователя нет тарифа или в тарифе квота не задана либо равна `0`.
+- `percent` — `used_bytes / quota_bytes * 100` с округлением до 0.1. Может
+  превышать `100` при перерасходе; `null` без квоты.
+- `remaining_bytes` — `max(quota_bytes - used_bytes, 0)`; `null` без квоты.
+- `exceeded` — `used_bytes >= quota_bytes`; без квоты всегда `false`. При
+  превышении snapshot ограничивает группу и устройства пользователя
+  скоростью 1 kbps.
+
+`GET /api/v1/quota/users` доступен только роли `admin` (иначе
+`403 forbidden`) и возвращает массив по пользователям, у которых задан
+тариф. Ответ `QuotaUserView[]`:
+
+```json
+[
+  {
+    "user_id": "…",
+    "login": "alice",
+    "used_bytes": 52428800,
+    "quota_bytes": 107374182400,
+    "exceeded": false,
+    "percent": 4.9
+  }
+]
+```
+
+Пользователь с тарифом без квоты попадает в список с `quota_bytes:null` и
+`percent:null`. Пользователи без тарифа не возвращаются.
 
 ## WebSocket `/api/v1/ws/stats`
 
