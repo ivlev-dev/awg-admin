@@ -18,6 +18,7 @@ export const ROUTES: RouteDef[] = [
   { name: "client", path: "/clients/:id", title: "Устройство" },
   { name: "tariffs", path: "/tariffs", title: "Тарифы", adminOnly: true },
   { name: "users", path: "/users", title: "Пользователи", adminOnly: true },
+  { name: "audit", path: "/audit", title: "Аудит", adminOnly: true },
   { name: "import", path: "/import", title: "Импорт", adminOnly: true },
   { name: "stats", path: "/stats", title: "Статистика" },
   { name: "profile", path: "/profile", title: "Профиль" },

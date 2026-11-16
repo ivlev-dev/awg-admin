@@ -1,5 +1,6 @@
 import type { Container } from "@ivlev-dev/silent-di";
 
+import { DefaultAuditService } from "@/application/audit/service";
 import { DefaultAuthService } from "@/application/auth/service";
 import { DefaultDevicesService } from "@/application/devices/service";
 import { DefaultGroupsService } from "@/application/groups/service";
@@ -34,6 +35,7 @@ export function bindAppServices(container: Container): void {
   container.bind(ToastStore, () => toasts);
   container.bind(LiveStats, () => liveStats);
   container.bind(DefaultAuthService, () => services.auth);
+  container.bind(DefaultAuditService, () => services.audit);
   container.bind(DefaultUsersService, () => services.users);
   container.bind(DefaultTariffsService, () => services.tariffs);
   container.bind(DefaultGroupsService, () => services.groups);

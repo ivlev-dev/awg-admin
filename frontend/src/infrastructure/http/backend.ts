@@ -1,3 +1,4 @@
+import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { GroupsRepository } from "@/domain/groups/repository";
@@ -12,6 +13,7 @@ import type { AuthSessionState } from "../../application/auth/session-state";
 import type { TokenStore } from "../storage";
 import { AuthRequestInterceptor } from "./auth-request.interceptor";
 import { AuthResponseInterceptor } from "./auth-response.interceptor";
+import { HttpAuditRepository } from "./audit.repository";
 import { HttpAuthRepository } from "./auth.repository";
 import { HttpClient } from "./client";
 import type { ApiConfig } from "./config";
@@ -29,6 +31,7 @@ import { HttpUsersRepository } from "./users.repository";
 
 export interface ApiRepositories {
   auth: AuthRepository;
+  audit: AuditRepository;
   users: UsersRepository;
   tariffs: TariffsRepository;
   groups: GroupsRepository;
@@ -65,6 +68,7 @@ export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
     client,
     repositories: {
       auth,
+      audit: new HttpAuditRepository(client),
       users: new HttpUsersRepository(client),
       tariffs: new HttpTariffsRepository(client),
       groups: new HttpGroupsRepository(client),

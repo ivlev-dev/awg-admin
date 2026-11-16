@@ -65,6 +65,10 @@ const UsersPage = lazy(
   () => import("@/features/users/UsersPage").then((module) => ({ default: module.UsersPage })),
   pageOptions("users"),
 );
+const AuditPage = lazy(
+  () => import("@/features/audit/AuditPage").then((module) => ({ default: module.AuditPage })),
+  pageOptions("audit"),
+);
 const ImportPage = lazy(
   () => import("@/features/import/ImportPage").then((module) => ({ default: module.ImportPage })),
   pageOptions("import"),
@@ -218,6 +222,11 @@ function page(vm: AppVM) {
       <Show when={vm.routeName === "users"}>
         <PageSlot>
           <UsersPage />
+        </PageSlot>
+      </Show>
+      <Show when={vm.routeName === "audit"}>
+        <PageSlot>
+          <AuditPage />
         </PageSlot>
       </Show>
       <Show when={vm.routeName === "import"}>

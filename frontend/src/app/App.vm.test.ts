@@ -217,6 +217,7 @@ describe("AppVM navigation filtering", () => {
     expect(harness.vm.accountNav.map((item) => item.path)).toEqual([
       "/tariffs",
       "/users",
+      "/audit",
       "/stats",
       "/settings",
       "/profile",

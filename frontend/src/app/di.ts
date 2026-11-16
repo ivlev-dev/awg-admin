@@ -1,5 +1,6 @@
 import { Container } from "@ivlev-dev/silent-di";
 
+import { DefaultAuditService, type AuditService } from "@/application/audit/service";
 import { DefaultAuthService, type AuthService } from "@/application/auth/service";
 import { DefaultDevicesService, type DevicesService } from "@/application/devices/service";
 import { DefaultGroupsService, type GroupsService } from "@/application/groups/service";
@@ -15,6 +16,7 @@ import {
   type ApiRepositories,
   type HttpBackend,
 } from "@/infrastructure/http/backend";
+import { HttpAuditRepository } from "@/infrastructure/http/audit.repository";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { HttpClient } from "@/infrastructure/http/client";
 import { DefaultApiConfig, type ApiConfig } from "@/infrastructure/http/config";
@@ -38,6 +40,7 @@ export interface AppServices {
   backend: HttpBackend;
   repositories: ApiRepositories;
   auth: AuthService;
+  audit: AuditService;
   users: UsersService;
   tariffs: TariffsService;
   groups: GroupsService;
@@ -82,6 +85,7 @@ export function createAppServices(options: AppOptions = {}): AppServices {
     backend,
     repositories,
     auth: new DefaultAuthService(repositories.auth),
+    audit: new DefaultAuditService(repositories.audit),
     users: new DefaultUsersService(repositories.users),
     tariffs: new DefaultTariffsService(repositories.tariffs),
     groups: new DefaultGroupsService(repositories.groups),
@@ -109,6 +113,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
   const tokens = await container.resolve<LocalTokenStore>(LocalTokenStore);
   const config = await container.resolve<DefaultApiConfig>(DefaultApiConfig);
   const authRepository = await container.resolve<HttpAuthRepository>(HttpAuthRepository);
+  const auditRepository = await container.resolve<HttpAuditRepository>(HttpAuditRepository);
   const usersRepository = await container.resolve<HttpUsersRepository>(HttpUsersRepository);
   const tariffsRepository = await container.resolve<HttpTariffsRepository>(HttpTariffsRepository);
   const groupsRepository = await container.resolve<HttpGroupsRepository>(HttpGroupsRepository);
@@ -122,6 +127,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
   const session = await container.resolve<Session>(Session);
   const repositories: ApiRepositories = {
     auth: authRepository,
+    audit: auditRepository,
     users: usersRepository,
     tariffs: tariffsRepository,
     groups: groupsRepository,
@@ -141,6 +147,7 @@ export async function resolveAppServices(container: Container): Promise<AppServi
     backend,
     repositories,
     auth: await container.resolve<DefaultAuthService>(DefaultAuthService),
+    audit: await container.resolve<DefaultAuditService>(DefaultAuditService),
     users: await container.resolve<DefaultUsersService>(DefaultUsersService),
     tariffs: await container.resolve<DefaultTariffsService>(DefaultTariffsService),
     groups: await container.resolve<DefaultGroupsService>(DefaultGroupsService),

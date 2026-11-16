@@ -25,6 +25,7 @@ const MANAGEMENT: NavItem[] = [
 const ACCOUNT: NavItem[] = [
   { path: "/tariffs", title: "Тарифы", icon: "tariffs" },
   { path: "/users", title: "Пользователи", icon: "users" },
+  { path: "/audit", title: "Аудит", icon: "shield" },
   { path: "/stats", title: "Статистика", icon: "stats" },
   { path: "/settings", title: "Настройки", icon: "settings" },
   { path: "/profile", title: "Профиль", icon: "profile" },

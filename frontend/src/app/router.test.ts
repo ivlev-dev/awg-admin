@@ -19,6 +19,13 @@ describe("matchRoute", () => {
     expect(match.params).toEqual({ id: "abc" });
   });
 
+  it("audit is admin only", () => {
+    const match = matchRoute("/audit");
+    expect(match.route.name).toBe("audit");
+    expect(match.route.title).toBe("Аудит");
+    expect(match.route.adminOnly).toBe(true);
+  });
+
   it("unknown path falls back to overview", () => {
     const match = matchRoute("/does-not-exist");
     expect(match.route.name).toBe("overview");

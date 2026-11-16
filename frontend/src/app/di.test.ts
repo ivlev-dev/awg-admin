@@ -1,5 +1,7 @@
 import { DI_CREATE } from "@ivlev-dev/silent-di";
 
+import { DefaultAuditService } from "../application/audit/service";
+import type { AuditService } from "../application/audit/service";
 import { DefaultAuthService } from "../application/auth/service";
 import type { AuthService } from "../application/auth/service";
 import { DefaultDevicesService } from "../application/devices/service";
@@ -13,6 +15,7 @@ import { DefaultStatsService } from "../application/stats/service";
 import { DefaultTariffsService } from "../application/tariffs/service";
 import { DefaultUsersService } from "../application/users/service";
 import type { UsersService } from "../application/users/service";
+import { HttpAuditRepository } from "@/infrastructure/http/audit.repository";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { AuthRequestInterceptor } from "@/infrastructure/http/auth-request.interceptor";
 import { AuthResponseInterceptor } from "@/infrastructure/http/auth-response.interceptor";
@@ -41,6 +44,7 @@ function diCreate(ctor: unknown): unknown {
 
 const SERVICES = [
   DefaultAuthService,
+  DefaultAuditService,
   DefaultUsersService,
   DefaultTariffsService,
   DefaultGroupsService,
@@ -55,6 +59,7 @@ const SERVICES = [
 class ServiceAutowiringProbe {
   constructor(
     readonly auth: AuthService,
+    readonly audit: AuditService,
     readonly users: UsersService,
     readonly devices: DevicesService,
   ) {}
@@ -62,6 +67,7 @@ class ServiceAutowiringProbe {
 
 const REPOSITORIES = [
   HttpAuthRepository,
+  HttpAuditRepository,
   HttpUsersRepository,
   HttpTariffsRepository,
   HttpGroupsRepository,
@@ -132,9 +138,11 @@ describe("DI autodiscovery", () => {
     const services = await resolveAppServices(container);
 
     expect(probe.auth).toBeInstanceOf(DefaultAuthService);
+    expect(probe.audit).toBeInstanceOf(DefaultAuditService);
     expect(probe.users).toBeInstanceOf(DefaultUsersService);
     expect(probe.devices).toBeInstanceOf(DefaultDevicesService);
     expect(probe.auth).toBe(services.auth);
+    expect(probe.audit).toBe(services.audit);
     expect(probe.users).toBe(services.users);
     expect(probe.devices).toBe(services.devices);
   });
@@ -142,6 +150,8 @@ describe("DI autodiscovery", () => {
   it("resolves repositories to HTTP implementations", async () => {
     const { services } = await bootstrapApp();
     expect(services.repositories.auth).toBeInstanceOf(HttpAuthRepository);
+    expect(services.repositories.audit).toBeInstanceOf(HttpAuditRepository);
+    expect(services.audit).toBeInstanceOf(DefaultAuditService);
     expect(services.repositories.users).toBeInstanceOf(HttpUsersRepository);
     expect(services.repositories.tariffs).toBeInstanceOf(HttpTariffsRepository);
     expect(services.repositories.groups).toBeInstanceOf(HttpGroupsRepository);
