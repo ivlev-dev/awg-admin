@@ -242,13 +242,23 @@ async fn main() -> Result<()> {
 
     {
         let stats = stats.clone();
+        let settings = state.settings.clone();
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
             ticker.tick().await;
             loop {
                 ticker.tick().await;
-                match stats.cleanup(90) {
-                    Ok(removed) => tracing::info!(removed, "pruned old traffic buckets"),
+                let keep_days = match settings.get() {
+                    Ok(settings) => settings.effective_stats_retention_days(),
+                    Err(error) => {
+                        tracing::warn!(%error, "failed to read stats retention settings");
+                        continue;
+                    }
+                };
+                match stats.cleanup(keep_days as i64) {
+                    Ok(removed) => {
+                        tracing::info!(removed, keep_days, "pruned old traffic buckets");
+                    }
                     Err(error) => tracing::warn!(%error, "failed to prune traffic buckets"),
                 }
             }

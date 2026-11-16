@@ -15,13 +15,16 @@ use crate::state::AppState;
 pub struct SettingsView {
     pub obfuscation: ObfuscationSettings,
     pub share_default_ttl_secs: u64,
+    pub stats_retention_days: u64,
 }
 
 impl From<Settings> for SettingsView {
     fn from(settings: Settings) -> Self {
+        let stats_retention_days = settings.effective_stats_retention_days();
         Self {
             obfuscation: settings.obfuscation,
             share_default_ttl_secs: settings.share_default_ttl_secs,
+            stats_retention_days,
         }
     }
 }
@@ -52,6 +55,9 @@ pub async fn update(
     }
     if let Some(ttl) = request.share_default_ttl_secs {
         settings.share_default_ttl_secs = ttl.clamp(60, 30 * 86_400);
+    }
+    if let Some(days) = request.stats_retention_days {
+        settings.set_stats_retention_days(days);
     }
     state.settings.save(&settings).map_err(ApiError::from)?;
     Ok(Json(settings.into()))

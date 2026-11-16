@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -69,6 +69,53 @@ pub struct Bucket {
     pub tx: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DailyBucket {
+    pub day: i64,
+    pub rx: u64,
+    pub tx: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MonthlyBucket {
+    pub month: String,
+    pub rx: u64,
+    pub tx: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateBucket {
+    Day,
+    Month,
+}
+
+impl AggregateBucket {
+    pub const DAY_MAX_WINDOW_DAYS: i64 = 366;
+    pub const MONTH_MAX_WINDOW_DAYS: i64 = 3_660;
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "day" => Some(Self::Day),
+            "month" => Some(Self::Month),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Day => "day",
+            Self::Month => "month",
+        }
+    }
+
+    pub fn max_window_days(self) -> i64 {
+        match self {
+            Self::Day => Self::DAY_MAX_WINDOW_DAYS,
+            Self::Month => Self::MONTH_MAX_WINDOW_DAYS,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct DeviceScope {
     pub device_id: Uuid,
@@ -116,6 +163,18 @@ impl Aggregator {
 
     pub fn hour_of(at: DateTime<Utc>) -> i64 {
         at.timestamp() / 3600 * 3600
+    }
+
+    pub fn day_of(at: DateTime<Utc>) -> i64 {
+        Self::day_of_hour(at.timestamp())
+    }
+
+    pub fn day_of_hour(hour: i64) -> i64 {
+        hour.div_euclid(86_400) * 86_400
+    }
+
+    pub fn month_of(at: DateTime<Utc>) -> String {
+        format!("{:04}-{:02}", at.year(), at.month())
     }
 }
 

@@ -1,13 +1,14 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Datelike, Duration, Utc};
 use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
-    Aggregator, Bucket, CounterSample, DeviceDirectory, StatsBroadcaster, StatsRepository,
-    StatsScope,
+    AggregateBucket, Aggregator, Bucket, CounterSample, DailyBucket, DeviceDirectory,
+    MonthlyBucket, StatsBroadcaster, StatsRepository, StatsScope,
 };
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -102,6 +103,61 @@ impl StatsService {
             .fold((0u64, 0u64), |acc, b| (acc.0 + b.rx, acc.1 + b.tx)))
     }
 
+    pub fn daily(
+        &self,
+        scope: StatsScope,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> CoreResult<Vec<DailyBucket>> {
+        validate_window(AggregateBucket::Day, from, to)?;
+        let series = self.hourly(scope, from, to)?;
+        let mut grouped: BTreeMap<i64, (u64, u64)> = BTreeMap::new();
+        for bucket in series {
+            let entry = grouped
+                .entry(Aggregator::day_of_hour(bucket.hour))
+                .or_default();
+            entry.0 = entry.0.saturating_add(bucket.rx);
+            entry.1 = entry.1.saturating_add(bucket.tx);
+        }
+        Ok(grouped
+            .into_iter()
+            .map(|(day, (rx, tx))| DailyBucket { day, rx, tx })
+            .collect())
+    }
+
+    pub fn monthly(
+        &self,
+        scope: StatsScope,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> CoreResult<Vec<MonthlyBucket>> {
+        validate_window(AggregateBucket::Month, from, to)?;
+        let series = self.hourly(scope, from, to)?;
+        let mut grouped: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+        for bucket in series {
+            let Some(at) = DateTime::from_timestamp(bucket.hour, 0) else {
+                continue;
+            };
+            let entry = grouped.entry(Aggregator::month_of(at)).or_default();
+            entry.0 = entry.0.saturating_add(bucket.rx);
+            entry.1 = entry.1.saturating_add(bucket.tx);
+        }
+        Ok(grouped
+            .into_iter()
+            .map(|(month, (rx, tx))| MonthlyBucket { month, rx, tx })
+            .collect())
+    }
+
+    fn hourly(
+        &self,
+        scope: StatsScope,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> CoreResult<Vec<Bucket>> {
+        self.repo
+            .series(scope, Aggregator::hour_of(from), Aggregator::hour_of(to))
+    }
+
     pub fn today(&self, scope: StatsScope) -> CoreResult<(u64, u64)> {
         let now = Utc::now();
         let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
@@ -131,4 +187,23 @@ impl StatsService {
     }
 }
 
-use chrono::Datelike;
+fn validate_window(
+    bucket: AggregateBucket,
+    from: DateTime<Utc>,
+    to: DateTime<Utc>,
+) -> CoreResult<()> {
+    if to < from {
+        return Err(CoreError::Invalid(
+            "range end must not be before start".into(),
+        ));
+    }
+    let limit = Duration::days(bucket.max_window_days());
+    if to - from > limit {
+        return Err(CoreError::Invalid(format!(
+            "range for {} buckets must not exceed {} days",
+            bucket.as_str(),
+            bucket.max_window_days()
+        )));
+    }
+    Ok(())
+}

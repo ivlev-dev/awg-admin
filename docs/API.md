@@ -63,10 +63,11 @@
 | DELETE | `/shares/{token}` | user | — | `{ok:true}` |
 | GET | `/stats/overview` | user/admin | — | `OverviewView` |
 | GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
+| GET | `/stats/aggregate` | user/admin | query `scope,id,bucket,from,to` (см. «Агрегация статистики») | `{bucket,points}` |
 | GET | `/quota` | user/admin | — | `QuotaView` (только своя квота) |
 | GET | `/quota/users` | admin | — | `QuotaUserView[]` |
-| GET | `/settings` | admin | — | `ObfuscationView` + share TTL |
-| PUT | `/settings` | admin | `UpdateSettingsRequest` | то же |
+| GET | `/settings` | admin | — | `SettingsView` (obfuscation, share TTL, stats retention) |
+| PUT | `/settings` | admin | `UpdateSettingsRequest` | `SettingsView` |
 | GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
 | POST | `/import` | admin | `ImportRequest` | `{ok:true}` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
@@ -191,6 +192,66 @@ refresh, повтор refresh, заблокированный или удалё�
 
 Пользователь с тарифом без квоты попадает в список с `quota_bytes:null` и
 `percent:null`. Пользователи без тарифа не возвращаются.
+
+## Агрегация статистики
+
+`GET /api/v1/stats/aggregate` отдаёт трафик, сгруппированный по суткам или
+месяцам UTC. Доступны роли `user` и `admin`; scope проверяется так же, как у
+`/stats/series`: admin может запросить любой scope, user — только
+`scope=user&id=<свой id>` и `scope=device&id=<своё устройство>`.
+
+Query-параметры:
+
+| Параметр | Тип | Семантика |
+|---|---|---|
+| `scope` | строка | `global`, `user`, `group`, `interface`, `device` |
+| `id` | UUID | обязателен для всех scope, кроме `global` |
+| `bucket` | строка | `day` (по умолчанию) или `month` |
+| `from` | целое | Unix-секунды, начало окна включительно; по умолчанию `to - 30 дней` для `day` и `to - 365 дней` для `month` |
+| `to` | целое | Unix-секунды, конец окна включительно; по умолчанию текущий момент |
+
+Валидация: `from <= to`, `bucket` только `day`/`month`, окно не больше
+366 дней для `day` и 3660 дней (10 лет) для `month`. Нарушение — `400
+bad_request`; неизвестный scope — `400 bad_request`, недоступный scope —
+`403 forbidden`.
+
+Ответ:
+
+```json
+{
+  "bucket": "day",
+  "points": [
+    {"at": "2026-03-01T00:00:00Z", "rx": 1024, "tx": 2048},
+    {"at": "2026-03-02T00:00:00Z", "rx": 512, "tx": 256}
+  ]
+}
+```
+
+- `points` отсортированы по возрастанию `at`; пустые интервалы не возвращаются.
+- `at` — начало суток (`00:00:00Z`) для `bucket=day` или первое число месяца
+  (`00:00:00Z`) для `bucket=month`.
+- Агрегация считается на лету из часовых бакетов, поэтому в сумму попадают
+  часы, пересекающиеся с окном, целиком. Материализованных дневных и месячных
+  таблиц нет; глубина данных ограничена `stats_retention_days`.
+
+## Настройки
+
+`GET /api/v1/settings` и `PUT /api/v1/settings` доступны только роли `admin`.
+`UpdateSettingsRequest` принимает необязательные поля `obfuscation`,
+`share_default_ttl_secs`, `stats_retention_days`. Ответ:
+
+```json
+{
+  "obfuscation": {"…": "…"},
+  "share_default_ttl_secs": 86400,
+  "stats_retention_days": 90
+}
+```
+
+- `share_default_ttl_secs` приводится к `60..2592000`.
+- `stats_retention_days` — срок хранения часовых бакетов статистики в днях,
+  по умолчанию `90`, приводится к `7..3650`. Значение применяется фоновой
+  очисткой раз в час без перезапуска admin.
 
 ## WebSocket `/api/v1/ws/stats`
 

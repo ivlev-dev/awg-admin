@@ -6,7 +6,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use awg_statistics::StatsScope;
+use awg_statistics::{AggregateBucket, StatsScope};
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
@@ -19,6 +19,21 @@ pub struct SeriesQuery {
     pub id: Option<Uuid>,
     pub from: Option<i64>,
     pub to: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AggregateQuery {
+    pub scope: String,
+    pub id: Option<Uuid>,
+    pub bucket: Option<String>,
+    pub from: Option<i64>,
+    pub to: Option<i64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AggregateView {
+    pub bucket: &'static str,
+    pub points: Vec<StatsPoint>,
 }
 
 pub async fn overview(
@@ -135,6 +150,58 @@ pub async fn series(
     ))
 }
 
+pub async fn aggregate(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(query): Query<AggregateQuery>,
+) -> ApiResult<Json<AggregateView>> {
+    let bucket = parse_bucket(query.bucket.as_deref().unwrap_or("day"))?;
+    let scope = parse_scope(&query.scope, query.id)?;
+    authorize_scope(&state, &user, scope)?;
+    let to = match query.to {
+        Some(ts) => DateTime::from_timestamp(ts, 0)
+            .ok_or_else(|| ApiError::BadRequest("to is out of range".into()))?,
+        None => Utc::now(),
+    };
+    let from = match query.from {
+        Some(ts) => DateTime::from_timestamp(ts, 0)
+            .ok_or_else(|| ApiError::BadRequest("from is out of range".into()))?,
+        None => to - default_span(bucket),
+    };
+    let points = match bucket {
+        AggregateBucket::Day => state
+            .stats
+            .daily(scope, from, to)
+            .map_err(ApiError::from)?
+            .into_iter()
+            .filter_map(|bucket| {
+                DateTime::from_timestamp(bucket.day, 0).map(|at| StatsPoint {
+                    at,
+                    rx: bucket.rx,
+                    tx: bucket.tx,
+                })
+            })
+            .collect(),
+        AggregateBucket::Month => state
+            .stats
+            .monthly(scope, from, to)
+            .map_err(ApiError::from)?
+            .into_iter()
+            .filter_map(|bucket| {
+                month_start(&bucket.month).map(|at| StatsPoint {
+                    at,
+                    rx: bucket.rx,
+                    tx: bucket.tx,
+                })
+            })
+            .collect(),
+    };
+    Ok(Json(AggregateView {
+        bucket: bucket.as_str(),
+        points,
+    }))
+}
+
 pub async fn device_stats(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -167,19 +234,57 @@ pub fn parse_scope(scope: &str, id: Option<Uuid>) -> Result<StatsScope, ApiError
     }
 }
 
+pub fn parse_bucket(value: &str) -> Result<AggregateBucket, ApiError> {
+    AggregateBucket::parse(value)
+        .ok_or_else(|| ApiError::BadRequest(format!("unknown bucket {value:?}")))
+}
+
+fn default_span(bucket: AggregateBucket) -> Duration {
+    match bucket {
+        AggregateBucket::Day => Duration::days(30),
+        AggregateBucket::Month => Duration::days(365),
+    }
+}
+
+fn month_start(value: &str) -> Option<DateTime<Utc>> {
+    let (year, month) = value.split_once('-')?;
+    let year = year.parse::<i32>().ok()?;
+    let month = month.parse::<u32>().ok()?;
+    chrono::NaiveDate::from_ymd_opt(year, month, 1)?
+        .and_hms_opt(0, 0, 0)
+        .map(|naive| naive.and_utc())
+}
+
 pub fn authorize_scope(
     state: &AppState,
     user: &AuthUser,
     scope: StatsScope,
 ) -> Result<(), ApiError> {
-    if user.is_admin() {
+    authorize_scope_with(user.is_admin(), user.id(), scope, |id| {
+        state
+            .devices
+            .get(id)
+            .map(|device| device.user_id)
+            .map_err(ApiError::from)
+    })
+}
+
+pub fn authorize_scope_with<F>(
+    is_admin: bool,
+    user_id: Uuid,
+    scope: StatsScope,
+    device_owner: F,
+) -> Result<(), ApiError>
+where
+    F: FnOnce(Uuid) -> Result<Uuid, ApiError>,
+{
+    if is_admin {
         return Ok(());
     }
     match scope {
-        StatsScope::User(id) if id == user.id() => Ok(()),
+        StatsScope::User(id) if id == user_id => Ok(()),
         StatsScope::Device(id) => {
-            let device = state.devices.get(id).map_err(ApiError::from)?;
-            if device.user_id == user.id() {
+            if device_owner(id)? == user_id {
                 Ok(())
             } else {
                 Err(ApiError::Forbidden(
@@ -188,5 +293,89 @@ pub fn authorize_scope(
             }
         }
         _ => Err(ApiError::Forbidden("scope is not available".into())),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user() -> Uuid {
+        Uuid::new_v4()
+    }
+
+    fn deny_device(_: Uuid) -> Result<Uuid, ApiError> {
+        Err(ApiError::NotFound("device not found".into()))
+    }
+
+    fn utc(value: &str) -> DateTime<Utc> {
+        value.parse().unwrap()
+    }
+
+    #[test]
+    fn admin_accesses_any_scope() {
+        let admin = user();
+        assert!(authorize_scope_with(true, admin, StatsScope::Global, deny_device).is_ok());
+        assert!(
+            authorize_scope_with(true, admin, StatsScope::Group(Uuid::new_v4()), deny_device)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn user_cannot_access_global_or_other_scopes() {
+        let id = user();
+        assert!(matches!(
+            authorize_scope_with(false, id, StatsScope::Global, deny_device),
+            Err(ApiError::Forbidden(_))
+        ));
+        assert!(matches!(
+            authorize_scope_with(false, id, StatsScope::Group(Uuid::new_v4()), deny_device),
+            Err(ApiError::Forbidden(_))
+        ));
+        assert!(matches!(
+            authorize_scope_with(
+                false,
+                id,
+                StatsScope::Interface(Uuid::new_v4()),
+                deny_device
+            ),
+            Err(ApiError::Forbidden(_))
+        ));
+        assert!(matches!(
+            authorize_scope_with(false, id, StatsScope::User(Uuid::new_v4()), deny_device),
+            Err(ApiError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn user_accesses_own_user_and_device_scopes() {
+        let id = user();
+        assert!(authorize_scope_with(false, id, StatsScope::User(id), deny_device).is_ok());
+        let device = Uuid::new_v4();
+        assert!(authorize_scope_with(false, id, StatsScope::Device(device), |_| Ok(id)).is_ok());
+        assert!(matches!(
+            authorize_scope_with(
+                false,
+                id,
+                StatsScope::Device(device),
+                |_| Ok(Uuid::new_v4())
+            ),
+            Err(ApiError::Forbidden(_))
+        ));
+    }
+
+    #[test]
+    fn rejects_unknown_bucket() {
+        assert!(matches!(parse_bucket("week"), Err(ApiError::BadRequest(_))));
+        assert_eq!(parse_bucket("day").ok(), Some(AggregateBucket::Day));
+        assert_eq!(parse_bucket("month").ok(), Some(AggregateBucket::Month));
+    }
+
+    #[test]
+    fn parses_month_start_in_utc() {
+        let at = month_start("2026-02").unwrap();
+        assert_eq!(at, utc("2026-02-01T00:00:00Z"));
+        assert!(month_start("2026-13").is_none());
     }
 }

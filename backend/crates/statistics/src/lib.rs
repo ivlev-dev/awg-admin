@@ -4,7 +4,7 @@ pub mod infrastructure;
 
 pub use application::{StatsService, StatsUpdate};
 pub use domain::{
-    Aggregator, Bucket, CounterSample, CounterState, DeviceDirectory, DeviceScope, StatsScope,
-    TrafficDelta,
+    AggregateBucket, Aggregator, Bucket, CounterSample, CounterState, DailyBucket, DeviceDirectory,
+    DeviceScope, MonthlyBucket, StatsBroadcaster, StatsRepository, StatsScope, TrafficDelta,
 };
 pub use infrastructure::{RedbStatsRepository, StatsHub};

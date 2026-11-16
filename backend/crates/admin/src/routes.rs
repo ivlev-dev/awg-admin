@@ -110,6 +110,7 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/stats/overview", get(controllers::stats::overview))
         .route("/stats/series", get(controllers::stats::series))
+        .route("/stats/aggregate", get(controllers::stats::aggregate))
         .route("/quota", get(controllers::quota::current))
         .route("/quota/users", get(controllers::quota::users))
         .route(
