@@ -12,11 +12,16 @@ import type {
   ClientsPreview,
   ClientsPreviewInterface,
   ImportApplyResult,
+  ImportClientChange,
+  ImportClientChangeField,
   ImportClientStatus,
   ImportInput,
   ImportPreview,
   ImportPreviewClient,
   ImportPreviewInterface,
+  ImportPreviewServerPeer,
+  ImportServerPeerCounts,
+  ImportServerPeerStatus,
 } from "@/domain/import/types";
 import {
   extractClientAddress,
@@ -75,6 +80,16 @@ const DEFAULT_PORT = 51820;
 const DEFAULT_MTU = 1280;
 
 const DEFAULT_STEP: ImportStep = 1;
+
+const EMPTY_SERVER_PEER_COUNTS: ImportServerPeerCounts = {
+  create: 0,
+  duplicate: 0,
+  error: 0,
+};
+
+const SHORT_KEY_PREFIX = 8;
+const SHORT_KEY_SUFFIX = 4;
+const PRESHARED_KEY_MASK = "•••";
 
 function defaultPool(baseCidr: string): PoolDraft {
   return {
@@ -190,6 +205,7 @@ export class ImportVM {
   @reactive accessor clientsApplying = false;
   @reactive accessor clientsApplied: ClientsApplyResult | null = null;
   @reactive accessor clientsApplyError: string | null = null;
+  @reactive accessor expandedChanges: string[] = [];
 
   @reactive accessor nodes: NodeInfo[] = [];
   @reactive accessor nodesLoading = false;
@@ -349,6 +365,16 @@ export class ImportVM {
   }
 
   @computed
+  get clientsResultUpdatedCount(): number {
+    return this.clientsApplied?.summary.update ?? 0;
+  }
+
+  @computed
+  get clientsResultUnchangedCount(): number {
+    return this.clientsApplied?.summary.unchanged ?? 0;
+  }
+
+  @computed
   get clientsResultDuplicateCount(): number {
     return this.clientsApplied?.summary.duplicate ?? 0;
   }
@@ -504,6 +530,16 @@ export class ImportVM {
   }
 
   @computed
+  get previewExternalCounts(): ImportServerPeerCounts {
+    return this.preview?.summary.external ?? EMPTY_SERVER_PEER_COUNTS;
+  }
+
+  @computed
+  get previewHasExternal(): boolean {
+    return this.previewInterfaces.some((iface) => iface.server_peers.length > 0);
+  }
+
+  @computed
   get resultGroupId(): string {
     return this.applied?.created.group_id ?? "";
   }
@@ -560,6 +596,11 @@ export class ImportVM {
   @computed
   get resultErrorCount(): number {
     return this.applied?.summary.error ?? 0;
+  }
+
+  @computed
+  get resultExternalCount(): number {
+    return this.applied?.summary.external.create ?? 0;
   }
 
   isStepDone(step: ImportStep): boolean {
@@ -986,12 +1027,18 @@ export class ImportVM {
       this.clientsPreview = preview;
       this.clientsPreviewSignature = signature;
       this.clientsPlanInvalidated = false;
+      const changed = preview.summary.update > 0 || preview.summary.unchanged > 0;
       this.toasts.success(
-        t("import.clients.toast.previewReady", {
-          create: preview.summary.create,
-          duplicate: preview.summary.duplicate,
-          error: preview.summary.error,
-        }),
+        t(
+          changed ? "import.clients.toast.previewReadyUpdated" : "import.clients.toast.previewReady",
+          {
+            create: preview.summary.create,
+            updated: preview.summary.update,
+            unchanged: preview.summary.unchanged,
+            duplicate: preview.summary.duplicate,
+            error: preview.summary.error,
+          },
+        ),
       );
     } catch (error) {
       this.clientsPreview = null;
@@ -1022,8 +1069,13 @@ export class ImportVM {
           }),
         );
       } else {
+        const updated = result.summary.update;
         this.toasts.success(
-          t("import.clients.toast.applied", { count: result.summary.create }),
+          t(updated > 0 ? "import.clients.toast.appliedUpdated" : "import.clients.toast.applied", {
+            count: result.summary.create,
+            created: result.summary.create,
+            updated,
+          }),
         );
       }
     } catch (error) {
@@ -1050,6 +1102,7 @@ export class ImportVM {
     this.clientsApplyError = null;
     this.clientsPreviewSignature = "";
     this.clientsPlanInvalidated = false;
+    this.expandedChanges = [];
   }
 
   serverConfigValid(index: number): boolean {
@@ -1152,6 +1205,10 @@ export class ImportVM {
     switch (status) {
       case "create":
         return t("import.preview.status.create");
+      case "unchanged":
+        return t("import.preview.status.unchanged");
+      case "update":
+        return t("import.preview.status.update");
       case "duplicate":
         return t("import.preview.status.duplicate");
       case "error":
@@ -1163,11 +1220,89 @@ export class ImportVM {
     switch (status) {
       case "create":
         return "badge badge--green";
+      case "unchanged":
+        return "badge badge--gray";
+      case "update":
+        return "badge badge--blue";
       case "duplicate":
         return "badge badge--amber";
       case "error":
         return "badge badge--red";
     }
+  }
+
+  serverPeerStatusLabel(status: ImportServerPeerStatus): string {
+    switch (status) {
+      case "create":
+        return t("import.preview.status.create");
+      case "duplicate":
+        return t("import.preview.status.duplicate");
+      case "error":
+        return t("import.preview.status.error");
+    }
+  }
+
+  serverPeerStatusClass(status: ImportServerPeerStatus): string {
+    switch (status) {
+      case "create":
+        return "badge badge--green";
+      case "duplicate":
+        return "badge badge--amber";
+      case "error":
+        return "badge badge--red";
+    }
+  }
+
+  shortKey(key: string): string {
+    const trimmed = key.trim();
+    if (trimmed.length <= SHORT_KEY_PREFIX + SHORT_KEY_SUFFIX) return trimmed;
+    return `${trimmed.slice(0, SHORT_KEY_PREFIX)}…${trimmed.slice(-SHORT_KEY_SUFFIX)}`;
+  }
+
+  serverPeerAddress(peer: ImportPreviewServerPeer): string {
+    return peer.address ?? t("import.preview.none");
+  }
+
+  serverPeerReason(peer: ImportPreviewServerPeer): string {
+    return peer.reason ?? t("import.preview.none");
+  }
+
+  changesKey(interfaceId: string, client: ImportPreviewClient): string {
+    return `${interfaceId}:${client.device_id ?? client.name}`;
+  }
+
+  changesOpen(key: string): boolean {
+    return this.expandedChanges.includes(key);
+  }
+
+  toggleChanges(key: string): void {
+    this.expandedChanges = this.changesOpen(key)
+      ? this.expandedChanges.filter((item) => item !== key)
+      : [...this.expandedChanges, key];
+  }
+
+  clientChangeLabel(field: ImportClientChangeField): string {
+    switch (field) {
+      case "address":
+        return t("import.preview.change.address");
+      case "preshared_key":
+        return t("import.preview.change.preshared_key");
+      case "name":
+        return t("import.preview.change.name");
+    }
+  }
+
+  clientChangeText(change: ImportClientChange): string {
+    const from = this.changeValue(change.field, change.from);
+    const to = this.changeValue(change.field, change.to);
+    return `${from} → ${to}`;
+  }
+
+  private changeValue(field: ImportClientChangeField, value: string | null): string {
+    if (field === "preshared_key") {
+      return value === null ? t("import.preview.none") : PRESHARED_KEY_MASK;
+    }
+    return value ?? t("import.preview.none");
   }
 
   previewKey(iface: ImportPreviewInterface): string {
@@ -1204,12 +1339,17 @@ export class ImportVM {
       this.preview = preview;
       this.previewSignature = signature;
       this.planInvalidated = false;
+      const external = preview.summary.external.create;
       this.toasts.success(
-        t("import.toast.previewReady", {
-          create: preview.summary.create,
-          duplicate: preview.summary.duplicate,
-          error: preview.summary.error,
-        }),
+        t(
+          external > 0 ? "import.toast.previewReadyExternal" : "import.toast.previewReady",
+          {
+            create: preview.summary.create,
+            duplicate: preview.summary.duplicate,
+            error: preview.summary.error,
+            external,
+          },
+        ),
       );
     } catch (error) {
       this.preview = null;
@@ -1240,7 +1380,13 @@ export class ImportVM {
           }),
         );
       } else {
-        this.toasts.success(t("import.toast.applied", { count: result.summary.create }));
+        const external = result.summary.external.create;
+        this.toasts.success(
+          t(external > 0 ? "import.toast.appliedExternal" : "import.toast.applied", {
+            count: result.summary.create,
+            external,
+          }),
+        );
       }
     } catch (error) {
       this.applyError = messageOf(error, t("import.error.apply"));
@@ -1320,6 +1466,7 @@ export class ImportVM {
     this.clientsPreviewError = null;
     this.clientsApplyError = null;
     this.clientsPreviewSignature = "";
+    this.expandedChanges = [];
     if (hadPlan) {
       this.clientsPlanInvalidated = true;
       if (this.clientsStep > 1) this.clientsStep = 1;

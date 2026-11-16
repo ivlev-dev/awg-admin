@@ -17,6 +17,7 @@
   --text-2: #344054;
   --muted: #667085;
   --muted-2: #98a2b3;
+  --muted-soft: rgba(102, 112, 133, 0.14);
   --border: #e4e7ec;
   --border-strong: #d0d5dd;
 
@@ -101,6 +102,7 @@
   --text-2: #c3cadb;
   --muted: #8e9ab5;
   --muted-2: #64708b;
+  --muted-soft: rgba(142, 154, 181, 0.16);
   --border: #1e2739;
   --border-strong: #2b3750;
 

@@ -10,6 +10,12 @@ import type {
   ImportPreview,
   LegacyImportInput,
 } from "@/domain/import/types";
+import {
+  normalizeClientsApplyResult,
+  normalizeClientsPreview,
+  normalizeImportApplyResult,
+  normalizeImportPreview,
+} from "@/domain/import/normalize";
 import { isServerConfig } from "@/domain/import/validation";
 import type { PoolInput } from "@/domain/groups/types";
 import type { ImportResult } from "@/domain/types";
@@ -29,19 +35,23 @@ export class DefaultImportService implements ImportService {
   constructor(private readonly repository: ImportRepository) {}
 
   async preview(input: ImportInput): Promise<ImportPreview> {
-    return this.repository.preview(normalizeImport(input));
+    return normalizeImportPreview(await this.repository.preview(normalizeImport(input)));
   }
 
   async apply(input: ImportInput): Promise<ImportApplyResult> {
-    return this.repository.apply(normalizeImport(input));
+    return normalizeImportApplyResult(await this.repository.apply(normalizeImport(input)));
   }
 
   async previewClients(input: ClientsImportInput): Promise<ClientsPreview> {
-    return this.repository.previewClients(normalizeClientsImport(input));
+    return normalizeClientsPreview(
+      await this.repository.previewClients(normalizeClientsImport(input)),
+    );
   }
 
   async applyClients(input: ClientsImportInput): Promise<ClientsApplyResult> {
-    return this.repository.applyClients(normalizeClientsImport(input));
+    return normalizeClientsApplyResult(
+      await this.repository.applyClients(normalizeClientsImport(input)),
+    );
   }
 
   async importConfig(input: LegacyImportInput): Promise<ImportResult> {

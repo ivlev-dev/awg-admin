@@ -639,6 +639,26 @@ function previewStep(vm: ImportVM) {
               </div>
             </div>
 
+            <Show when={vm.previewHasExternal}>
+              <div class="section-title">
+                <h2>{t("import.preview.servers.summary")}</h2>
+              </div>
+              <div class="grid grid--3">
+                <div class="stat">
+                  <div class="stat__label">{t("import.preview.summary.external.create")}</div>
+                  <div class="stat__value">{vm.previewExternalCounts.create}</div>
+                </div>
+                <div class="stat">
+                  <div class="stat__label">{t("import.preview.summary.external.duplicate")}</div>
+                  <div class="stat__value">{vm.previewExternalCounts.duplicate}</div>
+                </div>
+                <div class="stat">
+                  <div class="stat__label">{t("import.preview.summary.external.error")}</div>
+                  <div class="stat__value">{vm.previewExternalCounts.error}</div>
+                </div>
+              </div>
+            </Show>
+
             <Show when={vm.previewWarnings.length > 0}>
               <div class="alert alert--warn">
                 <div class="strong">{t("import.preview.warnings")}</div>
@@ -707,7 +727,7 @@ function previewStep(vm: ImportVM) {
                   </span>
                 </div>
               </div>
-              <div class="card__body">
+              <div class="card__body stack">
                 <div class="table-wrap">
                   <table class="table table--cards">
                     <thead>
@@ -742,6 +762,60 @@ function previewStep(vm: ImportVM) {
                     </tbody>
                   </table>
                 </div>
+
+                <Show when={iface.server_peers.length > 0}>
+                  <div class="stack-sm">
+                    <div class="section-title">
+                      <h2>{t("import.preview.servers.title")}</h2>
+                      <div class="actions-bar">
+                        <span class="badge badge--green">
+                          {t("import.preview.status.create")}: {iface.server_peer_counts.create}
+                        </span>
+                        <span class="badge badge--amber">
+                          {t("import.preview.status.duplicate")}: {iface.server_peer_counts.duplicate}
+                        </span>
+                        <span class="badge badge--red">
+                          {t("import.preview.status.error")}: {iface.server_peer_counts.error}
+                        </span>
+                      </div>
+                    </div>
+                    <div class="small muted">{t("import.preview.servers.subtitle")}</div>
+                    <div class="table-wrap">
+                      <table class="table table--cards">
+                        <thead>
+                          <tr>
+                            <th>{t("import.preview.publicKey")}</th>
+                            <th>{t("import.preview.status")}</th>
+                            <th>{t("import.preview.address")}</th>
+                            <th>{t("import.preview.reason")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={iface.server_peers}>
+                            {(peer) => (
+                              <tr>
+                                <td data-label={t("import.preview.publicKey")} class="mono small">
+                                  <span title={peer.public_key}>{vm.shortKey(peer.public_key)}</span>
+                                </td>
+                                <td data-label={t("import.preview.status")}>
+                                  <span class={vm.serverPeerStatusClass(peer.status)}>
+                                    {vm.serverPeerStatusLabel(peer.status)}
+                                  </span>
+                                </td>
+                                <td data-label={t("import.preview.address")} class="mono small">
+                                  {vm.serverPeerAddress(peer)}
+                                </td>
+                                <td data-label={t("import.preview.reason")} class="small">
+                                  {vm.serverPeerReason(peer)}
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </Show>
               </div>
             </section>
           )}
@@ -783,6 +857,10 @@ function resultStep(vm: ImportVM) {
             <div class="stat">
               <div class="stat__label">{t("import.result.devices")}</div>
               <div class="stat__value">{vm.resultDeviceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.result.externalDevices")}</div>
+              <div class="stat__value">{vm.resultExternalCount}</div>
             </div>
             <div class="stat">
               <div class="stat__label">{t("import.preview.summary.duplicate")}</div>
@@ -1099,6 +1177,12 @@ function clientsPreviewStep(vm: ImportVM) {
               <span class="badge badge--green">
                 {t("import.preview.summary.create")}: {vm.clientsPreviewSummary?.create ?? 0}
               </span>
+              <span class="badge badge--gray">
+                {t("import.preview.summary.unchanged")}: {vm.clientsPreviewSummary?.unchanged ?? 0}
+              </span>
+              <span class="badge badge--blue">
+                {t("import.preview.summary.update")}: {vm.clientsPreviewSummary?.update ?? 0}
+              </span>
               <span class="badge badge--amber">
                 {t("import.preview.summary.duplicate")}: {vm.clientsPreviewSummary?.duplicate ?? 0}
               </span>
@@ -1124,33 +1208,69 @@ function clientsPreviewStep(vm: ImportVM) {
                   <For each={vm.clientsPreviewInterfaces}>
                     {(iface) => (
                       <For each={iface.clients}>
-                        {(client) => (
-                          <tr>
-                            <td data-label={t("import.clients.preview.interface")}>
-                              <div class="strong mono">{iface.name}</div>
-                              <div class="xs muted">
-                                {t("import.clients.preview.node")}: {iface.node_id}
-                              </div>
-                            </td>
-                            <td data-label={t("import.clients.preview.group")} class="small">
-                              {iface.group_name}
-                            </td>
-                            <td data-label={t("import.preview.client")}>
-                              <span class="strong">{client.name}</span>
-                            </td>
-                            <td data-label={t("import.preview.status")}>
-                              <span class={vm.previewStatusClass(client.status)}>
-                                {vm.previewStatusLabel(client.status)}
-                              </span>
-                            </td>
-                            <td data-label={t("import.preview.address")} class="mono small">
-                              {vm.previewClientAddress(client)}
-                            </td>
-                            <td data-label={t("import.preview.reason")} class="small">
-                              {vm.previewClientReason(client)}
-                            </td>
-                          </tr>
-                        )}
+                        {(client) => {
+                          const changesKey = vm.changesKey(iface.id, client);
+                          return (
+                            <tr>
+                              <td data-label={t("import.clients.preview.interface")}>
+                                <div class="strong mono">{iface.name}</div>
+                                <div class="xs muted">
+                                  {t("import.clients.preview.node")}: {iface.node_id}
+                                </div>
+                              </td>
+                              <td data-label={t("import.clients.preview.group")} class="small">
+                                {iface.group_name}
+                              </td>
+                              <td data-label={t("import.preview.client")}>
+                                <span class="strong">{client.name}</span>
+                              </td>
+                              <td data-label={t("import.preview.status")}>
+                                <div class="stack-sm">
+                                  <div class="row-between wrap">
+                                    <span class={vm.previewStatusClass(client.status)}>
+                                      {vm.previewStatusLabel(client.status)}
+                                    </span>
+                                    <Show when={client.changes.length > 0}>
+                                      <button
+                                        class="btn btn--sm btn--ghost"
+                                        type="button"
+                                        aria-expanded={vm.changesOpen(changesKey)}
+                                        onClick={() => vm.toggleChanges(changesKey)}
+                                      >
+                                        {vm.changesOpen(changesKey)
+                                          ? t("import.preview.changes.hide")
+                                          : t("import.preview.changes.show")}
+                                      </button>
+                                    </Show>
+                                  </div>
+                                  <Show when={vm.changesOpen(changesKey)}>
+                                    <div class="stack-sm">
+                                      <div class="xs strong">{t("import.preview.changes")}</div>
+                                      <ul style="margin:0;padding-left:16px">
+                                        <For each={client.changes}>
+                                          {(change) => (
+                                            <li class="xs muted">
+                                              <span class="strong">
+                                                {vm.clientChangeLabel(change.field)}
+                                              </span>
+                                              : {vm.clientChangeText(change)}
+                                            </li>
+                                          )}
+                                        </For>
+                                      </ul>
+                                    </div>
+                                  </Show>
+                                </div>
+                              </td>
+                              <td data-label={t("import.preview.address")} class="mono small">
+                                {vm.previewClientAddress(client)}
+                              </td>
+                              <td data-label={t("import.preview.reason")} class="small">
+                                {vm.previewClientReason(client)}
+                              </td>
+                            </tr>
+                          );
+                        }}
                       </For>
                     )}
                   </For>
@@ -1242,6 +1362,14 @@ function clientsResultStep(vm: ImportVM) {
             <div class="stat">
               <div class="stat__label">{t("import.result.devices")}</div>
               <div class="stat__value">{vm.clientsResultDeviceCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.clients.result.updated")}</div>
+              <div class="stat__value">{vm.clientsResultUpdatedCount}</div>
+            </div>
+            <div class="stat">
+              <div class="stat__label">{t("import.clients.result.unchanged")}</div>
+              <div class="stat__value">{vm.clientsResultUnchangedCount}</div>
             </div>
             <div class="stat">
               <div class="stat__label">{t("import.preview.summary.duplicate")}</div>

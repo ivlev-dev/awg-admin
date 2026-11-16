@@ -94,11 +94,31 @@ const CLIENTS_PREVIEW: ClientsPreview = {
       group_name: "Main",
       node_id: "n2",
       public_key: "server-pub",
-      clients: [{ name: "client-1", status: "create", address: "10.8.0.2/24", reason: null }],
-      counts: { create: 1, duplicate: 0, error: 0 },
+      clients: [
+        {
+          name: "client-1",
+          status: "create",
+          address: "10.8.0.2/24",
+          reason: null,
+          device_id: null,
+          changes: [],
+        },
+        {
+          name: "laptop",
+          status: "update",
+          address: "10.8.0.4/24",
+          reason: null,
+          device_id: "d4",
+          changes: [
+            { field: "address", from: "10.8.0.2/24", to: "10.8.0.4/24" },
+            { field: "preshared_key", from: "old", to: "new" },
+          ],
+        },
+      ],
+      counts: { create: 1, unchanged: 0, update: 1, duplicate: 0, error: 0 },
     },
   ],
-  summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+  summary: { create: 1, unchanged: 0, update: 1, duplicate: 0, error: 0, interfaces: 1 },
   warnings: [],
 };
 
@@ -114,11 +134,49 @@ const PREVIEW: ImportPreview = {
       index: 0,
       name: "awg0",
       public_key: "server-pub",
-      clients: [{ name: "client-1", status: "create", address: "10.8.0.2/24", reason: null }],
-      counts: { create: 1, duplicate: 0, error: 0 },
+      clients: [
+        {
+          name: "client-1",
+          status: "create",
+          address: "10.8.0.2/24",
+          reason: null,
+          device_id: null,
+          changes: [],
+        },
+      ],
+      server_peers: [
+        {
+          public_key: "peer-aaaaaaaaaaaaaaaa",
+          status: "create",
+          address: "10.8.0.9/24",
+          reason: null,
+        },
+        {
+          public_key: "peer-bbbbbbbbbbbbbbbb",
+          status: "duplicate",
+          address: null,
+          reason: "address is used",
+        },
+        {
+          public_key: "peer-cccccccccccccccc",
+          status: "error",
+          address: null,
+          reason: "invalid key",
+        },
+      ],
+      counts: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 0 },
+      server_peer_counts: { create: 1, duplicate: 1, error: 1 },
     },
   ],
-  summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+  summary: {
+    create: 1,
+    unchanged: 0,
+    update: 0,
+    duplicate: 0,
+    error: 0,
+    interfaces: 1,
+    external: { create: 1, duplicate: 1, error: 1 },
+  },
   warnings: [],
 };
 
@@ -303,6 +361,64 @@ describe("ImportPageVM constructor DI", () => {
       expect(document.body.textContent).toContain("Импорт клиентов в интерфейс");
     });
     expect(document.body.textContent).toContain("Определить автоматически");
+
+    result.dispose();
+    result.node.parentNode?.removeChild(result.node);
+  });
+
+  it("рисует серверные пиры без клиентов и diff клиентов", async () => {
+    const container = createAppContainer();
+    container.bind(DefaultNodesService, () => new DefaultNodesService(nodesRepository()));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersRepository()));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesRepository()));
+    container.bind(DefaultImportService, () => new DefaultImportService(importRepository()));
+    container.bind(Router, () => new Router());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const vm = await container.resolve<ImportVM>(ImportVM);
+    const result = createComponent(ImportPage, {}, { container });
+    document.body.append(result.node);
+    await result.ready;
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("1. Группа и нода");
+    });
+
+    vm.groupName = "Imported";
+    vm.interfaces[0]!.serverConfig = "[Interface]\nPrivateKey = server-key";
+    vm.interfaces[0]!.endpointHost = "vpn.example.com";
+    await vm.previewNow();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("Серверные пиры без клиентов");
+      expect(document.body.textContent).toContain("peer-aaa…aaaa");
+      expect(document.body.textContent).toContain("10.8.0.9/24");
+      expect(document.body.textContent).toContain("Внешних к созданию");
+    });
+
+    vm.mode = "clients";
+    vm.setClientsImportText({
+      target: {
+        value: "[Interface]\nAddress = 10.8.0.2/24\n\n[Peer]\nPublicKey = peer-a",
+      },
+    } as unknown as Event);
+    await vm.previewClientsNow();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("К обновлению");
+      expect(document.body.textContent).toContain("Показать изменения");
+    });
+
+    const toggle = Array.from(document.querySelectorAll("button")).find((button) =>
+      button.textContent?.includes("Показать изменения"),
+    );
+    if (toggle === undefined) throw new Error("changes toggle is missing");
+    toggle.click();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("10.8.0.2/24 → 10.8.0.4/24");
+      expect(document.body.textContent).toContain("••• → •••");
+    });
 
     result.dispose();
     result.node.parentNode?.removeChild(result.node);

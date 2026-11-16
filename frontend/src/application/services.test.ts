@@ -15,10 +15,13 @@ import type { GroupsRepository } from "@/domain/groups/repository";
 import type { ImportRepository } from "@/domain/import/repository";
 import type {
   ClientsApplyResult,
+  ClientsApplyResultWire,
   ClientsPreview,
+  ClientsPreviewWire,
   ImportApplyResult,
   ImportInput,
   ImportPreview,
+  ImportPreviewWire,
 } from "@/domain/import/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
@@ -650,11 +653,30 @@ describe("ImportService", () => {
         index: 0,
         name: "wg0",
         public_key: "server-pub",
-        clients: [{ name: "laptop", status: "create", address: "10.0.0.2/24", reason: null }],
-        counts: { create: 1, duplicate: 0, error: 0 },
+        clients: [
+          {
+            name: "laptop",
+            status: "create",
+            address: "10.0.0.2/24",
+            reason: null,
+            device_id: null,
+            changes: [],
+          },
+        ],
+        server_peers: [],
+        counts: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 0 },
+        server_peer_counts: { create: 0, duplicate: 0, error: 0 },
       },
     ],
-    summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+    summary: {
+      create: 1,
+      unchanged: 0,
+      update: 0,
+      duplicate: 0,
+      error: 0,
+      interfaces: 1,
+      external: { create: 0, duplicate: 0, error: 0 },
+    },
     warnings: [],
   };
 
@@ -675,11 +697,20 @@ describe("ImportService", () => {
         group_name: "Main",
         node_id: "n1",
         public_key: "server-pub",
-        clients: [{ name: "laptop", status: "create", address: "10.0.0.2/24", reason: null }],
-        counts: { create: 1, duplicate: 0, error: 0 },
+        clients: [
+          {
+            name: "laptop",
+            status: "create",
+            address: "10.0.0.2/24",
+            reason: null,
+            device_id: null,
+            changes: [],
+          },
+        ],
+        counts: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 0 },
       },
     ],
-    summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+    summary: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 0, interfaces: 1 },
     warnings: [],
   };
 
@@ -694,6 +725,26 @@ describe("ImportService", () => {
       apply: vi.fn(async () => APPLIED),
       previewClients: vi.fn(async () => CLIENTS_PREVIEW),
       applyClients: vi.fn(async () => CLIENTS_APPLIED),
+      importConfig: vi.fn(async (): Promise<ImportResult> => ({
+        group_id: "g1",
+        interface_id: "i1",
+        imported_devices: 1,
+        failed_devices: [],
+      })),
+    };
+  }
+
+  function makeWireImport(wire: ImportPreviewWire): ImportRepository {
+    return {
+      preview: vi.fn(async (): Promise<ImportPreviewWire> => wire),
+      apply: vi.fn(
+        async (): Promise<ImportPreviewWire & { created: ImportApplyResult["created"] }> => ({
+          ...wire,
+          created: { group_id: "g1", interfaces: [] },
+        }),
+      ),
+      previewClients: vi.fn(async (): Promise<ClientsPreviewWire> => CLIENTS_PREVIEW),
+      applyClients: vi.fn(async (): Promise<ClientsApplyResultWire> => CLIENTS_APPLIED),
       importConfig: vi.fn(async (): Promise<ImportResult> => ({
         group_id: "g1",
         interface_id: "i1",
@@ -921,5 +972,227 @@ describe("ImportService", () => {
     expect(repo.importConfig).toHaveBeenCalledWith(
       expect.objectContaining({ node_id: "n1", base_cidr: "10.0.0.0/24" }),
     );
+  });
+
+  it("нормализует серверные пиры и счётчики external", async () => {
+    const repo = makeWireImport({
+      group: { name: "Main" },
+      interfaces: [
+        {
+          index: 0,
+          name: "wg0",
+          public_key: "server-pub",
+          clients: [{ name: "laptop", status: "create", address: "10.0.0.2/24" }],
+          server_peers: [
+            { public_key: "peer-a", status: "create", address: "10.0.0.9/24" },
+            { public_key: "peer-b", status: "duplicate", address: null, reason: "exists" },
+            { public_key: "peer-c", status: "error", address: null, reason: "no address" },
+            { public_key: null, status: "create", address: null },
+          ],
+        },
+      ],
+      summary: { create: 1, duplicate: 0, error: 0, interfaces: 1 },
+      warnings: [],
+    });
+
+    const result = await new DefaultImportService(repo).preview(input);
+
+    expect(result.interfaces[0]?.server_peers).toEqual([
+      { public_key: "peer-a", status: "create", address: "10.0.0.9/24", reason: null },
+      { public_key: "peer-b", status: "duplicate", address: null, reason: "exists" },
+      { public_key: "peer-c", status: "error", address: null, reason: "no address" },
+    ]);
+    expect(result.interfaces[0]?.server_peer_counts).toEqual({
+      create: 1,
+      duplicate: 1,
+      error: 1,
+    });
+    expect(result.summary.external).toEqual({ create: 1, duplicate: 1, error: 1 });
+    expect(result.summary.unchanged).toBe(0);
+    expect(result.summary.update).toBe(0);
+    expect(result.interfaces[0]?.clients[0]?.device_id).toBeNull();
+    expect(result.interfaces[0]?.clients[0]?.changes).toEqual([]);
+  });
+
+  it("сохраняет diff unchanged/update с изменениями", async () => {
+    const repo = makeWireImport({
+      group: { name: "Main" },
+      interfaces: [
+        {
+          index: 0,
+          name: "wg0",
+          public_key: "server-pub",
+          clients: [
+            { name: "phone", status: "unchanged", address: "10.0.0.3/24", device_id: "d3" },
+            {
+              name: "laptop",
+              status: "update",
+              address: "10.0.0.4/24",
+              device_id: "d4",
+              changes: [
+                { field: "address", from: "10.0.0.2/24", to: "10.0.0.4/24" },
+                { field: "preshared_key", from: "old", to: "new" },
+                { field: "name", from: "old-laptop", to: "laptop" },
+                { field: "unknown", from: null, to: null },
+              ],
+            },
+          ],
+          counts: { create: 0, unchanged: 1, update: 1, duplicate: 0, error: 0 },
+        },
+      ],
+      summary: { create: 0, unchanged: 1, update: 1, duplicate: 0, error: 0, interfaces: 1 },
+      warnings: [],
+    });
+
+    const result = await new DefaultImportService(repo).preview(input);
+
+    expect(result.summary).toEqual({
+      create: 0,
+      unchanged: 1,
+      update: 1,
+      duplicate: 0,
+      error: 0,
+      interfaces: 1,
+      external: { create: 0, duplicate: 0, error: 0 },
+    });
+    expect(result.interfaces[0]?.clients[1]).toEqual({
+      name: "laptop",
+      status: "update",
+      address: "10.0.0.4/24",
+      reason: null,
+      device_id: "d4",
+      changes: [
+        { field: "address", from: "10.0.0.2/24", to: "10.0.0.4/24" },
+        { field: "preshared_key", from: "old", to: "new" },
+        { field: "name", from: "old-laptop", to: "laptop" },
+      ],
+    });
+  });
+
+  it("поддерживает ответ без новых полей", async () => {
+    const repo = makeWireImport({
+      group: { name: "Main" },
+      interfaces: [
+        {
+          index: 0,
+          name: "wg0",
+          public_key: "server-pub",
+          clients: [
+            { name: "laptop", status: "create", address: "10.0.0.2/24", reason: null },
+            { name: "phone", status: "duplicate", address: "10.0.0.3/24", reason: "exists" },
+            { name: "tablet", status: "error", address: null, reason: "bad key" },
+          ],
+          counts: { create: 1, duplicate: 1, error: 1 },
+        },
+      ],
+      summary: { create: 1, duplicate: 1, error: 1, interfaces: 1 },
+    });
+
+    const result = await new DefaultImportService(repo).preview(input);
+
+    expect(result.interfaces[0]?.server_peers).toEqual([]);
+    expect(result.interfaces[0]?.server_peer_counts).toEqual({
+      create: 0,
+      duplicate: 0,
+      error: 0,
+    });
+    expect(result.interfaces[0]?.counts).toEqual({
+      create: 1,
+      unchanged: 0,
+      update: 0,
+      duplicate: 1,
+      error: 1,
+    });
+    expect(result.summary).toEqual({
+      create: 1,
+      unchanged: 0,
+      update: 0,
+      duplicate: 1,
+      error: 1,
+      interfaces: 1,
+      external: { create: 0, duplicate: 0, error: 0 },
+    });
+    expect(result.warnings).toEqual([]);
+    expect(result.interfaces[0]?.clients.map((client) => client.status)).toEqual([
+      "create",
+      "duplicate",
+      "error",
+    ]);
+  });
+
+  it("нормализует применение клиентов с обновлениями", async () => {
+    const repo = makeWireImport({
+      group: { name: "Main" },
+    });
+    vi.mocked(repo.previewClients).mockResolvedValueOnce({
+      interfaces: [
+        {
+          id: "i1",
+          name: "wg0",
+          group_id: "g1",
+          group_name: "Main",
+          node_id: "n1",
+          public_key: "server-pub",
+          clients: [
+            {
+              name: "laptop",
+              status: "update",
+              address: "10.0.0.4/24",
+              device_id: "d4",
+              changes: [{ field: "preshared_key", from: "old", to: "new" }],
+            },
+          ],
+        },
+      ],
+    });
+    vi.mocked(repo.applyClients).mockResolvedValueOnce({
+      interfaces: [
+        {
+          id: "i1",
+          name: "wg0",
+          group_id: "g1",
+          group_name: "Main",
+          node_id: "n1",
+          public_key: "server-pub",
+          clients: [
+            {
+              name: "laptop",
+              status: "update",
+              address: "10.0.0.4/24",
+              device_id: "d4",
+              changes: [{ field: "preshared_key", from: "old", to: "new" }],
+            },
+          ],
+        },
+      ],
+      created: { interfaces: [{ id: "i1", device_ids: [] }] },
+    });
+
+    const service = new DefaultImportService(repo);
+    const preview = await service.previewClients({
+      interface_id: "i1",
+      owner_user_id: null,
+      clients: [{ name: "laptop", config: "[Peer]" }],
+    });
+    const applied = await service.applyClients({
+      interface_id: "i1",
+      owner_user_id: null,
+      clients: [{ name: "laptop", config: "[Peer]" }],
+    });
+
+    expect(preview.summary).toEqual({
+      create: 0,
+      unchanged: 0,
+      update: 1,
+      duplicate: 0,
+      error: 0,
+      interfaces: 1,
+    });
+    expect(preview.interfaces[0]?.clients[0]?.changes).toEqual([
+      { field: "preshared_key", from: "old", to: "new" },
+    ]);
+    expect(applied.summary.update).toBe(1);
+    expect(applied.interfaces[0]?.clients[0]?.device_id).toBe("d4");
+    expect(applied.created).toEqual({ interfaces: [{ id: "i1", device_ids: [] }] });
   });
 });

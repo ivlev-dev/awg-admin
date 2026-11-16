@@ -188,6 +188,7 @@ button { cursor: pointer; }
 .badge--red { background: var(--red-soft); color: var(--red); }
 .badge--amber { background: var(--amber-soft); color: var(--amber); }
 .badge--blue { background: var(--blue-soft); color: var(--blue); }
+.badge--gray { background: var(--muted-soft); color: var(--muted); }
 .badge--violet { background: var(--violet-soft); color: var(--violet); }
 
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-2); flex: none; }

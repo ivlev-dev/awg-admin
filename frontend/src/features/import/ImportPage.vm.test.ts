@@ -77,14 +77,45 @@ const PREVIEW: ImportPreview = {
       name: "awg0",
       public_key: "server-pub",
       clients: [
-        { name: "client-1", status: "create", address: "10.8.0.2/24", reason: null },
-        { name: "client-2", status: "duplicate", address: "10.8.0.3/24", reason: "address is used" },
-        { name: "client-3", status: "error", address: null, reason: "invalid key" },
+        {
+          name: "client-1",
+          status: "create",
+          address: "10.8.0.2/24",
+          reason: null,
+          device_id: null,
+          changes: [],
+        },
+        {
+          name: "client-2",
+          status: "duplicate",
+          address: "10.8.0.3/24",
+          reason: "address is used",
+          device_id: null,
+          changes: [],
+        },
+        {
+          name: "client-3",
+          status: "error",
+          address: null,
+          reason: "invalid key",
+          device_id: null,
+          changes: [],
+        },
       ],
-      counts: { create: 1, duplicate: 1, error: 1 },
+      server_peers: [],
+      counts: { create: 1, unchanged: 0, update: 0, duplicate: 1, error: 1 },
+      server_peer_counts: { create: 0, duplicate: 0, error: 0 },
     },
   ],
-  summary: { create: 1, duplicate: 1, error: 1, interfaces: 1 },
+  summary: {
+    create: 1,
+    unchanged: 0,
+    update: 0,
+    duplicate: 1,
+    error: 1,
+    interfaces: 1,
+    external: { create: 0, duplicate: 0, error: 0 },
+  },
   warnings: ["public key check"],
 };
 
@@ -135,14 +166,146 @@ const CLIENTS_PREVIEW: ClientsPreview = {
       node_id: "n2",
       public_key: "server-pub",
       clients: [
-        { name: "client-1", status: "create", address: "10.8.0.2/24", reason: null },
-        { name: "client-2", status: "error", address: null, reason: "interface not found" },
+        {
+          name: "client-1",
+          status: "create",
+          address: "10.8.0.2/24",
+          reason: null,
+          device_id: null,
+          changes: [],
+        },
+        {
+          name: "client-2",
+          status: "error",
+          address: null,
+          reason: "interface not found",
+          device_id: null,
+          changes: [],
+        },
       ],
-      counts: { create: 1, duplicate: 0, error: 1 },
+      counts: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 1 },
     },
   ],
-  summary: { create: 1, duplicate: 0, error: 1, interfaces: 1 },
+  summary: {
+    create: 1,
+    unchanged: 0,
+    update: 0,
+    duplicate: 0,
+    error: 1,
+    interfaces: 1,
+  },
   warnings: ["auto match"],
+};
+
+const EXTERNAL_PREVIEW: ImportPreview = {
+  group: { name: "Imported" },
+  interfaces: [
+    {
+      index: 0,
+      name: "awg0",
+      public_key: "server-pub",
+      clients: [
+        {
+          name: "client-1",
+          status: "create",
+          address: "10.8.0.2/24",
+          reason: null,
+          device_id: null,
+          changes: [],
+        },
+      ],
+      server_peers: [
+        {
+          public_key: "peer-aaaaaaaaaaaaaaaa",
+          status: "create",
+          address: "10.8.0.9/24",
+          reason: null,
+        },
+        {
+          public_key: "peer-bbbbbbbbbbbbbbbb",
+          status: "duplicate",
+          address: null,
+          reason: "address is used",
+        },
+        {
+          public_key: "peer-cccccccccccccccc",
+          status: "error",
+          address: null,
+          reason: "invalid key",
+        },
+      ],
+      counts: { create: 1, unchanged: 0, update: 0, duplicate: 0, error: 0 },
+      server_peer_counts: { create: 1, duplicate: 1, error: 1 },
+    },
+  ],
+  summary: {
+    create: 1,
+    unchanged: 0,
+    update: 0,
+    duplicate: 0,
+    error: 0,
+    interfaces: 1,
+    external: { create: 1, duplicate: 1, error: 1 },
+  },
+  warnings: [],
+};
+
+const EXTERNAL_APPLIED: ImportApplyResult = {
+  ...EXTERNAL_PREVIEW,
+  created: {
+    group_id: "g1",
+    interfaces: [{ id: "i1", name: "awg0", device_ids: ["d1", "d2"] }],
+  },
+};
+
+const CLIENTS_DIFF_PREVIEW: ClientsPreview = {
+  interfaces: [
+    {
+      id: "i1",
+      name: "awg0",
+      group_id: "g1",
+      group_name: "Main",
+      node_id: "n2",
+      public_key: "server-pub",
+      clients: [
+        {
+          name: "phone",
+          status: "unchanged",
+          address: "10.8.0.3/24",
+          reason: null,
+          device_id: "d3",
+          changes: [],
+        },
+        {
+          name: "laptop",
+          status: "update",
+          address: "10.8.0.4/24",
+          reason: null,
+          device_id: "d4",
+          changes: [
+            { field: "address", from: "10.8.0.2/24", to: "10.8.0.4/24" },
+            { field: "preshared_key", from: "old-psk", to: "new-psk" },
+            { field: "name", from: "old-name", to: "laptop" },
+          ],
+        },
+      ],
+      counts: { create: 0, unchanged: 1, update: 1, duplicate: 0, error: 0 },
+    },
+  ],
+  summary: {
+    create: 0,
+    unchanged: 1,
+    update: 1,
+    duplicate: 0,
+    error: 0,
+    interfaces: 1,
+  },
+  warnings: [],
+};
+
+const CLIENTS_DIFF_APPLIED: ClientsApplyResult = {
+  ...CLIENTS_DIFF_PREVIEW,
+  created: { interfaces: [{ id: "i1", device_ids: ["d4"] }] },
 };
 
 const CLIENTS_APPLIED: ClientsApplyResult = {
@@ -662,6 +825,122 @@ describe("ImportPageVM", () => {
 
     vm.openInterfaces();
     expect(router.path).toBe("/interfaces");
+  });
+
+  it("показывает нулевые счётчики external без серверных пиров", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+    await vm.previewNow();
+
+    expect(vm.previewHasExternal).toBe(false);
+    expect(vm.previewExternalCounts).toEqual({ create: 0, duplicate: 0, error: 0 });
+    expect(vm.previewInterfaces[0]?.server_peers).toEqual([]);
+    expect(vm.resultExternalCount).toBe(0);
+  });
+
+  it("показывает серверные пиры без клиентов и счётчики external", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    fillValid(vm);
+    vi.mocked(imports.preview).mockResolvedValueOnce(EXTERNAL_PREVIEW);
+    vi.mocked(imports.apply).mockResolvedValueOnce(EXTERNAL_APPLIED);
+
+    await vm.previewNow();
+
+    expect(vm.previewHasExternal).toBe(true);
+    expect(vm.previewExternalCounts).toEqual({ create: 1, duplicate: 1, error: 1 });
+    expect(vm.previewSummary?.external).toEqual({ create: 1, duplicate: 1, error: 1 });
+    const peers = vm.previewInterfaces[0]?.server_peers ?? [];
+    expect(peers.map((peer) => peer.status)).toEqual(["create", "duplicate", "error"]);
+    expect(vm.shortKey(peers[0]?.public_key ?? "")).toBe("peer-aaa…aaaa");
+    expect(vm.shortKey("short-key")).toBe("short-key");
+    expect(vm.serverPeerStatusLabel("create")).toBe("создать");
+    expect(vm.serverPeerStatusLabel("duplicate")).toBe("дубликат");
+    expect(vm.serverPeerStatusLabel("error")).toBe("ошибка");
+    expect(vm.serverPeerStatusClass("create")).toBe("badge badge--green");
+    expect(vm.serverPeerStatusClass("duplicate")).toBe("badge badge--amber");
+    expect(vm.serverPeerStatusClass("error")).toBe("badge badge--red");
+    expect(vm.serverPeerAddress(peers[0]!)).toBe("10.8.0.9/24");
+    expect(vm.serverPeerAddress(peers[1]!)).toBe("—");
+    expect(vm.serverPeerReason(peers[2]!)).toBe("invalid key");
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Проверка завершена: создать 1, дубликатов 0, ошибок 0, внешних 1",
+    });
+
+    await vm.applyNow();
+
+    expect(vm.resultExternalCount).toBe(1);
+    expect(vm.resultDeviceCount).toBe(2);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Импортировано устройств: 1, внешних: 1",
+    });
+  });
+
+  it("показывает diff unchanged/update и применяет обновления", async () => {
+    const { vm, imports, toasts } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+    vi.mocked(imports.previewClients).mockResolvedValueOnce(CLIENTS_DIFF_PREVIEW);
+    vi.mocked(imports.applyClients).mockResolvedValueOnce(CLIENTS_DIFF_APPLIED);
+
+    await vm.previewClientsNow();
+
+    expect(vm.clientsPreviewSummary).toEqual({
+      create: 0,
+      unchanged: 1,
+      update: 1,
+      duplicate: 0,
+      error: 0,
+      interfaces: 1,
+    });
+    expect(vm.previewStatusLabel("unchanged")).toBe("без изменений");
+    expect(vm.previewStatusLabel("update")).toBe("обновить");
+    expect(vm.previewStatusClass("unchanged")).toBe("badge badge--gray");
+    expect(vm.previewStatusClass("update")).toBe("badge badge--blue");
+    expect(vm.clientsPreviewInterfaces[0]?.counts).toEqual({
+      create: 0,
+      unchanged: 1,
+      update: 1,
+      duplicate: 0,
+      error: 0,
+    });
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message:
+        "Проверка завершена: создать 0, обновить 1, без изменений 1, дубликатов 0, ошибок 0",
+    });
+
+    const iface = vm.clientsPreviewInterfaces[0];
+    const client = iface?.clients[1];
+    if (iface === undefined || client === undefined) throw new Error("update client is missing");
+    const key = vm.changesKey(iface.id, client);
+
+    expect(vm.changesOpen(key)).toBe(false);
+    vm.toggleChanges(key);
+    expect(vm.changesOpen(key)).toBe(true);
+    expect(vm.clientChangeLabel("address")).toBe("Адрес");
+    expect(vm.clientChangeLabel("preshared_key")).toBe("Preshared key");
+    expect(vm.clientChangeLabel("name")).toBe("Имя");
+    expect(vm.clientChangeText(client.changes[0]!)).toBe("10.8.0.2/24 → 10.8.0.4/24");
+    expect(vm.clientChangeText(client.changes[1]!)).toBe("••• → •••");
+    expect(vm.clientChangeText(client.changes[2]!)).toBe("old-name → laptop");
+    vm.toggleChanges(key);
+    expect(vm.changesOpen(key)).toBe(false);
+
+    await vm.applyClientsNow();
+
+    expect(vm.clientsResultCreatedCount).toBe(0);
+    expect(vm.clientsResultUpdatedCount).toBe(1);
+    expect(vm.clientsResultUnchangedCount).toBe(1);
+    expect(vm.clientsResultErrorCount).toBe(0);
+    expect(vm.clientsResultFailures).toEqual([]);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Импортировано устройств: 0, обновлено: 1",
+    });
   });
 
   it("показывает фатальную ошибку применения и откат", async () => {
