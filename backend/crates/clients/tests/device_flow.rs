@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use base64::Engine;
@@ -13,7 +15,8 @@ use awg_network::{
     NetworkService, NewInterface, NewPool, PoolMode, RedbCidrPoolRepository, RedbGroupRepository,
     RedbInterfaceRepository, RedbNodeRepository,
 };
-use awg_shared::crypto::Sealer;
+use awg_shared::CoreError;
+use awg_shared::crypto::{Sealer, generate_keypair};
 use awg_shared::obf::ObfuscationSettings;
 use awg_storage::Store;
 use awg_tariffs::{NewTariff, RedbTariffRepository, TariffService};
@@ -22,6 +25,7 @@ struct Fixture {
     devices: DeviceService,
     profiles: ProfileService,
     tariffs: Arc<TariffService>,
+    network: Arc<NetworkService>,
     group_id: Uuid,
 }
 
@@ -107,6 +111,7 @@ fn fixture() -> Fixture {
         devices,
         profiles,
         tariffs,
+        network,
         group_id: group.id,
     }
 }
@@ -403,4 +408,83 @@ fn create_rejects_invalid_forwarding() {
         }),
     );
     assert!(res.is_err());
+}
+
+#[test]
+fn external_peer_has_no_private_key_and_no_profile() {
+    let fixture = fixture();
+    let interface = fixture.network.list_interfaces().unwrap()[0].clone();
+    let pool = fixture
+        .network
+        .list_pools(fixture.group_id)
+        .unwrap()
+        .into_iter()
+        .next()
+        .unwrap();
+    let external = generate_keypair();
+    let ips = BTreeMap::from([(pool.id, IpAddr::V4("10.1.0.5".parse().unwrap()))]);
+    let device = fixture
+        .devices
+        .import_external_peer(
+            Uuid::new_v4(),
+            fixture.group_id,
+            "external-abcdefgh",
+            interface.id,
+            &external.public_key,
+            "psk-external",
+            ips,
+        )
+        .unwrap();
+
+    assert!(device.external);
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert!(peers[0].private_key_sealed.is_empty());
+    assert_eq!(peers[0].public_key, external.public_key);
+    assert_eq!(
+        fixture.devices.peer_preshared_key(&peers[0]).unwrap(),
+        "psk-external"
+    );
+    assert_eq!(fixture.devices.peer_secrets(&peers[0]).unwrap().0, "");
+
+    let error = fixture
+        .profiles
+        .build_one(device.id, interface.id)
+        .expect_err("external peer has no client profile");
+    assert!(matches!(error, CoreError::Conflict(message) if message.contains("external peer")));
+    assert!(fixture.profiles.build_all(device.id).is_err());
+}
+
+#[test]
+fn external_peer_requires_known_interface_and_addresses() {
+    let fixture = fixture();
+    let interface = fixture.network.list_interfaces().unwrap()[0].clone();
+    let external = generate_keypair();
+    let error = fixture
+        .devices
+        .import_external_peer(
+            Uuid::new_v4(),
+            fixture.group_id,
+            "external-abcdefgh",
+            interface.id,
+            &external.public_key,
+            "",
+            BTreeMap::new(),
+        )
+        .unwrap_err();
+    assert!(matches!(error, CoreError::Invalid(_)));
+
+    let error = fixture
+        .devices
+        .import_external_peer(
+            Uuid::new_v4(),
+            fixture.group_id,
+            "external-abcdefgh",
+            Uuid::new_v4(),
+            &external.public_key,
+            "",
+            BTreeMap::from([(Uuid::new_v4(), IpAddr::V4("10.1.0.5".parse().unwrap()))]),
+        )
+        .unwrap_err();
+    assert!(matches!(error, CoreError::NotFound(_)));
 }

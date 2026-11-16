@@ -32,6 +32,8 @@ pub struct Device {
     pub up_kbps: u32,
     pub forwarding: Forwarding,
     pub revoked: bool,
+    #[serde(default)]
+    pub external: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -182,6 +184,7 @@ mod tests {
                 allowed_devices: vec![],
             },
             revoked: false,
+            external: false,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }

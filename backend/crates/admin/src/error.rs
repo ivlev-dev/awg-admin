@@ -9,11 +9,13 @@ use awg_identity::{
 };
 use awg_shared::CoreError;
 
+#[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
     Unauthorized(String),
     Forbidden(String),
     NotFound(String),
+    BillingDisabled,
     Conflict(String),
     TooManyRequests { message: String, retry_after: u64 },
     TotpRequired,
@@ -64,6 +66,7 @@ impl ApiError {
             | ApiError::PendingApproval
             | ApiError::Rejected => StatusCode::FORBIDDEN,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
+            ApiError::BillingDisabled => StatusCode::NOT_FOUND,
             ApiError::Conflict(_) => StatusCode::CONFLICT,
             ApiError::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -83,6 +86,7 @@ impl IntoResponse for ApiError {
             ApiError::Unauthorized(message) => ("unauthorized", message),
             ApiError::Forbidden(message) => ("forbidden", message),
             ApiError::NotFound(message) => ("not_found", message),
+            ApiError::BillingDisabled => ("billing_disabled", "billing is disabled".to_string()),
             ApiError::Conflict(message) => ("conflict", message),
             ApiError::TooManyRequests { message, .. } => ("too_many_requests", message),
             ApiError::TotpRequired => (

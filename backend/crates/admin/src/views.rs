@@ -192,6 +192,8 @@ pub struct DeviceView {
     pub up_kbps: u32,
     pub forwarding: Forwarding,
     pub revoked: bool,
+    #[serde(default)]
+    pub external: bool,
     pub created_at: DateTime<Utc>,
     pub peers: Vec<PeerView>,
     pub addresses: Vec<String>,
@@ -234,6 +236,7 @@ impl DeviceView {
             up_kbps: device.up_kbps,
             forwarding: device.forwarding.clone(),
             revoked: device.revoked,
+            external: device.external,
             created_at: device.created_at,
             peers: peer_views,
             addresses: all_addresses,
@@ -300,8 +303,17 @@ impl ShareLinkView {
 #[serde(rename_all = "snake_case")]
 pub enum ImportClientStatus {
     Create,
+    Unchanged,
+    Update,
     Duplicate,
     Error,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ImportClientChangeView {
+    pub field: String,
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -310,10 +322,31 @@ pub struct ImportClientView {
     pub status: ImportClientStatus,
     pub address: Option<String>,
     pub reason: Option<String>,
+    #[serde(default)]
+    pub device_id: Option<Uuid>,
+    #[serde(default)]
+    pub changes: Vec<ImportClientChangeView>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportServerPeerView {
+    pub public_key: String,
+    pub status: ImportClientStatus,
+    pub address: Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize)]
 pub struct ImportCountsView {
+    pub create: usize,
+    pub unchanged: usize,
+    pub update: usize,
+    pub duplicate: usize,
+    pub error: usize,
+}
+
+#[derive(Debug, Default, Serialize)]
+pub struct ImportPeerCountsView {
     pub create: usize,
     pub duplicate: usize,
     pub error: usize,
@@ -322,9 +355,12 @@ pub struct ImportCountsView {
 #[derive(Debug, Serialize)]
 pub struct ImportSummaryView {
     pub create: usize,
+    pub unchanged: usize,
+    pub update: usize,
     pub duplicate: usize,
     pub error: usize,
     pub interfaces: usize,
+    pub external: ImportPeerCountsView,
 }
 
 #[derive(Debug, Serialize)]
@@ -340,6 +376,8 @@ pub struct ImportInterfacePlanView {
     pub public_key: String,
     pub clients: Vec<ImportClientView>,
     pub counts: ImportCountsView,
+    pub server_peers: Vec<ImportServerPeerView>,
+    pub server_peer_counts: ImportPeerCountsView,
 }
 
 #[derive(Debug, Serialize)]
@@ -355,6 +393,8 @@ pub struct ImportCreatedInterfaceView {
     pub id: Uuid,
     pub name: String,
     pub device_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub external_device_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -393,6 +433,8 @@ pub struct ClientsImportPreviewView {
 pub struct ClientsImportCreatedInterfaceView {
     pub id: Uuid,
     pub device_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub updated_device_ids: Vec<Uuid>,
 }
 
 #[derive(Debug, Serialize)]
@@ -522,4 +564,12 @@ impl From<&AuditEntry> for AuditEntryView {
             details: entry.details.clone(),
         }
     }
+}
+
+#[derive(Debug, Serialize)]
+pub struct SubscriptionPageView {
+    pub items: Vec<awg_billing::Subscription>,
+    pub total: usize,
+    pub page: usize,
+    pub per_page: usize,
 }

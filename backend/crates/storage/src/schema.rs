@@ -2,7 +2,7 @@ use redb::{Database, ReadableDatabase, WriteTransaction};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 1;
+pub const CURRENT_SCHEMA_VERSION: u32 = 2;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 
 pub type MigrationFn = fn(&WriteTransaction) -> Result<()>;
@@ -14,7 +14,26 @@ pub struct MigrationStep {
     pub apply: MigrationFn,
 }
 
-pub const MIGRATIONS: &[MigrationStep] = &[];
+pub const MIGRATIONS: &[MigrationStep] = &[MigrationStep {
+    from: 1,
+    to: 2,
+    apply: v2_billing,
+}];
+
+const BILLING_TABLES: &[Table] = &[
+    Table::BillingPlans,
+    Table::BillingSubscriptions,
+    Table::BillingInvoices,
+    Table::BillingPaymentMethods,
+    Table::BillingEvents,
+];
+
+fn v2_billing(txn: &WriteTransaction) -> Result<()> {
+    for table in BILLING_TABLES {
+        txn.open_table(table.definition())?;
+    }
+    Ok(())
+}
 
 pub(crate) fn initialize(db: &Database) -> Result<()> {
     let version = read_version(db)?;
@@ -268,5 +287,103 @@ mod tests {
         }
         let err = initialize(&db).unwrap_err();
         assert!(matches!(err, StorageError::InvalidSchemaVersion(_)));
+    }
+
+    #[test]
+    fn migration_v2_creates_billing_tables_and_keeps_data() {
+        let db = in_memory();
+        seed_legacy(&db, Some(1));
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut users = txn.open_table(Table::Users.definition()).unwrap();
+                users
+                    .insert("user-1", b"{\"login\":\"alice\"}".as_slice())
+                    .unwrap();
+                let mut tariffs = txn.open_table(Table::Tariffs.definition()).unwrap();
+                tariffs
+                    .insert("tariff-1", b"{\"name\":\"pro\"}".as_slice())
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 1, CURRENT_SCHEMA_VERSION).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(2));
+        let txn = db.begin_read().unwrap();
+        for table in BILLING_TABLES {
+            assert!(txn.open_table(table.definition()).is_ok());
+        }
+        {
+            let users = txn.open_table(Table::Users.definition()).unwrap();
+            assert_eq!(
+                users.get("user-1").unwrap().unwrap().value(),
+                b"{\"login\":\"alice\"}".as_slice()
+            );
+        }
+        {
+            let tariffs = txn.open_table(Table::Tariffs.definition()).unwrap();
+            assert_eq!(
+                tariffs.get("tariff-1").unwrap().unwrap().value(),
+                b"{\"name\":\"pro\"}".as_slice()
+            );
+        }
+        {
+            let meta = txn.open_table(Table::Meta.definition()).unwrap();
+            assert_eq!(
+                meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
+                b"2".as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn migration_v2_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(1));
+
+        migrate(&db, 1, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 1, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION).unwrap();
+
+        let txn = db.begin_write().unwrap();
+        v2_billing(&txn).unwrap();
+        v2_billing(&txn).unwrap();
+        txn.commit().unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+    }
+
+    #[test]
+    fn initialize_migrates_v1_store_without_touching_data() {
+        let db = in_memory();
+        seed_legacy(&db, Some(1));
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut legacy = txn.open_table(LEGACY).unwrap();
+                legacy.insert("second", b"world".as_slice()).unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        initialize(&db).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+        let txn = db.begin_read().unwrap();
+        let legacy = txn.open_table(LEGACY).unwrap();
+        assert_eq!(
+            legacy.get("greeting").unwrap().unwrap().value(),
+            b"hello".as_slice()
+        );
+        assert_eq!(
+            legacy.get("second").unwrap().unwrap().value(),
+            b"world".as_slice()
+        );
+        drop(legacy);
+        for table in BILLING_TABLES {
+            assert!(txn.open_table(table.definition()).is_ok());
+        }
     }
 }

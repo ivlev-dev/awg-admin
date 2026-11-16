@@ -23,6 +23,9 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use awg_audit::{AuditService, RedbAuditRepository};
+use awg_billing::{
+    BillingService, RedbInvoiceRepository, RedbPlanRepository, RedbSubscriptionRepository,
+};
 use awg_clients::{
     DeviceService, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
     RedbShareLinkRepository, ShareService,
@@ -110,6 +113,22 @@ async fn main() -> Result<()> {
     let tariffs = {
         let repo = Arc::new(RedbTariffRepository::new(store.clone()));
         Arc::new(TariffService::new(repo))
+    };
+
+    let billing = {
+        let plans = Arc::new(RedbPlanRepository::new(store.clone()));
+        let subscriptions = Arc::new(RedbSubscriptionRepository::new(store.clone()));
+        let invoices = Arc::new(RedbInvoiceRepository::new(store.clone()));
+        let tariffs = Arc::new(crate::controllers::billing::TariffCatalogAdapter::new(
+            tariffs.clone(),
+        ));
+        Arc::new(BillingService::new(
+            plans,
+            subscriptions,
+            invoices,
+            tariffs,
+            config.billing.settings(),
+        ))
     };
 
     let network = {
@@ -264,6 +283,7 @@ async fn main() -> Result<()> {
         orchestration,
         settings,
         audit,
+        billing,
         login_limiter,
         refresh_limiter,
         register_limiter,
@@ -319,6 +339,8 @@ async fn main() -> Result<()> {
         production = config.is_production(),
         log_format = log_format.as_str(),
         mail_mode = config.mail_mode.as_str(),
+        billing_enabled = config.billing.enabled,
+        billing_provider = config.billing.provider.as_str(),
         "admin API listening (h2c + http/1.1)"
     );
     axum::serve(

@@ -39,6 +39,61 @@ impl Environment {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaymentProvider {
+    Noop,
+    Stripe,
+    Yookassa,
+    Cloudpayments,
+    TelegramStars,
+}
+
+impl PaymentProvider {
+    pub fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "noop" => Ok(Self::Noop),
+            "stripe" => Ok(Self::Stripe),
+            "yookassa" => Ok(Self::Yookassa),
+            "cloudpayments" => Ok(Self::Cloudpayments),
+            "telegram_stars" => Ok(Self::TelegramStars),
+            other => bail!(
+                "AWG_PAYMENT_PROVIDER must be noop, stripe, yookassa, cloudpayments or telegram_stars, got {other:?}"
+            ),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Noop => "noop",
+            Self::Stripe => "stripe",
+            Self::Yookassa => "yookassa",
+            Self::Cloudpayments => "cloudpayments",
+            Self::TelegramStars => "telegram_stars",
+        }
+    }
+
+    pub fn is_noop(self) -> bool {
+        matches!(self, Self::Noop)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BillingConfig {
+    pub enabled: bool,
+    pub currency: String,
+    pub trial_days: u32,
+    pub provider: PaymentProvider,
+}
+
+impl BillingConfig {
+    pub fn settings(&self) -> awg_billing::BillingSettings {
+        awg_billing::BillingSettings {
+            currency: self.currency.clone(),
+            trial_days: self.trial_days,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MailMode {
     Log,
     Smtp,
@@ -91,6 +146,10 @@ pub struct ConfigInput {
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
     pub metrics_token: Option<String>,
+    pub billing_enabled: String,
+    pub billing_currency: String,
+    pub billing_trial_days: String,
+    pub payment_provider: String,
 }
 
 #[derive(Debug, Clone)]
@@ -123,6 +182,7 @@ pub struct Config {
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
     pub metrics_token: Option<String>,
+    pub billing: BillingConfig,
 }
 
 impl Config {
@@ -218,6 +278,16 @@ impl Config {
             bail!("AWG_SMTP_URL and AWG_SMTP_FROM are required when AWG_MAIL_MODE=smtp");
         }
 
+        let billing_enabled = parse_bool("AWG_BILLING_ENABLED", &input.billing_enabled, false)?;
+        let billing_currency = parse_currency(&input.billing_currency)?;
+        let billing_trial_days = parse_trial_days(&input.billing_trial_days)?;
+        let payment_provider = PaymentProvider::parse(&input.payment_provider)?;
+        if production && billing_enabled && payment_provider.is_noop() {
+            bail!(
+                "AWG_PAYMENT_PROVIDER must not be noop in production when AWG_BILLING_ENABLED=true"
+            );
+        }
+
         Ok(Self {
             environment: input.environment,
             bind,
@@ -247,6 +317,12 @@ impl Config {
             smtp_url,
             smtp_from,
             metrics_token,
+            billing: BillingConfig {
+                enabled: billing_enabled,
+                currency: billing_currency,
+                trial_days: billing_trial_days,
+                provider: payment_provider,
+            },
         })
     }
 }
@@ -286,6 +362,35 @@ fn trimmed_or(value: &str, fallback: &str) -> String {
     }
 }
 
+fn parse_bool(key: &str, raw: &str, default: bool) -> Result<bool> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Ok(default);
+    }
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" | "on" => Ok(true),
+        "false" | "0" | "no" | "off" => Ok(false),
+        other => bail!("{key} must be true or false, got {other:?}"),
+    }
+}
+
+fn parse_currency(raw: &str) -> Result<String> {
+    let value = raw.trim();
+    let value = if value.is_empty() { "RUB" } else { value };
+    awg_billing::normalize_currency(value)
+        .map_err(|_| anyhow::anyhow!("AWG_BILLING_CURRENCY must be a three-letter ISO 4217 code"))
+}
+
+fn parse_trial_days(raw: &str) -> Result<u32> {
+    let value = raw.trim();
+    if value.is_empty() {
+        return Ok(0);
+    }
+    value
+        .parse()
+        .with_context(|| "AWG_BILLING_TRIAL_DAYS must be a non-negative integer")
+}
+
 fn input_from_env() -> Result<ConfigInput> {
     Ok(ConfigInput {
         environment: Environment::parse(
@@ -318,6 +423,10 @@ fn input_from_env() -> Result<ConfigInput> {
         smtp_url: env_optional("AWG_SMTP_URL"),
         smtp_from: env_optional("AWG_SMTP_FROM"),
         metrics_token: env_optional("AWG_METRICS_TOKEN"),
+        billing_enabled: env("AWG_BILLING_ENABLED", "false"),
+        billing_currency: env("AWG_BILLING_CURRENCY", "RUB"),
+        billing_trial_days: env("AWG_BILLING_TRIAL_DAYS", "0"),
+        payment_provider: env("AWG_PAYMENT_PROVIDER", "noop"),
     })
 }
 
@@ -383,6 +492,10 @@ mod tests {
             smtp_url: None,
             smtp_from: None,
             metrics_token: None,
+            billing_enabled: "false".into(),
+            billing_currency: "RUB".into(),
+            billing_trial_days: "0".into(),
+            payment_provider: "noop".into(),
         }
     }
 
@@ -540,5 +653,82 @@ mod tests {
         assert!(!Environment::Development.is_production());
         assert!(Environment::Production.is_production());
         assert_eq!(Environment::Production.as_str(), "production");
+    }
+
+    #[test]
+    fn billing_defaults_are_disabled_with_noop_provider() {
+        let config = Config::from_input(base_input(Environment::Development)).unwrap();
+        assert!(!config.billing.enabled);
+        assert_eq!(config.billing.currency, "RUB");
+        assert_eq!(config.billing.trial_days, 0);
+        assert_eq!(config.billing.provider, PaymentProvider::Noop);
+    }
+
+    #[test]
+    fn billing_currency_and_provider_are_normalized() {
+        let mut input = base_input(Environment::Development);
+        input.billing_currency = " usd ".into();
+        input.payment_provider = " STRIPE ".into();
+        input.billing_trial_days = "14".into();
+        input.billing_enabled = "true".into();
+
+        let config = Config::from_input(input).unwrap();
+        assert!(config.billing.enabled);
+        assert_eq!(config.billing.currency, "USD");
+        assert_eq!(config.billing.trial_days, 14);
+        assert_eq!(config.billing.provider, PaymentProvider::Stripe);
+        assert_eq!(config.billing.provider.as_str(), "stripe");
+        assert_eq!(config.billing.settings().currency, "USD");
+    }
+
+    #[test]
+    fn billing_rejects_invalid_values() {
+        let mut input = base_input(Environment::Development);
+        input.billing_enabled = "maybe".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_BILLING_ENABLED must be true or false"));
+
+        let mut input = base_input(Environment::Development);
+        input.billing_currency = "RUBL".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_BILLING_CURRENCY"));
+
+        let mut input = base_input(Environment::Development);
+        input.billing_trial_days = "-1".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_BILLING_TRIAL_DAYS"));
+
+        let mut input = base_input(Environment::Development);
+        input.payment_provider = "paypal".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_PAYMENT_PROVIDER"));
+    }
+
+    #[test]
+    fn production_requires_a_real_provider_when_billing_is_enabled() {
+        let mut input = base_input(Environment::Production);
+        input.billing_enabled = "true".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_PAYMENT_PROVIDER must not be noop"));
+
+        let mut input = base_input(Environment::Production);
+        input.billing_enabled = "true".into();
+        input.payment_provider = "yookassa".into();
+        let config = Config::from_input(input).unwrap();
+        assert!(config.billing.enabled);
+        assert!(!config.billing.provider.is_noop());
+    }
+
+    #[test]
+    fn provider_parsing_accepts_all_supported_values() {
+        for raw in [
+            "noop",
+            "stripe",
+            "yookassa",
+            "cloudpayments",
+            "telegram_stars",
+        ] {
+            assert!(PaymentProvider::parse(raw).is_ok(), "{raw}");
+        }
     }
 }

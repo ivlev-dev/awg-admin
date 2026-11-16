@@ -89,6 +89,11 @@ tables! {
     Settings => "settings",
     Audit => "audit",
     Meta => "meta",
+    BillingPlans => "billing_plans",
+    BillingSubscriptions => "billing_subscriptions",
+    BillingInvoices => "billing_invoices",
+    BillingPaymentMethods => "billing_payment_methods",
+    BillingEvents => "billing_events",
 }
 
 #[derive(Debug, Clone)]

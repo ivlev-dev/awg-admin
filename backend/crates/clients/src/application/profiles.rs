@@ -50,6 +50,9 @@ impl ProfileService {
         if device.revoked {
             return Err(CoreError::Forbidden("device is revoked".into()));
         }
+        if device.external {
+            return Err(external_profile_error());
+        }
         let pools = self.network.list_pools(device.group_id)?;
         let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
         let peers = self.peers.by_device(device_id)?;
@@ -67,6 +70,9 @@ impl ProfileService {
             .ok_or_else(|| CoreError::NotFound("device".into()))?;
         if device.revoked {
             return Err(CoreError::Forbidden("device is revoked".into()));
+        }
+        if device.external {
+            return Err(external_profile_error());
         }
         let peer = self
             .peers
@@ -97,8 +103,15 @@ impl ProfileService {
                 }
             }
         }
+        if peer.private_key_sealed.is_empty() {
+            return Err(external_profile_error());
+        }
         let private_key = self.sealer.open_str(&peer.private_key_sealed)?;
-        let preshared_key = self.sealer.open_str(&peer.preshared_key_sealed)?;
+        let preshared_key = if peer.preshared_key_sealed.is_empty() {
+            String::new()
+        } else {
+            self.sealer.open_str(&peer.preshared_key_sealed)?
+        };
         let preshared_key = if preshared_key.is_empty() {
             None
         } else {
@@ -138,6 +151,12 @@ impl ProfileService {
             vpn_link,
         })
     }
+}
+
+fn external_profile_error() -> CoreError {
+    CoreError::Conflict(
+        "external peer has no client profile: it was imported from the server configuration".into(),
+    )
 }
 
 fn format_endpoint(host: &str, port: u16) -> String {

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
@@ -7,12 +7,12 @@ use axum::extract::State;
 use ipnet::Ipv4Net;
 use uuid::Uuid;
 
-use awg_clients::DeviceService;
+use awg_clients::{DeviceService, PeerChangeSet};
 use awg_network::domain::validate_interface_name;
 use awg_network::{NetworkService, NewInterface, NewPool, PoolMode};
 use awg_shared::CoreError;
 use awg_shared::cidr::{parse_net, validate_pool};
-use awg_shared::conf::{parse_client_conf, parse_server_conf};
+use awg_shared::conf::{ParsedServerPeer, parse_client_conf, parse_server_conf};
 use awg_shared::crypto::public_from_private;
 use awg_shared::obf::{ClientObf, InterfaceObf};
 
@@ -24,9 +24,10 @@ use crate::models::{
 use crate::state::AppState;
 use crate::views::{
     ClientsImportApplyView, ClientsImportCreatedInterfaceView, ClientsImportCreatedView,
-    ClientsImportInterfaceView, ClientsImportPreviewView, ImportApplyView, ImportClientStatus,
-    ImportClientView, ImportCountsView, ImportCreatedInterfaceView, ImportCreatedView,
-    ImportGroupView, ImportInterfacePlanView, ImportPreviewView, ImportSummaryView,
+    ClientsImportInterfaceView, ClientsImportPreviewView, ImportApplyView, ImportClientChangeView,
+    ImportClientStatus, ImportClientView, ImportCountsView, ImportCreatedInterfaceView,
+    ImportCreatedView, ImportGroupView, ImportInterfacePlanView, ImportPeerCountsView,
+    ImportPreviewView, ImportServerPeerView, ImportSummaryView,
 };
 
 #[derive(serde::Serialize)]
@@ -206,6 +207,8 @@ pub async fn clients_apply(
 #[derive(Debug, Clone, Copy, Default)]
 struct ImportCounts {
     create: usize,
+    unchanged: usize,
+    update: usize,
     duplicate: usize,
     error: usize,
 }
@@ -213,12 +216,24 @@ struct ImportCounts {
 impl ImportCounts {
     fn add(&mut self, other: ImportCounts) {
         self.create += other.create;
+        self.unchanged += other.unchanged;
+        self.update += other.update;
         self.duplicate += other.duplicate;
         self.error += other.error;
     }
 
     fn view(self) -> ImportCountsView {
         ImportCountsView {
+            create: self.create,
+            unchanged: self.unchanged,
+            update: self.update,
+            duplicate: self.duplicate,
+            error: self.error,
+        }
+    }
+
+    fn peer_view(self) -> ImportPeerCountsView {
+        ImportPeerCountsView {
             create: self.create,
             duplicate: self.duplicate,
             error: self.error,
@@ -244,12 +259,40 @@ struct ClientSecret {
 }
 
 #[derive(Debug, Clone)]
+struct ImportChange {
+    field: &'static str,
+    from: String,
+    to: String,
+}
+
+impl ImportChange {
+    fn view(&self) -> ImportClientChangeView {
+        ImportClientChangeView {
+            field: self.field.to_string(),
+            from: self.from.clone(),
+            to: self.to.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct ImportClientPlan {
     name: String,
     status: ImportClientStatus,
     address: Option<String>,
     reason: Option<String>,
+    public_key: Option<String>,
     secret: Option<ClientSecret>,
+}
+
+#[derive(Debug, Clone)]
+struct ExternalPeerPlan {
+    public_key: String,
+    status: ImportClientStatus,
+    address: Option<String>,
+    reason: Option<String>,
+    preshared_key: String,
+    target: Option<(Ipv4Net, Ipv4Addr)>,
 }
 
 #[derive(Debug, Clone)]
@@ -266,7 +309,9 @@ struct InterfacePlan {
     obf: InterfaceObf,
     pools: Vec<PlannedPool>,
     clients: Vec<ImportClientPlan>,
+    server_peers: Vec<ExternalPeerPlan>,
     counts: ImportCounts,
+    peer_counts: ImportCounts,
 }
 
 #[derive(Debug, Clone)]
@@ -278,6 +323,7 @@ struct ImportPlan {
     node_id: Uuid,
     interfaces: Vec<InterfacePlan>,
     counts: ImportCounts,
+    peer_counts: ImportCounts,
     warnings: Vec<String>,
 }
 
@@ -303,16 +349,32 @@ impl ImportPlan {
                             status: client.status,
                             address: client.address.clone(),
                             reason: client.reason.clone(),
+                            device_id: None,
+                            changes: Vec::new(),
                         })
                         .collect(),
                     counts: interface.counts.view(),
+                    server_peers: interface
+                        .server_peers
+                        .iter()
+                        .map(|peer| ImportServerPeerView {
+                            public_key: peer.public_key.clone(),
+                            status: peer.status,
+                            address: peer.address.clone(),
+                            reason: peer.reason.clone(),
+                        })
+                        .collect(),
+                    server_peer_counts: interface.peer_counts.peer_view(),
                 })
                 .collect(),
             summary: ImportSummaryView {
                 create: self.counts.create,
+                unchanged: self.counts.unchanged,
+                update: self.counts.update,
                 duplicate: self.counts.duplicate,
                 error: self.counts.error,
                 interfaces: self.interfaces.len(),
+                external: self.peer_counts.peer_view(),
             },
             warnings: self.warnings.clone(),
         }
@@ -324,6 +386,7 @@ struct CreatedInterface {
     id: Uuid,
     name: String,
     device_ids: Vec<Uuid>,
+    external_device_ids: Vec<Uuid>,
 }
 
 #[derive(Debug)]
@@ -343,6 +406,7 @@ impl CreatedImport {
                     id: interface.id,
                     name: interface.name.clone(),
                     device_ids: interface.device_ids.clone(),
+                    external_device_ids: interface.external_device_ids.clone(),
                 })
                 .collect(),
         }
@@ -403,6 +467,7 @@ fn plan_import(
     let mut used_client_names: HashSet<String> = HashSet::new();
     let mut interfaces = Vec::new();
     let mut total = ImportCounts::default();
+    let mut total_peers = ImportCounts::default();
 
     for (index, input) in request.interfaces.iter().enumerate() {
         let planned = plan_interface(
@@ -433,8 +498,30 @@ fn plan_import(
             clients.push(planned_client);
         }
 
+        let client_keys: HashSet<String> = clients
+            .iter()
+            .filter_map(|client| client.public_key.clone())
+            .collect();
+        let mut server_peers = Vec::new();
+        for peer in &planned.server_peers {
+            if client_keys.contains(&peer.public_key) {
+                continue;
+            }
+            let planned_peer = plan_external_peer(
+                peer,
+                &planned.pools,
+                &existing_keys,
+                &mut seen_client_keys,
+                &mut used_addresses,
+                &input.name,
+            );
+            server_peers.push(planned_peer);
+        }
+
         let counts = count_clients(&clients);
+        let peer_counts = count_server_peers(&server_peers);
         total.add(counts);
+        total_peers.add(peer_counts);
         server_keys.push((planned.name.clone(), planned.public_key.clone()));
         interfaces.push(InterfacePlan {
             index: planned.index,
@@ -449,7 +536,9 @@ fn plan_import(
             obf: planned.obf,
             pools: planned.pools,
             clients,
+            server_peers,
             counts,
+            peer_counts,
         });
     }
 
@@ -473,6 +562,7 @@ fn plan_import(
         node_id: request.node_id,
         interfaces,
         counts: total,
+        peer_counts: total_peers,
         warnings,
     })
 }
@@ -489,6 +579,7 @@ struct PlannedInterfaceMeta {
     public_key: String,
     obf: InterfaceObf,
     pools: Vec<PlannedPool>,
+    server_peers: Vec<ParsedServerPeer>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -578,6 +669,7 @@ fn plan_interface(
         public_key,
         obf: server.obf,
         pools,
+        server_peers: server.peers,
     })
 }
 
@@ -599,6 +691,7 @@ fn plan_client(
         status: ImportClientStatus::Error,
         address: None,
         reason: None,
+        public_key: None,
         secret: None,
     };
 
@@ -629,6 +722,7 @@ fn plan_client(
             return plan;
         }
     };
+    plan.public_key = Some(public_key.clone());
 
     if let Some(owner) = seen_client_keys.get(&public_key) {
         plan.status = ImportClientStatus::Duplicate;
@@ -721,11 +815,103 @@ fn count_clients(clients: &[ImportClientPlan]) -> ImportCounts {
     for client in clients {
         match client.status {
             ImportClientStatus::Create => counts.create += 1,
+            ImportClientStatus::Unchanged => counts.unchanged += 1,
+            ImportClientStatus::Update => counts.update += 1,
             ImportClientStatus::Duplicate => counts.duplicate += 1,
             ImportClientStatus::Error => counts.error += 1,
         }
     }
     counts
+}
+
+fn count_server_peers(peers: &[ExternalPeerPlan]) -> ImportCounts {
+    let mut counts = ImportCounts::default();
+    for peer in peers {
+        match peer.status {
+            ImportClientStatus::Create => counts.create += 1,
+            ImportClientStatus::Unchanged => counts.unchanged += 1,
+            ImportClientStatus::Update => counts.update += 1,
+            ImportClientStatus::Duplicate => counts.duplicate += 1,
+            ImportClientStatus::Error => counts.error += 1,
+        }
+    }
+    counts
+}
+
+fn external_peer_name(public_key: &str) -> String {
+    let stem: String = public_key.chars().take(8).collect();
+    format!("external-{stem}")
+}
+
+fn plan_external_peer(
+    peer: &ParsedServerPeer,
+    pools: &[PlannedPool],
+    existing_keys: &HashSet<String>,
+    seen_client_keys: &mut HashMap<String, String>,
+    used_addresses: &mut HashSet<Ipv4Addr>,
+    interface_name: &str,
+) -> ExternalPeerPlan {
+    let mut plan = ExternalPeerPlan {
+        public_key: peer.public_key.clone(),
+        status: ImportClientStatus::Error,
+        address: None,
+        reason: None,
+        preshared_key: peer.preshared_key.clone().unwrap_or_default(),
+        target: None,
+    };
+
+    if let Some(owner) = seen_client_keys.get(&peer.public_key) {
+        plan.status = ImportClientStatus::Duplicate;
+        plan.reason = Some(format!(
+            "peer public key already imported in interface {owner}"
+        ));
+        return plan;
+    }
+    if existing_keys.contains(&peer.public_key) {
+        plan.status = ImportClientStatus::Duplicate;
+        plan.reason = Some("peer public key already exists".into());
+        return plan;
+    }
+
+    if peer.allowed_ips.is_empty() {
+        plan.reason = Some("peer has no AllowedIPs".into());
+        return plan;
+    }
+    let mut outside = Vec::new();
+    let mut matched: Option<(Ipv4Net, Ipv4Addr)> = None;
+    for raw in &peer.allowed_ips {
+        match parse_net(raw) {
+            Ok(net) => {
+                let ip = net.addr();
+                if let Some(pool) = pools.iter().find(|pool| pool.cidr.contains(&ip)) {
+                    if matched.is_none() {
+                        matched = Some((pool.cidr, ip));
+                    }
+                } else {
+                    outside.push(raw.clone());
+                }
+            }
+            Err(_) => outside.push(raw.clone()),
+        }
+    }
+    let Some((cidr, ip)) = matched else {
+        plan.reason = Some(format!(
+            "peer AllowedIPs does not contain an IPv4 address inside a configured pool: {}",
+            outside.join(", ")
+        ));
+        return plan;
+    };
+    if used_addresses.contains(&ip) {
+        plan.reason = Some(format!("address {ip} is already in use"));
+        return plan;
+    }
+
+    used_addresses.insert(ip);
+    seen_client_keys.insert(peer.public_key.clone(), interface_name.to_string());
+    plan.status = ImportClientStatus::Create;
+    plan.address = Some(ip.to_string());
+    plan.target = Some((cidr, ip));
+    plan
 }
 
 fn apply_import(
@@ -840,16 +1026,55 @@ fn create_interfaces(
         }
         interface.counts = count_clients(&interface.clients);
 
+        let mut external_device_ids = Vec::new();
+        for peer in &mut interface.server_peers {
+            if peer.status != ImportClientStatus::Create {
+                continue;
+            }
+            let Some((cidr, ip)) = peer.target else {
+                continue;
+            };
+            let Some((_, pool_id)) = pool_ids.iter().find(|(pool_cidr, _)| *pool_cidr == cidr)
+            else {
+                peer.status = ImportClientStatus::Error;
+                peer.reason = Some("peer address pool is missing".into());
+                continue;
+            };
+            let ips = BTreeMap::from([(*pool_id, IpAddr::V4(ip))]);
+            let name = external_peer_name(&peer.public_key);
+            match devices.import_external_peer(
+                plan.owner_id,
+                group_id,
+                &name,
+                stored.id,
+                &peer.public_key,
+                &peer.preshared_key,
+                ips,
+            ) {
+                Ok(device) => external_device_ids.push(device.id),
+                Err(error @ (CoreError::Io(_) | CoreError::NotFound(_))) => return Err(error),
+                Err(error) => {
+                    peer.status = ImportClientStatus::Error;
+                    peer.reason = Some(error.to_string());
+                }
+            }
+        }
+        interface.peer_counts = count_server_peers(&interface.server_peers);
+        device_ids.extend(external_device_ids.iter().copied());
+
         created.interfaces.push(CreatedInterface {
             id: stored.id,
             name: interface.name.clone(),
             device_ids,
+            external_device_ids,
         });
     }
 
     plan.counts = ImportCounts::default();
+    plan.peer_counts = ImportCounts::default();
     for interface in &plan.interfaces {
         plan.counts.add(interface.counts);
+        plan.peer_counts.add(interface.peer_counts);
     }
     Ok(())
 }
@@ -921,13 +1146,33 @@ struct ExistingClientSecret {
     ips: BTreeMap<Uuid, IpAddr>,
 }
 
+#[derive(Debug, Clone)]
+struct ExistingPeerRecord {
+    device_id: Uuid,
+    interface_id: Uuid,
+    interface_name: String,
+    device_name: String,
+    ips: BTreeMap<Uuid, IpAddr>,
+    preshared_key: String,
+    external: bool,
+}
+
+#[derive(Debug)]
+struct ExistingClientUpdate {
+    device_id: Uuid,
+    changes: PeerChangeSet,
+}
+
 #[derive(Debug)]
 struct ExistingClientPlan {
     name: String,
     status: ImportClientStatus,
     address: Option<String>,
     reason: Option<String>,
+    device_id: Option<Uuid>,
+    changes: Vec<ImportChange>,
     secret: Option<ExistingClientSecret>,
+    update: Option<ExistingClientUpdate>,
 }
 
 #[derive(Debug)]
@@ -960,6 +1205,8 @@ impl ClientsInterfacePlan {
                     status: client.status,
                     address: client.address.clone(),
                     reason: client.reason.clone(),
+                    device_id: client.device_id,
+                    changes: client.changes.iter().map(ImportChange::view).collect(),
                 })
                 .collect(),
             counts: self.counts.view(),
@@ -980,9 +1227,12 @@ impl ClientsImportPlan {
             interfaces: self.interfaces.iter().map(|i| i.view()).collect(),
             summary: ImportSummaryView {
                 create: self.counts.create,
+                unchanged: self.counts.unchanged,
+                update: self.counts.update,
                 duplicate: self.counts.duplicate,
                 error: self.counts.error,
                 interfaces: self.interfaces.len(),
+                external: ImportPeerCountsView::default(),
             },
             warnings: self.warnings.clone(),
         }
@@ -999,6 +1249,7 @@ struct ClientsCreatedInterface {
     id: Uuid,
     node_id: Uuid,
     device_ids: Vec<Uuid>,
+    updated_device_ids: Vec<Uuid>,
 }
 
 impl ClientsCreated {
@@ -1010,6 +1261,7 @@ impl ClientsCreated {
                 .map(|interface| ClientsImportCreatedInterfaceView {
                     id: interface.id,
                     device_ids: interface.device_ids.clone(),
+                    updated_device_ids: interface.updated_device_ids.clone(),
                 })
                 .collect(),
         }
@@ -1018,7 +1270,7 @@ impl ClientsCreated {
 
 struct ClientsPlanContext<'a> {
     network: &'a NetworkService,
-    existing_keys: HashSet<String>,
+    existing_peers: HashMap<String, Vec<ExistingPeerRecord>>,
     used_addresses: HashSet<Ipv4Addr>,
     seen_client_keys: HashMap<String, String>,
     used_names: HashMap<Uuid, HashSet<String>>,
@@ -1076,12 +1328,37 @@ fn plan_clients_import(
     }
 
     let existing_peers = devices.all_peers().map_err(ApiError::from)?;
+    let devices_by_id: HashMap<Uuid, (String, bool)> = devices
+        .list_all()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|device| (device.id, (device.name, device.external)))
+        .collect();
+    let mut existing_peer_map: HashMap<String, Vec<ExistingPeerRecord>> = HashMap::new();
+    for peer in &existing_peers {
+        let Some((device_name, external)) = devices_by_id.get(&peer.device_id) else {
+            continue;
+        };
+        let interface_name = network
+            .get_interface(peer.interface_id)
+            .map(|interface| interface.name)
+            .unwrap_or_default();
+        existing_peer_map
+            .entry(peer.public_key.clone())
+            .or_default()
+            .push(ExistingPeerRecord {
+                device_id: peer.device_id,
+                interface_id: peer.interface_id,
+                interface_name,
+                device_name: device_name.clone(),
+                ips: peer.ips.clone(),
+                preshared_key: devices.peer_preshared_key(peer).unwrap_or_default(),
+                external: *external,
+            });
+    }
     let mut ctx = ClientsPlanContext {
         network,
-        existing_keys: existing_peers
-            .iter()
-            .map(|peer| peer.public_key.clone())
-            .collect(),
+        existing_peers: existing_peer_map,
         used_addresses: existing_peers
             .iter()
             .flat_map(|peer| peer.ips.values())
@@ -1223,7 +1500,10 @@ fn push_unresolved(
         status: ImportClientStatus::Error,
         address: None,
         reason: Some(reason),
+        device_id: None,
+        changes: Vec::new(),
         secret: None,
+        update: None,
     });
 }
 
@@ -1241,7 +1521,10 @@ fn plan_existing_client(
         status: ImportClientStatus::Error,
         address: None,
         reason: None,
+        device_id: None,
+        changes: Vec::new(),
         secret: None,
+        update: None,
     };
 
     if raw_name.is_empty() {
@@ -1279,41 +1562,25 @@ fn plan_existing_client(
         ));
         return plan;
     }
-    if ctx.existing_keys.contains(&public_key) {
-        plan.status = ImportClientStatus::Duplicate;
-        plan.reason = Some("client public key already exists".into());
-        return plan;
+    if let Some(matches) = ctx.existing_peers.get(&public_key).cloned() {
+        return plan_client_diff(
+            plan,
+            parsed,
+            public_key,
+            matches,
+            raw_name,
+            interface_id,
+            interface_name,
+            pools,
+            ctx,
+        );
     }
 
-    let mut matched: Vec<(Uuid, Ipv4Addr)> = Vec::new();
-    let mut matched_pools: HashSet<Uuid> = HashSet::new();
-    let mut outside = Vec::new();
-    for raw in &parsed.addresses {
-        let Ok(net) = parse_net(raw) else {
-            outside.push(raw.clone());
-            continue;
-        };
-        let ip = net.addr();
-        match pools.iter().find(|(_, net)| net.contains(&ip)) {
-            Some((pool_id, _)) => {
-                if matched_pools.insert(*pool_id) {
-                    matched.push((*pool_id, ip));
-                }
-            }
-            None => outside.push(raw.clone()),
-        }
-    }
-    if matched.is_empty() {
-        plan.reason = Some(if parsed.addresses.is_empty() {
-            "client config has no Address".into()
-        } else {
-            format!(
-                "client address does not belong to any configured pool: {}",
-                outside.join(", ")
-            )
-        });
+    let (matched, reason) = match_client_addresses(&parsed.addresses, pools);
+    let Some(matched) = matched else {
+        plan.reason = Some(reason.unwrap_or_default());
         return plan;
-    }
+    };
     if let Some((_, ip)) = matched
         .iter()
         .find(|(_, ip)| ctx.used_addresses.contains(ip))
@@ -1351,11 +1618,178 @@ fn plan_existing_client(
     plan
 }
 
+fn match_client_addresses(
+    addresses: &[String],
+    pools: &[(Uuid, Ipv4Net)],
+) -> (Option<Vec<(Uuid, Ipv4Addr)>>, Option<String>) {
+    let mut matched: Vec<(Uuid, Ipv4Addr)> = Vec::new();
+    let mut matched_pools: HashSet<Uuid> = HashSet::new();
+    let mut outside = Vec::new();
+    for raw in addresses {
+        let Ok(net) = parse_net(raw) else {
+            outside.push(raw.clone());
+            continue;
+        };
+        let ip = net.addr();
+        match pools.iter().find(|(_, net)| net.contains(&ip)) {
+            Some((pool_id, _)) => {
+                if matched_pools.insert(*pool_id) {
+                    matched.push((*pool_id, ip));
+                }
+            }
+            None => outside.push(raw.clone()),
+        }
+    }
+    if matched.is_empty() {
+        let reason = if addresses.is_empty() {
+            "client config has no Address".to_string()
+        } else {
+            format!(
+                "client address does not belong to any configured pool: {}",
+                outside.join(", ")
+            )
+        };
+        return (None, Some(reason));
+    }
+    (Some(matched), None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn plan_client_diff(
+    mut plan: ExistingClientPlan,
+    parsed: awg_shared::conf::ParsedClientConf,
+    public_key: String,
+    matches: Vec<ExistingPeerRecord>,
+    raw_name: &str,
+    interface_id: Uuid,
+    interface_name: &str,
+    pools: &[(Uuid, Ipv4Net)],
+    ctx: &mut ClientsPlanContext<'_>,
+) -> ExistingClientPlan {
+    if matches.len() > 1 {
+        plan.status = ImportClientStatus::Duplicate;
+        plan.reason = Some("multiple peers share this client public key".into());
+        return plan;
+    }
+    let existing = &matches[0];
+    if existing.interface_id != interface_id {
+        plan.status = ImportClientStatus::Error;
+        plan.reason = Some(format!(
+            "client public key is attached to another interface: {}",
+            existing.interface_name
+        ));
+        return plan;
+    }
+    plan.device_id = Some(existing.device_id);
+
+    let (matched, reason) = match_client_addresses(&parsed.addresses, pools);
+    let Some(matched) = matched else {
+        plan.reason = Some(reason.unwrap_or_default());
+        return plan;
+    };
+
+    let own: HashSet<Ipv4Addr> = existing
+        .ips
+        .values()
+        .filter_map(|ip| match ip {
+            IpAddr::V4(v4) => Some(*v4),
+            IpAddr::V6(_) => None,
+        })
+        .collect();
+    if let Some((_, ip)) = matched
+        .iter()
+        .find(|(_, ip)| ctx.used_addresses.contains(ip) && !own.contains(ip))
+    {
+        plan.status = ImportClientStatus::Duplicate;
+        plan.reason = Some(format!("address {ip} is already in use"));
+        return plan;
+    }
+
+    let old_ips: BTreeSet<Ipv4Addr> = own.iter().copied().collect();
+    let new_ips: BTreeSet<Ipv4Addr> = matched.iter().map(|(_, ip)| *ip).collect();
+    let mut changes = Vec::new();
+    if old_ips != new_ips {
+        changes.push(ImportChange {
+            field: "address",
+            from: join_ips(&old_ips),
+            to: join_ips(&new_ips),
+        });
+    }
+    let new_psk = parsed.preshared_key.clone().unwrap_or_default();
+    if new_psk != existing.preshared_key {
+        changes.push(ImportChange {
+            field: "preshared_key",
+            from: existing.preshared_key.clone(),
+            to: new_psk.clone(),
+        });
+    }
+    if raw_name != existing.device_name {
+        changes.push(ImportChange {
+            field: "name",
+            from: existing.device_name.clone(),
+            to: raw_name.to_string(),
+        });
+    }
+
+    ctx.seen_client_keys
+        .insert(public_key, interface_name.to_string());
+    for (_, ip) in &matched {
+        ctx.used_addresses.insert(*ip);
+    }
+
+    plan.address = matched.first().map(|(_, ip)| ip.to_string());
+    plan.changes = changes;
+
+    if plan.changes.is_empty() && !existing.external {
+        plan.name = existing.device_name.clone();
+        plan.status = ImportClientStatus::Unchanged;
+        return plan;
+    }
+
+    let mut update = PeerChangeSet::default();
+    if old_ips != new_ips {
+        update.ips = Some(
+            matched
+                .iter()
+                .map(|(pool_id, ip)| (*pool_id, IpAddr::V4(*ip)))
+                .collect(),
+        );
+    }
+    if new_psk != existing.preshared_key {
+        update.preshared_key = Some(new_psk);
+    }
+    if raw_name != existing.device_name {
+        update.name = Some(raw_name.to_string());
+    }
+    if existing.external {
+        update.private_key = Some(parsed.private_key);
+    }
+
+    plan.status = ImportClientStatus::Update;
+    if existing.external {
+        plan.reason = Some("external peer will be converted into a regular device".into());
+    }
+    plan.update = Some(ExistingClientUpdate {
+        device_id: existing.device_id,
+        changes: update,
+    });
+    plan
+}
+
+fn join_ips(ips: &BTreeSet<Ipv4Addr>) -> String {
+    ips.iter()
+        .map(|ip| ip.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn count_existing_clients(clients: &[ExistingClientPlan]) -> ImportCounts {
     let mut counts = ImportCounts::default();
     for client in clients {
         match client.status {
             ImportClientStatus::Create => counts.create += 1,
+            ImportClientStatus::Unchanged => counts.unchanged += 1,
+            ImportClientStatus::Update => counts.update += 1,
             ImportClientStatus::Duplicate => counts.duplicate += 1,
             ImportClientStatus::Error => counts.error += 1,
         }
@@ -1392,33 +1826,59 @@ fn apply_clients_import(
             continue;
         }
         let mut device_ids = Vec::new();
+        let mut updated_device_ids = Vec::new();
         for client in &mut interface.clients {
-            if client.status != ImportClientStatus::Create {
-                continue;
-            }
-            let Some(secret) = client.secret.take() else {
-                continue;
-            };
-            match devices.import_device(
-                owner_id,
-                interface.group_id,
-                &client.name,
-                interface.id,
-                &secret.private_key,
-                &secret.public_key,
-                &secret.preshared_key,
-                secret.ips,
-                secret.client_obf,
-            ) {
-                Ok(device) => device_ids.push(device.id),
-                Err(error @ (CoreError::Io(_) | CoreError::NotFound(_))) => {
-                    fatal = Some(error);
-                    break;
+            match client.status {
+                ImportClientStatus::Create => {
+                    let Some(secret) = client.secret.take() else {
+                        continue;
+                    };
+                    match devices.import_device(
+                        owner_id,
+                        interface.group_id,
+                        &client.name,
+                        interface.id,
+                        &secret.private_key,
+                        &secret.public_key,
+                        &secret.preshared_key,
+                        secret.ips,
+                        secret.client_obf,
+                    ) {
+                        Ok(device) => {
+                            client.device_id = Some(device.id);
+                            device_ids.push(device.id);
+                        }
+                        Err(error @ (CoreError::Io(_) | CoreError::NotFound(_))) => {
+                            fatal = Some(error);
+                            break;
+                        }
+                        Err(error) => {
+                            client.status = ImportClientStatus::Error;
+                            client.reason = Some(error.to_string());
+                        }
+                    }
                 }
-                Err(error) => {
-                    client.status = ImportClientStatus::Error;
-                    client.reason = Some(error.to_string());
+                ImportClientStatus::Update => {
+                    let Some(update) = client.update.take() else {
+                        continue;
+                    };
+                    match devices.apply_peer_update(update.device_id, interface.id, update.changes)
+                    {
+                        Ok(device) => {
+                            client.device_id = Some(device.id);
+                            updated_device_ids.push(device.id);
+                        }
+                        Err(error @ (CoreError::Io(_) | CoreError::NotFound(_))) => {
+                            fatal = Some(error);
+                            break;
+                        }
+                        Err(error) => {
+                            client.status = ImportClientStatus::Error;
+                            client.reason = Some(error.to_string());
+                        }
+                    }
                 }
+                _ => continue,
             }
         }
         interface.counts = count_existing_clients(&interface.clients);
@@ -1426,6 +1886,7 @@ fn apply_clients_import(
             id: interface.id,
             node_id: interface.node_id,
             device_ids,
+            updated_device_ids,
         });
         if fatal.is_some() {
             break;
@@ -1551,7 +2012,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use awg_clients::domain::{DevicePeer, DevicePeerRepository};
-    use awg_clients::{DeviceService, RedbDevicePeerRepository, RedbDeviceRepository};
+    use awg_clients::{
+        DeviceService, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
+    };
     use awg_identity::{AuthPrincipal, Role};
     use awg_network::{
         NetworkService, NewInterface, PoolMode, RedbCidrPoolRepository, RedbGroupRepository,
@@ -1570,6 +2033,7 @@ mod tests {
     struct Harness {
         network: Arc<NetworkService>,
         devices: Arc<DeviceService>,
+        profiles: Arc<ProfileService>,
     }
 
     fn harness() -> Harness {
@@ -1593,9 +2057,20 @@ mod tests {
             Arc::new(RedbDevicePeerRepository::new(store.clone())),
             network.clone(),
             tariffs,
-            sealer,
+            sealer.clone(),
         ));
-        Harness { network, devices }
+        let profiles = Arc::new(ProfileService::new(
+            Arc::new(RedbDeviceRepository::new(store.clone())),
+            Arc::new(RedbDevicePeerRepository::new(store)),
+            network.clone(),
+            sealer,
+            Vec::new(),
+        ));
+        Harness {
+            network,
+            devices,
+            profiles,
+        }
     }
 
     fn server_text(keys: &KeyPair) -> String {
@@ -1603,7 +2078,24 @@ mod tests {
         render_server_conf(&keys.private_key, 51820, 1420, &obf, &[])
     }
 
+    fn server_text_with_peers(
+        keys: &KeyPair,
+        peers: &[(String, Option<String>, Vec<String>)],
+    ) -> String {
+        let obf = generate_interface_obf(&ObfuscationSettings::default());
+        render_server_conf(&keys.private_key, 51820, 1420, &obf, peers)
+    }
+
     fn client_text(client: &KeyPair, server_public: &str, address: &str) -> String {
+        client_text_with_psk(client, server_public, address, None)
+    }
+
+    fn client_text_with_psk(
+        client: &KeyPair,
+        server_public: &str,
+        address: &str,
+        psk: Option<&str>,
+    ) -> String {
         let obf = generate_interface_obf(&ObfuscationSettings::default());
         let client_obf = generate_client_obf(&ObfuscationSettings::default());
         let addresses = vec![address.to_string()];
@@ -1614,7 +2106,7 @@ mod tests {
             dns: &[],
             mtu: 1420,
             server_public_key: server_public,
-            preshared_key: None,
+            preshared_key: psk,
             endpoint: "vpn.example.com:51820",
             allowed_ips: &allowed,
             obf: &obf,
@@ -1632,6 +2124,31 @@ mod tests {
             name: name.into(),
             config: client_text(keys, server_public, address),
         }
+    }
+
+    fn client_with_psk(
+        name: &str,
+        keys: &KeyPair,
+        server_public: &str,
+        address: &str,
+        psk: &str,
+    ) -> ImportClient {
+        ImportClient {
+            name: name.into(),
+            config: client_text_with_psk(keys, server_public, address, Some(psk)),
+        }
+    }
+
+    fn peer_entry(
+        keys: &KeyPair,
+        psk: Option<&str>,
+        allowed: &[&str],
+    ) -> (String, Option<String>, Vec<String>) {
+        (
+            public_of(keys),
+            psk.map(str::to_string),
+            allowed.iter().map(|cidr| (*cidr).to_string()).collect(),
+        )
     }
 
     fn raw_client(name: &str, config: &str) -> ImportClient {
@@ -1666,6 +2183,18 @@ mod tests {
                 .collect(),
             clients,
         }
+    }
+
+    fn interface_with_peers(
+        name: &str,
+        server: &KeyPair,
+        pools: &[(&str, &str)],
+        clients: Vec<ImportClient>,
+        peers: &[(String, Option<String>, Vec<String>)],
+    ) -> ImportInterfaceRequest {
+        let mut request = interface(name, server, pools, clients);
+        request.server_config = server_text_with_peers(server, peers);
+        request
     }
 
     fn batch(node_id: Uuid, interfaces: Vec<ImportInterfaceRequest>) -> BatchImportRequest {
@@ -1792,6 +2321,31 @@ mod tests {
         pool_id: Uuid,
         address: Ipv4Addr,
     ) -> Uuid {
+        seed_device_with_psk(
+            h,
+            owner_id,
+            group_id,
+            interface_id,
+            name,
+            keys,
+            pool_id,
+            address,
+            "",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn seed_device_with_psk(
+        h: &Harness,
+        owner_id: Uuid,
+        group_id: Uuid,
+        interface_id: Uuid,
+        name: &str,
+        keys: &KeyPair,
+        pool_id: Uuid,
+        address: Ipv4Addr,
+        psk: &str,
+    ) -> Uuid {
         let ips = BTreeMap::from([(pool_id, IpAddr::V4(address))]);
         h.devices
             .import_device(
@@ -1801,7 +2355,7 @@ mod tests {
                 interface_id,
                 &keys.private_key,
                 &public_of(keys),
-                "",
+                psk,
                 ips,
                 generate_client_obf(&ObfuscationSettings::default()),
             )
@@ -1879,9 +2433,20 @@ mod tests {
             peers,
             network.clone(),
             tariffs,
-            sealer,
+            sealer.clone(),
         ));
-        Harness { network, devices }
+        let profiles = Arc::new(ProfileService::new(
+            Arc::new(RedbDeviceRepository::new(store.clone())),
+            Arc::new(RedbDevicePeerRepository::new(store)),
+            network.clone(),
+            sealer,
+            Vec::new(),
+        ));
+        Harness {
+            network,
+            devices,
+            profiles,
+        }
     }
 
     #[test]
@@ -1900,9 +2465,8 @@ mod tests {
             )],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.counts.create, 1);
         assert_eq!(plan.counts.duplicate, 0);
@@ -1956,9 +2520,8 @@ mod tests {
             ],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.interfaces.len(), 2);
         assert_eq!(plan.interfaces[0].index, 0);
@@ -2004,9 +2567,8 @@ mod tests {
             ],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(
             plan.interfaces[0].clients[0].status,
@@ -2046,9 +2608,7 @@ mod tests {
                 vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
             )],
         );
-        apply_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        apply_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         let again = batch(
             node.id,
@@ -2064,9 +2624,8 @@ mod tests {
                 )],
             )],
         );
-        let plan = plan_import(&h.network, &h.devices, &again, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &again, owner()).expect("import should succeed");
 
         assert_eq!(
             plan.interfaces[0].clients[0].status,
@@ -2114,9 +2673,8 @@ mod tests {
             )],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.counts.create, 0);
         assert_eq!(plan.counts.error, 4);
@@ -2161,9 +2719,8 @@ mod tests {
             )],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.counts.error, 2);
         assert!(
@@ -2202,9 +2759,8 @@ mod tests {
             )],
         );
 
-        let plan = plan_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.interfaces[0].clients[0].name, "phone");
         assert_eq!(plan.interfaces[0].clients[1].name, "phone-2");
@@ -2243,9 +2799,8 @@ mod tests {
             ],
         );
 
-        let (plan, created) = apply_import(&h.network, &h.devices, &request, owner())
-            .ok()
-            .expect("import should succeed");
+        let (plan, created) =
+            apply_import(&h.network, &h.devices, &request, owner()).expect("import should succeed");
 
         assert_eq!(plan.counts.create, 2);
         let groups = h.network.list_groups().unwrap();
@@ -2458,9 +3013,8 @@ mod tests {
             ],
         );
 
-        let plan = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
-            .expect("preview should succeed");
+        let plan =
+            plan_clients_import(&h.network, &h.devices, &request).expect("preview should succeed");
         let view = plan.view();
 
         assert_eq!(view.interfaces.len(), 2);
@@ -2512,7 +3066,6 @@ mod tests {
         );
 
         let view = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
             .expect("preview should succeed")
             .view();
 
@@ -2552,7 +3105,6 @@ mod tests {
         );
 
         let view = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
             .expect("preview should succeed")
             .view();
 
@@ -2588,7 +3140,6 @@ mod tests {
             vec![client("phone", &phone, &public_of(&unknown), "10.8.0.2/25")],
         );
         let view = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
             .expect("preview should succeed")
             .view();
 
@@ -2616,7 +3167,6 @@ mod tests {
             )],
         );
         let view = plan_clients_import(&h.network, &h.devices, &ambiguous)
-            .ok()
             .expect("preview should succeed")
             .view();
 
@@ -2671,7 +3221,6 @@ mod tests {
         );
 
         let view = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
             .expect("preview should succeed")
             .view();
 
@@ -2705,7 +3254,7 @@ mod tests {
     }
 
     #[test]
-    fn clients_preview_reports_duplicates_in_database_and_batch() {
+    fn clients_preview_reports_diff_and_batch_duplicates() {
         let h = harness();
         let (node, _) = h.network.create_node("node-a").unwrap();
         let server = generate_keypair();
@@ -2740,23 +3289,20 @@ mod tests {
         );
 
         let view = plan_clients_import(&h.network, &h.devices, &request)
-            .ok()
             .expect("preview should succeed")
             .view();
 
         assert_eq!(view.interfaces[0].counts.create, 1);
-        assert_eq!(view.interfaces[0].counts.duplicate, 2);
+        assert_eq!(view.interfaces[0].counts.update, 1);
+        assert_eq!(view.interfaces[0].counts.duplicate, 1);
         assert_eq!(
             view.interfaces[0].clients[0].status,
-            ImportClientStatus::Duplicate
+            ImportClientStatus::Update
         );
-        assert!(
-            view.interfaces[0].clients[0]
-                .reason
-                .as_deref()
-                .unwrap()
-                .contains("already exists")
-        );
+        assert_eq!(view.interfaces[0].clients[0].changes.len(), 1);
+        assert_eq!(view.interfaces[0].clients[0].changes[0].field, "address");
+        assert_eq!(view.interfaces[0].clients[0].changes[0].from, "10.8.0.2");
+        assert_eq!(view.interfaces[0].clients[0].changes[0].to, "10.8.0.3");
         assert_eq!(
             view.interfaces[0].clients[2].status,
             ImportClientStatus::Duplicate
@@ -2796,7 +3342,6 @@ mod tests {
         let owner_id = owner();
 
         let (plan, created) = apply_clients_import(&h.network, &h.devices, &request, owner_id)
-            .ok()
             .expect("apply should succeed");
 
         assert_eq!(plan.counts.create, 2);
@@ -2828,7 +3373,7 @@ mod tests {
     }
 
     #[test]
-    fn clients_apply_uses_requested_owner_and_skips_duplicates() {
+    fn clients_apply_uses_requested_owner_and_updates_existing() {
         let h = harness();
         let (node, _) = h.network.create_node("node-a").unwrap();
         let server = generate_keypair();
@@ -2843,7 +3388,7 @@ mod tests {
         );
         let phone = generate_keypair();
         let existing_owner = owner();
-        seed_device(
+        let phone_id = seed_device(
             &h,
             existing_owner,
             a.group_id,
@@ -2865,12 +3410,12 @@ mod tests {
 
         let (plan, created) =
             apply_clients_import(&h.network, &h.devices, &request, requested_owner)
-                .ok()
                 .expect("apply should succeed");
 
-        assert_eq!(plan.counts.duplicate, 1);
+        assert_eq!(plan.counts.update, 1);
         assert_eq!(plan.counts.create, 1);
         assert_eq!(created.interfaces[0].device_ids.len(), 1);
+        assert_eq!(created.interfaces[0].updated_device_ids, vec![phone_id]);
 
         let devices = h.devices.list_all().unwrap();
         assert_eq!(devices.len(), 2);
@@ -2885,6 +3430,17 @@ mod tests {
             .find(|device| device.name == "phone")
             .expect("existing phone should remain");
         assert_eq!(phone_device.user_id, existing_owner);
+        let phone_peer = h
+            .devices
+            .peers_for(phone_id)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("phone peer should exist");
+        assert_eq!(
+            phone_peer.ips.values().next().copied(),
+            Some(IpAddr::V4(Ipv4Addr::new(10, 8, 0, 3)))
+        );
     }
 
     #[test]
@@ -2939,5 +3495,639 @@ mod tests {
         let request = clients_request(None, vec![]);
         let error = plan_clients_import(&h.network, &h.devices, &request).unwrap_err();
         assert!(matches!(error, ApiError::BadRequest(_)));
+    }
+
+    #[test]
+    fn preview_plans_external_peers_and_skips_client_peers() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let phone = generate_keypair();
+        let external = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
+                &[
+                    peer_entry(&phone, None, &["10.8.0.2/32"]),
+                    peer_entry(&external, Some("psk-ext"), &["10.8.0.5/32"]),
+                ],
+            )],
+        );
+
+        let view = plan_import(&h.network, &h.devices, &request, owner())
+            .expect("preview should succeed")
+            .view();
+
+        assert_eq!(view.interfaces[0].server_peers.len(), 1);
+        let peer = &view.interfaces[0].server_peers[0];
+        assert_eq!(peer.public_key, public_of(&external));
+        assert_eq!(peer.status, ImportClientStatus::Create);
+        assert_eq!(peer.address.as_deref(), Some("10.8.0.5"));
+        assert_eq!(view.interfaces[0].counts.create, 1);
+        assert_eq!(view.interfaces[0].server_peer_counts.create, 1);
+        assert_eq!(view.summary.create, 1);
+        assert_eq!(view.summary.external.create, 1);
+        assert_eq!(view.summary.external.duplicate, 0);
+        assert!(h.network.list_groups().unwrap().is_empty());
+        assert!(h.devices.list_all().unwrap().is_empty());
+    }
+
+    #[test]
+    fn apply_creates_external_device_without_private_key() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let phone = generate_keypair();
+        let external = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
+                &[peer_entry(&external, Some("psk-ext"), &["10.8.0.5/32"])],
+            )],
+        );
+
+        let (plan, created) =
+            apply_import(&h.network, &h.devices, &request, owner()).expect("apply should succeed");
+
+        assert_eq!(plan.peer_counts.create, 1);
+        assert_eq!(created.interfaces[0].device_ids.len(), 2);
+        assert_eq!(created.interfaces[0].external_device_ids.len(), 1);
+        let external_device_id = created.interfaces[0].external_device_ids[0];
+
+        let devices = h.devices.list_all().unwrap();
+        let external_device = devices
+            .iter()
+            .find(|device| device.id == external_device_id)
+            .expect("external device should exist");
+        assert!(external_device.external);
+        assert!(external_device.name.starts_with("external-"));
+        assert_eq!(external_device.name.len(), "external-".len() + 8);
+
+        let peers = h.devices.peers_for(external_device_id).unwrap();
+        assert_eq!(peers.len(), 1);
+        assert_eq!(peers[0].public_key, public_of(&external));
+        assert!(peers[0].private_key_sealed.is_empty());
+        assert_eq!(h.devices.peer_preshared_key(&peers[0]).unwrap(), "psk-ext");
+        assert_eq!(h.devices.peer_secrets(&peers[0]).unwrap().0, "");
+
+        let pools = h.network.list_pools(created.group_id).unwrap();
+        assert_eq!(peers[0].ips.len(), 1);
+        for (pool_id, ip) in &peers[0].ips {
+            assert_eq!(*pool_id, pools[0].id);
+            assert_eq!(ip.to_string(), "10.8.0.5");
+        }
+
+        let error = h
+            .profiles
+            .build_one(external_device_id, peers[0].interface_id)
+            .expect_err("external device has no profile");
+        assert!(matches!(error, CoreError::Conflict(message) if message.contains("external peer")));
+
+        let phone_device = devices
+            .iter()
+            .find(|device| !device.external)
+            .expect("phone device should exist");
+        assert!(
+            h.profiles
+                .build_one(phone_device.id, peers[0].interface_id)
+                .is_ok()
+        );
+    }
+
+    #[test]
+    fn external_peer_duplicates_are_not_created() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let other_server = generate_keypair();
+        let existing = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.9.0.0/24",
+            "awg1",
+            &other_server,
+            &[("default", "10.9.0.0/25")],
+        );
+        seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "existing",
+            &existing,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 9, 0, 2),
+        );
+
+        let server = generate_keypair();
+        let phone = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
+                &[
+                    peer_entry(&existing, None, &["10.8.0.5/32"]),
+                    peer_entry(&phone, None, &["10.8.0.6/32"]),
+                ],
+            )],
+        );
+
+        let view = plan_import(&h.network, &h.devices, &request, owner())
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(view.interfaces[0].server_peers.len(), 1);
+        let peer = &view.interfaces[0].server_peers[0];
+        assert_eq!(peer.public_key, public_of(&existing));
+        assert_eq!(peer.status, ImportClientStatus::Duplicate);
+        assert!(peer.reason.as_deref().unwrap().contains("already exists"));
+
+        let (plan, created) =
+            apply_import(&h.network, &h.devices, &request, owner()).expect("apply should succeed");
+        assert_eq!(plan.peer_counts.duplicate, 1);
+        assert!(created.interfaces[0].external_device_ids.is_empty());
+        assert_eq!(h.devices.list_all().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn external_peer_duplicates_inside_batch_are_marked() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let external = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![],
+                &[
+                    peer_entry(&external, None, &["10.8.0.5/32"]),
+                    peer_entry(&external, None, &["10.8.0.6/32"]),
+                ],
+            )],
+        );
+
+        let view = plan_import(&h.network, &h.devices, &request, owner())
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(view.interfaces[0].server_peer_counts.create, 1);
+        assert_eq!(view.interfaces[0].server_peer_counts.duplicate, 1);
+        assert_eq!(
+            view.interfaces[0].server_peers[1].status,
+            ImportClientStatus::Duplicate
+        );
+    }
+
+    #[test]
+    fn external_peer_without_allowed_ips_is_error() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let empty = generate_keypair();
+        let outside = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![],
+                &[
+                    peer_entry(&empty, None, &[]),
+                    peer_entry(&outside, None, &["10.9.0.9/32"]),
+                ],
+            )],
+        );
+
+        let view = plan_import(&h.network, &h.devices, &request, owner())
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(view.interfaces[0].server_peer_counts.error, 2);
+        assert!(
+            view.interfaces[0].server_peers[0]
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("no AllowedIPs")
+        );
+        assert!(
+            view.interfaces[0].server_peers[1]
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("configured pool")
+        );
+    }
+
+    #[test]
+    fn external_peer_address_conflicts_are_errors() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let phone = generate_keypair();
+        let first = generate_keypair();
+        let second = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface_with_peers(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
+                &[
+                    peer_entry(&first, None, &["10.8.0.2/32"]),
+                    peer_entry(&second, None, &["10.8.0.7/32"]),
+                    peer_entry(&generate_keypair(), None, &["10.8.0.7/32"]),
+                ],
+            )],
+        );
+
+        let view = plan_import(&h.network, &h.devices, &request, owner())
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(view.interfaces[0].server_peer_counts.create, 1);
+        assert_eq!(view.interfaces[0].server_peer_counts.error, 2);
+        for index in [0, 2] {
+            assert!(
+                view.interfaces[0].server_peers[index]
+                    .reason
+                    .as_deref()
+                    .unwrap()
+                    .contains("already in use")
+            );
+        }
+    }
+
+    #[test]
+    fn clients_preview_marks_unchanged_existing_client() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let phone = generate_keypair();
+        seed_device_with_psk(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "phone",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+            "psk-1",
+        );
+        let request = clients_request(
+            Some(a.interface_id),
+            vec![client_with_psk(
+                "phone",
+                &phone,
+                &public_of(&server),
+                "10.8.0.2/25",
+                "psk-1",
+            )],
+        );
+
+        let view = plan_clients_import(&h.network, &h.devices, &request)
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(view.interfaces[0].counts.unchanged, 1);
+        assert_eq!(
+            view.interfaces[0].clients[0].status,
+            ImportClientStatus::Unchanged
+        );
+        assert!(view.interfaces[0].clients[0].changes.is_empty());
+        assert_eq!(
+            view.interfaces[0].clients[0].address.as_deref(),
+            Some("10.8.0.2")
+        );
+
+        let (plan, created) = apply_clients_import(&h.network, &h.devices, &request, owner())
+            .expect("apply should succeed");
+        assert_eq!(plan.counts.unchanged, 1);
+        assert!(created.interfaces[0].device_ids.is_empty());
+        assert!(created.interfaces[0].updated_device_ids.is_empty());
+        assert_eq!(h.devices.list_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn clients_preview_and_apply_update_existing_client() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let phone = generate_keypair();
+        let device_id = seed_device_with_psk(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "old-name",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+            "old-psk",
+        );
+        let request = clients_request(
+            Some(a.interface_id),
+            vec![client_with_psk(
+                "phone",
+                &phone,
+                &public_of(&server),
+                "10.8.0.3/25",
+                "new-psk",
+            )],
+        );
+
+        let view = plan_clients_import(&h.network, &h.devices, &request)
+            .expect("preview should succeed")
+            .view();
+        let client = &view.interfaces[0].clients[0];
+        assert_eq!(client.status, ImportClientStatus::Update);
+        assert_eq!(client.address.as_deref(), Some("10.8.0.3"));
+        assert_eq!(client.changes.len(), 3);
+        assert_eq!(client.changes[0].field, "address");
+        assert_eq!(client.changes[0].from, "10.8.0.2");
+        assert_eq!(client.changes[0].to, "10.8.0.3");
+        assert_eq!(client.changes[1].field, "preshared_key");
+        assert_eq!(client.changes[1].from, "old-psk");
+        assert_eq!(client.changes[1].to, "new-psk");
+        assert_eq!(client.changes[2].field, "name");
+        assert_eq!(client.changes[2].from, "old-name");
+        assert_eq!(client.changes[2].to, "phone");
+
+        let (plan, created) = apply_clients_import(&h.network, &h.devices, &request, owner())
+            .expect("apply should succeed");
+        assert_eq!(plan.counts.update, 1);
+        assert_eq!(created.interfaces[0].updated_device_ids, vec![device_id]);
+        assert!(created.interfaces[0].device_ids.is_empty());
+
+        let device = h.devices.get(device_id).unwrap();
+        assert_eq!(device.name, "phone");
+        let peer = h
+            .devices
+            .peers_for(device_id)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        assert_eq!(
+            peer.ips.values().next().copied(),
+            Some(IpAddr::V4(Ipv4Addr::new(10, 8, 0, 3)))
+        );
+        assert_eq!(h.devices.peer_preshared_key(&peer).unwrap(), "new-psk");
+        assert_eq!(h.devices.list_all().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn clients_preview_marks_update_duplicates_and_foreign_interface() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let phone = generate_keypair();
+        seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "phone",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+        );
+        let blocker = generate_keypair();
+        seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "blocker",
+            &blocker,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 9),
+        );
+
+        let occupied = clients_request(
+            Some(a.interface_id),
+            vec![client("phone", &phone, &public_of(&server), "10.8.0.9/25")],
+        );
+        let view = plan_clients_import(&h.network, &h.devices, &occupied)
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(
+            view.interfaces[0].clients[0].status,
+            ImportClientStatus::Duplicate
+        );
+        assert!(
+            view.interfaces[0].clients[0]
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("already in use")
+        );
+
+        let b = seed(
+            &h,
+            node.id,
+            "g2",
+            "10.9.0.0/24",
+            "awg1",
+            &generate_keypair(),
+            &[("default", "10.9.0.0/25")],
+        );
+        let foreign_server = h.network.get_interface(b.interface_id).unwrap();
+        let foreign = clients_request(
+            Some(b.interface_id),
+            vec![client_with_psk(
+                "phone",
+                &phone,
+                &foreign_server.public_key,
+                "10.9.0.2/25",
+                "",
+            )],
+        );
+        let view = plan_clients_import(&h.network, &h.devices, &foreign)
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(
+            view.interfaces[0].clients[0].status,
+            ImportClientStatus::Error
+        );
+        let reason = view.interfaces[0].clients[0].reason.as_deref().unwrap();
+        assert!(reason.contains("another interface"));
+        assert!(reason.contains("awg0"));
+    }
+
+    #[test]
+    fn clients_preview_marks_multiple_peer_matches_as_duplicate() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let phone = generate_keypair();
+        seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "first",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+        );
+        seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "second",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 3),
+        );
+        let request = clients_request(
+            Some(a.interface_id),
+            vec![client("phone", &phone, &public_of(&server), "10.8.0.4/25")],
+        );
+
+        let view = plan_clients_import(&h.network, &h.devices, &request)
+            .expect("preview should succeed")
+            .view();
+        assert_eq!(
+            view.interfaces[0].clients[0].status,
+            ImportClientStatus::Duplicate
+        );
+        assert!(
+            view.interfaces[0].clients[0]
+                .reason
+                .as_deref()
+                .unwrap()
+                .contains("multiple peers")
+        );
+    }
+
+    #[test]
+    fn import_views_keep_legacy_fields() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let phone = generate_keypair();
+        let request = batch(
+            node.id,
+            vec![interface(
+                "awg0",
+                &server,
+                &[("default", "10.8.0.0/25")],
+                vec![client("phone", &phone, &public_of(&server), "10.8.0.2/25")],
+            )],
+        );
+        let plan =
+            plan_import(&h.network, &h.devices, &request, owner()).expect("preview should succeed");
+        let value = serde_json::to_value(plan.view()).unwrap();
+
+        assert!(value["interfaces"][0]["clients"][0]["name"].is_string());
+        assert!(value["interfaces"][0]["clients"][0]["status"].is_string());
+        assert!(value["interfaces"][0]["clients"][0]["address"].is_string());
+        assert!(value["interfaces"][0]["clients"][0]["changes"].is_array());
+        assert!(value["interfaces"][0]["counts"]["create"].is_number());
+        assert!(value["interfaces"][0]["counts"]["duplicate"].is_number());
+        assert!(value["interfaces"][0]["counts"]["error"].is_number());
+        assert!(value["interfaces"][0]["server_peers"].is_array());
+        assert!(value["summary"]["create"].is_number());
+        assert!(value["summary"]["duplicate"].is_number());
+        assert!(value["summary"]["error"].is_number());
+        assert!(value["summary"]["interfaces"].is_number());
+
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg1",
+            &generate_keypair(),
+            &[("default", "10.8.0.0/25")],
+        );
+        let interface = h.network.get_interface(a.interface_id).unwrap();
+        let clients_request = clients_request(
+            Some(a.interface_id),
+            vec![client(
+                "phone",
+                &phone,
+                &interface.public_key,
+                "10.8.0.2/25",
+            )],
+        );
+        let plan = plan_clients_import(&h.network, &h.devices, &clients_request)
+            .expect("preview should succeed");
+        let value = serde_json::to_value(plan.view()).unwrap();
+        assert!(value["interfaces"][0]["clients"][0]["status"].is_string());
+        assert!(value["interfaces"][0]["clients"][0]["changes"].is_array());
+        assert!(value["interfaces"][0]["counts"]["unchanged"].is_number());
+        assert!(value["interfaces"][0]["counts"]["update"].is_number());
+        assert!(value["summary"]["unchanged"].is_number());
+        assert!(value["summary"]["update"].is_number());
+    }
+
+    #[test]
+    fn legacy_device_payload_defaults_external_to_false() {
+        let value = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "user_id": Uuid::new_v4(),
+            "group_id": Uuid::new_v4(),
+            "name": "legacy",
+            "down_kbps": 0,
+            "up_kbps": 0,
+            "forwarding": {"to_own_devices": false, "allowed_devices": []},
+            "revoked": false,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        });
+        let device: awg_clients::Device = serde_json::from_value(value).unwrap();
+        assert!(!device.external);
     }
 }

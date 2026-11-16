@@ -34,6 +34,14 @@ pub struct NewDevice {
     pub forwarding: Forwarding,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PeerChangeSet {
+    pub name: Option<String>,
+    pub ips: Option<std::collections::BTreeMap<Uuid, IpAddr>>,
+    pub preshared_key: Option<String>,
+    pub private_key: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct DeviceProfile {
     pub interface_id: Uuid,
@@ -140,6 +148,7 @@ impl DeviceService {
             up_kbps: up,
             forwarding: ForwardingPolicy::normalize(input.forwarding),
             revoked: false,
+            external: false,
             created_at: now,
             updated_at: now,
         };
@@ -268,6 +277,7 @@ impl DeviceService {
             up_kbps: 0,
             forwarding: Forwarding::default(),
             revoked: false,
+            external: false,
             created_at: now,
             updated_at: now,
         };
@@ -283,6 +293,112 @@ impl DeviceService {
         };
         self.devices.save(&device)?;
         self.peers.save(&peer)?;
+        Ok(device)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn import_external_peer(
+        &self,
+        user_id: Uuid,
+        group_id: Uuid,
+        name: &str,
+        interface_id: Uuid,
+        public_key: &str,
+        preshared_key: &str,
+        ips: std::collections::BTreeMap<Uuid, std::net::IpAddr>,
+    ) -> CoreResult<Device> {
+        validate_device_name(name)?;
+        if public_key.trim().is_empty() {
+            return Err(CoreError::Invalid("peer public key is required".into()));
+        }
+        if ips.is_empty() {
+            return Err(CoreError::Invalid(
+                "external peer needs at least one address".into(),
+            ));
+        }
+        self.network.get_group(group_id)?;
+        self.network.get_interface(interface_id)?;
+        let now = Utc::now();
+        let device = Device {
+            id: Uuid::new_v4(),
+            user_id,
+            group_id,
+            name: name.trim().to_string(),
+            down_kbps: 0,
+            up_kbps: 0,
+            forwarding: Forwarding::default(),
+            revoked: false,
+            external: true,
+            created_at: now,
+            updated_at: now,
+        };
+        let peer = DevicePeer {
+            device_id: device.id,
+            interface_id,
+            public_key: public_key.to_string(),
+            private_key_sealed: String::new(),
+            preshared_key_sealed: if preshared_key.is_empty() {
+                String::new()
+            } else {
+                self.sealer.seal_str(preshared_key)?
+            },
+            ips,
+            client_obf: awg_shared::obf::ClientObf {
+                jc: 0,
+                jmin: 0,
+                jmax: 0,
+                i1: String::new(),
+                i2: String::new(),
+                i3: String::new(),
+                i4: String::new(),
+                i5: String::new(),
+                disable_cookies: false,
+            },
+            created_at: now,
+        };
+        self.devices.save(&device)?;
+        self.peers.save(&peer)?;
+        Ok(device)
+    }
+
+    pub fn apply_peer_update(
+        &self,
+        device_id: Uuid,
+        interface_id: Uuid,
+        changes: PeerChangeSet,
+    ) -> CoreResult<Device> {
+        let mut device = self.get(device_id)?;
+        let mut peer = self
+            .peers
+            .find(device_id, interface_id)?
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        if let Some(name) = changes.name {
+            validate_device_name(&name)?;
+            device.name = name.trim().to_string();
+        }
+        if let Some(ips) = changes.ips {
+            if ips.is_empty() {
+                return Err(CoreError::Invalid(
+                    "device peer needs at least one address".into(),
+                ));
+            }
+            peer.ips = ips;
+        }
+        if let Some(preshared_key) = changes.preshared_key {
+            peer.preshared_key_sealed = if preshared_key.is_empty() {
+                String::new()
+            } else {
+                self.sealer.seal_str(&preshared_key)?
+            };
+        }
+        if let Some(private_key) = changes.private_key {
+            peer.private_key_sealed = self.sealer.seal_str(&private_key)?;
+            device.external = false;
+        }
+        let now = Utc::now();
+        device.updated_at = now;
+        self.peers.save(&peer)?;
+        self.devices.save(&device)?;
         Ok(device)
     }
 
@@ -312,10 +428,19 @@ impl DeviceService {
     }
 
     pub fn peer_secrets(&self, peer: &DevicePeer) -> CoreResult<(String, String)> {
-        Ok((
-            self.sealer.open_str(&peer.private_key_sealed)?,
-            self.sealer.open_str(&peer.preshared_key_sealed)?,
-        ))
+        let private_key = if peer.private_key_sealed.is_empty() {
+            String::new()
+        } else {
+            self.sealer.open_str(&peer.private_key_sealed)?
+        };
+        Ok((private_key, self.peer_preshared_key(peer)?))
+    }
+
+    pub fn peer_preshared_key(&self, peer: &DevicePeer) -> CoreResult<String> {
+        if peer.preshared_key_sealed.is_empty() {
+            return Ok(String::new());
+        }
+        self.sealer.open_str(&peer.preshared_key_sealed)
     }
 
     pub fn tariff_for(&self, user: &User) -> CoreResult<Option<Tariff>> {

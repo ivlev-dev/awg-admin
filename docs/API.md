@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -85,6 +85,12 @@
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
+| GET | `/billing/plans` | admin | — | `Plan[]` |
+| POST | `/billing/plans` | admin | `CreatePlanRequest` | `Plan` |
+| PATCH | `/billing/plans/{id}` | admin | `UpdatePlanRequest` | `Plan` |
+| GET | `/billing/subscription` | user | — | `Subscription` или `null` |
+| GET | `/billing/invoices` | self/admin | query `user_id?`, `limit?` | `Invoice[]` |
+| GET | `/billing/admin/subscriptions` | admin | query `status?`, `page?`, `per_page?` | `SubscriptionPageView` |
 
 ## Импорт конфигураций
 
@@ -141,17 +147,33 @@
       "name": "awg0",
       "public_key": "…",
       "clients": [
-        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null},
-        {"name": "phone", "status": "duplicate", "address": null, "reason": "client public key already imported in interface awg0"},
-        {"name": "laptop", "status": "error", "address": null, "reason": "client config points at a different server public key"}
+        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null, "device_id": null, "changes": []},
+        {"name": "phone", "status": "duplicate", "address": null, "reason": "client public key already imported in interface awg0", "device_id": null, "changes": []},
+        {"name": "laptop", "status": "error", "address": null, "reason": "client config points at a different server public key", "device_id": null, "changes": []}
       ],
-      "counts": {"create": 1, "duplicate": 1, "error": 1}
+      "counts": {"create": 1, "unchanged": 0, "update": 0, "duplicate": 1, "error": 1},
+      "server_peers": [
+        {"public_key": "…", "status": "create", "address": "10.8.0.10", "reason": null},
+        {"public_key": "…", "status": "duplicate", "address": null, "reason": "peer public key already exists"},
+        {"public_key": "…", "status": "error", "address": null, "reason": "peer has no AllowedIPs"}
+      ],
+      "server_peer_counts": {"create": 1, "duplicate": 1, "error": 1}
     }
   ],
-  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "summary": {
+    "create": 1, "unchanged": 0, "update": 0, "duplicate": 1, "error": 1,
+    "interfaces": 1,
+    "external": {"create": 1, "duplicate": 1, "error": 1}
+  },
   "warnings": ["client phone in interface awg0 renamed to phone-2"]
 }
 ```
+
+Поля `counts`/`summary` описывают клиентские конфиги (`create`, `unchanged`,
+`update`, `duplicate`, `error`). `unchanged` и `update` в батч-импорте всегда
+`0`: там создаются только новые устройства. Для обратной совместимости старые
+поля `create`, `duplicate`, `error`, `interfaces` сохранены, новые добавлены
+рядом.
 
 Статусы клиента:
 
@@ -162,6 +184,10 @@
   серверного конфига интерфейса, нет `Address` в пулах интерфейса, адрес уже
   занят, имя пустое или длиннее 64 символов. Такие клиенты не прерывают
   preview/apply — они попадают в отчёт.
+- `changes` — всегда массив; в батч-импорте пустой.
+- `device_id` — всегда присутствует; в батч-импорте всегда `null`. В импорте
+  клиентов заполнен для `unchanged`/`update` и после apply содержит id
+  созданного или обновлённого устройства.
 
 Правила валидации:
 
@@ -176,6 +202,51 @@
 - интерфейс с именем, уже существующим на узле, даёт предупреждение в preview;
   apply в этом случае завершится ошибкой с откатом.
 
+### Внешние пиры (external peers)
+
+`[Peer]`-блоки серверного конфига (`server_config` каждого интерфейса)
+разбираются в `PublicKey`, `PresharedKey` (опционально) и `AllowedIPs`. Пиры,
+для которых в том же интерфейсе не передан клиентский конфиг с тем же public
+key, попадают в массив `server_peers`:
+
+```json
+{
+  "public_key": "…",
+  "status": "create",
+  "address": "10.8.0.10",
+  "reason": null
+}
+```
+
+Статусы внешнего пира:
+
+- `create` — будет создано внешнее устройство; `address` — первый IPv4 из
+  `AllowedIPs`, попадающий в пул интерфейса.
+- `duplicate` — public key уже есть среди пиров БД или повторяется в этом
+  батче/среди клиентских конфигов; ничего не создаётся.
+- `error` — пустой `AllowedIPs`, ни один IPv4-адрес не попадает в пул
+  интерфейса или адрес уже занят другим пиром/клиентом. Ошибка не фатальна.
+
+`server_peer_counts` в интерфейсе и `summary.external` считают внешние пиры
+отдельно от клиентов (поля `create`, `duplicate`, `error`).
+
+При apply для `create` создаётся устройство с `external: true`:
+
+- имя `external-<8 первых символов public key>`;
+- `public_key` и `PresharedKey` берутся из серверного конфига, приватного ключа
+  нет (`private_key_sealed` хранится пустой строкой);
+- адрес — первый IPv4 из `AllowedIPs`, попавший в пул группы; в `ips` пира
+  сохраняется соответствующая пара «пул → адрес»;
+- профиль и share-ссылки для такого устройства недоступны: генерация профиля
+  возвращает `409 conflict` с сообщением
+  `external peer has no client profile: it was imported from the server configuration`;
+- владелец — `owner_user_id` (по умолчанию текущий администратор);
+- в дедупликации участвуют все пиры БД: `duplicate` и `error` ничего не
+  создают.
+
+В ответе apply для каждого интерфейса `created.device_ids` содержит все
+созданные устройства, а `created.external_device_ids` — только внешние пиры.
+
 ### Apply
 
 Ответ — тот же `ImportPreviewView` плюс блок `created`:
@@ -184,11 +255,22 @@
 {
   "group": {"name": "Офис", "base_cidr": "10.8.0.0/24"},
   "interfaces": [ … ],
-  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "summary": {
+    "create": 1, "unchanged": 0, "update": 0, "duplicate": 1, "error": 1,
+    "interfaces": 1,
+    "external": {"create": 1, "duplicate": 0, "error": 0}
+  },
   "warnings": [],
   "created": {
     "group_id": "…",
-    "interfaces": [{"id": "…", "name": "awg0", "device_ids": ["…"]}]
+    "interfaces": [
+      {
+        "id": "…",
+        "name": "awg0",
+        "device_ids": ["…", "…"],
+        "external_device_ids": ["…"]
+      }
+    ]
   }
 }
 ```
@@ -206,14 +288,12 @@
   нехватка прав — `403 forbidden`; отсутствующий узел/владелец — `404`.
 - После успешного apply desired state узла публикуется воркеру.
 
-Импорт серверных пиров без клиентских конфигов (external peers) пока не
-поддерживается — такие `[Peer]` из серверного конфига игнорируются.
-
 ## Импорт клиентов в существующий интерфейс
 
 Дополнительный импорт клиентских AmneziaWG-конфигов в уже существующие группы и
-интерфейсы. Батч-импорт новых групп (`/import/preview|apply`) при этом не
-меняется и продолжает работать как описано выше. Доступен только роли `admin`.
+интерфейсы. Батч-импорт новых групп (`/import/preview|apply`) продолжает
+работать как описано выше; внешние пиры серверных конфигов импортируются только
+им. Доступен только роли `admin`.
 
 - `POST /api/v1/import/clients/preview` — строит план и ничего не записывает.
 - `POST /api/v1/import/clients/apply` — заново строит план и создаёт устройства.
@@ -272,36 +352,78 @@
       "node_id": "…",
       "public_key": "…",
       "clients": [
-        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null},
-        {"name": "laptop", "status": "duplicate", "address": null, "reason": "client public key already exists"},
-        {"name": "tablet", "status": "error", "address": null, "reason": "client address does not belong to any configured pool: 10.9.0.2/24"}
+        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null, "device_id": null, "changes": []},
+        {
+          "name": "laptop",
+          "status": "unchanged",
+          "address": "10.8.0.3",
+          "reason": null,
+          "device_id": "…",
+          "changes": []
+        },
+        {
+          "name": "tablet",
+          "status": "update",
+          "address": "10.8.0.7",
+          "reason": null,
+          "device_id": "…",
+          "changes": [
+            {"field": "address", "from": "10.8.0.5", "to": "10.8.0.7"},
+            {"field": "preshared_key", "from": "old", "to": "new"},
+            {"field": "name", "from": "tablet-old", "to": "tablet"}
+          ]
+        },
+        {"name": "watch", "status": "duplicate", "address": null, "reason": "address 10.8.0.9 is already in use", "device_id": null, "changes": []},
+        {"name": "tv", "status": "error", "address": null, "reason": "client public key is attached to another interface: awg1", "device_id": null, "changes": []}
       ],
-      "counts": {"create": 1, "duplicate": 1, "error": 1}
+      "counts": {"create": 1, "unchanged": 1, "update": 1, "duplicate": 1, "error": 1}
     }
   ],
-  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "summary": {
+    "create": 1, "unchanged": 1, "update": 1, "duplicate": 1, "error": 1,
+    "interfaces": 1,
+    "external": {"create": 0, "duplicate": 0, "error": 0}
+  },
   "warnings": []
 }
 ```
+
+Для обратной совместимости сохранены прежние поля `name`, `status`,
+`address`, `reason`, `counts.create`, `counts.duplicate`, `counts.error`,
+`summary.interfaces`; новые поля добавлены рядом. В импорте клиентов
+`summary.external` нулевой: внешние пиры импортируются только батч-импортом
+серверных конфигов.
 
 Статусы клиента:
 
 - `create` — устройство будет создано; `address` — первый адрес из конфига,
   попавший в пул группы интерфейса.
-- `duplicate` — public key уже есть в БД или повторяется в этом запросе.
-  Повторная вставка не выполняется; `reason` указывает, где найден ключ.
+- `unchanged` — public key уже есть у пира этого интерфейса и адрес, psk и имя
+  совпадают; ничего не меняется, `changes` пуст, `device_id` содержит id
+  существующего устройства.
+- `update` — public key уже есть у пира этого интерфейса, но отличаются адрес,
+  psk или имя. `changes` содержит список изменений
+  `{field: "address"|"preshared_key"|"name", from, to}`; `from`/`to` — строки
+  (не `null`), адреса при нескольких пулах перечислены через запятую;
+  `device_id` содержит id обновляемого устройства.
+- `duplicate` — изменить нельзя: новый адрес занят другим пиром/клиентом,
+  несколько пиров делят этот public key, public key повторяется в этом запросе.
+  `reason` уточняет причину.
 - `error` — конфиг не разобран, серверный ключ не совпадает с интерфейсом,
-  интерфейс не найден или неоднозначен, нет `Address` в пулах группы, адрес уже
-  занят (в БД или другим клиентом батча), имя пустое или длиннее 64 символов.
+  интерфейс не найден или неоднозначен, нет `Address` в пулах группы, имя пустое
+  или длиннее 64 символов, public key уже привязан к другому интерфейсу
+  (`reason` содержит имя этого интерфейса).
 
 Правила валидации:
 
 - public key сервера выводится из `PrivateKey` интерфейса; клиент должен
   содержать тот же `[Peer] PublicKey`;
 - `Address` должен лежать в одном из включённых пулов группы интерфейса и не
-  пересекаться с адресами существующих пиров и клиентов этого же запроса;
+  пересекаться с адресами существующих пиров и клиентов этого же запроса; для
+  `update` собственные текущие адреса пира конфликтом не считаются;
 - дубли имён клиентов нормализуются суффиксом (`phone`, `phone-2`, …) и
-  попадают в `warnings`; имена сравниваются без учёта регистра;
+  попадают в `warnings`; имена сравниваются без учёта регистра; изменение имени
+  существующего пира выполняется только через `update`;
 - preview не пишет в БД и не меняет интерфейсы, пулы и устройства.
 
 ### Apply
@@ -311,23 +433,33 @@
 ```json
 {
   "interfaces": [ … ],
-  "summary": {"create": 1, "duplicate": 0, "error": 0, "interfaces": 1},
+  "summary": {"create": 1, "unchanged": 0, "update": 1, "duplicate": 0, "error": 0, "interfaces": 1, "external": {"create": 0, "duplicate": 0, "error": 0}},
   "warnings": [],
   "created": {
-    "interfaces": [{"id": "…", "device_ids": ["…"]}]
+    "interfaces": [
+      {"id": "…", "device_ids": ["…"], "updated_device_ids": ["…"]}
+    ]
   }
 }
 ```
 
 - План пересчитывается заново; статусы отражают фактический результат.
-- Устройства создаются тем же путём, что и в батч-импорте
+- `create` создаёт устройство тем же путём, что и в батч-импорте
   (`devices.import_device`): `group_id` интерфейса, `interface_id`, указанный
   или текущий администратор в качестве владельца.
-- Ошибки отдельных клиентов не фатальны: остальные устройства создаются,
-  клиент получает `status: "error"` и причину.
+- `update` применяет изменения к существующему устройству и пиру: адрес
+  (`ips` пира), psk, имя. Владелец и лимиты устройства не меняются; id
+  устройства попадает в `created.interfaces[].updated_device_ids`.
+- `unchanged`, `duplicate`, `error` ничего не меняют.
+- Если ранее импортированное внешнее устройство (`external: true`) совпало с
+  клиентским конфигом, оно получает статус `update` (даже при пустом
+  `changes`), приватный ключ из конфига и перестаёт быть внешним.
+- Ошибки отдельных клиентов не фатальны: остальные устройства создаются или
+  обновляются, клиент получает `status: "error"` и причину.
 - Фатальны ошибки хранилища и исчезнувшие во время применения группа/интерфейс.
   В этом случае созданные в этом запросе устройства удаляются (best-effort
   rollback, включая устройства без сохранённого пира), ответ — `4xx/5xx`.
+  Уже применённые обновления существующих устройств не откатываются.
   Если откат частично не удался, это перечисляется в сообщении.
 - После успешного apply desired state затронутых узлов публикуется воркерам.
 
@@ -662,3 +794,64 @@ share-токен из пути, `ip` — первый адрес `X-Forwarded-Fo
 `AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`. `0` в лимите
 отключает ограничение. Успешный логин сбрасывает счётчик для пары IP+login.
 При превышении — `429 too_many_requests` и `Retry-After`.
+
+## Биллинг (этап 1)
+
+Архитектура: `docs/PAYMENTS.md` и `docs/adr/0001-payments-architecture.md`. На
+этапе 1 доступны только каталог планов и чтение подписок/счетов; checkout,
+webhook и списания не реализованы.
+
+Главный флаг — `AWG_BILLING_ENABLED` (по умолчанию `false`). При выключенном
+биллинге все маршруты `/billing/*` отвечают `404` с кодом
+`billing_disabled`.
+
+### Планы
+
+`GET /api/v1/billing/plans` — все планы, включая неактивные (`admin`).
+`POST /api/v1/billing/plans` и `PATCH /api/v1/billing/plans/{id}` — создание и
+редактирование (`admin`).
+
+`CreatePlanRequest`:
+
+```json
+{
+  "name": "Pro",
+  "description": "Профессиональный тариф",
+  "price_cents": 99000,
+  "currency": "RUB",
+  "period": "month",
+  "tariff_id": "…",
+  "active": true
+}
+```
+
+`UpdatePlanRequest` — те же поля, все необязательные. `period` — `month` или
+`year`. Валидация: `name` не пустой и не длиннее 120 символов,
+`price_cents >= 0`, `currency` — три латинские буквы и совпадает с
+`AWG_BILLING_CURRENCY`, `tariff_id` существует. Ошибки — `400 bad_request`.
+
+### Подписка и счета
+
+`GET /api/v1/billing/subscription` — текущая (не `canceled`) подписка
+пользователя или `null`. Поле `status`: `trialing`, `active`, `past_due`,
+`suspended`, `canceled`.
+
+`GET /api/v1/billing/invoices` — счета пользователя, новые сначала (по
+`period_start`, затем `id`). Параметр `limit` — от 1 до 200, по умолчанию 50.
+`admin` без `user_id` видит все счета, с `user_id` — счета выбранного
+пользователя. Пользователь с чужим `user_id` получает `403 forbidden`.
+
+`GET /api/v1/billing/admin/subscriptions` — список подписок (`admin`) с
+фильтром `status` и пагинацией `page` (с 1) и `per_page` (1..200, по умолчанию
+50). Ответ:
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "per_page": 50
+}
+```
+
+Статусы счетов: `draft`, `open`, `paid`, `void`, `uncollectible`.

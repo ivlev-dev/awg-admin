@@ -20,6 +20,7 @@ Backend (`backend/crates/*`) разбит на доменные модули. З
 - `storage` — репозиторий `Store`: единственный redb-файл, версия схемы, миграции, backup/restore.
 - `identity` — пользователи, роли, Argon2, JWT, регистрация с подтверждением email, TOTP 2FA.
 - `tariffs` — тарифы и лимиты.
+- `billing` — планы, подписки, счета и порт `PaymentGateway`; по умолчанию выключен.
 - `network` — группы, ноды, интерфейсы, пулы CIDR, obfuscation-настройки.
 - `clients` — устройства, пирь, профили, share-ссылки.
 - `statistics` — агрегация трафика, scope: часовые бакеты, дневные/месячные ряды на лету, retention.
@@ -186,7 +187,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `1`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `2`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -207,8 +208,9 @@ pnpm e2e:headed                # с видимым браузером
 `InvalidMigration`. Все шаги и запись новой версии выполняются в одной
 write-транзакции: ошибка любого шага откатывает и данные, и версию
 (`failed_migration_rolls_back_and_keeps_version`). Для тестов доступна
-`migrate_with(..., steps)` с произвольным реестром; сейчас `MIGRATIONS` пуст,
-потому что версия `1` — стартовая.
+`migrate_with(..., steps)` с произвольным реестром; в `MIGRATIONS` есть шаг
+`1 → 2` (`v2_billing`), который создаёт таблицы биллинга и не меняет
+существующие данные.
 
 Добавление миграции: поднять `CURRENT_SCHEMA_VERSION`, добавить
 `MigrationStep { from: old, to: new, apply }` в `MIGRATIONS`. Шаг работает
@@ -438,3 +440,53 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 
 - Тариф задаёт лимиты на устройство (`device_down/up_kbps`) и группу (`group_down/up_kbps`), `max_devices`, `traffic_quota_bytes`.
 - При превышении квоты device-скорость ограничивается до `1 kbps`; групповые лимиты применяются через HTB/tc.
+
+## Биллинг
+
+Этап 1: модель, схема и read-only API. Платёжный шлюз, checkout, webhook и
+автосписания не реализованы. Полная модель — `docs/PAYMENTS.md`, решение —
+`docs/adr/0001-payments-architecture.md`.
+
+Крейт `awg-billing` следует DDD-слоям:
+
+- `domain` — `Plan`, `Subscription`, `Invoice`, статусы, порты
+  `PlanRepository`, `SubscriptionRepository`, `InvoiceRepository` и
+  `PaymentGateway`. `NoopGateway` на любой вызов возвращает
+  `GatewayError::Unsupported`; реального шлюза нет.
+- `application` — `BillingService`: каталог планов (CRUD), текущая подписка,
+  `plan_for_user` (активная подписка → план → `tariff_id`), счета и
+  админ-список подписок. Списаний и переходов статусов нет.
+- `infrastructure` — Redb-репозитории поверх `awg-storage`.
+
+`Plan` — коммерческий каталог, `Tariff` — технические лимиты. `Plan` ссылается
+на `tariff_id`, но `User.tariff_id` на этом этапе не меняется: связь с
+пользователем только вычисляется через `plan_for_user` и пока не влияет на
+snapshot/worker.
+
+Таблицы redb (JSON-значения, ключ — UUID):
+
+- `billing_plans` — `Plan`;
+- `billing_subscriptions` — `Subscription`;
+- `billing_invoices` — `Invoice`;
+- `billing_payment_methods` — резерв под этап 2;
+- `billing_events` — резерв под webhook/журнал.
+
+Схема поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
+таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
+Backup/restore по-прежнему требует точного совпадения версии.
+
+Конфигурация:
+
+- `AWG_BILLING_ENABLED` — главный флаг, по умолчанию `false`; при `false` все
+  `/billing/*` отвечают `404 billing_disabled`;
+- `AWG_BILLING_CURRENCY` — валюта установки (по умолчанию `RUB`), цена плана
+  обязана совпадать;
+- `AWG_BILLING_TRIAL_DAYS` — значение для будущих trial-подписок (этап 1 его
+  только хранит);
+- `AWG_PAYMENT_PROVIDER` — `noop` (по умолчанию), `stripe`, `yookassa`,
+  `cloudpayments`, `telegram_stars`; при включённом биллинге в production
+  `noop` запрещён.
+
+API: `GET/POST /billing/plans`, `PATCH /billing/plans/{id}` (admin),
+`GET /billing/subscription` (self), `GET /billing/invoices` (self, admin — все
+или `?user_id=`), `GET /billing/admin/subscriptions` (admin).

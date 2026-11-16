@@ -5,6 +5,7 @@ members = [
     "backend/crates/storage",
     "backend/crates/identity",
     "backend/crates/tariffs",
+    "backend/crates/billing",
     "backend/crates/network",
     "backend/crates/clients",
     "backend/crates/statistics",

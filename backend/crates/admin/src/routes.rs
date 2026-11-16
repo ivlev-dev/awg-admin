@@ -142,7 +142,33 @@ pub fn router(state: Arc<AppState>) -> Router {
             post(controllers::import::clients_apply),
         )
         .route("/ws/stats", get(ws::stats_ws))
-        .route("/share/{token}", get(controllers::share::download))
+        .route("/share/{token}", get(controllers::share::download));
+
+    let billing = Router::new()
+        .route(
+            "/billing/plans",
+            get(controllers::billing::list_plans).post(controllers::billing::create_plan),
+        )
+        .route(
+            "/billing/plans/{id}",
+            patch(controllers::billing::update_plan),
+        )
+        .route(
+            "/billing/subscription",
+            get(controllers::billing::subscription),
+        )
+        .route("/billing/invoices", get(controllers::billing::invoices))
+        .route(
+            "/billing/admin/subscriptions",
+            get(controllers::billing::admin_subscriptions),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            state.clone(),
+            controllers::billing::require_enabled,
+        ));
+
+    let api = api
+        .merge(billing)
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024));
 
     let cors = build_cors(&state.config.cors_origins);

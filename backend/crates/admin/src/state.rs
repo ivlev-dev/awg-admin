@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use awg_audit::AuditService;
+use awg_billing::BillingService;
 use awg_clients::{DeviceService, ProfileService, ShareService};
 use awg_identity::IdentityService;
 use awg_network::NetworkService;
@@ -27,6 +28,7 @@ pub struct AppState {
     pub orchestration: Arc<OrchestrationService>,
     pub settings: Arc<SettingsStore>,
     pub audit: Arc<AuditService>,
+    pub billing: Arc<BillingService>,
     pub login_limiter: Arc<SlidingWindowLimiter>,
     pub refresh_limiter: Arc<SlidingWindowLimiter>,
     pub register_limiter: Arc<SlidingWindowLimiter>,
