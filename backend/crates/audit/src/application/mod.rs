@@ -2,8 +2,11 @@ use std::sync::Arc;
 
 use awg_shared::CoreResult;
 
+use chrono::{DateTime, Utc};
+
 use crate::domain::{
-    AuditEntry, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT, NewAuditEntry,
+    AuditEntry, AuditPage, AuditRepository, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT, NewAuditEntry,
+    validate_audit_cursor,
 };
 
 pub struct AuditService {
@@ -27,11 +30,22 @@ impl AuditService {
     }
 
     pub fn list(&self, limit: usize) -> CoreResult<Vec<AuditEntry>> {
+        Ok(self.list_page(limit, None)?.items)
+    }
+
+    pub fn list_page(&self, limit: usize, before: Option<&str>) -> CoreResult<AuditPage> {
         let limit = if limit == 0 {
             DEFAULT_AUDIT_LIMIT
         } else {
-            limit.min(MAX_AUDIT_LIMIT)
+            limit.clamp(1, MAX_AUDIT_LIMIT)
         };
-        self.repo.list(limit)
+        if let Some(cursor) = before {
+            validate_audit_cursor(cursor)?;
+        }
+        self.repo.list_page(limit, before)
+    }
+
+    pub fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
+        self.repo.prune(before)
     }
 }

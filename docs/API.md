@@ -65,7 +65,7 @@
 | GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
 | GET | `/settings` | admin | — | `ObfuscationView` + share TTL |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | то же |
-| GET | `/audit` | admin | query `limit` (по умолчанию 100, максимум 1000) | `AuditEntryView[]` |
+| GET | `/audit` | admin | query `limit` (1..500, по умолчанию 100), `before` (cursor) | `{items, next_cursor}` |
 | POST | `/import` | admin | `ImportRequest` | `{ok:true}` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
@@ -162,8 +162,13 @@ refresh, повтор refresh, заблокированный или удалё�
 
 ## Аудит
 
-`GET /api/v1/audit?limit=100` доступен только роли `admin`. Записи
-возвращаются в обратном хронологическом порядке (сначала новые).
+`GET /api/v1/audit?limit=50&before=<cursor>` доступен только роли `admin`.
+Записи возвращаются в обратном хронологическом порядке (сначала новые).
+Ответ: `{"items":[...],"next_cursor":"..."}` (`next_cursor` равен `null`, если
+дальше страниц нет). `limit` приводится к диапазону 1..500, `before` —
+cursor предыдущей страницы (валидируется). Retention: записи старше
+`AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) удаляются
+фоновой задачей раз в сутки.
 
 Автоматически фиксируются успешные (2xx) mutating-запросы `POST`, `PATCH`,
 `PUT`, `DELETE` под `/api/v1`: actor определяется по Bearer-токену (без токена —

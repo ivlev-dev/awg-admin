@@ -1,10 +1,17 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, backends::InMemoryBackend};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
+
+mod backup;
+mod schema;
+
+pub use schema::{
+    CURRENT_SCHEMA_VERSION, MIGRATIONS, MigrationFn, MigrationStep, SCHEMA_VERSION_KEY,
+};
 
 pub type Result<T> = std::result::Result<T, StorageError>;
 
@@ -24,6 +31,26 @@ pub enum StorageError {
     Commit(#[from] redb::CommitError),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("io error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("store schema version {found} is newer than supported version {supported}")]
+    SchemaTooNew { found: u32, supported: u32 },
+    #[error("no migration step from schema version {from} to {to}")]
+    MissingMigration { from: u32, to: u32 },
+    #[error("invalid migration range {from} -> {to}")]
+    InvalidMigration { from: u32, to: u32 },
+    #[error("invalid schema version value: {0}")]
+    InvalidSchemaVersion(String),
+    #[error("backup file not found: {0}")]
+    BackupNotFound(PathBuf),
+    #[error("backup has no schema version")]
+    UnversionedBackup,
+    #[error("store has no schema version")]
+    MissingSchemaVersion,
+    #[error("backup schema version {found} is incompatible with supported version {supported}")]
+    IncompatibleBackup { found: u32, supported: u32 },
+    #[error("backup path conflicts with the open store database: {0}")]
+    BackupPathConflict(PathBuf),
 }
 
 macro_rules! tables {
@@ -60,35 +87,59 @@ tables! {
     RefreshTokens => "refresh_tokens",
     Settings => "settings",
     Audit => "audit",
+    Meta => "meta",
 }
 
 #[derive(Debug, Clone)]
 pub struct Store {
     db: Arc<Database>,
+    path: Option<PathBuf>,
 }
 
 impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
         let db = Database::create(path)?;
-        let store = Self { db: Arc::new(db) };
-        store.ensure_tables()?;
+        let store = Self {
+            db: Arc::new(db),
+            path: Some(path.to_path_buf()),
+        };
+        schema::initialize(store.database())?;
         Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Self> {
         let db = Database::builder().create_with_backend(InMemoryBackend::new())?;
-        let store = Self { db: Arc::new(db) };
-        store.ensure_tables()?;
+        let store = Self {
+            db: Arc::new(db),
+            path: None,
+        };
+        schema::initialize(store.database())?;
         Ok(store)
     }
 
-    fn ensure_tables(&self) -> Result<()> {
-        let txn = self.db.begin_write()?;
-        for table in ALL_TABLES {
-            txn.open_table(table.definition())?;
-        }
-        txn.commit()?;
-        Ok(())
+    pub(crate) fn database(&self) -> &Database {
+        &self.db
+    }
+
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    pub fn schema_version(&self) -> Result<u32> {
+        schema::read_version(self.database())?.ok_or(StorageError::MissingSchemaVersion)
+    }
+
+    pub fn backup_to(&self, path: impl AsRef<Path>) -> Result<()> {
+        backup::backup_to(self, path.as_ref())
+    }
+
+    pub fn restore_from(&self, path: impl AsRef<Path>) -> Result<()> {
+        backup::restore_from(self, path.as_ref())
+    }
+
+    pub fn replace_file_from(backup: impl AsRef<Path>, target: impl AsRef<Path>) -> Result<()> {
+        backup::replace_file_from(backup.as_ref(), target.as_ref())
     }
 
     pub fn get<T: DeserializeOwned>(&self, table: Table, key: &str) -> Result<Option<T>> {

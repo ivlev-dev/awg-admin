@@ -4,8 +4,8 @@ use chrono::{Duration, TimeZone, Utc};
 use uuid::Uuid;
 
 use awg_audit::{
-    AuditEntry, AuditRepository, AuditService, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT, NewAuditEntry,
-    RedbAuditRepository,
+    AuditEntry, AuditPage, AuditRepository, AuditService, DEFAULT_AUDIT_LIMIT, MAX_AUDIT_LIMIT,
+    NewAuditEntry, RedbAuditRepository,
 };
 use awg_shared::CoreResult;
 use awg_storage::Store;
@@ -82,10 +82,27 @@ impl AuditRepository for RecordingRepository {
         Ok(())
     }
 
-    fn list(&self, limit: usize) -> CoreResult<Vec<AuditEntry>> {
+    fn list_page(&self, limit: usize, _before: Option<&str>) -> CoreResult<AuditPage> {
         *self.requested_limit.lock().unwrap() = Some(limit);
         let entries = self.entries.lock().unwrap();
-        Ok(entries.iter().rev().take(limit).cloned().collect())
+        Ok(AuditPage {
+            items: entries.iter().rev().take(limit).cloned().collect(),
+            next_cursor: None,
+        })
+    }
+
+    fn prune(&self, before: chrono::DateTime<chrono::Utc>) -> CoreResult<usize> {
+        let mut entries = self.entries.lock().unwrap();
+        let mut removed = 0;
+        entries.retain(|entry| {
+            if entry.at < before {
+                removed += 1;
+                false
+            } else {
+                true
+            }
+        });
+        Ok(removed)
     }
 }
 

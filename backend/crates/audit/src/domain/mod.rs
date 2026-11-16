@@ -5,9 +5,9 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 pub const DEFAULT_AUDIT_LIMIT: usize = 100;
-pub const MAX_AUDIT_LIMIT: usize = 1000;
+pub const MAX_AUDIT_LIMIT: usize = 500;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AuditEntry {
     pub id: Uuid,
     pub at: DateTime<Utc>,
@@ -63,7 +63,31 @@ impl AuditEntry {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuditPage {
+    pub items: Vec<AuditEntry>,
+    pub next_cursor: Option<String>,
+}
+
+pub fn validate_audit_cursor(cursor: &str) -> CoreResult<()> {
+    let Some((micros, id)) = cursor.split_once(':') else {
+        return Err(CoreError::Invalid("invalid audit cursor".into()));
+    };
+    if micros.len() != 20 || !micros.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(CoreError::Invalid("invalid audit cursor".into()));
+    }
+    if uuid::Uuid::parse_str(id).is_err() {
+        return Err(CoreError::Invalid("invalid audit cursor".into()));
+    }
+    Ok(())
+}
+
 pub trait AuditRepository: Send + Sync {
     fn record(&self, entry: &AuditEntry) -> CoreResult<()>;
-    fn list(&self, limit: usize) -> CoreResult<Vec<AuditEntry>>;
+    fn list_page(&self, limit: usize, before: Option<&str>) -> CoreResult<AuditPage>;
+    fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize>;
+
+    fn list(&self, limit: usize) -> CoreResult<Vec<AuditEntry>> {
+        Ok(self.list_page(limit, None)?.items)
+    }
 }

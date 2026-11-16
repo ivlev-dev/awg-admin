@@ -170,6 +170,26 @@ async fn main() -> Result<()> {
         Arc::new(AuditService::new(repo))
     };
 
+    let audit_retention_days: i64 = std::env::var("AWG_AUDIT_RETENTION_DAYS")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(90);
+    if audit_retention_days > 0 {
+        let audit_task = audit.clone();
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(86_400));
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let cutoff = chrono::Utc::now() - chrono::Duration::days(audit_retention_days);
+                match audit_task.prune(cutoff) {
+                    Ok(removed) => tracing::info!(removed, "pruned old audit entries"),
+                    Err(error) => tracing::warn!(%error, "failed to prune audit entries"),
+                }
+            }
+        });
+    }
+
     let login_limiter = Arc::new(SlidingWindowLimiter::new(
         config.login_rate_limit,
         Duration::from_secs(config.login_rate_window_secs),
