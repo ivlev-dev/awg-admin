@@ -131,6 +131,16 @@ pub fn router(state: Arc<AppState>) -> Router {
         )
         .route("/audit", get(controllers::audit::list))
         .route("/import", post(controllers::import::run))
+        .route("/import/preview", post(controllers::import::preview))
+        .route("/import/apply", post(controllers::import::apply))
+        .route(
+            "/import/clients/preview",
+            post(controllers::import::clients_preview),
+        )
+        .route(
+            "/import/clients/apply",
+            post(controllers::import::clients_apply),
+        )
         .route("/ws/stats", get(ws::stats_ws))
         .route("/share/{token}", get(controllers::share::download))
         .layer(DefaultBodyLimit::max(16 * 1024 * 1024));

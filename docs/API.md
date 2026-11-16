@@ -78,9 +78,258 @@
 | GET | `/settings` | admin | — | `SettingsView` (obfuscation, share TTL, stats retention) |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | `SettingsView` |
 | GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
-| POST | `/import` | admin | `ImportRequest` | `{ok:true}` |
+| POST | `/import` | admin | `ImportRequest` (устаревший) | `{group_id,interface_id,imported_devices,failed_devices}` |
+| POST | `/import/preview` | admin | `BatchImportRequest` | `ImportPreviewView` (без записи в БД) |
+| POST | `/import/apply` | admin | `BatchImportRequest` | `ImportApplyView` |
+| POST | `/import/clients/preview` | admin | `ClientsImportRequest` | `ClientsImportPreviewView` (без записи в БД) |
+| POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
+
+## Импорт конфигураций
+
+Батч-импорт AmneziaWG-конфигураций доступен только роли `admin` и состоит из
+двух шагов с одинаковым телом запроса:
+
+- `POST /api/v1/import/preview` — проверяет и строит план, ничего не записывая в
+  БД. Можно вызывать многократно.
+- `POST /api/v1/import/apply` — заново строит план (ответу preview не доверяет) и
+  создаёт группу, пулы, интерфейсы и устройства.
+
+Устаревший `POST /api/v1/import` (`ImportRequest` с одним серверным конфигом)
+продолжает работать и возвращает
+`{group_id, interface_id, imported_devices, failed_devices}`.
+
+`BatchImportRequest`:
+
+```json
+{
+  "node_id": "…",
+  "group_name": "Офис",
+  "group_description": "Импорт из awg0",
+  "base_cidr": "10.8.0.0/24",
+  "owner_user_id": null,
+  "interfaces": [
+    {
+      "server_config": "[Interface]\nPrivateKey = …\n…",
+      "name": "awg0",
+      "label": "Основной",
+      "endpoint_host": "vpn.example.com",
+      "endpoint_port": 51820,
+      "listen_port": 51820,
+      "mtu": 1420,
+      "pools": [
+        {"name": "default", "cidr": "10.8.0.0/24", "mode": "auto", "gateway": "10.8.0.1"}
+      ],
+      "clients": [{"name": "phone", "config": "[Interface]\nPrivateKey = …\n…"}]
+    }
+  ]
+}
+```
+
+`owner_user_id` по умолчанию — текущий администратор; несуществующий
+пользователь или узел дают `404 not_found`.
+
+### Preview
+
+```json
+{
+  "group": {"name": "Офис", "base_cidr": "10.8.0.0/24"},
+  "interfaces": [
+    {
+      "index": 0,
+      "name": "awg0",
+      "public_key": "…",
+      "clients": [
+        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null},
+        {"name": "phone", "status": "duplicate", "address": null, "reason": "client public key already imported in interface awg0"},
+        {"name": "laptop", "status": "error", "address": null, "reason": "client config points at a different server public key"}
+      ],
+      "counts": {"create": 1, "duplicate": 1, "error": 1}
+    }
+  ],
+  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "warnings": ["client phone in interface awg0 renamed to phone-2"]
+}
+```
+
+Статусы клиента:
+
+- `create` — клиент будет создан; `address` — адрес из его конфига.
+- `duplicate` — public key уже встречался в этом батче или в БД; повторная
+  вставка не выполняется (`reason` указывает, где он найден).
+- `error` — конфиг не разобран, `[Peer] PublicKey` не совпадает с public key
+  серверного конфига интерфейса, нет `Address` в пулах интерфейса, адрес уже
+  занят, имя пустое или длиннее 64 символов. Такие клиенты не прерывают
+  preview/apply — они попадают в отчёт.
+
+Правила валидации:
+
+- серверный `PrivateKey` парсится, public key интерфейса выводится из него;
+- в рамках батча имена интерфейсов уникальны и проходят
+  `validate_interface_name` (1..15 символов `[A-Za-z0-9_-]`);
+- имена пулов уникальны в рамках батча, каждый пул лежит внутри `base_cidr`,
+  пулы не пересекаются между собой (в том числе между интерфейсами);
+- порты не нулевые, `endpoint_host` непустой;
+- дубли имён клиентов нормализуются суффиксом (`phone`, `phone-2`, …) с
+  предупреждением в `warnings`; имена сравниваются без учёта регистра;
+- интерфейс с именем, уже существующим на узле, даёт предупреждение в preview;
+  apply в этом случае завершится ошибкой с откатом.
+
+### Apply
+
+Ответ — тот же `ImportPreviewView` плюс блок `created`:
+
+```json
+{
+  "group": {"name": "Офис", "base_cidr": "10.8.0.0/24"},
+  "interfaces": [ … ],
+  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "warnings": [],
+  "created": {
+    "group_id": "…",
+    "interfaces": [{"id": "…", "name": "awg0", "device_ids": ["…"]}]
+  }
+}
+```
+
+- План пересчитывается заново: изменившиеся с момента preview данные
+  учитываются, статусы в ответе отражают фактический результат.
+- Ошибки отдельных клиентов не фатальны: устройство не создаётся, клиент
+  получает `status: "error"` и причину, остальные создаются.
+- Фатальны ошибки уровня группы, пула, интерфейса и ошибки хранилища: все
+  созданные в этом запросе сущности удаляются в обратном порядке (устройства и
+  их пиры, интерфейсы, затем группа вместе с пулами), ответ — `409 conflict` с
+  сообщением `import failed: …; all created entities were rolled back`. Если
+  откат частично не удался, это перечисляется в сообщении.
+- Ошибки валидации запроса возвращаются до записи как `400 bad_request`;
+  нехватка прав — `403 forbidden`; отсутствующий узел/владелец — `404`.
+- После успешного apply desired state узла публикуется воркеру.
+
+Импорт серверных пиров без клиентских конфигов (external peers) пока не
+поддерживается — такие `[Peer]` из серверного конфига игнорируются.
+
+## Импорт клиентов в существующий интерфейс
+
+Дополнительный импорт клиентских AmneziaWG-конфигов в уже существующие группы и
+интерфейсы. Батч-импорт новых групп (`/import/preview|apply`) при этом не
+меняется и продолжает работать как описано выше. Доступен только роли `admin`.
+
+- `POST /api/v1/import/clients/preview` — строит план и ничего не записывает.
+- `POST /api/v1/import/clients/apply` — заново строит план и создаёт устройства.
+
+`ClientsImportRequest`:
+
+```json
+{
+  "interface_id": null,
+  "owner_user_id": null,
+  "clients": [
+    {"name": "phone", "config": "[Interface]\nPrivateKey = …\n…"}
+  ]
+}
+```
+
+- `interface_id` — целевой интерфейс. `null` включает автоопределение по
+  public key сервера из клиентского конфига.
+- `owner_user_id` — владелец создаваемых устройств; по умолчанию текущий
+  администратор. Несуществующий пользователь даёт `404 not_found`.
+- `clients` — список клиентских конфигов; пустой список — `400 bad_request`.
+
+### Автоопределение интерфейса
+
+Для каждого клиента берётся `[Peer] PublicKey` (публичный ключ сервера) и
+сравнивается с `public_key` всех интерфейсов:
+
+- ровно одно совпадение — клиент относится к этому интерфейсу;
+- нет совпадений — клиент получает `status: "error"` и причину
+  `no interface with this public key was found`;
+- несколько совпадений (аномалия данных) — клиент получает `status: "error"` и
+  причину `ambiguous public key`.
+
+Если задан `interface_id`, автоопределение не выполняется: все клиенты
+проверяются против этого интерфейса, а несовпадение серверного ключа даёт
+`error` с причиной `client config points at a different server public key`.
+Отсутствующий `interface_id` (несуществующий UUID) — `404 not_found`, устройства
+не создаются.
+
+Клиенты без найденного интерфейса (нет совпадений или неоднозначный ключ)
+попадают в конец `interfaces` отдельной записью с `id`, `group_id`, `node_id`
+равными нулевому UUID, пустыми `name`/`group_name` и public key из конфига
+клиента в `public_key`. Это позволяет показать причину по каждому клиенту в
+общем формате ответа.
+
+### Preview
+
+```json
+{
+  "interfaces": [
+    {
+      "id": "…",
+      "name": "awg0",
+      "group_id": "…",
+      "group_name": "Офис",
+      "node_id": "…",
+      "public_key": "…",
+      "clients": [
+        {"name": "phone", "status": "create", "address": "10.8.0.2", "reason": null},
+        {"name": "laptop", "status": "duplicate", "address": null, "reason": "client public key already exists"},
+        {"name": "tablet", "status": "error", "address": null, "reason": "client address does not belong to any configured pool: 10.9.0.2/24"}
+      ],
+      "counts": {"create": 1, "duplicate": 1, "error": 1}
+    }
+  ],
+  "summary": {"create": 1, "duplicate": 1, "error": 1, "interfaces": 1},
+  "warnings": []
+}
+```
+
+Статусы клиента:
+
+- `create` — устройство будет создано; `address` — первый адрес из конфига,
+  попавший в пул группы интерфейса.
+- `duplicate` — public key уже есть в БД или повторяется в этом запросе.
+  Повторная вставка не выполняется; `reason` указывает, где найден ключ.
+- `error` — конфиг не разобран, серверный ключ не совпадает с интерфейсом,
+  интерфейс не найден или неоднозначен, нет `Address` в пулах группы, адрес уже
+  занят (в БД или другим клиентом батча), имя пустое или длиннее 64 символов.
+
+Правила валидации:
+
+- public key сервера выводится из `PrivateKey` интерфейса; клиент должен
+  содержать тот же `[Peer] PublicKey`;
+- `Address` должен лежать в одном из включённых пулов группы интерфейса и не
+  пересекаться с адресами существующих пиров и клиентов этого же запроса;
+- дубли имён клиентов нормализуются суффиксом (`phone`, `phone-2`, …) и
+  попадают в `warnings`; имена сравниваются без учёта регистра;
+- preview не пишет в БД и не меняет интерфейсы, пулы и устройства.
+
+### Apply
+
+Ответ — тот же `ClientsImportPreviewView` плюс блок `created`:
+
+```json
+{
+  "interfaces": [ … ],
+  "summary": {"create": 1, "duplicate": 0, "error": 0, "interfaces": 1},
+  "warnings": [],
+  "created": {
+    "interfaces": [{"id": "…", "device_ids": ["…"]}]
+  }
+}
+```
+
+- План пересчитывается заново; статусы отражают фактический результат.
+- Устройства создаются тем же путём, что и в батч-импорте
+  (`devices.import_device`): `group_id` интерфейса, `interface_id`, указанный
+  или текущий администратор в качестве владельца.
+- Ошибки отдельных клиентов не фатальны: остальные устройства создаются,
+  клиент получает `status: "error"` и причину.
+- Фатальны ошибки хранилища и исчезнувшие во время применения группа/интерфейс.
+  В этом случае созданные в этом запросе устройства удаляются (best-effort
+  rollback, включая устройства без сохранённого пира), ответ — `4xx/5xx`.
+  Если откат частично не удался, это перечисляется в сообщении.
+- После успешного apply desired state затронутых узлов публикуется воркерам.
 
 ## Аутентификация
 
