@@ -42,6 +42,35 @@ impl TcShaper {
         Ok(())
     }
 
+    fn run_optional(&self, args: &[&str]) -> Result<()> {
+        if self.dry_run {
+            tracing::info!("dry-run: tc {}", args.join(" "));
+            return Ok(());
+        }
+        let output = Command::new("tc")
+            .args(args)
+            .output()
+            .context("failed to spawn tc")?;
+        if !output.status.success() {
+            tracing::debug!(
+                "tc {} ignored: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    }
+
+    fn run_owned(&self, args: &[String]) -> Result<()> {
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run(&refs)
+    }
+
+    fn run_owned_optional(&self, args: &[String]) -> Result<()> {
+        let refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        self.run_optional(&refs)
+    }
+
     fn run_ip(&self, args: &[&str]) -> Result<()> {
         if self.dry_run {
             tracing::info!("dry-run: ip {}", args.join(" "));
@@ -125,9 +154,9 @@ impl TcShaper {
             return Ok(());
         }
 
-        self.run(&[
-            "qdisc", "replace", "dev", dev, "root", "handle", "1:", "htb", "default", "1",
-        ])?;
+        let reset = root_reset_commands(dev);
+        self.run_owned_optional(&reset[0])?;
+        self.run_owned(&reset[1])?;
         self.run(&[
             "class",
             "replace",
@@ -230,15 +259,17 @@ impl TcShaper {
         }
         self.run_ip(&["link", "set", "dev", &ifb, "up"])?;
 
-        self.run(&["qdisc", "replace", "dev", dev, "handle", "ffff:", "ingress"])?;
+        let ingress = ingress_reset_commands(dev);
+        self.run_owned_optional(&ingress[0])?;
+        self.run_owned(&ingress[1])?;
         self.run(&[
             "filter", "add", "dev", dev, "parent", "ffff:", "protocol", "ip", "u32", "match",
             "u32", "0", "0", "action", "mirred", "egress", "redirect", "dev", &ifb,
         ])?;
 
-        self.run(&[
-            "qdisc", "replace", "dev", &ifb, "root", "handle", "1:", "htb", "default", "1",
-        ])?;
+        let ifb_reset = root_reset_commands(&ifb);
+        self.run_owned_optional(&ifb_reset[0])?;
+        self.run_owned(&ifb_reset[1])?;
         self.run(&[
             "class",
             "replace",
@@ -366,4 +397,65 @@ fn ifb_name(name: &str) -> String {
         out.push(ch);
     }
     out
+}
+
+fn strings(parts: &[&str]) -> Vec<String> {
+    parts.iter().map(|part| part.to_string()).collect()
+}
+
+fn root_reset_commands(dev: &str) -> [Vec<String>; 2] {
+    [
+        strings(&["qdisc", "del", "dev", dev, "root"]),
+        strings(&[
+            "qdisc", "add", "dev", dev, "root", "handle", "1:", "htb", "default", "1",
+        ]),
+    ]
+}
+
+fn ingress_reset_commands(dev: &str) -> [Vec<String>; 2] {
+    [
+        strings(&["qdisc", "del", "dev", dev, "ingress"]),
+        strings(&["qdisc", "add", "dev", dev, "handle", "ffff:", "ingress"]),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_qdisc_is_recreated_without_replace() {
+        let [delete, add] = root_reset_commands("awg0");
+        assert_eq!(delete, strings(&["qdisc", "del", "dev", "awg0", "root"]));
+        assert_eq!(
+            add,
+            strings(&[
+                "qdisc", "add", "dev", "awg0", "root", "handle", "1:", "htb", "default", "1",
+            ])
+        );
+        assert!(
+            root_reset_commands("awg0")
+                .iter()
+                .flatten()
+                .all(|arg| arg != "replace" && arg != "change"),
+            "htb root does not support change/replace, so both must be avoided"
+        );
+    }
+
+    #[test]
+    fn ingress_qdisc_is_recreated_without_replace() {
+        let [delete, add] = ingress_reset_commands("awg0");
+        assert_eq!(delete, strings(&["qdisc", "del", "dev", "awg0", "ingress"]));
+        assert_eq!(
+            add,
+            strings(&["qdisc", "add", "dev", "awg0", "handle", "ffff:", "ingress"])
+        );
+    }
+
+    #[test]
+    fn ifb_name_fits_kernel_limit() {
+        assert_eq!(ifb_name("awg0"), "ifb-awg0");
+        assert_eq!(ifb_name("verylongifacename"), "ifb-verylongifa");
+        assert!(ifb_name("verylongifacename").len() <= 15);
+    }
 }

@@ -12,7 +12,7 @@ use netlink_packet_amnezia_wireguard::{
     AmneziaWireguardAttribute, AmneziaWireguardCmd, AmneziaWireguardMessage, AmneziaWireguardPeer,
     AmneziaWireguardPeerAttribute,
 };
-use netlink_packet_core::{NLM_F_ACK, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload};
+use netlink_packet_core::{NLM_F_ACK, NLM_F_DUMP, NLM_F_REQUEST, NetlinkMessage, NetlinkPayload};
 use netlink_packet_generic::GenlMessage;
 
 use crate::application::AwgControl;
@@ -150,60 +150,49 @@ impl AwgControl for NetlinkAwg {
         if self.dry_run {
             return Ok(InterfaceRuntime::default());
         }
-        let msg = AmneziaWireguardMessage {
-            cmd: AmneziaWireguardCmd::GetDevice,
-            attributes: vec![AmneziaWireguardAttribute::IfName(interface.name.clone())],
-        };
-        let response = send(msg).await?;
-        let mut peers = Vec::new();
-        for attribute in response.attributes {
-            if let AmneziaWireguardAttribute::Peers(list) = attribute {
-                for peer in list {
-                    let mut runtime = PeerRuntime::default();
-                    for attribute in peer.0 {
-                        match attribute {
-                            AmneziaWireguardPeerAttribute::PublicKey(key) => {
-                                runtime.public_key = STANDARD.encode(key);
-                            }
-                            AmneziaWireguardPeerAttribute::RxBytes(value) => {
-                                runtime.rx_bytes = value;
-                            }
-                            AmneziaWireguardPeerAttribute::TxBytes(value) => {
-                                runtime.tx_bytes = value;
-                            }
-                            AmneziaWireguardPeerAttribute::LastHandshake(time) => {
-                                runtime.last_handshake = time.seconds;
-                            }
-                            _ => {}
-                        }
-                    }
-                    if !runtime.public_key.is_empty() {
-                        peers.push(runtime);
-                    }
-                }
-            }
-        }
-        Ok(InterfaceRuntime { peers })
+        let messages = dump(&interface.name).await?;
+        interface_runtime(&messages, &interface.name)
+            .ok_or_else(|| anyhow!("netlink dump returned no device for {}", interface.name))
     }
 }
 
-async fn send(msg: AmneziaWireguardMessage) -> Result<AmneziaWireguardMessage> {
+async fn send(msg: AmneziaWireguardMessage) -> Result<()> {
+    let mut nlmsg = NetlinkMessage::from(GenlMessage::from_payload(msg));
+    nlmsg.header.flags = NLM_F_REQUEST | NLM_F_ACK;
+    request(nlmsg).await.map(|_| ())
+}
+
+fn get_device_request(name: &str) -> NetlinkMessage<GenlMessage<AmneziaWireguardMessage>> {
+    let msg = AmneziaWireguardMessage {
+        cmd: AmneziaWireguardCmd::GetDevice,
+        attributes: vec![AmneziaWireguardAttribute::IfName(name.to_string())],
+    };
+    let mut nlmsg = NetlinkMessage::from(GenlMessage::from_payload(msg));
+    nlmsg.header.flags = NLM_F_REQUEST | NLM_F_DUMP;
+    nlmsg
+}
+
+async fn dump(name: &str) -> Result<Vec<AmneziaWireguardMessage>> {
+    request(get_device_request(name)).await
+}
+
+async fn request(
+    nlmsg: NetlinkMessage<GenlMessage<AmneziaWireguardMessage>>,
+) -> Result<Vec<AmneziaWireguardMessage>> {
     let (connection, mut handle, _) = new_connection().context("open netlink connection")?;
     tokio::spawn(connection);
-
-    let genlmsg: GenlMessage<AmneziaWireguardMessage> = GenlMessage::from_payload(msg);
-    let mut nlmsg = NetlinkMessage::from(genlmsg);
-    nlmsg.header.flags = NLM_F_REQUEST | NLM_F_ACK;
 
     let mut stream = handle
         .request(nlmsg)
         .await
         .map_err(|e| anyhow!("netlink request failed: {e}"))?;
 
+    let mut messages = Vec::new();
     while let Some(packet) = stream.next().await {
         let packet = packet.map_err(|e| anyhow!("netlink response error: {e}"))?;
         match packet.payload {
-            NetlinkPayload::InnerMessage(genl) => return Ok(genl.payload),
+            NetlinkPayload::InnerMessage(genl) => messages.push(genl.payload),
+            NetlinkPayload::Done(_) => break,
             NetlinkPayload::Error(error) => {
                 let io = error.to_io();
                 if io.raw_os_error() == Some(0) {
@@ -211,13 +200,61 @@ async fn send(msg: AmneziaWireguardMessage) -> Result<AmneziaWireguardMessage> {
                 }
                 return Err(anyhow!("kernel rejected request: {io}"));
             }
+            NetlinkPayload::Overrun(_) => {
+                return Err(anyhow!("netlink dump overrun: response truncated"));
+            }
             _ => continue,
         }
     }
-    Ok(AmneziaWireguardMessage {
-        cmd: AmneziaWireguardCmd::SetDevice,
-        attributes: vec![],
-    })
+    Ok(messages)
+}
+
+fn interface_runtime(messages: &[AmneziaWireguardMessage], name: &str) -> Option<InterfaceRuntime> {
+    let mut runtime = InterfaceRuntime::default();
+    let mut current: Option<&str> = None;
+    let mut matched = false;
+
+    for message in messages {
+        for attribute in &message.attributes {
+            if let AmneziaWireguardAttribute::IfName(ifname) = attribute {
+                current = Some(ifname);
+            }
+        }
+        if current.is_some_and(|ifname| ifname != name) {
+            continue;
+        }
+        matched = true;
+        for attribute in &message.attributes {
+            let AmneziaWireguardAttribute::Peers(list) = attribute else {
+                continue;
+            };
+            for peer in list {
+                if let Some(peer) = peer_runtime(peer) {
+                    runtime.peers.push(peer);
+                }
+            }
+        }
+    }
+
+    matched.then_some(runtime)
+}
+
+fn peer_runtime(peer: &AmneziaWireguardPeer) -> Option<PeerRuntime> {
+    let mut runtime = PeerRuntime::default();
+    for attribute in &peer.0 {
+        match attribute {
+            AmneziaWireguardPeerAttribute::PublicKey(key) => {
+                runtime.public_key = STANDARD.encode(key);
+            }
+            AmneziaWireguardPeerAttribute::RxBytes(value) => runtime.rx_bytes = *value,
+            AmneziaWireguardPeerAttribute::TxBytes(value) => runtime.tx_bytes = *value,
+            AmneziaWireguardPeerAttribute::LastHandshake(time) => {
+                runtime.last_handshake = time.seconds;
+            }
+            _ => {}
+        }
+    }
+    (!runtime.public_key.is_empty()).then_some(runtime)
 }
 
 fn peer_attributes(peer: &DesiredPeer) -> Result<AmneziaWireguardPeer> {
@@ -280,4 +317,100 @@ fn pack_range(spec: &str) -> Result<u64> {
         }
     };
     Ok(lo as u64 | ((hi as u64) << 32))
+}
+
+#[cfg(test)]
+mod tests {
+    use netlink_packet_amnezia_wireguard::AmneziaWireguardTimeSpec;
+
+    use super::*;
+
+    fn peer(key: u8, rx: u64, tx: u64, handshake: i64) -> AmneziaWireguardPeer {
+        AmneziaWireguardPeer(vec![
+            AmneziaWireguardPeerAttribute::PublicKey([key; 32]),
+            AmneziaWireguardPeerAttribute::RxBytes(rx),
+            AmneziaWireguardPeerAttribute::TxBytes(tx),
+            AmneziaWireguardPeerAttribute::LastHandshake(AmneziaWireguardTimeSpec {
+                seconds: handshake,
+                nano_seconds: 0,
+            }),
+        ])
+    }
+
+    fn device(name: &str, peers: Vec<AmneziaWireguardPeer>) -> AmneziaWireguardMessage {
+        AmneziaWireguardMessage {
+            cmd: AmneziaWireguardCmd::GetDevice,
+            attributes: vec![
+                AmneziaWireguardAttribute::IfIndex(7),
+                AmneziaWireguardAttribute::IfName(name.to_string()),
+                AmneziaWireguardAttribute::Peers(peers),
+            ],
+        }
+    }
+
+    fn continuation(peers: Vec<AmneziaWireguardPeer>) -> AmneziaWireguardMessage {
+        AmneziaWireguardMessage {
+            cmd: AmneziaWireguardCmd::GetDevice,
+            attributes: vec![AmneziaWireguardAttribute::Peers(peers)],
+        }
+    }
+
+    #[test]
+    fn get_device_request_uses_dump_and_name_only() {
+        let nlmsg = get_device_request("awg0");
+        assert_eq!(nlmsg.header.flags, NLM_F_REQUEST | NLM_F_DUMP);
+        assert_ne!(nlmsg.header.flags & NLM_F_DUMP, 0);
+
+        let NetlinkPayload::InnerMessage(genl) = nlmsg.payload else {
+            panic!("expected generic netlink payload");
+        };
+        assert_eq!(genl.payload.cmd, AmneziaWireguardCmd::GetDevice);
+        assert_eq!(
+            genl.payload.attributes,
+            vec![AmneziaWireguardAttribute::IfName("awg0".to_string())]
+        );
+        assert!(
+            !genl
+                .payload
+                .attributes
+                .iter()
+                .any(|a| matches!(a, AmneziaWireguardAttribute::IfIndex(_))),
+            "kernel rejects requests that set both ifname and ifindex"
+        );
+    }
+
+    #[test]
+    fn runtime_merges_multipart_dump_without_losing_peers() {
+        let messages = vec![
+            device("awg0", vec![peer(1, 100, 200, 1_700)]),
+            continuation(vec![peer(2, 300, 400, 1_800), peer(3, 500, 600, 0)]),
+        ];
+
+        let runtime = interface_runtime(&messages, "awg0").expect("device found");
+        assert_eq!(runtime.peers.len(), 3);
+        assert_eq!(runtime.peers[0].public_key, STANDARD.encode([1u8; 32]));
+        assert_eq!(runtime.peers[0].rx_bytes, 100);
+        assert_eq!(runtime.peers[0].tx_bytes, 200);
+        assert_eq!(runtime.peers[0].last_handshake, 1_700);
+        assert_eq!(runtime.peers[2].public_key, STANDARD.encode([3u8; 32]));
+        assert_eq!(runtime.peers[2].rx_bytes, 500);
+        assert_eq!(runtime.peers[2].tx_bytes, 600);
+        assert_eq!(runtime.peers[2].last_handshake, 0);
+    }
+
+    #[test]
+    fn runtime_skips_devices_with_another_name() {
+        let messages = vec![device("awg1", vec![peer(1, 1, 1, 0)])];
+        assert!(interface_runtime(&messages, "awg0").is_none());
+        assert!(interface_runtime(&[], "awg0").is_none());
+    }
+
+    #[test]
+    fn runtime_skips_peers_without_public_key() {
+        let bare = AmneziaWireguardPeer(vec![AmneziaWireguardPeerAttribute::RxBytes(9)]);
+        let messages = vec![device("awg0", vec![bare, peer(4, 7, 8, 9)])];
+        let runtime = interface_runtime(&messages, "awg0").expect("device found");
+        assert_eq!(runtime.peers.len(), 1);
+        assert_eq!(runtime.peers[0].public_key, STANDARD.encode([4u8; 32]));
+    }
 }

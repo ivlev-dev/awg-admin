@@ -38,8 +38,9 @@ usage() {
   ingress: qdisc ingress, mirred redirect в ifb-<ifname>, HTB и u32 match ip src;
   nftables: таблица inet awg_admin, цепь fwd_<ifname>, разрешающая пара + drop;
   трафик:  ping через два netns, счётчики классов растут, изоляция блокирует;
-  повторный reconcile: tc qdisc replace (root htb и ingress) и tc filter add
-           выполняются worker-ом при каждом изменении состояния.
+  повторный reconcile: worker пересоздаёт root/ingress qdisc через del+add
+           (htb не поддерживает replace/change), классы и фильтры
+           пересоздаются без ошибок и без дубликатов.
 
 Ограничение: на veth нельзя воспроизвести hairpin iifname == oifname одного
 AWG-интерфейса. Проверяется эквивалентная пара iifname/oifname на двух veth;
@@ -140,17 +141,44 @@ expect_contains() {
   fi
 }
 
+expect_count() {
+  local text="$1" needle="$2" expected="$3" what="$4"
+  local actual
+  actual=$(printf '%s\n' "$text" | grep -cF -- "$needle" || true)
+  actual=${actual:-0}
+  if [ "$actual" -eq "$expected" ]; then
+    ok "$what"
+  else
+    fail "$what (ожидалось $expected, получено $actual)"
+  fi
+}
+
 class_packets() {
   local dev="$1" classid="$2"
   tc -s class show dev "$dev" classid "$classid" 2>/dev/null \
     | awk '/Sent/ {for (i = 1; i <= NF; i++) if ($i == "pkt") {print $(i - 1); exit}}'
 }
 
+reset_root_qdisc() {
+  local dev="$1"
+  print_cmd tc qdisc del dev "$dev" root
+  tc qdisc del dev "$dev" root 2>/dev/null || true
+  print_cmd tc qdisc add dev "$dev" root handle 1: htb default 1
+  tc qdisc add dev "$dev" root handle 1: htb default 1
+}
+
+reset_ingress_qdisc() {
+  local dev="$1"
+  print_cmd tc qdisc del dev "$dev" ingress
+  tc qdisc del dev "$dev" ingress 2>/dev/null || true
+  print_cmd tc qdisc add dev "$dev" handle ffff: ingress
+  tc qdisc add dev "$dev" handle ffff: ingress
+}
+
 apply_egress() {
   section "Egress: HTB root/классы и фильтры u32"
 
-  print_cmd tc qdisc replace dev dp-r2 root handle 1: htb default 1
-  tc qdisc replace dev dp-r2 root handle 1: htb default 1
+  reset_root_qdisc dp-r2
 
   print_cmd tc class replace dev dp-r2 parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
   tc class replace dev dp-r2 parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
@@ -203,18 +231,18 @@ apply_egress() {
 apply_ingress() {
   section "Ingress: ingress qdisc, IFB, HTB и u32"
 
-  print_cmd ip link add "$IFB" type ifb
-  ip link add "$IFB" type ifb
+  if ! ip link show "$IFB" >/dev/null 2>&1; then
+    print_cmd ip link add "$IFB" type ifb
+    ip link add "$IFB" type ifb
+  fi
   print_cmd ip link set dev "$IFB" up
   ip link set dev "$IFB" up
 
-  print_cmd tc qdisc replace dev dp-r1 handle ffff: ingress
-  tc qdisc replace dev dp-r1 handle ffff: ingress
+  reset_ingress_qdisc dp-r1
   print_cmd tc filter add dev dp-r1 parent ffff: protocol ip u32 match u32 0 0 action mirred egress redirect dev "$IFB"
   tc filter add dev dp-r1 parent ffff: protocol ip u32 match u32 0 0 action mirred egress redirect dev "$IFB"
 
-  print_cmd tc qdisc replace dev "$IFB" root handle 1: htb default 1
-  tc qdisc replace dev "$IFB" root handle 1: htb default 1
+  reset_root_qdisc "$IFB"
   print_cmd tc class replace dev "$IFB" parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
   tc class replace dev "$IFB" parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
   print_cmd tc class replace dev "$IFB" parent 1:1 classid 1:100 htb rate 5mbit ceil 5mbit
@@ -287,21 +315,58 @@ sysctl -qw net.ipv4.conf.all.rp_filter=0
 }
 
 check_reapply_idempotency() {
-  section "Повторный reconcile: qdisc replace"
+  section "Повторный reconcile: del+add qdisc, классы и фильтры"
 
-  print_cmd tc qdisc replace dev dp-r2 root handle 1: htb default 1
   if tc qdisc replace dev dp-r2 root handle 1: htb default 1 2>"$WORKDIR/replace.err"; then
-    ok "повторный tc qdisc replace идемпотентен"
+    note "ядро принимает tc qdisc replace для htb root"
   else
-    fail "повторный tc qdisc replace завершился ошибкой: $(cat "$WORKDIR/replace.err"): worker вызывает replace при каждом reconcile, поэтому после первого применения tc перестанет обновляться"
+    note "ядро не принимает replace/change для htb root: $(cat "$WORKDIR/replace.err"): worker использует del+add"
   fi
 
-  print_cmd tc qdisc replace dev dp-r1 handle ffff: ingress
-  if tc qdisc replace dev dp-r1 handle ffff: ingress 2>"$WORKDIR/ingress.err"; then
-    ok "повторный ingress replace идемпотентен"
+  if ( reset_root_qdisc dp-r2 ) 2>"$WORKDIR/egress-reapply.err"; then
+    ok "повторное пересоздание root htb на dp-r2"
   else
-    fail "повторный ingress replace завершился ошибкой: $(cat "$WORKDIR/ingress.err")"
+    fail "повторное пересоздание root htb на dp-r2: $(cat "$WORKDIR/egress-reapply.err")"
   fi
+  tc class replace dev dp-r2 parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
+  tc class replace dev dp-r2 parent 1:1 classid 1:100 htb rate 5mbit ceil 5mbit
+  tc class replace dev dp-r2 parent 1:1 classid 1:101 htb rate 5mbit ceil 5mbit
+  tc class replace dev dp-r2 parent 1:100 classid 1:1000 htb rate 1000kbit ceil 1000kbit
+  tc class replace dev dp-r2 parent 1:101 classid 1:1101 htb rate 1000kbit ceil 1000kbit
+  tc filter add dev dp-r2 protocol ip parent 1: prio 1 u32 match ip dst 10.30.2.2/32 flowid 1:1000
+  tc filter add dev dp-r2 protocol ip parent 1: prio 1 u32 match ip dst 10.30.2.3/32 flowid 1:1101
+
+  local qdisc filters
+  qdisc=$(tc qdisc show dev dp-r2)
+  expect_contains "$qdisc" "qdisc htb 1:" "root htb после повторного reconcile"
+  filters=$(tc filter show dev dp-r2 parent 1:)
+  expect_count "$filters" "flowid 1:1000" 1 "фильтр 1:1000 не продублирован"
+  expect_count "$filters" "flowid 1:1101" 1 "фильтр 1:1101 не продублирован"
+
+  if ( reset_ingress_qdisc dp-r1 ) 2>"$WORKDIR/ingress-reapply.err"; then
+    ok "повторное пересоздание ingress qdisc на dp-r1"
+  else
+    fail "повторное пересоздание ingress qdisc на dp-r1: $(cat "$WORKDIR/ingress-reapply.err")"
+  fi
+  tc filter add dev dp-r1 parent ffff: protocol ip u32 match u32 0 0 action mirred egress redirect dev "$IFB"
+
+  local ingress_filter
+  ingress_filter=$(tc filter show dev dp-r1 parent ffff:)
+  expect_count "$ingress_filter" "mirred" 1 "фильтр mirred не продублирован"
+
+  if ( reset_root_qdisc "$IFB" ) 2>"$WORKDIR/ifb-reapply.err"; then
+    ok "повторное пересоздание root htb на $IFB"
+  else
+    fail "повторное пересоздание root htb на $IFB: $(cat "$WORKDIR/ifb-reapply.err")"
+  fi
+  tc class replace dev "$IFB" parent 1: classid 1:1 htb rate 10mbit ceil 10mbit
+  tc class replace dev "$IFB" parent 1:1 classid 1:100 htb rate 5mbit ceil 5mbit
+  tc class replace dev "$IFB" parent 1:100 classid 1:1000 htb rate 1000kbit ceil 1000kbit
+  tc filter add dev "$IFB" protocol ip parent 1: prio 1 u32 match ip src 10.30.1.2/32 flowid 1:1000
+
+  local ifb_filters
+  ifb_filters=$(tc filter show dev "$IFB" parent 1:)
+  expect_count "$ifb_filters" "flowid 1:1000" 1 "фильтр IFB 1:1000 не продублирован"
 }
 
 apply_nft() {
@@ -390,21 +455,6 @@ traffic_checks() {
   fi
 }
 
-check_filter_idempotency() {
-  section "Идемпотентность фильтров (наблюдение)"
-
-  print_cmd tc filter add dev dp-r2 protocol ip parent 1: prio 1 u32 match ip dst 10.30.2.2/32 flowid 1:1000
-  tc filter add dev dp-r2 protocol ip parent 1: prio 1 u32 match ip dst 10.30.2.2/32 flowid 1:1000
-
-  local count
-  count=$(tc filter show dev dp-r2 parent 1: | grep -c 'match 0a1e0202/ffffffff at 16' || true)
-  if [ "$count" -gt 1 ]; then
-    warn "фильтр u32 продублирован ($count): worker использует 'tc filter add' при каждом reconcile"
-  else
-    ok "дубликатов фильтров нет"
-  fi
-}
-
 run_scenario() {
   trap cleanup EXIT
   WORKDIR=$(mktemp -d)
@@ -414,7 +464,6 @@ run_scenario() {
   apply_ingress
   check_reapply_idempotency
   apply_nft
-  check_filter_idempotency
   traffic_checks
 }
 
@@ -425,6 +474,8 @@ dry_run() {
   note "  устройства 1:1000 (parent 1:100) и 1:1101 (parent 1:101), u32 dst 10.30.2.2/32 -> 1:1000,"
   note "  u32 dst 10.30.2.3/32 -> 1:1101, затем rate 1kbit (квота)."
   note "ingress на dp-r1: ingress qdisc, mirred -> $IFB, htb и u32 src 10.30.1.2/32 -> 1:1000."
+  note "повторный reconcile: root/ingress qdisc удаляются и создаются заново (htb не поддерживает replace),"
+  note "  классы и фильтры пересоздаются без дубликатов."
   note "nftables: table inet awg_admin, chain $CHAIN, accept-пара и drop."
   note "трафик: ping между двумя netns, счётчики классов, изоляция."
 

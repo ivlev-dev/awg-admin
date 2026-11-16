@@ -49,6 +49,14 @@
   пользовательские классы `1:100+i`, классы устройств `1:1000+…`, фильтры `u32 match ip dst`.
 - ingress: `ingress` qdisc → `mirred` в `ifb-<iface>`, на IFB те же HTB-классы и фильтры `match ip src`.
 
+Применение идемпотентно. `htb` в root не поддерживает `replace`/`change`
+(`Change operation not supported by specified qdisc`), поэтому worker удаляет
+root- и ingress-qdisc и создаёт их заново: `qdisc del … root` (ошибка
+игнорируется) → `qdisc add … root handle 1: htb`, то же для `handle ffff: ingress`.
+Удаление qdisc сбрасывает старые классы и фильтры, поэтому дубликаты `u32`
+не накапливаются между reconcile. На время пересоздания (доли секунды) трафик
+идёт без шейпера. `clear` удаляет root/ingress qdisc и IFB.
+
 Лимит `0` означает «без ограничения». При превышении квоты тарифа админка присылает `1 kbps` —
 это фактическая блокировка.
 
@@ -58,10 +66,33 @@
 
 ## Статистика и перезагрузка интерфейса
 
-Счётчики ядра монотонны, но обнуляются при пересоздании интерфейса. Воркер хранит
-`CounterBook` (offset + last) в JSON-файле и при уменьшении сырого значения добавляет
-предыдущее значение к offset. Наружу всегда отдаётся монотонный тотал, поэтому админка
-не теряет трафик между перезагрузками и рестартами воркера.
+Счётчики читаются generic netlink-командой `WG_CMD_GET_DEVICE`. В ядре она
+зарегистрирована только как dump (`.start`/`.dumpit`), поэтому запрос уходит с
+`NLM_F_REQUEST | NLM_F_DUMP` и атрибутом `WG_DEVICE_IFNAME` (ядро требует ровно
+один из `IFNAME`/`IFINDEX`). Ответ multipart: воркер собирает все сообщения до
+`NLMSG_DONE`, объединяет пиров из всех фрагментов и выбирает устройство по имени.
+Без dump-флага ядро отвечает `Operation not supported (os error 95)`.
+
+Счётчики ядра монотонны, но обнуляются при пересоздании интерфейса или пира:
+`SetDevice` с `REPLACE_PEERS` пересоздаёт пиров при каждом применении состояния.
+Воркер хранит `CounterBook` (offset + last) в JSON-файле и при уменьшении сырого
+значения добавляет предыдущее значение к offset. Наружу всегда отдаётся
+монотонный тотал, поэтому админка не теряет трафик между перезагрузками,
+reconcile и рестартами воркера.
+
+## Проверка на живом ядре
+
+```bash
+scripts/verify-kernel.sh --apply --netns
+scripts/verify-dataplane.sh --apply
+unshare -rn -- cargo test -p awg-worker --test live_dataplane -- --ignored --test-threads=1
+```
+
+Live-тесты `tests/live_dataplane.rs` поднимают AWG-интерфейс, гоняют ICMP через
+туннель и проверяют полный путь `ReconcileService::apply/collect`: dump-статистику,
+монотонные тоталы после повторного `SetDevice`, двукратное применение tc и nft.
+Нужны `CAP_NET_ADMIN` (запуск под `unshare -rn`), модуль `amneziawg` и утилиты
+`awg`, `tc`, `nft`.
 
 ## Запуск
 
