@@ -273,6 +273,57 @@ refresh (ключ `IP`). Окно очищается лениво при обр�
 Настройки — в `Config` (`AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
 `AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`).
 
+## Observability
+
+### Метрики
+
+`GET /metrics` отдаёт реестр Prometheus в text-формате версии `0.0.4`
+(`Content-Type: text/plain; version=0.0.4`). Модуль — `admin::metrics`
+(crate `prometheus`), реестр один на процесс.
+
+| Метрика | Тип | Метки |
+| --- | --- | --- |
+| `awg_http_requests_total` | counter | `method`, `status` |
+| `awg_http_request_duration_seconds` | histogram | `method` |
+| `awg_auth_logins_total` | counter | `result` = `success`/`failure`/`rate_limited` |
+| `awg_rate_limited_total` | counter | `scope` = `login`/`refresh` |
+| `awg_audit_events_total` | counter | `action`, `status` |
+| `awg_worker_online` | gauge | — |
+
+Гистограмма latency использует бакеты `0.005, 0.01, 0.025, 0.05, 0.1, 0.25,
+0.5, 1, 2` секунды. `metrics::middleware` оборачивает весь роутер: после ответа
+инкрементирует счётчик и наблюдает длительность для всех путей под `/api/v1`
+(сам `/metrics` не учитывается). Слои аудита, CORS и rate limiting остаются
+внутри, порядок не менялся.
+
+Логин инкрементирует `awg_auth_logins_total` во всех ветках (успех, ошибка,
+лимит), а `awg_rate_limited_total` — в точках отказа лимитеров логина и refresh.
+Аудит инкрементирует `awg_audit_events_total` там же, где пишет `AuditEntry`.
+`awg_worker_online` выставляется в момент scrape по
+`WorkerRegistry::presence().len()`, поэтому не требует отдельного состояния.
+
+Скрейп с токеном:
+
+```bash
+AWG_METRICS_TOKEN=$(openssl rand -hex 24)
+curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
+  http://127.0.0.1:8080/metrics
+```
+
+Безопасность: если `AWG_METRICS_TOKEN` задан, запрос без корректного
+`Authorization: Bearer <token>` получает `401` (сравнение constant-time). Если
+токен не задан, `/metrics` открыт, и защита ложится на сеть: порт admin
+(`8080`) не должен быть доступен из untrusted-сетей, снаружи публикуется
+только Traefik. В `production` при пустом `AWG_METRICS_TOKEN` в лог пишется
+предупреждение на старте.
+
+### Логи
+
+Формат задаётся `AWG_LOG_FORMAT=text|json` (по умолчанию `text`); уровень —
+`RUST_LOG` (по умолчанию `info`, `EnvFilter`). При `json` включается
+`tracing_subscriber` JSON-формат с полями `timestamp`, `level`, `target`,
+`fields` — удобно для Loki/ELK. Конфигурация вынесена в `admin::logging`.
+
 ## Конфигурация и секреты
 
 `AWG_ENV=development|production` (по умолчанию `development`).
@@ -285,6 +336,9 @@ refresh (ключ `IP`). Окно очищается лениво при обр�
 
 `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` задают `iss`/`aud` новых токенов,
 по умолчанию `awg-admin`. Пустые значения заменяются значением по умолчанию.
+
+`AWG_METRICS_TOKEN` включает Bearer-аутентификацию для `GET /metrics`
+(см. раздел Observability). `AWG_LOG_FORMAT=text|json` выбирает формат логов.
 
 В `development` отсутствующие `AWG_MASTER_KEY`/`AWG_JWT_SECRET` генерируются
 эфемерно с предупреждением: после рестарта сохранённые секреты устройств

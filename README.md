@@ -86,12 +86,27 @@ Traefik проксирует `/api` к admin по HTTP/1.1; HTTP/3 термин�
 Клиенты, которым нужен h2c напрямую, используют
 `curl --http2-prior-knowledge http://127.0.0.1:8080/api/v1/health`.
 
+## Метрики и логи
+
+- `GET /metrics` — Prometheus text-формат (`awg_http_requests_total`,
+  `awg_http_request_duration_seconds`, `awg_auth_logins_total`,
+  `awg_rate_limited_total`, `awg_audit_events_total`, `awg_worker_online`).
+- `AWG_METRICS_TOKEN` включает `Authorization: Bearer <token>` для `/metrics`;
+  без токена эндпоинт открыт, поэтому порт `8080` не публикуйте наружу.
+- `AWG_LOG_FORMAT=json` переключает логи на structured JSON, `RUST_LOG`
+  задаёт уровень (`info` по умолчанию).
+
+```bash
+curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
+  http://127.0.0.1:8080/metrics
+```
+
 ## Тесты
 
 ```bash
 cargo test --workspace          # 28 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 422 теста
+cd frontend && pnpm test        # 450 тестов
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build

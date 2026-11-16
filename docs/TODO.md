@@ -21,15 +21,15 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 422 теста.
+  статические SVG-иконки, 450 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 
 ## Проверено
 
-- `cargo test --workspace` — 91 тест, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 132 теста, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 422 теста, зелёные.
+- `cd frontend && pnpm test` — 450 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -89,8 +89,10 @@
 - **CIDR-пулы**: режимы `auto/rf_only/external_only` — только метки и выдача
   адресов; маршрутизация делается вне проекта (так согласовано). Нет проверки
   пересечения с адресами других групп и резервирования шлюзов на уровне БД.
-- **Квоты**: при превышении worker получает `1 kbps` (фактическая блокировка).
-  Нет статуса «заблокирован по квоте», уведомлений, сброса квоты по расписанию.
+- **Квоты**: состояние отдаётся в API (`/quota`, `/quota/users`), в UI есть
+  прогресс, «осталось», дата сброса и предупреждение при превышении; worker
+  получает `1 kbps`. Нет уведомлений (email/webhook) и настраиваемого периода —
+  сброс календарный, раз в месяц.
 - **Статистика**: часовые бакеты, запросы суммируют их на лету. Нет дневных/
   месячных материализованных таблиц, per-second rate на бэкенде, retention-
   политики в настройках (жёстко 90 дней), графиков по нескольким scope сразу.
@@ -121,7 +123,8 @@
 - Версионирование схемы redb сделано (`meta.schema_version`, каркас миграций).
 - Backup/restore: `Store::backup_to`, `restore_from`, `replace_file_from`
   (офлайн). Ротации файла по расписанию нет.
-- Нет метрик Prometheus/OpenTelemetry и structured access-логов.
+- Prometheus-метрики (`/metrics`, опциональный Bearer) и structured-логи
+  (`AWG_LOG_FORMAT=json|text`) сделаны. OpenTelemetry-трейсинга нет.
 - Нет автоматических e2e-тестов UI: Playwright использовался вручную; набор
   можно закрепить в CI.
 - Нет нагрузочных тестов API и gRPC.
