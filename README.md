@@ -154,9 +154,9 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ## Тесты
 
 ```bash
-cargo test --workspace          # 28 тестов
+cargo test --workspace          # 378 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 722 теста
+cd frontend && pnpm test        # 738 тестов
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build

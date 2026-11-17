@@ -23,7 +23,7 @@ services:
       start_period: 10s
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.admin-api.rule=PathPrefix(`/api`)"
+      - "traefik.http.routers.admin-api.rule=Host(`${AWG_DOMAIN}`) && PathPrefix(`/api`)"
       - "traefik.http.routers.admin-api.entrypoints=websecure"
       - "traefik.http.routers.admin-api.service=admin"
       - "traefik.http.routers.admin-api.tls.certresolver=letsencrypt"
@@ -50,7 +50,7 @@ services:
       - "127.0.0.1:8081:80"
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.frontend.rule=PathPrefix(`/`)"
+      - "traefik.http.routers.frontend.rule=Host(`${AWG_DOMAIN}`) && PathPrefix(`/`)"
       - "traefik.http.routers.frontend.entrypoints=websecure"
       - "traefik.http.routers.frontend.service=frontend"
       - "traefik.http.routers.frontend.priority=1"

@@ -31,7 +31,7 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 | 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; на реальном AWG htb/ingress/IFB применяются | повторный `tc qdisc replace` падает на этом ядре — worker не может обновить tc после первого reconcile; живая полоса |
 | 3. nftables forwarding | да: таблица/цепь/правила, ICMP разрешённой пары, изоляция; live worker создаёт `fwd_<ifname>` | hairpin `iifname == oifname` на реальном интерфейсе и трафик между устройствами |
 | 4. Docker build | да: образы `awg-admin`/`awg-worker`/`awg-frontend` есть, стек запущен, admin/frontend healthy | чистая пересборка на CI-хосте |
-| 5. TLS/ACME | частично: `verify-tls.sh --local` — redirect, h2, h3, health; живой стенд отдаёт h2/h3, но с TRAEFIK DEFAULT CERT | ACME на реальном домене; `Host(...)` и HSTS в конфигурации отсутствуют |
+| 5. TLS/ACME | частично: `verify-tls.sh --local` — redirect, h2, h3, health; живой стенд отдаёт h2/h3, но с TRAEFIK DEFAULT CERT | ACME на реальном домене; `Host(...)` (через `AWG_DOMAIN`) и HSTS настроены, выпуск сертификата остаётся за стендом |
 | 6. Мастер-ключ | да: `.env` с `AWG_MASTER_KEY`/`AWG_JWT_SECRET`, предупреждения об эфемерном ключе нет, профиль устройства читается | рестарт admin на данных production и проверка того же `.conf` |
 | 7. HTTP/3 за Traefik | да: локальный Traefik и живой стенд, `curl --http3-only` → `http_version=3`, `Alt-Svc: h3` | UDP/443 на реальном хосте за firewall |
 | 8. WebTransport | не реализовано в коде — проверять нечего | — |
@@ -418,7 +418,7 @@ privileged-контейнера с хостовым `awg` или через API.
 ### Предусловия
 
 - Реальный домен, A/AAAA-запись указывает на хост.
-- Открыты `80/tcp` (ACME HTTP-01 и редирект) и `443/tcp`, `443/udp` (HTTP/3).
+- Открыты `443/tcp` и `443/udp` (HTTP/3). ACME использует TLS-ALPN-01 (`tlsChallenge`), поэтому `80/tcp` не требуется; entrypoint `web` остаётся для локальной проверки редиректа.
 - Задан `TRAEFIK_ACME_EMAIL` в `.env`; том `traefik-letsencrypt` сохраняется.
 - Для локальной проверки без домена: Docker и образ `traefik:v3.3`.
 
@@ -446,8 +446,8 @@ HSTS (`Strict-Transport-Security` с `max-age`), срок действия и SA
 
 Ожидаемый результат на реальном домене:
 
-- роутеры Traefik содержат `Host(\`<домен>\`)`, иначе ACME не выпустит сертификат
-  (сейчас в compose таких правил нет — это провал `--static`);
+- роутеры Traefik содержат `Host(\`$AWG_DOMAIN\`)` (домен задаётся через `AWG_DOMAIN`);
+  без этого ACME не выпустит сертификат;
 - сертификат выпущен Let's Encrypt, `issuer` содержит `Let's Encrypt`;
 - `acme.json` создан в томе `traefik-letsencrypt` (права 600);
 - `http_version=2` для обычного HTTPS и `http_version=3` для `--http3-only`;
@@ -464,8 +464,8 @@ docker compose stop traefik
 
 ### Критерий «блокер закрыт»
 
-- `--static` без fail (кроме осознанно принятых warn); сейчас падает из-за
-  отсутствия `Host(...)` — до закрытия блокера;
+- `--static` без fail (кроме осознанно принятых warn); `Host(...)` и HSTS
+  настроены, остаётся проверка ACME на реальном домене;
 - `--local --no-hsts-check --no-static` без fail: редирект, h2, цепочка, health, h3;
 - на реальном домене сертификат валиден и выдан Let's Encrypt, h2/h3 работают,
   health 200, HSTS с `max-age`.
@@ -492,15 +492,11 @@ docker compose stop traefik
 
 ### Замечания, найденные при проверке
 
-- **Нет правила `Host(...)` у роутеров Traefik.** Роутеры построены на
-  `PathPrefix`, поэтому Traefik не знает, на какой домен выпускать сертификат:
-  ACME не сработает, клиенту достанется TRAEFIK DEFAULT CERT. Нужно добавить
-  `Host(\`<домен>\`)` (или явно задать домены в ACME), после чего `--static`
-  перестанет падать. `AWG_DOMAIN` при этом объявлен в `.env.example`/README, но
-  не используется в compose.
-- **HSTS не настроен.** Ни в `docker/traefik.yml`, ни в labels нет middleware
-  `stsSeconds`/`Strict-Transport-Security`. Проверка HSTS падает, пока не добавлен
-  headers-middleware (это изменение Docker-конфигурации, не входит в данные скрипты).
+- **`Host(...)` добавлен.** Роутеры используют `Host(\`$AWG_DOMAIN\`) && PathPrefix(...)`,
+  домен задаётся через `AWG_DOMAIN`; `--static` проходит. Выпуск сертификата
+  ACME остаётся за реальным стендом.
+- **HSTS настроен.** Middleware `admin-api-sec` и `frontend-hsts` задают
+  `stsSeconds=31536000` и `stsIncludeSubdomains=true` в labels compose.
 - `--local` поднимает Traefik с `--network host` на портах 8088/8443 и требует
   свободные порты. Backend `http://127.0.0.1:8080` опционален: без него health
   пропускается.
@@ -508,10 +504,10 @@ docker compose stop traefik
 - Во время проверки из `docker-compose.yml` исчезли labels `serversTransport h2c`
   для admin (параллельные правки Docker-конфигурации). Скрипт сообщает об этом
   предупреждением, на TLS это не влияет.
-- `AWG_DOMAIN` из `.env.example` не используется в compose: роутеры построены на
-  `PathPrefix`, а не на `Host(...)`. Для ACME это не критично, но переменная вводит
-  в заблуждение. Также не используются `TRAEFIK_LOG_LEVEL`, `TRAEFIK_CERT_RESOLVER`,
-  `TRAEFIK_ACME_STORAGE`, `TRAEFIK_HTTP_ENTRYPOINT`, `TRAEFIK_HTTPS_ENTRYPOINT`.
+- `AWG_DOMAIN` используется в compose для `Host(...)` в роутерах Traefik.
+  `TRAEFIK_LOG_LEVEL`, `TRAEFIK_CERT_RESOLVER`, `TRAEFIK_ACME_STORAGE`,
+  `TRAEFIK_HTTP_ENTRYPOINT`, `TRAEFIK_HTTPS_ENTRYPOINT` по-прежнему не используются
+  в compose (настраиваются в `docker/traefik.yml`/labels).
 
 ---
 
@@ -650,7 +646,7 @@ WebTransport в репозитории отсутствует: нет завис
 | 2. tc ingress/egress | Структура HTB/IFB/u32 и лимиты проверяются; hairpin и полоса — только на реальном интерфейсе. На реальном AWG htb/ingress/IFB применяются. Найдены дублирующийся `tc filter add` и неидемпотентный `tc qdisc replace` (п. 14); `group_down/up_kbps` не используются; без тарифа пользователя tc не применяется |
 | 3. nftables forwarding | Таблица/цепь/правила и изоляция проверяются на veth; live worker создаёт `fwd_<ifname>`; hairpin `iifname == oifname` — только на реальном AWG |
 | 4. Docker build | Образы `awg-admin` (uid 10001), `awg-worker`, `awg-frontend` есть; стек поднят, admin/frontend healthy, worker применяет состояние. Чистая пересборка без кеша не выполнялась |
-| 5. TLS/ACME | Локальный Traefik с self-signed проходит (redirect, h2, h3, health); живой стенд отдаёт h2/h3 с TRAEFIK DEFAULT CERT. ACME требует домен. Нет правила `Host(...)` (ACME не выпустит сертификат), HSTS не настроен; `AWG_DOMAIN` не используется в compose |
+| 5. TLS/ACME | Локальный Traefik с self-signed проходит (redirect, h2, h3, health); живой стенд отдаёт h2/h3 с TRAEFIK DEFAULT CERT. Домен задаётся `AWG_DOMAIN`, роутеры содержат `Host(...)`, HSTS настроен; выпуск ACME на реальном домене остаётся за стендом |
 | 6. Секреты | `.env` есть: `AWG_MASTER_KEY` и `AWG_JWT_SECRET` заданы, предупреждения об эфемерном ключе в логах нет, профиль устройства читается. Рестарт admin на тех же данных не выполнялся |
 | 7. HTTP/3 backend | HTTP/3 работает на Traefik (локально и на стенде); backend остаётся h2c/HTTP1.1, это соответствует архитектуре |
 | 8. WebTransport | Не реализовано: только WebSocket `/api/v1/ws/stats` |
@@ -692,10 +688,10 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 | `scripts/verify-kernel.sh --apply --netns` | 0 | модуль 3.1+, `ip link add/del`, MTU, SetDevice (H1–H4/S1–S4/Jc/Jmin/Jmax/HPK/RandomTrailers), REPLACE_PEERS, счётчики, ICMP 0% потерь, handshake |
 | `scripts/verify-dataplane.sh` | 0 | dry-run: инструменты и user namespaces доступны |
 | `scripts/verify-dataplane.sh --apply` | 1 | 1 провал: повторный `tc qdisc replace` root htb; 1 предупреждение: дубликат u32-фильтра; остальное (htb/ifb/u32, квоты, счётчики, изоляция) — `ok` |
-| `scripts/verify-tls.sh --static` | 1 | провал: нет `Host(...)`; предупреждения: h2c, HSTS, `AWG_DOMAIN` |
-| `scripts/verify-tls.sh --local` | 1 | 2 провала (`Host(...)` в production compose, HSTS); редирект 301, h2, self-signed цепочка, health, h3 `http_version=3` — `ok` |
+| `scripts/verify-tls.sh --static` | 0 | `Host(...)` и HSTS настроены; предупреждение: h2c |
+| `scripts/verify-tls.sh --local` | 0 | редирект 301, h2, self-signed цепочка, health, h3 `http_version=3` — `ok` (HSTS проверяется отдельно) |
 | `scripts/verify-tls.sh --url https://localhost --self-signed --no-static --no-hsts-check` | 0 | живой стенд: redirect 301, h2, h3, health; 1 предупреждение — SAN/CN default-сертификата Traefik |
-| `docker compose ps` | 0 | admin и frontend `healthy`, traefik `Up` (порты 80/tcp, 443/tcp, 443/udp) |
+| `docker compose ps` | 0 | admin и frontend `healthy`, traefik `Up` (порты 443/tcp, 443/udp) |
 | worker, `AWG_DRY_RUN=true` | 0 | нода `online`, `worker applied state`, `awg_worker_online 1`, в логах желаемые команды для `mvawg7` |
 | worker, `AWG_DRY_RUN=false` | 0 | первый reconcile: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers, 2 пира, nft-цепь, htb/IFB/u32; handshake с тестовым клиентом (1.36 KiB rx / 710 B tx). Статистика в API — нули; второй reconcile падает на `apply tc` |
 
@@ -707,7 +703,8 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 Что осталось проверить (здесь не проверялось):
 
 - ACME на реальном домене: сертификат Let's Encrypt, `acme.json`, автопродление;
-  сейчас живой стенд отдаёт TRAEFIK DEFAULT CERT, HSTS и `Host(...)` отсутствуют.
+  домен задаётся `AWG_DOMAIN`, `Host(...)` и HSTS настроены; выпуск сертификата
+  остаётся за стендом.
 - hairpin-трафик между двумя устройствами на одном AWG-интерфейсе
   (`iifname == oifname`) и ICMP в обе стороны; в live-прогоне ответы не вернулись.
 - живая полоса: iperf3 и соответствие `down_kbps`/`up_kbps` и групповым лимитам.
@@ -732,7 +729,7 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 - [ ] nftables: изоляция по умолчанию и разрешённые пары на реальном интерфейсе (цепь создаётся, hairpin-трафик не проверен)
 - [x] `docker compose ps` — admin/frontend healthy, traefik up; чистая пересборка образов не проверена
 - [x] `verify-tls.sh --local --no-hsts-check --no-static` — 0 провалов (16.11.2026)
-- [ ] реальный домен: Let's Encrypt, h2, h3, `/api/v1/health`, HSTS (если принято требование)
+- [ ] реальный домен: Let's Encrypt, h2, h3, `/api/v1/health`, HSTS (`AWG_DOMAIN`, `Host(...)` и HSTS настроены)
 - [x] фиксированный `AWG_MASTER_KEY`, профиль читается (рестарт admin с теми же данными не выполнялся)
 - [x] HTTP/3: `curl --http3-only` → `http_version=3`, `Alt-Svc: h3` (локально и на стенде)
 - [x] WebTransport: зафиксировано как не реализовано

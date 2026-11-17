@@ -56,6 +56,7 @@
 | GET | `/nodes` | user | — | `NodeView[]` |
 | POST | `/nodes` | admin | `CreateNodeRequest` | `NodeView` |
 | DELETE | `/nodes/{id}` | admin | — | `{ok:true}` |
+| POST | `/nodes/{id}/rotate` | admin | — | `{node: NodeView, token}` (токен показывается один раз) |
 | GET | `/interfaces` | user | — | `InterfaceView[]` |
 | POST | `/interfaces` | admin | `CreateInterfaceRequest` | `InterfaceView` |
 | PATCH | `/interfaces/{id}` | admin | `UpdateInterfaceRequest` | `InterfaceView` |
@@ -70,6 +71,7 @@
 | GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` |
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
+| DELETE | `/devices/{id}/shares` | self/admin | — | `{revoked:N}` (отзыв всех ссылок устройства) |
 | GET | `/devices/{id}/stats` | self/admin | — | `DeviceTrafficView` (через stats) |
 | DELETE | `/shares/{token}` | user | — | `{ok:true}` |
 | GET | `/stats/overview` | user/admin | — | `OverviewView` |
@@ -93,6 +95,9 @@
 | GET | `/billing/subscription` | user | — | `Subscription` или `null` |
 | GET | `/billing/invoices` | self/admin | query `user_id?`, `limit?` | `Invoice[]` |
 | GET | `/billing/admin/subscriptions` | admin | query `status?`, `page?`, `per_page?` | `SubscriptionPageView` |
+| POST | `/billing/checkout` | user | `{plan_id}` | `{invoice, checkout_url}` |
+| GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
+| POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
 
 ## Импорт конфигураций
 
@@ -693,7 +698,14 @@ bad_request`; неизвестный scope — `400 bad_request`, недосту
 }
 ```
 
+`GET /api/v1/stats/overview` дополнительно отдаёт `rx_bps`/`tx_bps` — текущую
+скорость по последним снимкам воркера; при отсутствии данных `0.0`.
+`GET /api/v1/stats/series` возвращает точки
+`{at, rx, tx, rx_bps, tx_bps}`, где `*_bps` — средняя скорость за часовой бакет
+(дельта между соседними бакетами на фактическую разницу секунд).
+
 - `points` отсортированы по возрастанию `at`; пустые интервалы не возвращаются.
+
 - `at` — начало суток (`00:00:00Z`) для `bucket=day` или первое число месяца
   (`00:00:00Z`) для `bucket=month`.
 - Агрегация считается на лету из часовых бакетов, поэтому в сумму попадают
@@ -740,9 +752,32 @@ bad_request`; неизвестный scope — `400 bad_request`, недосту
 
 ## Share-ссылки
 
-- `POST /devices/{id}/shares` создаёт токен с TTL; ответ `ShareLinkView` содержит `url = /api/v1/share/{token}`.
-- `GET /api/v1/share/{token}` отдаёт конфиг (awg/wg) без JWT (публичный download с истечением TTL).
-- `DELETE /api/v1/shares/{token}` отзывает ссылку.
+- `POST /devices/{id}/shares` создаёт токен с TTL. Тело:
+  `{interface_id, format: "conf"|"vpn", ttl_secs?, max_uses?, one_time?}`.
+  `one_time=true` эквивалентно `max_uses=1`; `one_time` и `max_uses` вместе —
+  `400`. `max_uses` — `1..=1000`, без лимита — не передавать.
+- `GET /api/v1/share/{token}` отдаёт конфиг без JWT. Проверки: TTL, отзыв,
+  остаток использований. Каждое успешное скачивание атомарно увеличивает
+  `uses`; исчерпанная или отозванная ссылка — `403`.
+- `GET /devices/{id}/shares` возвращает все ссылки устройства с полями
+  `max_uses`, `uses`, `remaining_uses`, `revoked_at` и `state`
+  (`active`|`expired`|`exhausted`|`revoked`), новые сначала.
+- `DELETE /devices/{id}/shares` отзывает все активные ссылки устройства
+  (`revoked_at`), возвращает `{revoked:N}`.
+- `DELETE /api/v1/shares/{token}` отзывает одну ссылку.
+
+## Метрики нод
+
+`GET /api/v1/nodes` и `POST /api/v1/nodes/{id}/rotate` (admin) отдают
+`NodeView` с полями метрик воркера: `cpu_load`, `mem_used_bytes`,
+`mem_total_bytes`, `kernel_version`, `worker_version`, `uptime_secs`,
+`metrics_at`, а также `token_issued_at`. Метрики приходят в gRPC heartbeat и
+обновляются раз в 20 секунд; старые воркеры их не присылают, поля остаются
+`null`.
+
+`POST /api/v1/nodes/{id}/rotate` выпускает новый токен, старый перестаёт
+работать сразу. Ответ `{"node": NodeView, "token": "…"}` — токен показывается
+один раз.
 
 ## Аудит
 
@@ -823,11 +858,11 @@ share-токен из пути, `ip` — первый адрес `X-Forwarded-Fo
 отключает ограничение. Успешный логин сбрасывает счётчик для пары IP+login.
 При превышении — `429 too_many_requests` и `Retry-After`.
 
-## Биллинг (этап 1)
+## Биллинг (этап 2: checkout и webhook)
 
-Архитектура: `docs/PAYMENTS.md` и `docs/adr/0001-payments-architecture.md`. На
-этапе 1 доступны только каталог планов и чтение подписок/счетов; checkout,
-webhook и списания не реализованы.
+Архитектура: `docs/PAYMENTS.md` и `docs/adr/0001-payments-architecture.md`.
+Доступны каталог планов, чтение подписок/счетов, checkout и идемпотентный
+webhook. Автосписания, dunning и UI биллинга — не реализованы.
 
 Главный флаг — `AWG_BILLING_ENABLED` (по умолчанию `false`). При выключенном
 биллинге все маршруты `/billing/*` отвечают `404` с кодом
@@ -882,4 +917,52 @@ webhook и списания не реализованы.
 }
 ```
 
-Статусы счетов: `draft`, `open`, `paid`, `void`, `uncollectible`.
+Статусы подписок дополнительно включают `incomplete` (checkout создан, но не
+оплачен; доступа не даёт). Статусы счетов: `draft`, `open`, `paid`, `void`,
+`uncollectible`.
+
+### Checkout
+
+`POST /api/v1/billing/checkout` с телом `{"plan_id": "…"}`.
+
+- Создаёт подписку `incomplete` (если её ещё нет) и ровно один открытый счёт на
+  период. Повторный вызов возвращает тот же счёт и тот же `checkout_url`, пока
+  счёт открыт и период не истёк.
+- Ответ: `{"invoice": Invoice, "checkout_url": "…"}`.
+- `409 conflict`: план неактивен, у пользователя уже есть подписка на другой
+  план или действующая подписка.
+- Успешный checkout строит `success_url`/`cancel_url` из `AWG_PUBLIC_URL`.
+
+### Webhook
+
+`POST /api/v1/billing/webhook/{provider}` — публичный маршрут без JWT.
+Провайдер должен совпадать с `AWG_PAYMENT_PROVIDER` (`404` иначе).
+
+- Подпись проверяется шлюзом; неверная подпись или timestamp вне окна — `400`.
+- Дедупликация по `event_id`: повторный webhook возвращает
+  `{"status":"duplicate"}` и не меняет состояние.
+- `payment.succeeded` проверяет `invoice_id`, сумму и валюту, помечает счёт
+  `paid` и активирует подписку; `payment.failed` увеличивает `attempts`.
+- Ответы: `{"status":"processed"|"duplicate"|"ignored","event_id":"…"}`.
+
+### Mock-шлюз (только вне production)
+
+`AWG_PAYMENT_PROVIDER=mock` + `AWG_PAYMENT_SECRET` (>= 32 символов).
+Checkout возвращает `AWG_PUBLIC_URL/pay/mock/{invoice_id}` (страница оплаты не
+реализована — оплата эмулируется webhook'ом). Подпись:
+`hex(HMAC-SHA256(secret, "{timestamp}.{body}"))` в заголовках
+`X-Mock-Timestamp` и `X-Mock-Signature`, окно 300 секунд.
+
+```bash
+BODY='{"event_id":"evt-1","kind":"payment.succeeded","invoice_id":"…","amount_cents":99000,"currency":"RUB"}'
+TS=$(date +%s)
+SIG=$(printf '%s.%s' "$TS" "$BODY" | openssl dgst -sha256 -hmac "$AWG_PAYMENT_SECRET" -binary | od -An -tx1 | tr -d ' \n')
+curl -X POST "$BASE/billing/webhook/mock" -H "X-Mock-Timestamp: $TS" \
+  -H "X-Mock-Signature: $SIG" -H 'content-type: application/json' -d "$BODY"
+```
+
+### Способ оплаты
+
+`GET /api/v1/billing/payment-methods` — сохранённые шлюзом методы пользователя:
+`{id, gateway, brand, last4, masked, is_default, created_at}`. Данные карт не
+хранятся, только ссылка шлюза и маска.

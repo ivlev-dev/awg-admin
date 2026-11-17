@@ -1,5 +1,6 @@
 mod audit;
 mod auth;
+mod backup;
 mod config;
 mod controllers;
 mod directory;
@@ -26,7 +27,9 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use awg_audit::{AuditService, RedbAuditRepository};
 use awg_billing::{
-    BillingService, RedbInvoiceRepository, RedbPlanRepository, RedbSubscriptionRepository,
+    BillingService, MockGateway, NoopGateway, PaymentGateway, RedbInvoiceRepository,
+    RedbPaymentEventRepository, RedbPaymentMethodRepository, RedbPlanRepository,
+    RedbSubscriptionRepository,
 };
 use awg_clients::{
     DeviceService, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
@@ -133,14 +136,27 @@ async fn main() -> Result<()> {
         let plans = Arc::new(RedbPlanRepository::new(store.clone()));
         let subscriptions = Arc::new(RedbSubscriptionRepository::new(store.clone()));
         let invoices = Arc::new(RedbInvoiceRepository::new(store.clone()));
+        let payment_methods = Arc::new(RedbPaymentMethodRepository::new(store.clone()));
+        let payment_events = Arc::new(RedbPaymentEventRepository::new(store.clone()));
         let tariffs = Arc::new(crate::controllers::billing::TariffCatalogAdapter::new(
             tariffs.clone(),
         ));
+        let gateway: Arc<dyn PaymentGateway> = match config.billing.provider {
+            crate::config::PaymentProvider::Mock => Arc::new(MockGateway::from_config(
+                &config.payment_secret,
+                &config.public_url,
+                awg_billing::DEFAULT_MOCK_TOLERANCE_SECS,
+            )?),
+            _ => Arc::new(NoopGateway),
+        };
         Arc::new(BillingService::new(
             plans,
             subscriptions,
             invoices,
+            payment_methods,
+            payment_events,
             tariffs,
+            gateway,
             config.billing.settings(),
         ))
     };
@@ -237,6 +253,17 @@ async fn main() -> Result<()> {
                 }
             }
         }));
+    }
+
+    if !config.backup_dir.trim().is_empty() && config.backup_interval_secs > 0 {
+        let dir = std::path::PathBuf::from(config.backup_dir.trim());
+        background.push(backup::spawn(
+            store.clone(),
+            dir,
+            config.backup_interval_secs,
+            config.backup_keep as usize,
+            shutdown_rx.clone(),
+        ));
     }
 
     let limiter_backend: Arc<dyn RateLimiter> = match config.rate_limit_store {

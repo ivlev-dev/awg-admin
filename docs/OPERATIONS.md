@@ -63,6 +63,33 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 - `Store::restore_from(path)` — восстановление в работающую базу: backup открывается с проверкой целостности, версия должна строго совпадать с текущей (`IncompatibleBackup`/`UnversionedBackup` иначе, база не меняется). Все таблицы удаляются и заново наполняются в одной write-транзакции вместе с версией; записи после backup исчезают. Файл backup должен быть доступен на запись (redb проверяет целостность только при read-write open).
 - `Store::replace_file_from(backup, target)` — офлайн-замена файла: копия backup во временный файл рядом с `target`, проверка целостности и версии, `fsync`, `rename`. Требует остановленного admin: файл БД открыт эксклюзивно.
 
+### Плановая ротация backup
+
+Admin умеет делать горячий снапшот по расписанию через `Store::backup_to` — без
+остановки и без блокировки записи:
+
+| Переменная | По умолчанию | Смысл |
+|---|---|---|
+| `AWG_BACKUP_DIR` | пусто | каталог backup; пусто — планировщик выключен |
+| `AWG_BACKUP_INTERVAL_SECS` | `86400` | интервал, секунды; `0` — выключить |
+| `AWG_BACKUP_KEEP` | `7` | сколько последних файлов хранить (минимум 1) |
+
+Файлы называются `awg-admin-YYYYMMDDTHHMMSSZ.redb`; после каждого снимка старые
+удаляются, остаётся `AWG_BACKUP_KEEP` самых новых. Первый снимок делается сразу
+после старта. В Docker смонтируйте каталог backup отдельным томом, иначе файлы
+будут лежать в контейнере:
+
+```yaml
+volumes:
+  - ./backups:/backups
+# environment:
+#   AWG_BACKUP_DIR: /backups
+```
+
+Снимок проверяется на целостность (как `Store::backup_to`) и пригоден для
+`awg-backup restore`. Планировщик не заменяет внешнюю ротацию: копируйте каталог
+на отдельный носитель.
+
 ### CLI `awg-backup`
 
 Бинарник собирается вместе с admin:
@@ -181,6 +208,17 @@ encoding.codec = "json"
 
 В логах не пишутся приватные ключи устройств/интерфейсов, пароли и JWT-секреты; тела mutating-запросов middleware не читает. HTTP-запросы логируются `TraceLayer`.
 
+### OpenTelemetry
+
+Экспорт трейсов по OTLP/gRPC включается переменной
+`AWG_OTEL_ENDPOINT` (например `http://127.0.0.1:4317`). Пустое значение —
+трейсинг выключен, накладных расходов нет. При включённом экспорте существуют
+спаны HTTP-запросов, gRPC и фоновых задач; `TraceLayer` и `tracing` работают как
+раньше. Ошибка инициализации экспортёра не останавливает сервис: в stderr
+пишется предупреждение, логирование остаётся локальным. Сэмплирование —
+`ParentBased(AlwaysOn)`; для продакшена поднимите OTLP-collector (Tempo,
+Jaeger, OTel Collector) и при необходимости ограничьте `RUST_LOG`.
+
 ## 6. Аудит
 
 `GET /api/v1/audit` доступен только роли `admin`; записи в обратном хронологическом порядке, ответ `{"items":[...],"next_cursor":"..."}`. Фильтры (AND): `limit` (1..500, по умолчанию 100), `before` (курсор `<микросекунды>:<uuid>`), `action` (например `POST`, `DELETE`), `entity` (например `devices`), `actor` (регистронезависимое вхождение), `status` (HTTP-код), `from`/`to` (Unix-секунды, включительно). `from > to` — `400 invalid_filter`.
@@ -250,7 +288,7 @@ cat /var/lib/awg-worker/counters.json | jq .
 - Worker offline: `docker compose ps`, `docker compose logs worker`, `GET /api/v1/nodes` (`online`). Проверить `AWG_NODE_ID`/`AWG_NODE_TOKEN`, `AWG_GRPC_URL`, доступность порта `9090` (не публиковать наружу).
 - Схема новее: сообщение `store schema version N is newer than supported version M`; откатить admin к версии, создавшей БД, или выполнить миграции.
 - Диск: проверить `docker system df`, место под `/data` и `/var/lib/awg-worker`; backup перед очисткой.
-- Сертификат: `verify-tls.sh`, проверить `TRAEFIK_ACME_EMAIL`, том `traefik-letsencrypt`, правила `Host(...)` в compose (сейчас роутеры на `PathPrefix`, ACME не выпустит сертификат без домена).
+- Сертификат: `verify-tls.sh`, проверить `TRAEFIK_ACME_EMAIL`, том `traefik-letsencrypt`, домен задаётся `AWG_DOMAIN` (`Host(...)` в compose есть, HSTS настроен); ACME на реальном домене проверяется на стенде.
 - Rate limit: `awg_rate_limited_total`, параметры `AWG_LOGIN_RATE_LIMIT`, `AWG_REFRESH_RATE_LIMIT` и окна; 0 отключает лимит. Режим хранилища — `AWG_RATE_LIMIT_STORE`: `memory` (по умолчанию, счётчики у каждой реплики свои) или `redb` (общая таблица `rate_limits` в БД, файл открывается в redb `MultiWriter` для нескольких процессов). При нескольких репликах включайте `redb` на всех и давайте им общий `AWG_DB_PATH`; записи старше окна удаляются раз в час и при shutdown.
 
 ## 10. Обновление
@@ -276,4 +314,6 @@ docker run --rm --entrypoint sh awg-admin:latest -c 'id'
 docker run --rm --entrypoint sh awg-worker:latest -c 'ip -V; tc -V; nft --version; modprobe --version'
 cargo test --workspace
 cd frontend && pnpm typecheck && pnpm test && pnpm arch:check && pnpm build
+# нагрузочный тест REST (нужен запущенный admin и wrk)
+AWG_LOADTEST_PASSWORD=... ./scripts/loadtest-rest.sh
 ```

@@ -180,8 +180,8 @@ static_checks() {
     fail "редирект web -> websecure не настроен"
   fi
 
-  if grep -q 'certificatesResolvers:' "$traefik" && grep -q 'letsencrypt:' "$traefik" && grep -q 'httpChallenge:' "$traefik"; then
-    ok "ACME: резолвер letsencrypt с HTTP-01"
+  if grep -q 'certificatesResolvers:' "$traefik" && grep -q 'letsencrypt:' "$traefik" && grep -q 'tlsChallenge:' "$traefik"; then
+    ok "ACME: резолвер letsencrypt с TLS-ALPN-01"
   else
     fail "ACME: резолвер letsencrypt не настроен"
   fi
@@ -202,10 +202,10 @@ static_checks() {
   else
     fail "compose не публикует 443/udp (HTTP/3 не заработает)"
   fi
-  if grep -q '"80:80"' "$compose"; then
-    ok "compose публикует 80/tcp (ACME HTTP-01 и редирект)"
+  if grep -q 'address: ":80"' "$traefik"; then
+    ok "traefik: entrypoint web слушает :80 (редирект для локальной проверки)"
   else
-    fail "compose не публикует 80/tcp"
+    fail "traefik: entrypoint web не слушает :80"
   fi
 
   if grep -qi 'certresolver=letsencrypt' "$compose"; then

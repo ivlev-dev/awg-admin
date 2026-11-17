@@ -41,6 +41,7 @@ impl Environment {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PaymentProvider {
     Noop,
+    Mock,
     Stripe,
     Yookassa,
     Cloudpayments,
@@ -51,12 +52,13 @@ impl PaymentProvider {
     pub fn parse(raw: &str) -> Result<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "" | "noop" => Ok(Self::Noop),
+            "mock" => Ok(Self::Mock),
             "stripe" => Ok(Self::Stripe),
             "yookassa" => Ok(Self::Yookassa),
             "cloudpayments" => Ok(Self::Cloudpayments),
             "telegram_stars" => Ok(Self::TelegramStars),
             other => bail!(
-                "AWG_PAYMENT_PROVIDER must be noop, stripe, yookassa, cloudpayments or telegram_stars, got {other:?}"
+                "AWG_PAYMENT_PROVIDER must be noop, mock, stripe, yookassa, cloudpayments or telegram_stars, got {other:?}"
             ),
         }
     }
@@ -64,6 +66,7 @@ impl PaymentProvider {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Noop => "noop",
+            Self::Mock => "mock",
             Self::Stripe => "stripe",
             Self::Yookassa => "yookassa",
             Self::Cloudpayments => "cloudpayments",
@@ -74,6 +77,10 @@ impl PaymentProvider {
     pub fn is_noop(self) -> bool {
         matches!(self, Self::Noop)
     }
+
+    pub fn is_mock(self) -> bool {
+        matches!(self, Self::Mock)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -82,14 +89,12 @@ pub struct BillingConfig {
     pub currency: String,
     pub trial_days: u32,
     pub provider: PaymentProvider,
+    pub public_url: String,
 }
 
 impl BillingConfig {
     pub fn settings(&self) -> awg_billing::BillingSettings {
-        awg_billing::BillingSettings {
-            currency: self.currency.clone(),
-            trial_days: self.trial_days,
-        }
+        awg_billing::BillingSettings::new(self.currency.clone(), self.trial_days, &self.public_url)
     }
 }
 
@@ -182,6 +187,10 @@ pub struct ConfigInput {
     pub billing_currency: String,
     pub billing_trial_days: String,
     pub payment_provider: String,
+    pub payment_secret: String,
+    pub backup_dir: String,
+    pub backup_interval_secs: u64,
+    pub backup_keep: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +228,10 @@ pub struct Config {
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
     pub metrics_token: Option<String>,
+    pub payment_secret: String,
+    pub backup_dir: String,
+    pub backup_interval_secs: u64,
+    pub backup_keep: u64,
     pub billing: BillingConfig,
 }
 
@@ -331,6 +344,17 @@ impl Config {
                 "AWG_PAYMENT_PROVIDER must not be noop in production when AWG_BILLING_ENABLED=true"
             );
         }
+        let payment_secret = input.payment_secret.trim().to_string();
+        if payment_provider.is_mock() {
+            if production {
+                bail!("AWG_PAYMENT_PROVIDER=mock is not allowed in production");
+            }
+            if payment_secret.len() < 32 {
+                bail!(
+                    "AWG_PAYMENT_SECRET must be at least 32 characters when AWG_PAYMENT_PROVIDER=mock"
+                );
+            }
+        }
 
         Ok(Self {
             environment: input.environment,
@@ -348,7 +372,7 @@ impl Config {
             dns,
             cors_origins,
             share_ttl_secs: input.share_ttl_secs,
-            public_url: input.public_url,
+            public_url: input.public_url.clone(),
             rate_limit_store,
             login_rate_limit: input.login_rate_limit,
             login_rate_window_secs: input.login_rate_window_secs.max(1),
@@ -366,11 +390,16 @@ impl Config {
             smtp_url,
             smtp_from,
             metrics_token,
+            payment_secret,
+            backup_dir: input.backup_dir,
+            backup_interval_secs: input.backup_interval_secs,
+            backup_keep: input.backup_keep.max(1),
             billing: BillingConfig {
                 enabled: billing_enabled,
                 currency: billing_currency,
                 trial_days: billing_trial_days,
                 provider: payment_provider,
+                public_url: input.public_url,
             },
         })
     }
@@ -481,6 +510,10 @@ fn input_from_env() -> Result<ConfigInput> {
         billing_currency: env("AWG_BILLING_CURRENCY", "RUB"),
         billing_trial_days: env("AWG_BILLING_TRIAL_DAYS", "0"),
         payment_provider: env("AWG_PAYMENT_PROVIDER", "noop"),
+        payment_secret: env("AWG_PAYMENT_SECRET", ""),
+        backup_dir: env("AWG_BACKUP_DIR", ""),
+        backup_interval_secs: env_u64("AWG_BACKUP_INTERVAL_SECS", 86_400),
+        backup_keep: env_u64("AWG_BACKUP_KEEP", 7),
     })
 }
 
@@ -555,6 +588,10 @@ mod tests {
             billing_currency: "RUB".into(),
             billing_trial_days: "0".into(),
             payment_provider: "noop".into(),
+            payment_secret: String::new(),
+            backup_dir: String::new(),
+            backup_interval_secs: 0,
+            backup_keep: 7,
         }
     }
 
