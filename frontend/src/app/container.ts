@@ -13,6 +13,7 @@ import { DefaultStatsService } from "@/application/stats/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import { Router } from "@/app/router";
+import { rootContainer } from "@/app/root-container";
 import { Session } from "@/app/session";
 import { ThemeStore } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
@@ -22,9 +23,10 @@ import { LocalTokenStore } from "@/infrastructure/storage";
 import { t } from "@/i18n";
 import { createAppServices } from "./di";
 
-const router = new Router();
-const theme = new ThemeStore();
 const toasts = new ToastStore();
+const router = new Router({ container: rootContainer });
+export const appRouter = router;
+const theme = new ThemeStore();
 const services = createAppServices({
   onNetworkError: () => toasts.error(t("app.error.network")),
 });

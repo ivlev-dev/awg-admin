@@ -135,78 +135,86 @@ export function AuditPage(this: { vm: AuditPageVM }) {
             when={!this.vm.loading && this.vm.initialized}
             fallback={<SkeletonTable rows={6} columns={7} />}
           >
-            <div class={this.vm.isEmpty ? "empty" : "hidden"}>
-              <div class="empty__title">{t("audit.empty.title")}</div>
-              <div class="small">{t("audit.empty.text")}</div>
-              <div class={this.vm.hasActiveFilters ? "" : "hidden"} style="margin-top:14px">
-                <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
-                  <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                </button>
-              </div>
-            </div>
-            <div class={`table-wrap table-wrap--cards${this.vm.isEmpty ? " hidden" : ""}`}>
-                <table class="table table--cards table--audit">
-                  <thead>
-                    <tr>
-                      <th>{t("audit.column.time")}</th>
-                      <th>{t("audit.column.actor")}</th>
-                      <th>{t("audit.column.action")}</th>
-                      <th>{t("audit.column.entity")}</th>
-                      <th>{t("audit.column.status")}</th>
-                      <th>{t("audit.column.ip")}</th>
-                      <th>{t("audit.column.details")}</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={this.vm.rows}>
-                      {(row) => (
-                        <tr>
-                          <td data-label={t("audit.column.time")}>
-                            <span class="small nowrap mono">{row.at}</span>
-                          </td>
-                          <td data-label={t("audit.column.actor")}>
-                            <span class="strong cell-entity" title={row.actorId ?? undefined}>{row.actor}</span>
-                          </td>
-                          <td data-label={t("audit.column.action")}>
-                            <span class="mono small">{row.action}</span>
-                          </td>
-                          <td data-label={t("audit.column.entity")}>
-                            <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
-                          </td>
-                          <td data-label={t("audit.column.status")}>
-                            <span class={`badge ${row.statusClass}`}>{row.status}</span>
-                          </td>
-                          <td data-label="IP">
-                            <span class="small mono">{row.ip}</span>
-                          </td>
-                          <td class="cell-details" data-label={t("audit.column.details")}>
-                            <Show
-                              when={row.hasDetails}
-                              fallback={<span class="small muted">{row.detailsPreview}</span>}
-                            >
-                              <button
-                                class="audit-details"
-                                type="button"
-                                aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                title={row.details ?? undefined}
-                                onClick={() => this.vm.toggleDetails(row.id)}
+            <Show
+              when={this.vm.isEmpty}
+              fallback={
+                <div class="table-wrap table-wrap--cards">
+                  <table class="table table--cards table--audit">
+                    <thead>
+                      <tr>
+                        <th>{t("audit.column.time")}</th>
+                        <th>{t("audit.column.actor")}</th>
+                        <th>{t("audit.column.action")}</th>
+                        <th>{t("audit.column.entity")}</th>
+                        <th>{t("audit.column.status")}</th>
+                        <th>{t("audit.column.ip")}</th>
+                        <th>{t("audit.column.details")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={this.vm.rows}>
+                        {(row) => (
+                          <tr>
+                            <td data-label={t("audit.column.time")}>
+                              <span class="small nowrap mono">{row.at}</span>
+                            </td>
+                            <td data-label={t("audit.column.actor")}>
+                              <span class="strong cell-entity" title={row.actorId ?? undefined}>{row.actor}</span>
+                            </td>
+                            <td data-label={t("audit.column.action")}>
+                              <span class="mono small">{row.action}</span>
+                            </td>
+                            <td data-label={t("audit.column.entity")}>
+                              <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
+                            </td>
+                            <td data-label={t("audit.column.status")}>
+                              <span class={`badge ${row.statusClass}`}>{row.status}</span>
+                            </td>
+                            <td data-label="IP">
+                              <span class="small mono">{row.ip}</span>
+                            </td>
+                            <td class="cell-details" data-label={t("audit.column.details")}>
+                              <Show
+                                when={row.hasDetails}
+                                fallback={<span class="small muted">{row.detailsPreview}</span>}
                               >
-                                <span
-                                  class={`audit-details__text ${
-                                    this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                  }`}
+                                <button
+                                  class="audit-details"
+                                  type="button"
+                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
+                                  title={row.details ?? undefined}
+                                  onClick={() => this.vm.toggleDetails(row.id)}
                                 >
-                                  {row.details ?? row.detailsPreview}
-                                </span>
-                              </button>
-                            </Show>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
+                                  <span
+                                    class={`audit-details__text ${
+                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
+                                    }`}
+                                  >
+                                    {row.details ?? row.detailsPreview}
+                                  </span>
+                                </button>
+                              </Show>
+                            </td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+                </div>
+              }
+            >
+              <div class="empty">
+                <div class="empty__title">{t("audit.empty.title")}</div>
+                <div class="small">{t("audit.empty.text")}</div>
+                <Show when={this.vm.hasActiveFilters}>
+                  <div style="margin-top:14px">
+                    <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
+                      <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                    </button>
+                  </div>
+                </Show>
               </div>
+            </Show>
           </Show>
 
           <Show when={this.vm.hasMore && !this.vm.loading}>

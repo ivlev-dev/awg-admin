@@ -1,8 +1,7 @@
-import { For, Show, Suspense, createSignal, lazy } from "@ivlev-dev/silent-core";
-import type { LazyOptions } from "@ivlev-dev/silent-core";
+import { For, Show } from "@ivlev-dev/silent-core";
+import { RouterView } from "@ivlev-dev/silent-router";
 
 import type { AppVM } from "./App.vm";
-import { loadPage } from "./page-loaders";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/Icon";
@@ -12,46 +11,10 @@ import { MAIN_CONTENT_ID, SkipLink } from "@/components/SkipLink";
 import { ToastStack } from "@/components/ToastStack";
 import { t } from "@/i18n";
 
-interface PageFailure {
-  readonly route: string;
-  readonly message: string;
-}
-
-const [pageFailure, setPageFailure] = createSignal<PageFailure | null>(null);
-
 function failureMessage(error: unknown): string {
   if (error instanceof Error && error.message.length > 0) return error.message;
   return t("app.error.unknown");
 }
-
-function pageOptions(route: string): LazyOptions {
-  return {
-    onError: (error: unknown): void => {
-      console.error(`Не удалось загрузить раздел ${route}`, error);
-      setPageFailure({ route, message: failureMessage(error) });
-    },
-  };
-}
-
-const Login = lazy(() => loadPage("login"), pageOptions("login"));
-const Register = lazy(() => loadPage("register"), pageOptions("register"));
-const VerifyEmail = lazy(() => loadPage("verify-email"), pageOptions("verify-email"));
-const ForgotPassword = lazy(() => loadPage("forgot-password"), pageOptions("forgot-password"));
-const ResetPassword = lazy(() => loadPage("reset-password"), pageOptions("reset-password"));
-const Overview = lazy(() => loadPage("overview"), pageOptions("overview"));
-const ClientsPage = lazy(() => loadPage("clients"), pageOptions("clients"));
-const ClientDetails = lazy(() => loadPage("client"), pageOptions("client"));
-const GroupsPage = lazy(() => loadPage("groups"), pageOptions("groups"));
-const GroupDetails = lazy(() => loadPage("group"), pageOptions("group"));
-const InterfacesPage = lazy(() => loadPage("interfaces"), pageOptions("interfaces"));
-const NodesPage = lazy(() => loadPage("nodes"), pageOptions("nodes"));
-const TariffsPage = lazy(() => loadPage("tariffs"), pageOptions("tariffs"));
-const UsersPage = lazy(() => loadPage("users"), pageOptions("users"));
-const AuditPage = lazy(() => loadPage("audit"), pageOptions("audit"));
-const ImportPage = lazy(() => loadPage("import"), pageOptions("import"));
-const StatsPage = lazy(() => loadPage("stats"), pageOptions("stats"));
-const ProfilePage = lazy(() => loadPage("profile"), pageOptions("profile"));
-const SettingsPage = lazy(() => loadPage("settings"), pageOptions("settings"));
 
 function PageFallback() {
   return (
@@ -62,32 +25,27 @@ function PageFallback() {
   );
 }
 
-function PageSlot(props: { readonly children?: unknown; readonly main?: boolean }) {
-  if (props.main) {
-    return (
-      <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>
-        <Suspense fallback={<PageFallback />}>{props.children}</Suspense>
-      </main>
-    );
-  }
-  return (
-    <div class="page-slot">
-      <Suspense fallback={<PageFallback />}>{props.children}</Suspense>
-    </div>
-  );
-}
-
-function PageFailureNotice(props: { readonly title: string }) {
+function PageFailureNotice(props: { readonly title: string; readonly message: string }) {
   return (
     <div class="stack">
       <div class="alert alert--error">{t("app.error.section", { title: props.title })}</div>
-      <div class="xs muted">{pageFailure()?.message}</div>
+      <div class="xs muted">{props.message}</div>
       <div>
         <button class="btn btn--sm" type="button" onClick={() => window.location.reload()}>
           {t("app.action.reload")}
         </button>
       </div>
     </div>
+  );
+}
+
+function pageView(vm: AppVM) {
+  return (
+    <RouterView
+      fallback={<PageFallback />}
+      notFound={() => <NotFound path={vm.path} onHome={() => vm.go("/")} />}
+      error={(error: unknown) => <PageFailureNotice title={vm.title} message={failureMessage(error)} />}
+    />
   );
 }
 
@@ -162,86 +120,6 @@ function sidebar(vm: AppVM) {
   );
 }
 
-function page(vm: AppVM) {
-  return (
-    <>
-      <Show when={vm.routeName === "overview"}>
-        <PageSlot>
-          <Overview />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "nodes"}>
-        <PageSlot>
-          <NodesPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "interfaces"}>
-        <PageSlot>
-          <InterfacesPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "groups"}>
-        <PageSlot>
-          <GroupsPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "group"}>
-        <PageSlot>
-          <GroupDetails />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "clients"}>
-        <PageSlot>
-          <ClientsPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "client"}>
-        <PageSlot>
-          <ClientDetails />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "tariffs"}>
-        <PageSlot>
-          <TariffsPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "users"}>
-        <PageSlot>
-          <UsersPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "audit"}>
-        <PageSlot>
-          <AuditPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "import"}>
-        <PageSlot>
-          <ImportPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "stats"}>
-        <PageSlot>
-          <StatsPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "profile"}>
-        <PageSlot>
-          <ProfilePage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "settings"}>
-        <PageSlot>
-          <SettingsPage />
-        </PageSlot>
-      </Show>
-      <Show when={vm.routeName === "not-found"}>
-        <NotFound path={vm.path} onHome={() => vm.go("/")} />
-      </Show>
-    </>
-  );
-}
-
 function shell(vm: AppVM) {
   return (
     <div class="shell">
@@ -261,7 +139,7 @@ function shell(vm: AppVM) {
             <div class="avatar avatar--sm">{vm.userInitial}</div>
           </button>
         </header>
-        <main class="content" id={MAIN_CONTENT_ID} tabindex={-1}>{content(vm)}</main>
+        <main class="content" id={MAIN_CONTENT_ID} tabindex={-1}>{pageView(vm)}</main>
       </div>
       <nav class="mobile-nav" aria-label={t("shell.menu")}>
         <For each={vm.mobileNav}>
@@ -351,14 +229,6 @@ function shell(vm: AppVM) {
   );
 }
 
-function content(vm: AppVM) {
-  return (
-    <Show when={pageFailure()?.route === vm.routeName} fallback={page(vm)}>
-      <PageFailureNotice title={vm.title} />
-    </Show>
-  );
-}
-
 export function App(this: { vm: AppVM }) {
   return (
     <>
@@ -374,40 +244,8 @@ export function App(this: { vm: AppVM }) {
         </div>
       </Show>
 
-      <Show when={!this.vm.booting && this.vm.routeName === "login"}>
-        <PageSlot main>
-          <Login />
-        </PageSlot>
-      </Show>
-
-      <Show when={!this.vm.booting && this.vm.routeName === "register"}>
-        <PageSlot main>
-          <Register />
-        </PageSlot>
-      </Show>
-
-      <Show when={!this.vm.booting && this.vm.routeName === "verify-email"}>
-        <PageSlot main>
-          <VerifyEmail />
-        </PageSlot>
-      </Show>
-
-      <Show when={!this.vm.booting && this.vm.routeName === "forgot-password"}>
-        <PageSlot main>
-          <ForgotPassword />
-        </PageSlot>
-      </Show>
-
-      <Show when={!this.vm.booting && this.vm.routeName === "reset-password"}>
-        <PageSlot main>
-          <ResetPassword />
-        </PageSlot>
-      </Show>
-
-      <Show when={!this.vm.booting && this.vm.routeName === "not-found" && !this.vm.showShell}>
-        <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>
-          <NotFound path={this.vm.path} onHome={() => this.vm.go("/")} standalone />
-        </main>
+      <Show when={this.vm.showPublic}>
+        <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>{pageView(this.vm)}</main>
       </Show>
 
       <Show when={this.vm.showShell}>

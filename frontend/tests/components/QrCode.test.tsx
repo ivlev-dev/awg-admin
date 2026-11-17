@@ -34,6 +34,12 @@ function visible<T extends Element>(selector: string): T | null {
   return document.querySelector<T>(`${selector}:not(.hidden)`);
 }
 
+async function waitForSvg(): Promise<void> {
+  await vi.waitFor(() => {
+    expect(visible(".qr-code__svg")).not.toBeNull();
+  });
+}
+
 describe("QrCode", () => {
   afterEach(() => {
     document.body.replaceChildren();
@@ -42,9 +48,7 @@ describe("QrCode", () => {
   it("рендерит svg с aria-label и crispEdges", async () => {
     const mounted = mountQr("vpn://share", { label: "QR-код для ссылки", size: 200 });
     await mounted.result.ready;
-    await vi.waitFor(() => {
-      expect(visible(".qr-code__svg")).not.toBeNull();
-    });
+    await waitForSvg();
 
     const svg = visible<SVGSVGElement>(".qr-code__svg");
     if (svg === null) throw new Error("svg not rendered");
@@ -56,14 +60,72 @@ describe("QrCode", () => {
     expect(svg.getAttribute("viewBox")).toMatch(/^0 0 \d+ \d+$/);
     expect(svg.querySelector("rect")?.getAttribute("fill")).toBe("#ffffff");
     expect(svg.querySelector("path")?.getAttribute("d")?.length).toBeGreaterThan(0);
+    expect(visible('[role="status"]')).toBeNull();
+    mounted.dispose();
+  });
+
+  it("показывает спиннер во время асинхронной загрузки и не оставляет пустой экран", async () => {
+    const mounted = mountQr("vpn://share", { loadingLabel: "Считаем QR-код" });
+    await mounted.result.ready;
+    await waitForSvg();
+    expect(document.querySelector(".qr-code")?.children.length).toBeGreaterThan(0);
+
+    mounted.setValue("vpn://another");
+
+    const placeholder = visible<HTMLElement>('[role="status"]');
+    expect(placeholder).not.toBeNull();
+    expect(placeholder?.getAttribute("aria-label")).toBe("Считаем QR-код");
+    expect(placeholder?.querySelector(".spinner")).not.toBeNull();
+    expect(visible(".qr-code__svg")).toBeNull();
+
+    await waitForSvg();
+    expect(visible('[role="status"]')).toBeNull();
+    mounted.dispose();
+  });
+
+  it("переходит idle → loading → ready → error", async () => {
+    const mounted = mountQr("vpn://share", { errorLabel: "Нет данных" });
+    await mounted.result.ready;
+
+    expect(document.querySelectorAll(".qr-code")).toHaveLength(1);
+    expect(visible('[role="status"]') ?? visible(".qr-code__svg")).not.toBeNull();
+    await waitForSvg();
+
+    mounted.setValue("vpn://another");
+    expect(visible('[role="status"]')).not.toBeNull();
+    expect(visible(".qr-code__svg")).toBeNull();
+    await waitForSvg();
+
+    mounted.setValue("   ");
+    await vi.waitFor(() => {
+      expect(visible(".qr-code__error")?.textContent).toBe("Нет данных");
+    });
+    expect(visible(".qr-code__error")?.getAttribute("role")).toBe("alert");
+    expect(visible(".qr-code__svg")).toBeNull();
+    expect(visible('[role="status"]')).toBeNull();
     mounted.dispose();
   });
 
   it("ограничивает длину значения", async () => {
     const mounted = mountQr("x".repeat(1901), { limitLabel: "Слишком длинная ссылка" });
     await mounted.result.ready;
-    flushSync();
-    expect(visible(".qr-code__error")?.textContent).toBe("Слишком длинная ссылка");
+    await vi.waitFor(() => {
+      expect(visible(".qr-code__error")?.textContent).toBe("Слишком длинная ссылка");
+    });
+    expect(visible(".qr-code__svg")).toBeNull();
+    expect(visible('[role="status"]')).toBeNull();
+    mounted.dispose();
+  });
+
+  it("переходит из готового состояния в limit", async () => {
+    const mounted = mountQr("vpn://share", { limitLabel: "Лимит превышен" });
+    await mounted.result.ready;
+    await waitForSvg();
+
+    mounted.setValue("y".repeat(1901));
+    await vi.waitFor(() => {
+      expect(visible(".qr-code__error")?.textContent).toBe("Лимит превышен");
+    });
     expect(visible(".qr-code__svg")).toBeNull();
     mounted.dispose();
   });
@@ -71,8 +133,9 @@ describe("QrCode", () => {
   it("показывает ошибку для пустого значения", async () => {
     const mounted = mountQr("  ", { errorLabel: "Нет данных" });
     await mounted.result.ready;
-    flushSync();
-    expect(visible(".qr-code__error")?.textContent).toBe("Нет данных");
+    await vi.waitFor(() => {
+      expect(visible(".qr-code__error")?.textContent).toBe("Нет данных");
+    });
     expect(visible(".qr-code__svg")).toBeNull();
     mounted.dispose();
   });

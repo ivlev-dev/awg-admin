@@ -1,4 +1,4 @@
-import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, createEffect, reactive } from "@ivlev-dev/silent-core";
 
 import {
   QR_MARGIN_MODULES,
@@ -29,14 +29,10 @@ export class QrCodeVm extends ViewModel<QrCodeProps> {
 
   override mounted(): void {
     this.lastValue = this.props.value;
+    createEffect(() => {
+      this.onValueChange(this.props.value);
+    });
     void this.generate(this.props.value);
-  }
-
-  @watch((vm: QrCodeVm) => vm.props?.value ?? "")
-  onValueChange(value: string): void {
-    if (value === this.lastValue) return;
-    this.lastValue = value;
-    void this.generate(value);
   }
 
   @computed
@@ -99,6 +95,12 @@ export class QrCodeVm extends ViewModel<QrCodeProps> {
 
   async regenerate(): Promise<void> {
     await this.generate(this.props.value);
+  }
+
+  private onValueChange(value: string): void {
+    if (value === this.lastValue) return;
+    this.lastValue = value;
+    void this.generate(value);
   }
 
   private async generate(value: string): Promise<void> {

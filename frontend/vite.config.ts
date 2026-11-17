@@ -35,7 +35,7 @@ function resolveSourcemap(raw: string | undefined): SourcemapMode {
 const sourcemap = resolveSourcemap(process.env.VITE_SOURCEMAP);
 
 export default defineConfig({
-  plugins: [silent()],
+  plugins: [silent({ di: "error" })],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

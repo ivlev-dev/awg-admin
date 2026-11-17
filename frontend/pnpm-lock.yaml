@@ -9,27 +9,27 @@ importers:
   .:
     dependencies:
       '@ivlev-dev/silent':
-        specifier: 0.11.15
-        version: 0.11.15(vite@8.3.8(@types/node@26.6.6))
+        specifier: 0.11.17
+        version: 0.11.17(vite@8.3.8(@types/node@26.6.6))
       '@ivlev-dev/silent-core':
-        specifier: 0.11.15
-        version: 0.11.15
+        specifier: 0.11.17
+        version: 0.11.17(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17)
       '@ivlev-dev/silent-di':
-        specifier: 0.11.15
-        version: 0.11.15
+        specifier: 0.11.17
+        version: 0.11.17
       '@ivlev-dev/silent-reactivity':
-        specifier: 0.11.15
-        version: 0.11.15
+        specifier: 0.11.17
+        version: 0.11.17
       '@ivlev-dev/silent-router':
-        specifier: 0.11.15
-        version: 0.11.15
+        specifier: 0.11.17
+        version: 0.11.17(@ivlev-dev/silent-core@0.11.17(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17))(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17)
       qrcode-generator:
         specifier: ^2.0.4
         version: 2.0.4
     devDependencies:
       '@ivlev-dev/silent-vite':
-        specifier: 0.11.15
-        version: 0.11.15(vite@8.3.8(@types/node@26.6.6))
+        specifier: 0.11.17
+        version: 0.11.17(@ivlev-dev/silent-swc@0.11.15)(vite@8.3.8(@types/node@26.6.6))
       '@playwright/test':
         specifier: 1.65.0
         version: 1.65.0
@@ -63,34 +63,72 @@ packages:
   '@emnapi/wasi-threads@2.2.0':
     resolution: {integrity: sha512-JP7OYH38Q7+pyTAe14raZHLQIK7BDKbdwji+Xi3pcd/6QkJYQH3SX4wu6EplGrGJWRepoNzedfm0G3B9Z4e9Rw==}
 
-  '@ivlev-dev/silent-core@0.11.15':
-    resolution: {integrity: sha512-f6ftd+MktHnnDngxF6ObfO+hB4Zb361P2HkC4LLytYaQ1rTXrdWaR9W5c6Sf1nj5+6St4ePnIF1KTzJw9vA4vg==}
+  '@ivlev-dev/silent-core@0.11.16':
+    resolution: {integrity: sha512-XB/TUyXLKdjO1BZcoSdIn/d1EojP3+buZyCGoB6kNfZNnE1KzpMxoImxgga/fdBdBYH2MdLG9sIj+OpotuQbZQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@ivlev-dev/silent-di': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-reactivity': '>=0.11.0 <0.12.0'
+
+  '@ivlev-dev/silent-core@0.11.17':
+    resolution: {integrity: sha512-+pZW+FEPgiaSbMzfCc+DRJFJ9/efbQlM4joSL2KWg3vpeVvi15Od1O9YH+b1tnKbCOE0kHZkf1XuQXsilSPVcw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@ivlev-dev/silent-di': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-reactivity': '>=0.11.0 <0.12.0'
+
+  '@ivlev-dev/silent-di@0.11.16':
+    resolution: {integrity: sha512-L8pOpnfjnGPMuSt0VFn3T5yyEIGB5voPBeMgO/PEPVnb2udlFRVN33luL4dY/1SPNc1iwTD9h4x++AuD61fXkQ==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-di@0.11.15':
-    resolution: {integrity: sha512-eVhxIJmT3rdqtfIIRo9MqcNNOVUj6FihmMYcLjgT8XzW33YNTtvJ9eLX1QL/YMTuytwEsmqK+JItdhEqb85M+Q==}
+  '@ivlev-dev/silent-di@0.11.17':
+    resolution: {integrity: sha512-zxEc+fvZd9iAWHm9As3K/+t087FuvK/guPXbNeWz/eVuu3xOIfjdJl6fwjzhkbZyqApWgxIxxYtu0oQKBRKnPA==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-reactivity@0.11.15':
-    resolution: {integrity: sha512-0/GtFz2FzX2dz0gja0JT08HNgAdCsQkFsUhcdWlKipmbMmpA2DkAy2XRNmowO1BoCeROmbAKNGNWcBAzblwOnw==}
+  '@ivlev-dev/silent-reactivity@0.11.16':
+    resolution: {integrity: sha512-qw9wrnIQqmBitjITxGBYUyJyXuSJvUysalIGtbjcYz5dX0TwVENGKebZgDPwesyoVF+X+mRZ+mmeU8sxiuxGpg==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-router@0.11.15':
-    resolution: {integrity: sha512-eWzuqGKOO3t04MVhZDc+V1x09BAWtZ6ZVTvh5iYDCWxKKdef0o8gPqWmjXWY31jCpBmdHI7Y2fqqhH1SCW3USQ==}
+  '@ivlev-dev/silent-reactivity@0.11.17':
+    resolution: {integrity: sha512-Rs90fWKqWmeRtW5mU4tPT8e3MOeqFmoimRhcyz497I+c85CpbuwdpoM23Q83qvezZPd2MbcrZuO3M2fkqyNB7g==}
     engines: {node: '>=22'}
+
+  '@ivlev-dev/silent-router@0.11.16':
+    resolution: {integrity: sha512-TnP3r61IzhNiXMhQun06T5aTFQ+WuFNYDSGHh32NXY9nattrsXeTcm/Ts704Y2kvodhEwXxwWVP3JfGi7NxgLQ==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@ivlev-dev/silent-core': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-di': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-reactivity': '>=0.11.0 <0.12.0'
+
+  '@ivlev-dev/silent-router@0.11.17':
+    resolution: {integrity: sha512-Cu2j8w75tznipYJ2ukXhI8qlFXb3e2au3ZTJ8N423uCEkf/euxvxQSc2sjtKFIRbZsOUQZENXK7hwYeYy2PjPg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@ivlev-dev/silent-core': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-di': '>=0.11.0 <0.12.0'
+      '@ivlev-dev/silent-reactivity': '>=0.11.0 <0.12.0'
 
   '@ivlev-dev/silent-swc@0.11.15':
     resolution: {integrity: sha512-nNQyKNThasokAJnhZEVciTvKhtOiAk5C2dD7Y6ptodY9Ob7bIJHju8atbVXTogeyo7hvUXyPR1rd5finRLsLAg==}
     engines: {node: '>=22'}
 
-  '@ivlev-dev/silent-vite@0.11.15':
-    resolution: {integrity: sha512-Xv703Zo0tfTy1C72iB3VK1QYkMJW/HI49IGsc3ATn3YU7EW3iZL/4oUMXMa37LjU2Xz/NRyI0cA+0QQoRaQciA==}
+  '@ivlev-dev/silent-vite@0.11.16':
+    resolution: {integrity: sha512-No/SX2c/ozZmGmOtfJpW3tYpqenxeH8dcQKPkTAGe9o41GSYIYZi8IQJ4VgoryrXmMtOOsQK2GkXu/GHQZGkqA==}
     engines: {node: '>=22'}
     peerDependencies:
+      '@ivlev-dev/silent-swc': '>=0.11.0 <0.12.0'
       vite: '>=8'
 
-  '@ivlev-dev/silent@0.11.15':
-    resolution: {integrity: sha512-3yT2kXYmDLvBKkg6JxxXeumnRVi+Ug2bPrG+EU9wkmdqhzQ3h/MftgkRCQC/K4rJ0OCkpmLe5O59PajflsaBvA==}
+  '@ivlev-dev/silent-vite@0.11.17':
+    resolution: {integrity: sha512-kRKRwwn7n4EJhZdvOwLMBczln9pYkDBobFxvt1YoeJMLV2EVlHlfwdOX+lHklV9FHxArgGOp7SzoxNmviNfBHg==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      '@ivlev-dev/silent-swc': '>=0.11.0 <0.12.0'
+      vite: '>=8'
+
+  '@ivlev-dev/silent@0.11.17':
+    resolution: {integrity: sha512-X8dtcZUauCzgm6Ra4nvYESEs/T+iHarintSpCiidAixopKSFyzMu3nrLdS/mOF8GarrHjsT0P6Q6RxPJwP5zRg==}
     engines: {node: '>=22'}
     peerDependencies:
       vite: '>=8'
@@ -981,34 +1019,56 @@ snapshots:
       tslib: 2.9.1
     optional: true
 
-  '@ivlev-dev/silent-core@0.11.15':
+  '@ivlev-dev/silent-core@0.11.16(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16)':
     dependencies:
-      '@ivlev-dev/silent-di': 0.11.15
-      '@ivlev-dev/silent-reactivity': 0.11.15
+      '@ivlev-dev/silent-di': 0.11.16
+      '@ivlev-dev/silent-reactivity': 0.11.16
 
-  '@ivlev-dev/silent-di@0.11.15': {}
-
-  '@ivlev-dev/silent-reactivity@0.11.15': {}
-
-  '@ivlev-dev/silent-router@0.11.15':
+  '@ivlev-dev/silent-core@0.11.17(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17)':
     dependencies:
-      '@ivlev-dev/silent-core': 0.11.15
-      '@ivlev-dev/silent-di': 0.11.15
-      '@ivlev-dev/silent-reactivity': 0.11.15
+      '@ivlev-dev/silent-di': 0.11.17
+      '@ivlev-dev/silent-reactivity': 0.11.17
+
+  '@ivlev-dev/silent-di@0.11.16': {}
+
+  '@ivlev-dev/silent-di@0.11.17': {}
+
+  '@ivlev-dev/silent-reactivity@0.11.16': {}
+
+  '@ivlev-dev/silent-reactivity@0.11.17': {}
+
+  '@ivlev-dev/silent-router@0.11.16(@ivlev-dev/silent-core@0.11.16(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16))(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16)':
+    dependencies:
+      '@ivlev-dev/silent-core': 0.11.16(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16)
+      '@ivlev-dev/silent-di': 0.11.16
+      '@ivlev-dev/silent-reactivity': 0.11.16
+
+  '@ivlev-dev/silent-router@0.11.17(@ivlev-dev/silent-core@0.11.17(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17))(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17)':
+    dependencies:
+      '@ivlev-dev/silent-core': 0.11.17(@ivlev-dev/silent-di@0.11.17)(@ivlev-dev/silent-reactivity@0.11.17)
+      '@ivlev-dev/silent-di': 0.11.17
+      '@ivlev-dev/silent-reactivity': 0.11.17
 
   '@ivlev-dev/silent-swc@0.11.15': {}
 
-  '@ivlev-dev/silent-vite@0.11.15(vite@8.3.8(@types/node@26.6.6))':
+  '@ivlev-dev/silent-vite@0.11.16(@ivlev-dev/silent-swc@0.11.15)(vite@8.3.8(@types/node@26.6.6))':
     dependencies:
       '@ivlev-dev/silent-swc': 0.11.15
       vite: 8.3.8(@types/node@26.6.6)
 
-  '@ivlev-dev/silent@0.11.15(vite@8.3.8(@types/node@26.6.6))':
+  '@ivlev-dev/silent-vite@0.11.17(@ivlev-dev/silent-swc@0.11.15)(vite@8.3.8(@types/node@26.6.6))':
     dependencies:
-      '@ivlev-dev/silent-core': 0.11.15
-      '@ivlev-dev/silent-di': 0.11.15
-      '@ivlev-dev/silent-reactivity': 0.11.15
-      '@ivlev-dev/silent-vite': 0.11.15(vite@8.3.8(@types/node@26.6.6))
+      '@ivlev-dev/silent-swc': 0.11.15
+      vite: 8.3.8(@types/node@26.6.6)
+
+  '@ivlev-dev/silent@0.11.17(vite@8.3.8(@types/node@26.6.6))':
+    dependencies:
+      '@ivlev-dev/silent-core': 0.11.16(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16)
+      '@ivlev-dev/silent-di': 0.11.16
+      '@ivlev-dev/silent-reactivity': 0.11.16
+      '@ivlev-dev/silent-router': 0.11.16(@ivlev-dev/silent-core@0.11.16(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16))(@ivlev-dev/silent-di@0.11.16)(@ivlev-dev/silent-reactivity@0.11.16)
+      '@ivlev-dev/silent-swc': 0.11.15
+      '@ivlev-dev/silent-vite': 0.11.16(@ivlev-dev/silent-swc@0.11.15)(vite@8.3.8(@types/node@26.6.6))
       vite: 8.3.8(@types/node@26.6.6)
 
   '@jridgewell/sourcemap-codec@1.6.0': {}

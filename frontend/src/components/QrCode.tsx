@@ -1,35 +1,45 @@
+import { Match, Switch } from "@ivlev-dev/silent-core";
+
 import type { QrCodeProps, QrCodeVm } from "./QrCode.vm";
 
 export type { QrCodeProps } from "./QrCode.vm";
 
 export function QrCode(this: { vm: QrCodeVm }, props: QrCodeProps) {
-  const ready = () => this.vm.status === "ready";
-  const failed = () => this.vm.status === "error";
-  const limited = () => this.vm.status === "limit";
   return (
     <div class="qr-code" style={`--qr-size:${this.vm.sizePx}px`}>
-      <div class={`qr-code__placeholder skeleton${ready() || failed() || limited() ? " hidden" : ""}`} role="status" aria-label={this.vm.loadingLabel}>
-        <span class="qr-code__spinner spinner"></span>
-      </div>
-      <svg
-        class={`qr-code__svg${ready() ? "" : " hidden"}`}
-        xmlns="http://www.w3.org/2000/svg"
-        viewBox={`0 0 ${this.vm.dimension} ${this.vm.dimension}`}
-        width={this.vm.sizePx}
-        height={this.vm.sizePx}
-        role="img"
-        aria-label={this.vm.ariaLabel}
-        shape-rendering="crispEdges"
+      <Switch
+        fallback={
+          <div class="qr-code__placeholder skeleton" role="status" aria-label={this.vm.loadingLabel}>
+            <span class="qr-code__spinner spinner"></span>
+          </div>
+        }
       >
-        <rect x="0" y="0" width={this.vm.dimension} height={this.vm.dimension} fill="#ffffff" />
-        <path d={this.vm.path} fill="#000000" />
-      </svg>
-      <div class={`qr-code__error${failed() ? "" : " hidden"}`} role="alert">
-        {this.vm.errorText}
-      </div>
-      <div class={`qr-code__error${limited() ? "" : " hidden"}`} role="alert">
-        {this.vm.limitText}
-      </div>
+        <Match when={this.vm.status === "ready"}>
+          <svg
+            class="qr-code__svg"
+            xmlns="http://www.w3.org/2000/svg"
+            viewBox={`0 0 ${this.vm.dimension} ${this.vm.dimension}`}
+            width={this.vm.sizePx}
+            height={this.vm.sizePx}
+            role="img"
+            aria-label={this.vm.ariaLabel}
+            shape-rendering="crispEdges"
+          >
+            <rect x="0" y="0" width={this.vm.dimension} height={this.vm.dimension} fill="#ffffff" />
+            <path d={this.vm.path} fill="#000000" />
+          </svg>
+        </Match>
+        <Match when={this.vm.status === "error"}>
+          <div class="qr-code__error" role="alert">
+            {this.vm.errorText}
+          </div>
+        </Match>
+        <Match when={this.vm.status === "limit"}>
+          <div class="qr-code__error" role="alert">
+            {this.vm.limitText}
+          </div>
+        </Match>
+      </Switch>
     </div>
   );
 }

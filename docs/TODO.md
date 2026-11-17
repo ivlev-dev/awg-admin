@@ -18,14 +18,15 @@
   `vpn://` кодек, временные share-ссылки.
 - Worker: gRPC-сессия, dry-run, netlink SetDevice, tc (HTB + IFB), nftables
   forwarding, персистентные монотонные счётчики (переживают reload интерфейса).
-- Frontend: silent 0.11.15 + Vite + vitest, MVVM, DDD-слои (domain/application/
+- Frontend: silent 0.11.17 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, Select, темы, графики, статические
-  SVG-иконки, 746 тестов.
-- Роутинг на `@ivlev-dev/silent-router` 0.11.15: route-записи с метаданными и
-  ленивыми `load`, история, `resolve`, `prefetch`, восстановление скролла.
-  Фасад `src/app/router.ts` сохраняет прежний API для VM; `RouterView` пока не
-  используется (см. `docs/FRAMEWORK-NOTES.md`, блокер DI-скоупа).
+  SVG-иконки, 758 тестов.
+- Роутинг на `@ivlev-dev/silent-router` 0.11.17: route-записи с метаданными,
+  общий `load` страниц, история, `resolve`, `prefetch`, восстановление скролла.
+  Страницы рендерит `RouterView` с DI-контейнером, слотами `error`/`notFound` и
+  переиспользованием view; фасад `src/app/router.ts` сохраняет API для VM.
+  DI работает в строгом режиме (`di: "error"` в Vite и `implicitBindings`).
 - UI: navy-палитра, мобильная навигация «4 таба + Ещё» (bottom sheet), тач-таргеты
   44px, фильтры и массовые действия в списках, сортировка колонок, выделенные
   строки, `BulkBar`, fallback копирования в буфер обмена для HTTP.
@@ -55,7 +56,13 @@
 
 - `cargo test --workspace` — 378 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 746 тестов, зелёные.
+- `cd frontend && pnpm test` — 758 тестов, зелёные.
+- `cd frontend && pnpm e2e` — 26/26 (Chromium + Firefox).
+- Фреймворк `@ivlev-dev/*` 0.11.17: `RouterView` с DI-контейнером, общий
+  `load` страниц, `navigate()` без unhandled rejection; обход `insertBefore`
+  на аудите снят, `Switch`/`Match` работают после фикса issue #1 в 0.11.17.
+  Строгий DI проверяется сборкой (`di: "error"`). Открытые вопросы фреймворка —
+  `docs/FRAMEWORK-NOTES.md`.
 - Смоук API (17.11.2026): checkout идемпотентен, webhook processed/duplicate,
   неверная подпись — 400, подписка переходит в `active`, способ оплаты сохранён;
   ротация токена ноды, `rx_bps` в overview; одноразовая share-ссылка отдаётся

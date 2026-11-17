@@ -154,14 +154,20 @@ export class AppVM {
 
   @computed
   get title(): string {
-    const key = ROUTE_TITLES[this.routeName];
-    return key ? t(key) : this.router.title;
+    const route = this.router.committedMatch.route;
+    const key = ROUTE_TITLES[route.name];
+    return key ? t(key) : route.title;
   }
 
   @computed
   get showShell(): boolean {
-    const route = this.router.match.route;
+    const route = this.router.committedMatch.route;
     return this.authenticated && (!route.public || route.name === "not-found");
+  }
+
+  @computed
+  get showPublic(): boolean {
+    return !this.booting && !this.showShell && this.router.committedMatch.route.public === true;
   }
 
   @computed

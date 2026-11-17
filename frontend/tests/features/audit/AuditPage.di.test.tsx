@@ -6,7 +6,7 @@ import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
 import { setLocale } from "@/i18n";
 import { AuditPage } from "@/features/audit/AuditPage";
-import { AuditPageVM } from "@/features/audit/AuditPage.vm";
+import { AuditPageVM, auditFiltersStorage } from "@/features/audit/AuditPage.vm";
 
 const ENTRY: AuditEntry = {
   id: "e1",
@@ -136,5 +136,58 @@ describe("AuditPageVM constructor DI", () => {
     expect(auditRepository.list).toHaveBeenCalledTimes(1);
 
     result.dispose();
+  });
+
+  it("после пустого результата при активном фильтре сброс возвращает таблицу", async () => {
+    const storage = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        storage.set(key, value);
+      },
+      removeItem: (key: string) => {
+        storage.delete(key);
+      },
+      clear: () => {
+        storage.clear();
+      },
+    });
+    const responses = [
+      { items: [], next_cursor: null },
+      { items: [ENTRY], next_cursor: null },
+    ];
+    const repository: AuditRepository = {
+      list: vi.fn(async (): Promise<AuditPageResult> => responses.shift() ?? { items: [], next_cursor: null }),
+    };
+    localStorage.setItem(
+      auditFiltersStorage.key,
+      JSON.stringify({ action: "", entity: "", actor: "admin", status: "", from: "", to: "" }),
+    );
+    const container = createAppContainer();
+    container.bind(DefaultAuditService, () => new DefaultAuditService(repository));
+
+    const result = createComponent(AuditPage, {}, { container });
+    document.body.append(result.node);
+    await result.ready;
+
+    const root = document.body;
+
+    await vi.waitFor(() => {
+      expect(root.querySelector(".empty")).not.toBeNull();
+      expect(root.querySelector("table.table--audit")).toBeNull();
+      expect(root.querySelector(".empty .btn.btn--primary.btn--sm")).not.toBeNull();
+    });
+
+    const resetButton = root.querySelector(".empty .btn.btn--primary.btn--sm") as HTMLButtonElement;
+    resetButton.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("table.table--audit")).not.toBeNull();
+    });
+    expect(root.querySelector(".empty")).toBeNull();
+
+    vi.unstubAllGlobals();
+    result.dispose();
+    result.node.parentNode?.removeChild(result.node);
   });
 });

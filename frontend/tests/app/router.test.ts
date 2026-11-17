@@ -122,4 +122,36 @@ describe("Router", () => {
     window.dispatchEvent(new PopStateEvent("popstate"));
     expect(router.path).toBe("/tariffs");
   });
+
+  it("reports whether a path matches a record", () => {
+    const router = new Router();
+    expect(router.hasRoute("/")).toBe(true);
+    expect(router.hasRoute("/clients/42")).toBe(true);
+    expect(router.hasRoute("/does-not-exist")).toBe(false);
+  });
+
+  it("start loads the current page and commits the route", async () => {
+    const load = vi.fn(async () => ({ default: () => undefined }));
+    setPageLoader(load);
+    window.history.pushState(null, "", "/nodes");
+    const router = new Router();
+    await router.start();
+    expect(load).toHaveBeenCalledWith("nodes");
+    expect(router.core.state().route?.name).toBe("nodes");
+  });
+
+  it("navigate does not throw when the page fails to load", async () => {
+    const onError = vi.fn();
+    setPageLoader(async () => {
+      throw new Error("chunk failed");
+    });
+    const router = new Router({ onError });
+    router.navigate("/clients/9");
+    await vi.waitFor(() => {
+      expect(router.core.state().error).not.toBeNull();
+    });
+    expect(router.path).toBe("/clients/9");
+    expect(onError).toHaveBeenCalledTimes(1);
+    setPageLoader(async () => ({ default: () => undefined }));
+  });
 });
