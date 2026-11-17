@@ -153,6 +153,39 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
 - DI-индекс не разрешает alias `@/` для type-импортов интерфейсов — в конструкторах используйте относительные пути.
 - `lazy` + `Suspense` внутри `Show` требует обёртки с единственным корнем (`PageSlot`), иначе при смене маршрута остаётся осиротевший DOM.
 
+### Production-сборка и кеширование
+
+Карты исходников управляются `VITE_SOURCEMAP` (`frontend/vite.config.ts`):
+
+- `false` (по умолчанию) — `.map` не генерируются;
+- `hidden` — карты генерируются, но `sourceMappingURL` в JS нет; режим для
+  локальной отладки;
+- `true` — карты со ссылкой из JS. Не использовать в production.
+
+Docker-образ собирается с `VITE_SOURCEMAP=false` (`ARG` в
+`docker/Dockerfile.frontend`), а при `false` сборка падает, если в `dist` попал
+`.map`. Дополнительно nginx отвечает `404` на любой `*.map`, поэтому карты не
+отдаются даже при ошибочной сборке.
+
+Раздача (`docker/nginx.conf`):
+
+- `index.html` и любой `*.html` — `Cache-Control: no-cache`, `ETag` и `Expires`
+  в прошлом: браузер ревалидирует документ и после деплоя получает новый хеш
+  бандла;
+- `/assets/` — `Cache-Control: public, max-age=31536000, immutable` (имена
+  хешированы); на `404` заголовок не ставится, чтобы не кешировать промах;
+- `Vary: Accept-Encoding` — `add_header` для всех ответов, `gzip on` для
+  js/css/json/xml/svg через `gzip_types`, `gzip_vary off` во избежание
+  дублирования `Vary`. Brotli в `nginx:1.27-alpine` отсутствует, поэтому не
+  включён;
+- security-заголовки вынесены в `docker/nginx-headers.conf`, потому что
+  `add_header` в location отменяет наследование; snippet подключается на уровне
+  `server` и в каждом location с собственными `add_header`.
+
+Vite сам вставляет `modulepreload` для статических зависимостей входного
+чанка, отдельный preload в `index.html` не нужен. Внешних шрифтов и CDN нет:
+шрифты только системные (`system-ui`, `ui-monospace`).
+
 ## Тесты
 
 Уровни проверки:
@@ -370,6 +403,35 @@ refresh (ключ `IP`). Окно очищается лениво при обр�
 Настройки — в `Config` (`AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
 `AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`).
 
+## Производительность списков
+
+Списки в `admin` не делают запросов на каждый элемент: связанные данные
+загружаются bulk-методами и раскладываются в мапы.
+
+- `GET /api/v1/devices`: `devices.list[_for_user]`, один
+  `peers.by_devices(ids)` (порт `DevicePeerRepository`, дефолтная реализация
+  фильтрует `list()`), один `interfaces.list()` и один `pools.list()`.
+  `pool_net` вычисляется один раз на пул и кэшируется в
+  `HashMap<pool_id, Ipv4Net>` на запрос; пулы индексируются по `group_id`,
+  поэтому адреса считаются только из пулов группы устройства. Порядок
+  устройств и JSON `DeviceView` не менялись.
+- `GET /api/v1/interfaces`: `interfaces.list()`, `groups.list()`,
+  `nodes.list()` и один `peers.list()`; число пиров на интерфейс — по
+  `HashMap<interface_id, usize>`. Фильтр по группе применяется после загрузки.
+- `GET /api/v1/groups`: `groups.list()`, `interfaces.list()` и
+  `devices.list()`; счётчики интерфейсов и устройств — по мапам.
+
+Обращений к репозиториям на запрос: devices — 4 (было `1 + 3N`), interfaces —
+4 (было `3 + N`), groups — 3 (было `2 + G`), где `N` — число устройств,
+`G` — групп. Это фиксируют тесты на фейковых репозиториях
+(`bulk_views_use_constant_repository_calls`,
+`interface_list_counts_peers_in_bulk`, `group_list_counts_in_bulk`).
+
+Что осталось: списки по-прежнему читают таблицы целиком, поэтому на больших
+установках нужны пагинация и фильтры на уровне репозитория, а не в памяти.
+`SnapshotBuilder` при сборке desired state по-прежнему обходит устройства и
+пиров по одному.
+
 ## Observability
 
 ### Метрики
@@ -513,9 +575,10 @@ nginx (`docker/nginx.conf`), API — middleware Traefik (`docker-compose.yml`).
 - `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
   `Cross-Origin-Opener-Policy`, `Permissions-Policy` — на nginx; API получает
   nosniff/frame-deny/referrer из Traefik.
-- nginx повторяет заголовки в `location ^~ /assets/`, потому что `add_header`
-  в location отменяет наследование; `Cache-Control: immutable` не вытесняет
-  CSP и остальные заголовки.
+- nginx повторяет заголовки в location с `add_header` через snippet
+  `docker/nginx-headers.conf`, потому что `add_header` в location отменяет
+  наследование; `Cache-Control: immutable` не вытесняет CSP и остальные
+  заголовки.
 
 Проксирование не менялось: Traefik по-прежнему передаёт `/api` на admin по
 HTTP/1.1 (backend принимает h2c на `:8080`), healthcheck `admin` идёт на

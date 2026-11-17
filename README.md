@@ -8,7 +8,7 @@ silent-framework и Traefik с TLS/HTTP/3.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — DDD-контексты, слои, MVC/MVVM, потоки данных.
 - [`docs/API.md`](docs/API.md) — REST API, права, ошибки, WebSocket.
 - [`docs/WORKER.md`](docs/WORKER.md) — протокол воркера, netlink/tc/nft, статистика.
-- [`docs/SECURITY.md`](docs/SECURITY.md) — роли, секреты, JWT, share-ссылки, HTTP-заголовки безопасности, ограничения.
+- [`docs/SECURITY.md`](docs/SECURITY.md) — роли, секреты, JWT, share-ссылки, HTTP-заголовки безопасности, аудит зависимостей, ограничения.
 - [`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md) — приёмка production-блокеров: ядро, tc, nftables, Docker, TLS/ACME, HTTP/3.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — эксплуатация: запуск/остановка, секреты, backup/restore redb, метрики, логи, аудит, квоты, worker, инциденты, обновление.
 - [`docs/TODO.md`](docs/TODO.md) — что проверено, что осталось, с чего продолжить.
@@ -102,6 +102,39 @@ curl -sSI -k https://127.0.0.1/ | grep -i strict-transport-security
 
 Детали и компромиссы — в [`docs/SECURITY.md`](docs/SECURITY.md).
 
+## Сборка и кеширование frontend
+
+Картами исходников управляет `VITE_SOURCEMAP`: `false` (по умолчанию), `hidden`
+(карты без `sourceMappingURL`, для отладки) или `true`. Docker собирает образ с
+`VITE_SOURCEMAP=false`, `.map` в него не попадают, nginx отдаёт на `*.map`
+`404`.
+
+```bash
+cd frontend && pnpm build                # без карт
+VITE_SOURCEMAP=hidden pnpm build         # карты только для локальной отладки
+curl -sSI http://127.0.0.1:8081/ | grep -Ei 'cache-control|etag|vary'
+curl -sSI http://127.0.0.1:8081/assets/<hash>.js | grep -Ei 'cache-control|content-encoding|vary'
+```
+
+`index.html` приходит с `Cache-Control: no-cache` и `ETag`, поэтому после
+деплоя подхватывается новый хеш бандла. `/assets/*` кешируется на год как
+`immutable`; `Vary: Accept-Encoding` и gzip включены для js/css/json/xml/svg.
+
+## Аудит зависимостей
+
+CI job `security` независимо от сборки проверяет Rust (`cargo audit --deny warnings`)
+и frontend (`pnpm audit --audit-level high --prod`). Игнорируемые advisory
+с обоснованием — в `.cargo/audit.toml`.
+
+```bash
+cargo audit --deny warnings
+cd frontend && pnpm audit --audit-level high --prod
+```
+
+Dependabot еженедельно открывает PR на patch/minor-обновления (major — отдельно).
+Политика обновлений и реакция на advisory — в
+[`docs/SECURITY.md`](docs/SECURITY.md#аудит-зависимостей).
+
 ## Метрики и логи
 
 - `GET /metrics` — Prometheus text-формат (`awg_http_requests_total`,
@@ -122,7 +155,7 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ```bash
 cargo test --workspace          # 28 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 593 теста
+cd frontend && pnpm test        # 619 тестов
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build
