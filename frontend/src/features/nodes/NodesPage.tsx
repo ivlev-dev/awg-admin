@@ -1,8 +1,10 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { NodesPageVM } from "./NodesPage.vm";
+import { BulkBar } from "@/components/BulkBar";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
+import { Select } from "@/components/Select";
 import { t } from "@/i18n";
 
 function workerCompose(): string {
@@ -53,6 +55,38 @@ export function NodesPage(this: { vm: NodesPageVM }) {
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
+      <section class="card">
+        <div class="card__body">
+          <div class="list-toolbar">
+            <div class="field">
+              <label for="nodes-search">{t("filters.search")}</label>
+              <input
+                id="nodes-search"
+                class="input"
+                type="search"
+                placeholder={t("nodes.search.placeholder")}
+                value={this.vm.query}
+                onInput={(event: Event) => this.vm.setQuery(event)}
+              />
+            </div>
+            <div class="field field--compact">
+              <label for="nodes-status">{t("nodes.column.status")}</label>
+              <Select
+                id="nodes-status"
+                value={this.vm.statusFilter}
+                options={[
+                  { value: "all", label: t("nodes.filter.allStatuses") },
+                  { value: "online", label: t("nodes.status.online") },
+                  { value: "offline", label: t("nodes.status.offline") },
+                ]}
+                onChange={(value) => { this.vm.statusFilter = value as "all" | "online" | "offline"; }}
+                ariaLabel={t("nodes.column.status")}
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
       <Show when={this.vm.loading}>
         <section class="card">
           <div class="card__body stack-sm">
@@ -101,6 +135,14 @@ export function NodesPage(this: { vm: NodesPageVM }) {
               <table class="table table--cards">
                 <thead>
                   <tr>
+                    <th class="cell-select">
+                      <input
+                        type="checkbox"
+                        aria-label={t("nodes.selectAll")}
+                        checked={this.vm.allFilteredSelected}
+                        onChange={() => this.vm.toggleSelectAll()}
+                      />
+                    </th>
                     <th>{t("nodes.column.node")}</th>
                     <th>{t("nodes.column.status")}</th>
                     <th>{t("nodes.column.metrics")}</th>
@@ -112,9 +154,17 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                   </tr>
                 </thead>
                 <tbody>
-                  <For each={this.vm.nodes}>
+                  <For each={this.vm.filteredNodes}>
                     {(node) => (
-                      <tr>
+                      <tr class={this.vm.isSelected(node.id) ? "is-selected" : ""}>
+                        <td class="cell-select">
+                          <input
+                            type="checkbox"
+                            aria-label={node.name}
+                            checked={this.vm.isSelected(node.id)}
+                            onChange={() => this.vm.toggleSelected(node.id)}
+                          />
+                        </td>
                         <td data-label={t("nodes.column.node")}>
                           <div class="strong">{node.name}</div>
                           <div class="xs muted mono">{node.id}</div>
@@ -176,6 +226,16 @@ export function NodesPage(this: { vm: NodesPageVM }) {
               </table>
             </div>
           </section>
+          <Show when={this.vm.selectedCount > 0}>
+            <BulkBar
+              count={this.vm.selectedCount}
+              busy={this.vm.bulkBusy}
+              onClear={() => this.vm.clearSelection()}
+              actions={[
+                { label: t("bulk.delete"), variant: "danger", onClick: () => { void this.vm.bulkDelete(); } },
+              ]}
+            />
+          </Show>
         </Show>
       </Show>
 

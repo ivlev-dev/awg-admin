@@ -3,6 +3,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { InterfacesPageVM } from "./InterfacesPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { t } from "@/i18n";
 

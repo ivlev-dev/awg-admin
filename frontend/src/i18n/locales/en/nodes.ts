@@ -1,4 +1,7 @@
 export const enNodes = {
+  "nodes.search.placeholder": "Node name or ID",
+  "nodes.filter.allStatuses": "All statuses",
+  "nodes.selectAll": "Select all nodes",
   "nodes.eyebrow": "Infrastructure",
   "nodes.title": "Nodes",
   "nodes.subtitle": "AmneziaWG workers that host interfaces and apply configuration from the panel.",

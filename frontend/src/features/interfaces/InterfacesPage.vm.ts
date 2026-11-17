@@ -307,6 +307,72 @@ export class InterfacesPageVM {
     }
   }
 
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
+
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  get allVisibleSelected(): boolean {
+    return this.visible.length > 0 && this.selectedIds.length === this.visible.length;
+  }
+
+  toggleSelectAll(): void {
+    this.selectedIds = this.allVisibleSelected ? [] : this.visible.map((item) => item.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
+  async bulkSetEnabled(enabled: boolean): Promise<void> {
+    const targets = this.visible.filter(
+      (item) => this.selectedIds.includes(item.id) && item.enabled !== enabled,
+    );
+    if (targets.length === 0) return;
+    await this.runBulk(targets, (item) => this.interfacesService.updateInterface(item.id, { enabled }));
+  }
+
+  async bulkDelete(): Promise<void> {
+    const targets = this.visible.filter((item) => this.selectedIds.includes(item.id));
+    if (targets.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: targets.length }))) return;
+    await this.runBulk(targets, (item) => this.interfacesService.deleteInterface(item.id));
+  }
+
+  private async runBulk(
+    targets: InterfaceInfo[],
+    action: (item: InterfaceInfo) => Promise<unknown>,
+  ): Promise<void> {
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const item of targets) {
+      try {
+        await action(item);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
+  }
+
   async rotate(item: InterfaceInfo): Promise<void> {
     if (this.busy) return;
     const confirmed = window.confirm(t("interfaces.confirm.rotate", { name: item.name }));

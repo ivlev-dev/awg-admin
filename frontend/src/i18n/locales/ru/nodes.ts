@@ -1,4 +1,7 @@
 export const ruNodes = {
+  "nodes.search.placeholder": "Имя или ID ноды",
+  "nodes.filter.allStatuses": "Все статусы",
+  "nodes.selectAll": "Выбрать все ноды",
   "nodes.eyebrow": "Инфраструктура",
   "nodes.title": "Ноды",
   "nodes.subtitle": "Воркеры AmneziaWG, которые держат интерфейсы и применяют конфигурацию с панели.",

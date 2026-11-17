@@ -31,6 +31,10 @@ export class NodesPageVM {
 
   @reactive accessor rotatedNode: NodeRotated | null = null;
   @reactive accessor rotatedTokenCopied = false;
+  @reactive accessor query = "";
+  @reactive accessor statusFilter: "all" | "online" | "offline" = "all";
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
 
   constructor(
     private readonly nodesService: NodesService,
@@ -44,6 +48,68 @@ export class NodesPageVM {
 
   get isAdmin(): boolean {
     return this.session.isAdmin;
+  }
+
+  @computed
+  get filteredNodes(): NodeInfo[] {
+    const query = this.query.trim().toLowerCase();
+    return this.nodes.filter((node) => {
+      if (this.statusFilter === "online" && !node.online) return false;
+      if (this.statusFilter === "offline" && node.online) return false;
+      if (query.length === 0) return true;
+      return node.name.toLowerCase().includes(query) || node.id.toLowerCase().includes(query);
+    });
+  }
+
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  get allFilteredSelected(): boolean {
+    return this.filteredNodes.length > 0 && this.selectedIds.length === this.filteredNodes.length;
+  }
+
+  toggleSelectAll(): void {
+    this.selectedIds = this.allFilteredSelected ? [] : this.filteredNodes.map((node) => node.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
+  setQuery(event: Event): void {
+    this.query = (event.target as HTMLInputElement).value;
+  }
+
+  async bulkDelete(): Promise<void> {
+    if (this.selectedIds.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: this.selectedIds.length }))) return;
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const id of this.selectedIds) {
+      try {
+        await this.nodesService.deleteNode(id);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
   }
 
   @computed

@@ -1,4 +1,7 @@
 export const enInterfaces = {
+  "interfaces.bulk.enable": "Enable",
+  "interfaces.bulk.disable": "Disable",
+  "interfaces.selectAll": "Select all interfaces",
   "interfaces.eyebrow": "Infrastructure",
   "interfaces.title": "Interfaces",
   "interfaces.subtitle": "AmneziaWG interfaces on nodes: addresses, ports, obfuscation and peers.",

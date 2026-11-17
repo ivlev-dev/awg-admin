@@ -46,6 +46,10 @@ export class UsersPageVM {
   @reactive accessor tab: UsersTab = "active";
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
+  @reactive accessor roleFilter: "all" | Role = "all";
+  @reactive accessor statusFilter: "all" | "active" | "disabled" = "all";
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -154,7 +158,91 @@ export class UsersPageVM {
 
   @computed
   get filteredActiveUsers(): User[] {
-    return this.activeUsers.filter((user) => matchesQuery(user, this.appliedQuery));
+    return this.activeUsers.filter((user) => {
+      if (!matchesQuery(user, this.appliedQuery)) return false;
+      if (this.roleFilter !== "all" && user.role !== this.roleFilter) return false;
+      if (this.statusFilter === "active" && user.disabled) return false;
+      if (this.statusFilter === "disabled" && !user.disabled) return false;
+      return true;
+    });
+  }
+
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  selectAllFiltered(): void {
+    this.selectedIds = this.filteredActiveUsers.map((user) => user.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
+  get allFilteredSelected(): boolean {
+    return this.filteredActiveUsers.length > 0
+      && this.selectedIds.length === this.filteredActiveUsers.length;
+  }
+
+  toggleSelectAll(): void {
+    if (this.allFilteredSelected) this.clearSelection();
+    else this.selectAllFiltered();
+  }
+
+  async bulkSetDisabled(disabled: boolean): Promise<void> {
+    const targets = this.activeUsers.filter(
+      (user) => this.selectedIds.includes(user.id) && user.id !== this.selfId && user.disabled !== disabled,
+    );
+    if (targets.length === 0) return;
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const user of targets) {
+      try {
+        await this.usersService.updateUser(user.id, { disabled });
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
+  }
+
+  async bulkDelete(): Promise<void> {
+    const targets = this.activeUsers.filter(
+      (user) => this.selectedIds.includes(user.id) && user.id !== this.selfId,
+    );
+    if (targets.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: targets.length }))) return;
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const user of targets) {
+      try {
+        await this.usersService.deleteUser(user.id);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
   }
 
   @computed
@@ -164,7 +252,9 @@ export class UsersPageVM {
 
   @computed
   get hasActiveFilters(): boolean {
-    return this.appliedQuery.trim().length > 0;
+    return this.appliedQuery.trim().length > 0
+      || this.roleFilter !== "all"
+      || this.statusFilter !== "all";
   }
 
   @computed
@@ -198,6 +288,9 @@ export class UsersPageVM {
     this.applyQuery.cancel();
     this.query = "";
     this.appliedQuery = "";
+    this.roleFilter = "all";
+    this.statusFilter = "all";
+    this.clearSelection();
     this.persistFilters();
   }
 

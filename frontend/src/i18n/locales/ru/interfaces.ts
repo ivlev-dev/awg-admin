@@ -1,4 +1,7 @@
 export const ruInterfaces = {
+  "interfaces.bulk.enable": "Включить",
+  "interfaces.bulk.disable": "Отключить",
+  "interfaces.selectAll": "Выбрать все интерфейсы",
   "interfaces.eyebrow": "Инфраструктура",
   "interfaces.title": "Интерфейсы",
   "interfaces.subtitle": "AmneziaWG-интерфейсы на нодах: адреса, порты, обфускация и пиры.",

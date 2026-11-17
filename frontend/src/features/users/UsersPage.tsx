@@ -1,6 +1,7 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { UsersPageVM } from "./UsersPage.vm";
+import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
@@ -41,6 +42,34 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 placeholder={t("filters.search.users")}
                 value={this.vm.query}
                 onInput={(event: Event) => this.vm.setQuery(event)}
+              />
+            </div>
+            <div class="field field--compact" style="flex:0 1 170px">
+              <label for="users-role">{t("users.filter.role")}</label>
+              <Select
+                id="users-role"
+                value={this.vm.roleFilter}
+                options={[
+                  { value: "all", label: t("users.filter.allRoles") },
+                  { value: "admin", label: t("users.role.admin") },
+                  { value: "user", label: t("users.role.user") },
+                ]}
+                onChange={(value) => { this.vm.roleFilter = value as "all" | "admin" | "user"; }}
+                ariaLabel={t("users.filter.role")}
+              />
+            </div>
+            <div class="field field--compact" style="flex:0 1 170px">
+              <label for="users-status">{t("users.filter.status")}</label>
+              <Select
+                id="users-status"
+                value={this.vm.statusFilter}
+                options={[
+                  { value: "all", label: t("users.filter.allStatuses") },
+                  { value: "active", label: t("users.status.active") },
+                  { value: "disabled", label: t("users.status.disabled") },
+                ]}
+                onChange={(value) => { this.vm.statusFilter = value as "all" | "active" | "disabled"; }}
+                ariaLabel={t("users.filter.status")}
               />
             </div>
             <Show when={this.vm.hasActiveFilters}>
@@ -108,6 +137,14 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   <table class="table table--cards table--users">
                     <thead>
                       <tr>
+                        <th class="cell-select">
+                          <input
+                            type="checkbox"
+                            aria-label={t("users.selectAll")}
+                            checked={this.vm.allFilteredSelected}
+                            onChange={() => this.vm.toggleSelectAll()}
+                          />
+                        </th>
                         <th>Логин</th>
                         <th>{t("users.column.email")}</th>
                         <th>Роль</th>
@@ -121,7 +158,15 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     <tbody>
                       <For each={this.vm.filteredActiveUsers}>
                         {(user) => (
-                          <tr>
+                          <tr class={this.vm.isSelected(user.id) ? "is-selected" : ""}>
+                            <td class="cell-select">
+                              <input
+                                type="checkbox"
+                                aria-label={user.login}
+                                checked={this.vm.isSelected(user.id)}
+                                onChange={() => this.vm.toggleSelected(user.id)}
+                              />
+                            </td>
                             <td data-label="Логин">
                               <div class="row" style="gap:10px">
                                 <div class="avatar avatar--sm">{user.login.slice(0, 1).toUpperCase()}</div>
@@ -184,6 +229,18 @@ export function UsersPage(this: { vm: UsersPageVM }) {
             </Show>
           </div>
         </section>
+        <Show when={this.vm.selectedCount > 0}>
+          <BulkBar
+            count={this.vm.selectedCount}
+            busy={this.vm.bulkBusy}
+            onClear={() => this.vm.clearSelection()}
+            actions={[
+              { label: t("bulk.block"), onClick: () => { void this.vm.bulkSetDisabled(true); } },
+              { label: t("bulk.unblock"), onClick: () => { void this.vm.bulkSetDisabled(false); } },
+              { label: t("bulk.delete"), variant: "danger", onClick: () => { void this.vm.bulkDelete(); } },
+            ]}
+          />
+        </Show>
       </Show>
 
       <Show when={this.vm.tab === "pending"}>
