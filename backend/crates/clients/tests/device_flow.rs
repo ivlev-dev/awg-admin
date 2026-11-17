@@ -488,3 +488,55 @@ fn external_peer_requires_known_interface_and_addresses() {
         .unwrap_err();
     assert!(matches!(error, CoreError::NotFound(_)));
 }
+
+#[test]
+fn peers_for_devices_returns_only_requested_devices() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let first = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                name: "phone".into(),
+                down_kbps: 10_000,
+                up_kbps: 10_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let second = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                name: "laptop".into(),
+                down_kbps: 10_000,
+                up_kbps: 10_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let only_first = fixture.devices.peers_for_devices(&[first.id]).unwrap();
+    assert_eq!(only_first.len(), 2);
+    assert!(only_first.iter().all(|peer| peer.device_id == first.id));
+
+    let both = fixture
+        .devices
+        .peers_for_devices(&[first.id, second.id])
+        .unwrap();
+    assert_eq!(both.len(), 4);
+    assert!(both.iter().any(|peer| peer.device_id == second.id));
+
+    assert!(fixture.devices.peers_for_devices(&[]).unwrap().is_empty());
+}

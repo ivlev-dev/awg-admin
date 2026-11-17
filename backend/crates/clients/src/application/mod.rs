@@ -419,6 +419,10 @@ impl DeviceService {
         self.peers.by_device(device_id)
     }
 
+    pub fn peers_for_devices(&self, device_ids: &[Uuid]) -> CoreResult<Vec<DevicePeer>> {
+        self.peers.by_devices(device_ids)
+    }
+
     pub fn all_peers(&self) -> CoreResult<Vec<DevicePeer>> {
         self.peers.list()
     }

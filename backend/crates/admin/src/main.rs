@@ -14,6 +14,8 @@ mod routes;
 mod settings;
 mod snapshot;
 mod state;
+#[cfg(test)]
+mod test_support;
 mod views;
 mod ws;
 

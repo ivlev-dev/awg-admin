@@ -1,12 +1,15 @@
 use std::collections::HashMap;
+use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
 use chrono::Utc;
+use ipnet::Ipv4Net;
 use uuid::Uuid;
 
-use awg_clients::{Forwarding, NewDevice};
+use awg_clients::{Device, DevicePeer, DeviceService, Forwarding, NewDevice};
+use awg_network::{CidrPool, NetworkService};
 use awg_shared::cidr::address_with_prefix;
 use awg_tariffs::Tariff;
 
@@ -28,11 +31,7 @@ pub async fn list(
             .list_for_user(user.id())
             .map_err(ApiError::from)?
     };
-    let mut out = Vec::with_capacity(devices.len());
-    for device in devices {
-        out.push(build_view(&state, &device)?);
-    }
-    Ok(Json(out))
+    Ok(Json(build_views(&state.devices, &state.network, &devices)?))
 }
 
 pub async fn get(
@@ -218,34 +217,89 @@ pub async fn revoke_share(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-fn build_view(state: &AppState, device: &awg_clients::Device) -> Result<DeviceView, ApiError> {
-    let peers = state.devices.peers_for(device.id).map_err(ApiError::from)?;
-    let pools = state
-        .network
-        .list_pools(device.group_id)
-        .map_err(ApiError::from)?;
-    let pool_map: HashMap<Uuid, &awg_network::CidrPool> = pools.iter().map(|p| (p.id, p)).collect();
-    let interfaces = state
-        .network
-        .interfaces_by_group(device.group_id)
-        .map_err(ApiError::from)?;
-    let mut names = Vec::new();
-    for peer in &peers {
-        let interface_name = interfaces
-            .iter()
-            .find(|i| i.id == peer.interface_id)
-            .map(|i| i.name.clone())
+fn build_view(state: &AppState, device: &awg_clients::Device) -> ApiResult<DeviceView> {
+    build_views(&state.devices, &state.network, std::slice::from_ref(device))?
+        .into_iter()
+        .next()
+        .ok_or_else(|| ApiError::Internal("device view is missing".into()))
+}
+
+fn build_views(
+    devices: &DeviceService,
+    network: &NetworkService,
+    items: &[Device],
+) -> ApiResult<Vec<DeviceView>> {
+    if items.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids: Vec<Uuid> = items.iter().map(|device| device.id).collect();
+    let mut peers_by_device: HashMap<Uuid, Vec<DevicePeer>> = HashMap::new();
+    for peer in devices.peers_for_devices(&ids).map_err(ApiError::from)? {
+        peers_by_device
+            .entry(peer.device_id)
+            .or_default()
+            .push(peer);
+    }
+    let interface_names: HashMap<Uuid, String> = network
+        .list_interfaces()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|interface| (interface.id, interface.name))
+        .collect();
+    let pools = network.list_all_pools().map_err(ApiError::from)?;
+    let mut pools_by_group: HashMap<Uuid, HashMap<Uuid, &CidrPool>> = HashMap::new();
+    for pool in &pools {
+        pools_by_group
+            .entry(pool.group_id)
+            .or_default()
+            .insert(pool.id, pool);
+    }
+    let mut pool_nets: HashMap<Uuid, Ipv4Net> = HashMap::new();
+    let mut views = Vec::with_capacity(items.len());
+    for device in items {
+        let peers = peers_by_device
+            .get(&device.id)
+            .map(Vec::as_slice)
             .unwrap_or_default();
-        let mut addresses = Vec::new();
-        for (pool_id, ip) in &peer.ips {
-            if let (Some(pool), std::net::IpAddr::V4(v4)) = (pool_map.get(pool_id), ip) {
-                let net = state.network.pool_net(pool).map_err(ApiError::from)?;
-                addresses.push(address_with_prefix(*v4, net));
+        let group_pools = pools_by_group.get(&device.group_id);
+        for pool_id in peers.iter().flat_map(|peer| peer.ips.keys()) {
+            if pool_nets.contains_key(pool_id) {
+                continue;
+            }
+            if let Some(pool) = group_pools.and_then(|pools| pools.get(pool_id)) {
+                pool_nets.insert(*pool_id, network.pool_net(pool).map_err(ApiError::from)?);
             }
         }
-        names.push((peer.interface_id, interface_name, addresses));
+        views.push(assemble_view(device, peers, &interface_names, &pool_nets));
     }
-    Ok(DeviceView::build(device, &peers, &names))
+    Ok(views)
+}
+
+fn assemble_view(
+    device: &Device,
+    peers: &[DevicePeer],
+    interface_names: &HashMap<Uuid, String>,
+    pool_nets: &HashMap<Uuid, Ipv4Net>,
+) -> DeviceView {
+    let names: Vec<(Uuid, String, Vec<String>)> = peers
+        .iter()
+        .map(|peer| {
+            let name = interface_names
+                .get(&peer.interface_id)
+                .cloned()
+                .unwrap_or_default();
+            let addresses = peer
+                .ips
+                .iter()
+                .filter_map(|(pool_id, ip)| match (pool_nets.get(pool_id), ip) {
+                    (Some(net), IpAddr::V4(v4)) => Some(address_with_prefix(*v4, *net)),
+                    _ => None,
+                })
+                .collect();
+            (peer.interface_id, name, addresses)
+        })
+        .collect();
+    DeviceView::build(device, peers, &names)
 }
 
 fn publish_group(state: &AppState, group_id: Uuid) {
@@ -282,5 +336,123 @@ fn public_base(state: &AppState) -> String {
         String::new()
     } else {
         configured.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::seeded;
+
+    fn legacy_views(
+        devices: &DeviceService,
+        network: &NetworkService,
+        items: &[Device],
+    ) -> Vec<DeviceView> {
+        let mut out = Vec::new();
+        for device in items {
+            let peers = devices.peers_for(device.id).unwrap();
+            let pools = network.list_pools(device.group_id).unwrap();
+            let pool_map: HashMap<Uuid, &CidrPool> =
+                pools.iter().map(|pool| (pool.id, pool)).collect();
+            let interfaces = network.interfaces_by_group(device.group_id).unwrap();
+            let mut names = Vec::new();
+            for peer in &peers {
+                let interface_name = interfaces
+                    .iter()
+                    .find(|interface| interface.id == peer.interface_id)
+                    .map(|interface| interface.name.clone())
+                    .unwrap_or_default();
+                let mut addresses = Vec::new();
+                for (pool_id, ip) in &peer.ips {
+                    if let (Some(pool), std::net::IpAddr::V4(v4)) = (pool_map.get(pool_id), ip) {
+                        addresses.push(address_with_prefix(*v4, network.pool_net(pool).unwrap()));
+                    }
+                }
+                names.push((peer.interface_id, interface_name, addresses));
+            }
+            out.push(DeviceView::build(device, &peers, &names));
+        }
+        out
+    }
+
+    #[test]
+    fn bulk_views_match_legacy_json() {
+        let (env, sample) = seeded();
+        let bulk = build_views(&env.devices, &env.network, &sample.devices).unwrap();
+        let legacy = legacy_views(&env.devices, &env.network, &sample.devices);
+        assert_eq!(
+            serde_json::to_value(&bulk).unwrap(),
+            serde_json::to_value(&legacy).unwrap()
+        );
+        let names: Vec<&str> = bulk.iter().map(|view| view.name.as_str()).collect();
+        let expected: Vec<&str> = sample
+            .devices
+            .iter()
+            .map(|device| device.name.as_str())
+            .collect();
+        assert_eq!(names, expected);
+    }
+
+    #[test]
+    fn bulk_views_keep_peer_names_and_addresses() {
+        let (env, sample) = seeded();
+        let views = build_views(&env.devices, &env.network, &sample.devices).unwrap();
+
+        let phone = views.iter().find(|view| view.name == "phone").unwrap();
+        assert_eq!(phone.peers.len(), 2);
+        assert_eq!(
+            phone.addresses,
+            vec!["10.1.0.2".to_string(), "10.2.0.5".to_string()]
+        );
+        let awg0 = phone
+            .peers
+            .iter()
+            .find(|peer| peer.interface_id == sample.iface_a0)
+            .unwrap();
+        assert_eq!(awg0.interface_name, "awg0");
+        let mut addresses = awg0.addresses.clone();
+        addresses.sort();
+        assert_eq!(
+            addresses,
+            vec!["10.1.0.2/24".to_string(), "10.2.0.5/24".to_string()]
+        );
+
+        let laptop = views.iter().find(|view| view.name == "laptop").unwrap();
+        assert_eq!(laptop.peers.len(), 1);
+        assert_eq!(laptop.peers[0].interface_name, "awg0");
+        assert_eq!(laptop.peers[0].addresses, vec!["10.1.0.3/24".to_string()]);
+
+        let tablet = views.iter().find(|view| view.name == "tablet").unwrap();
+        assert_eq!(tablet.peers[0].interface_name, "awg2");
+        assert_eq!(tablet.peers[0].addresses, vec!["10.10.0.7/25".to_string()]);
+
+        let lonely = views.iter().find(|view| view.name == "lonely").unwrap();
+        assert!(lonely.peers.is_empty());
+        assert!(lonely.addresses.is_empty());
+    }
+
+    #[test]
+    fn bulk_views_use_constant_repository_calls() {
+        let (env, sample) = seeded();
+        let views = build_views(&env.devices, &env.network, &sample.devices).unwrap();
+        assert_eq!(views.len(), 4);
+        assert_eq!(env.peers.by_devices_calls(), 1);
+        assert_eq!(env.peers.list_calls(), 0);
+        assert_eq!(env.peers.by_device_calls(), 0);
+        assert_eq!(env.interfaces.list_calls(), 1);
+        assert_eq!(env.interfaces.by_group_calls(), 0);
+        assert_eq!(env.pools.list_calls(), 1);
+        assert_eq!(env.pools.by_group_calls(), 0);
+    }
+
+    #[test]
+    fn empty_device_list_skips_repository_reads() {
+        let (env, _sample) = seeded();
+        let views = build_views(&env.devices, &env.network, &[]).unwrap();
+        assert!(views.is_empty());
+        assert_eq!(env.peers.by_devices_calls(), 0);
+        assert_eq!(env.interfaces.list_calls(), 0);
+        assert_eq!(env.pools.list_calls(), 0);
     }
 }

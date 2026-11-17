@@ -70,6 +70,17 @@ pub trait DevicePeerRepository: Send + Sync {
     fn list(&self) -> CoreResult<Vec<DevicePeer>>;
     fn by_device(&self, device_id: Uuid) -> CoreResult<Vec<DevicePeer>>;
     fn by_interface(&self, interface_id: Uuid) -> CoreResult<Vec<DevicePeer>>;
+    fn by_devices(&self, device_ids: &[Uuid]) -> CoreResult<Vec<DevicePeer>> {
+        if device_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let ids: HashSet<Uuid> = device_ids.iter().copied().collect();
+        Ok(self
+            .list()?
+            .into_iter()
+            .filter(|peer| ids.contains(&peer.device_id))
+            .collect())
+    }
     fn save(&self, peer: &DevicePeer) -> CoreResult<()>;
     fn delete_for_device(&self, device_id: Uuid) -> CoreResult<usize>;
     fn delete(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<()>;
