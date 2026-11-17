@@ -16,3 +16,4 @@ rand.workspace = true
 
 [dev-dependencies]
 base64 = "0.22"
+serde_json.workspace = true

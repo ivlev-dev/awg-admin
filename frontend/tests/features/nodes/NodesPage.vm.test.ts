@@ -5,7 +5,7 @@ import { ToastStore } from "@/app/toast";
 import { DefaultNodesService } from "@/application/nodes/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
-import type { NodeCreated } from "@/domain/nodes/types";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { AuthSession, NodeInfo, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 
@@ -109,6 +109,14 @@ class MemoryNodesRepository {
       node({ id, name, status: "offline", online: false, last_seen: null, interfaces: 0 }),
     );
     return { node: { id, name, created_at: createdAt }, token: `token-${id}` };
+  });
+
+  rotateNode = vi.fn(async (id: string): Promise<NodeRotated> => {
+    const existing = this.items.get(id);
+    if (!existing) throw new Error("node not found");
+    const rotated = { ...existing, token_issued_at: "2026-01-01T00:00:00Z" };
+    this.items.set(id, rotated);
+    return { node: rotated, token: `rotated-${id}` };
   });
 
   deleteNode = vi.fn(async (id: string): Promise<void> => {
@@ -220,6 +228,87 @@ describe("NodesPageVM", () => {
     expect(writeText).toHaveBeenCalledWith("secret-token");
     expect(harness.vm.tokenCopied).toBe(true);
     expect(harness.toasts.items.some((item) => item.message === "Токен скопирован")).toBe(true);
+  });
+
+  it("rotates a confirmed node token and exposes it once", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node());
+    await harness.vm.load();
+
+    await harness.vm.rotate(node());
+
+    expect(harness.repo.rotateNode).toHaveBeenCalledWith("n1");
+    expect(harness.vm.rotatedNode?.token).toBe("rotated-n1");
+    expect(harness.vm.rotatedNode?.node.id).toBe("n1");
+    expect(harness.vm.busy).toBe(false);
+    expect(harness.toasts.items.some((item) => item.message === "Токен ноды «node-1» перевыпущен")).toBe(true);
+  });
+
+  it("does not rotate without confirmation", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node());
+    await harness.vm.load();
+    window.confirm = vi.fn(() => false);
+
+    await harness.vm.rotate(node());
+
+    expect(harness.repo.rotateNode).not.toHaveBeenCalled();
+    expect(harness.vm.rotatedNode).toBeNull();
+  });
+
+  it("reports a rotate error", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node());
+    await harness.vm.load();
+    harness.repo.rotateNode.mockRejectedValueOnce(new Error("forbidden"));
+
+    await harness.vm.rotate(node());
+
+    expect(harness.toasts.items.some((item) => item.message === "forbidden")).toBe(true);
+    expect(harness.vm.busy).toBe(false);
+  });
+
+  it("copies the rotated token and closes the dialog", async () => {
+    const harness = makeVm();
+    const writeText = vi.fn(async () => undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    harness.vm.rotatedNode = {
+      node: node(),
+      token: "rotated-secret",
+    };
+
+    await harness.vm.copyRotatedToken();
+    expect(writeText).toHaveBeenCalledWith("rotated-secret");
+    expect(harness.vm.rotatedTokenCopied).toBe(true);
+
+    harness.vm.closeRotated();
+    expect(harness.vm.rotatedNode).toBeNull();
+    expect(harness.vm.rotatedTokenCopied).toBe(false);
+  });
+
+  it("formats node metrics and token issue date", () => {
+    const harness = makeVm();
+    const detailed = node({
+      cpu_load: 0.5,
+      mem_used_bytes: 1024 * 1024 * 1024,
+      mem_total_bytes: 2 * 1024 * 1024 * 1024,
+      kernel_version: "6.8.0",
+      worker_version: "0.3.0",
+      metrics_at: new Date().toISOString(),
+      token_issued_at: "2026-01-01T00:00:00Z",
+    });
+
+    const metrics = harness.vm.metricsLabel(detailed);
+    expect(metrics).toContain("CPU 0.50");
+    expect(metrics).toContain("RAM 1.0 ГБ / 2.0 ГБ");
+    expect(harness.vm.memoryPercent(detailed)).toBe("50 %");
+    expect(harness.vm.metricsUpdatedLabel(detailed)).toContain("обновлено");
+    expect(harness.vm.workerVersionLabel(detailed)).toBe("0.3.0");
+    expect(harness.vm.kernelVersionLabel(detailed)).toBe("6.8.0");
+    expect(harness.vm.tokenIssuedLabel(detailed)).not.toBe("—");
   });
 
   it("deletes a confirmed node and reloads the list", async () => {

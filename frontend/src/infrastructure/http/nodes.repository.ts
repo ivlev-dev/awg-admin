@@ -1,5 +1,5 @@
 import type { NodesRepository } from "@/domain/nodes/repository";
-import type { NodeCreated } from "@/domain/nodes/types";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import type { HttpClient } from "./client";
 
@@ -12,6 +12,10 @@ export class HttpNodesRepository implements NodesRepository {
 
   createNode(name: string): Promise<NodeCreated> {
     return this.client.post<NodeCreated>("/nodes", { name });
+  }
+
+  rotateNode(id: string): Promise<NodeRotated> {
+    return this.client.post<NodeRotated>(`/nodes/${id}/rotate`);
   }
 
   async deleteNode(id: string): Promise<void> {

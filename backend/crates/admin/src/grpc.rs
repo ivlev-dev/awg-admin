@@ -174,8 +174,21 @@ async fn handle_message(state: &AppState, node_id: Uuid, message: WorkerMessage)
                 tracing::warn!(%node_id, %error, "failed to record worker stats");
             }
         }
-        Some(worker_message::Payload::Heartbeat(_)) => {
+        Some(worker_message::Payload::Heartbeat(heartbeat)) => {
             state.registry.touch(node_id);
+            if let Some(metrics) = heartbeat.metrics {
+                let update = awg_network::NodeMetricsUpdate {
+                    cpu_load: metrics.cpu_load,
+                    mem_used_bytes: metrics.mem_used_bytes,
+                    mem_total_bytes: metrics.mem_total_bytes,
+                    kernel_version: metrics.kernel_version,
+                    worker_version: metrics.worker_version,
+                    uptime_secs: metrics.uptime_secs,
+                };
+                if let Err(error) = state.network.record_metrics(node_id, update) {
+                    tracing::warn!(%node_id, %error, "failed to record node metrics");
+                }
+            }
         }
         Some(worker_message::Payload::ApplyResult(result)) => {
             if result.ok {

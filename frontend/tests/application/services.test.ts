@@ -518,6 +518,7 @@ describe("NodesService", () => {
         node: { id: "n1", name: "node", created_at: "2020-01-01T00:00:00Z" },
         token: "token",
       })),
+      rotateNode: vi.fn(async () => ({ node: NODE, token: "rotated-token" })),
       deleteNode: vi.fn(async () => undefined),
     };
   }
@@ -532,6 +533,15 @@ describe("NodesService", () => {
     const service = new DefaultNodesService(repo);
     await service.createNode(" node ");
     expect(repo.createNode).toHaveBeenCalledWith("node");
+  });
+
+  it("validates the node id before rotating", async () => {
+    const repo = makeNodes();
+    const service = new DefaultNodesService(repo);
+
+    await expect(service.rotateNode(" ")).rejects.toBeInstanceOf(ValidationError);
+    await service.rotateNode(" n1 ");
+    expect(repo.rotateNode).toHaveBeenCalledWith("n1");
   });
 });
 
@@ -598,9 +608,16 @@ describe("DevicesService", () => {
         format: "conf" as const,
         expires_at: "2020-01-02T00:00:00Z",
         created_at: "2020-01-01T00:00:00Z",
+        used_at: null,
+        max_uses: null,
+        uses: 0,
+        remaining_uses: null,
+        revoked_at: null,
+        state: "active" as const,
         url: "https://example.com/s",
       })),
       revokeShare: vi.fn(async () => undefined),
+      revokeAllShares: vi.fn(async () => 0),
     };
   }
 
@@ -643,6 +660,8 @@ describe("StatsService", () => {
       overview: vi.fn(async (): Promise<Overview> => ({
         today: { rx: 1, tx: 2 },
         month: { rx: 3, tx: 4 },
+        rx_bps: 0,
+        tx_bps: 0,
         nodes_online: 1,
         nodes_total: 1,
         interfaces: 1,

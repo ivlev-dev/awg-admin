@@ -1,11 +1,12 @@
 import type { NodesRepository } from "@/domain/nodes/repository";
-import type { NodeCreated } from "@/domain/nodes/types";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { requireId, requireText } from "../guards";
 
 export interface NodesService {
   listNodes(): Promise<NodeInfo[]>;
   createNode(name: string): Promise<NodeCreated>;
+  rotateNode(id: string): Promise<NodeRotated>;
   deleteNode(id: string): Promise<void>;
 }
 
@@ -18,6 +19,10 @@ export class DefaultNodesService implements NodesService {
 
   async createNode(name: string): Promise<NodeCreated> {
     return this.repository.createNode(requireText(name, "Имя ноды"));
+  }
+
+  async rotateNode(id: string): Promise<NodeRotated> {
+    return this.repository.rotateNode(requireId(id, "Нода"));
   }
 
   async deleteNode(id: string): Promise<void> {

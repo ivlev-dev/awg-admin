@@ -11,7 +11,7 @@ import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
-import type { NodeCreated } from "@/domain/nodes/types";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type {
   AuthSession,
   CidrPool,
@@ -230,6 +230,12 @@ class MemoryNodesRepository {
     node: { id: `n${this.items.size + 1}`, name, created_at: "2020-01-01T00:00:00Z" },
     token: "token",
   }));
+
+  rotateNode = vi.fn(async (id: string): Promise<NodeRotated> => {
+    const existing = this.items.get(id);
+    if (!existing) throw new Error("not implemented");
+    return { node: { ...existing, token_issued_at: "2026-01-01T00:00:00Z" }, token: "rotated" };
+  });
 
   deleteNode = vi.fn(async (): Promise<void> => undefined);
 }

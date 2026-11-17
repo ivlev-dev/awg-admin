@@ -88,6 +88,37 @@ impl WorkerClient {
             })
         };
 
+        let heartbeat_task = {
+            let tx = tx.clone();
+            tokio::spawn(async move {
+                let mut ticker = tokio::time::interval(Duration::from_secs(20));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                loop {
+                    ticker.tick().await;
+                    let metrics = match crate::infrastructure::metrics::collect() {
+                        Ok(metrics) => Some(to_proto_metrics(metrics)),
+                        Err(error) => {
+                            tracing::warn!(%error, "failed to collect node metrics");
+                            None
+                        }
+                    };
+                    let heartbeat = proto::Heartbeat {
+                        at: chrono::Utc::now().timestamp(),
+                        metrics,
+                    };
+                    if tx
+                        .send(proto::WorkerMessage {
+                            payload: Some(worker_message::Payload::Heartbeat(heartbeat)),
+                        })
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            })
+        };
+
         while let Some(message) = inbound.next().await {
             let message = message.context("gRPC stream failed")?;
             match message.payload {
@@ -127,7 +158,19 @@ impl WorkerClient {
         }
 
         stats_task.abort();
+        heartbeat_task.abort();
         Ok(())
+    }
+}
+
+fn to_proto_metrics(metrics: crate::infrastructure::NodeMetrics) -> proto::NodeMetrics {
+    proto::NodeMetrics {
+        cpu_load: metrics.cpu_load,
+        mem_used_bytes: metrics.mem_used_bytes,
+        mem_total_bytes: metrics.mem_total_bytes,
+        kernel_version: metrics.kernel_version,
+        worker_version: metrics.worker_version,
+        uptime_secs: metrics.uptime_secs,
     }
 }
 

@@ -68,6 +68,14 @@ export interface NodeInfo {
   last_seen: string | null;
   version: string | null;
   interfaces: number;
+  token_issued_at?: string | null;
+  cpu_load?: number | null;
+  mem_used_bytes?: number | null;
+  mem_total_bytes?: number | null;
+  kernel_version?: string | null;
+  worker_version?: string | null;
+  uptime_secs?: number | null;
+  metrics_at?: string | null;
 }
 
 export interface HeaderRange {
@@ -142,6 +150,8 @@ export interface Profile {
   vpn_link: string;
 }
 
+export type ShareLinkState = "active" | "expired" | "exhausted" | "revoked";
+
 export interface ShareLink {
   token: string;
   device_id: string;
@@ -149,6 +159,12 @@ export interface ShareLink {
   format: ShareFormat;
   expires_at: string;
   created_at: string;
+  used_at: string | null;
+  max_uses: number | null;
+  uses: number;
+  remaining_uses: number | null;
+  revoked_at: string | null;
+  state: ShareLinkState;
   url: string;
 }
 
@@ -160,6 +176,8 @@ export interface TrafficTotals {
 export interface Overview {
   today: TrafficTotals;
   month: TrafficTotals;
+  rx_bps: number;
+  tx_bps: number;
   nodes_online: number;
   nodes_total: number;
   interfaces: number;
@@ -180,6 +198,8 @@ export interface StatsPoint {
   at: string;
   rx: number;
   tx: number;
+  rx_bps: number;
+  tx_bps: number;
 }
 
 export interface ObfuscationSettings {

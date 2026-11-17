@@ -31,6 +31,16 @@ message Hello {
 
 message Heartbeat {
   int64 at = 1;
+  NodeMetrics metrics = 2;
+}
+
+message NodeMetrics {
+  double cpu_load = 1;
+  uint64 mem_used_bytes = 2;
+  uint64 mem_total_bytes = 3;
+  string kernel_version = 4;
+  string worker_version = 5;
+  uint64 uptime_secs = 6;
 }
 
 message Ping {

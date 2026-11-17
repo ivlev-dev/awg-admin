@@ -37,6 +37,32 @@ pub struct Node {
     pub last_seen: Option<DateTime<Utc>>,
     pub version: Option<String>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub token_issued_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub cpu_load: Option<f64>,
+    #[serde(default)]
+    pub mem_used_bytes: Option<u64>,
+    #[serde(default)]
+    pub mem_total_bytes: Option<u64>,
+    #[serde(default)]
+    pub kernel_version: Option<String>,
+    #[serde(default)]
+    pub worker_version: Option<String>,
+    #[serde(default)]
+    pub uptime_secs: Option<u64>,
+    #[serde(default)]
+    pub metrics_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NodeMetricsUpdate {
+    pub cpu_load: f64,
+    pub mem_used_bytes: u64,
+    pub mem_total_bytes: u64,
+    pub kernel_version: String,
+    pub worker_version: String,
+    pub uptime_secs: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

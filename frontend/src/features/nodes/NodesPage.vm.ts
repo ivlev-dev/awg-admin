@@ -2,8 +2,15 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
+import {
+  formatCpuLoad,
+  formatMetricsUpdated,
+  formatNodeMemory,
+  formatNodeMemoryPercent,
+  formatTokenIssuedAt,
+} from "@/application/nodes/metrics";
 import type { NodesService } from "@/application/nodes/service";
-import type { NodeCreated } from "@/domain/nodes/types";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
@@ -20,6 +27,9 @@ export class NodesPageVM {
 
   @reactive accessor createdNode: NodeCreated | null = null;
   @reactive accessor tokenCopied = false;
+
+  @reactive accessor rotatedNode: NodeRotated | null = null;
+  @reactive accessor rotatedTokenCopied = false;
 
   constructor(
     private readonly nodesService: NodesService,
@@ -78,6 +88,11 @@ export class NodesPageVM {
     this.tokenCopied = false;
   }
 
+  closeRotated(): void {
+    this.rotatedNode = null;
+    this.rotatedTokenCopied = false;
+  }
+
   setName(event: Event): void {
     this.name = (event.target as HTMLInputElement).value;
   }
@@ -115,6 +130,36 @@ export class NodesPageVM {
     }
   }
 
+  async copyRotatedToken(): Promise<void> {
+    const token = this.rotatedNode?.token;
+    if (!token) return;
+    const copied = await copyText(token);
+    this.rotatedTokenCopied = copied;
+    if (copied) {
+      this.toasts.success(t("nodes.toast.tokenCopied"));
+    } else {
+      this.toasts.error(t("nodes.toast.tokenCopyFailed"));
+    }
+  }
+
+  async rotate(node: NodeInfo): Promise<void> {
+    if (this.busy) return;
+    const confirmed = window.confirm(t("nodes.confirm.rotate", { name: node.name }));
+    if (!confirmed) return;
+    this.busy = true;
+    try {
+      const result = await this.nodesService.rotateNode(node.id);
+      this.rotatedNode = result;
+      this.rotatedTokenCopied = false;
+      this.toasts.success(t("nodes.toast.rotated", { name: result.node.name }));
+      await this.load();
+    } catch (error) {
+      this.toasts.error(messageOf(error, t("nodes.error.rotate")));
+    } finally {
+      this.busy = false;
+    }
+  }
+
   async remove(node: NodeInfo): Promise<void> {
     if (this.busy) return;
     const confirmed = window.confirm(t("nodes.confirm.delete", { name: node.name }));
@@ -137,6 +182,32 @@ export class NodesPageVM {
 
   interfacesLabel(node: NodeInfo): string {
     return `${node.interfaces} ${pluralI18n(node.interfaces, "common.interfaces.one", "common.interfaces.few", "common.interfaces.many")}`;
+  }
+
+  metricsLabel(node: NodeInfo): string {
+    const cpu = formatCpuLoad(node.cpu_load);
+    const memory = formatNodeMemory(node.mem_used_bytes, node.mem_total_bytes);
+    return `${t("nodes.metrics.cpu")} ${cpu} · ${t("nodes.metrics.ram")} ${memory}`;
+  }
+
+  memoryPercent(node: NodeInfo): string | null {
+    return formatNodeMemoryPercent(node.mem_used_bytes, node.mem_total_bytes);
+  }
+
+  metricsUpdatedLabel(node: NodeInfo): string {
+    return t("nodes.metrics.updated", { value: formatMetricsUpdated(node.metrics_at) });
+  }
+
+  workerVersionLabel(node: NodeInfo): string {
+    return node.worker_version ?? node.version ?? t("nodes.metrics.unavailable");
+  }
+
+  kernelVersionLabel(node: NodeInfo): string {
+    return node.kernel_version ?? t("nodes.metrics.unavailable");
+  }
+
+  tokenIssuedLabel(node: NodeInfo): string {
+    return formatTokenIssuedAt(node.token_issued_at);
   }
 }
 

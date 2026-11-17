@@ -11,7 +11,8 @@ use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
     CidrPool, CidrPoolRepository, Group, GroupRepository, Interface, InterfaceRepository, Node,
-    NodeRepository, NodeStatus, PoolMode, SubnetAllocator, validate_interface_name,
+    NodeMetricsUpdate, NodeRepository, NodeStatus, PoolMode, SubnetAllocator,
+    validate_interface_name,
 };
 
 #[derive(Debug, Clone)]
@@ -234,6 +235,7 @@ impl NetworkService {
             return Err(CoreError::Invalid("node name is required".into()));
         }
         let token = hex(&random_bytes::<32>());
+        let now = Utc::now();
         let node = Node {
             id: Uuid::new_v4(),
             name: name.trim().to_string(),
@@ -241,10 +243,40 @@ impl NetworkService {
             status: NodeStatus::Offline,
             last_seen: None,
             version: None,
-            created_at: Utc::now(),
+            created_at: now,
+            token_issued_at: Some(now),
+            cpu_load: None,
+            mem_used_bytes: None,
+            mem_total_bytes: None,
+            kernel_version: None,
+            worker_version: None,
+            uptime_secs: None,
+            metrics_at: None,
         };
         self.nodes.save(&node)?;
         Ok((node, token))
+    }
+
+    pub fn rotate_node_token(&self, id: Uuid) -> CoreResult<(Node, String)> {
+        let mut node = self.get_node(id)?;
+        let token = hex(&random_bytes::<32>());
+        node.token_hash = hash_token(&token);
+        node.token_issued_at = Some(Utc::now());
+        self.nodes.save(&node)?;
+        Ok((node, token))
+    }
+
+    pub fn record_metrics(&self, id: Uuid, metrics: NodeMetricsUpdate) -> CoreResult<Node> {
+        let mut node = self.get_node(id)?;
+        node.cpu_load = Some(metrics.cpu_load);
+        node.mem_used_bytes = Some(metrics.mem_used_bytes);
+        node.mem_total_bytes = Some(metrics.mem_total_bytes);
+        node.kernel_version = Some(metrics.kernel_version);
+        node.worker_version = Some(metrics.worker_version);
+        node.uptime_secs = Some(metrics.uptime_secs);
+        node.metrics_at = Some(Utc::now());
+        self.nodes.save(&node)?;
+        Ok(node)
     }
 
     pub fn authenticate_node(&self, token: &str) -> CoreResult<Node> {

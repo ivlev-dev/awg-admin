@@ -6,5 +6,5 @@ pub use application::{
     AwgControl, CounterRepository, ForwardingControl, ReconcileService, StatsReport, TrafficShaper,
 };
 pub use infrastructure::{
-    FileCounterRepository, NetlinkAwg, NftForwarding, TcShaper, WorkerClient,
+    FileCounterRepository, NetlinkAwg, NftForwarding, NodeMetrics, TcShaper, WorkerClient,
 };

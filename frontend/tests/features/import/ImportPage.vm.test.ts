@@ -332,6 +332,9 @@ function nodesHarness(nodes: NodeInfo[]): {
       createNode: vi.fn(async () => {
         throw new Error("createNode is not used in this test");
       }),
+      rotateNode: vi.fn(async () => {
+        throw new Error("rotateNode is not used in this test");
+      }),
       deleteNode: vi.fn(async () => undefined),
     },
   };

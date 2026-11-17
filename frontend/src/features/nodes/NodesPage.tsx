@@ -103,7 +103,9 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                   <tr>
                     <th>{t("nodes.column.node")}</th>
                     <th>{t("nodes.column.status")}</th>
-                    <th>{t("nodes.column.version")}</th>
+                    <th>{t("nodes.column.metrics")}</th>
+                    <th>{t("nodes.column.versions")}</th>
+                    <th>{t("nodes.column.tokenIssued")}</th>
                     <th>{t("nodes.column.lastSeen")}</th>
                     <th>{t("nodes.column.interfaces")}</th>
                     <th></th>
@@ -123,13 +125,40 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                             {node.online ? t("nodes.status.online") : t("nodes.status.offline")}
                           </span>
                         </td>
-                        <td data-label={t("nodes.column.version")} class="mono">{node.version ?? "—"}</td>
+                        <td data-label={t("nodes.column.metrics")}>
+                          <div class="strong mono">{this.vm.metricsLabel(node)}</div>
+                          <div class="xs muted">
+                            <Show when={this.vm.memoryPercent(node)}>
+                              <span>{this.vm.memoryPercent(node)} · </span>
+                            </Show>
+                            <span>{this.vm.metricsUpdatedLabel(node)}</span>
+                          </div>
+                        </td>
+                        <td data-label={t("nodes.column.versions")}>
+                          <div class="strong">
+                            <span class="xs muted">{t("nodes.versions.worker")}: </span>
+                            <span class="mono">{this.vm.workerVersionLabel(node)}</span>
+                          </div>
+                          <div class="xs muted mono">{t("nodes.versions.kernel")}: {this.vm.kernelVersionLabel(node)}</div>
+                        </td>
+                        <td data-label={t("nodes.column.tokenIssued")}>
+                          <span title={node.token_issued_at ?? undefined}>{this.vm.tokenIssuedLabel(node)}</span>
+                        </td>
                         <td data-label={t("nodes.column.lastSeen")}>
                           <span title={node.last_seen ?? undefined}>{this.vm.lastSeen(node.last_seen)}</span>
                         </td>
                         <td data-label={t("nodes.column.interfaces")} class="nowrap">{this.vm.interfacesLabel(node)}</td>
                         <td class="cell-actions">
                           <Show when={this.vm.isAdmin}>
+                            <button
+                              class="btn btn--sm"
+                              type="button"
+                              disabled={this.vm.busy}
+                              aria-label={t("nodes.rotate.aria", { name: node.name })}
+                              onClick={() => this.vm.rotate(node)}
+                            >
+                              <Icon name="shield" size={14} class="" /> {t("nodes.rotate")}
+                            </button>
                             <button
                               class="btn btn--sm btn--danger"
                               type="button"
@@ -215,6 +244,37 @@ export function NodesPage(this: { vm: NodesPageVM }) {
           </dl>
           <div class="xs muted">{t("nodes.created.envHint")}</div>
           <pre class="code code--light">{`AWG_NODE_ID=${this.vm.createdNode?.node.id ?? ""}\nAWG_NODE_TOKEN=${this.vm.createdNode?.token ?? ""}\nAWG_CONTROL_URL=https://panel.example.com`}</pre>
+        </div>
+      </Modal>
+
+      <Modal
+        open={this.vm.rotatedNode !== null}
+        title={t("nodes.rotated.title")}
+        onClose={() => this.vm.closeRotated()}
+        footer={<button class="btn btn--primary" type="button" onClick={() => this.vm.closeRotated()}>{t("common.done")}</button>}
+      >
+        <div class="stack-sm">
+          <div class="alert alert--warn">
+            {t("nodes.rotated.notice")}
+          </div>
+          <div class="field">
+            <label for="node-rotated-token">{t("nodes.rotated.token")}</label>
+            <div class="copy-row">
+              <input id="node-rotated-token" class="input" readonly value={this.vm.rotatedNode?.token ?? ""} />
+              <button class="btn" type="button" onClick={() => this.vm.copyRotatedToken()}>
+                <Icon name={this.vm.rotatedTokenCopied ? "check" : "copy"} size={16} class="" />
+                {this.vm.rotatedTokenCopied ? t("common.copied") : t("common.copy")}
+              </button>
+            </div>
+          </div>
+          <dl class="kv">
+            <dt>{t("nodes.created.nodeId")}</dt>
+            <dd class="mono">{this.vm.rotatedNode?.node.id}</dd>
+            <dt>{t("nodes.created.name")}</dt>
+            <dd>{this.vm.rotatedNode?.node.name}</dd>
+          </dl>
+          <div class="xs muted">{t("nodes.created.envHint")}</div>
+          <pre class="code code--light">{`AWG_NODE_ID=${this.vm.rotatedNode?.node.id ?? ""}\nAWG_NODE_TOKEN=${this.vm.rotatedNode?.token ?? ""}\nAWG_CONTROL_URL=https://panel.example.com`}</pre>
         </div>
       </Modal>
     </div>
