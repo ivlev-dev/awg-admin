@@ -27,9 +27,9 @@
   Страницы рендерит `RouterView` с DI-контейнером, слотами `error`/`notFound` и
   переиспользованием view; фасад `src/app/router.ts` сохраняет API для VM.
   DI работает в строгом режиме (`di: "error"` в Vite и `implicitBindings`).
-- UI: Material You (M3) на navy-палитре: тональные поверхности, status-chip,
-  chips-фильтры, sticky-таблицы, аватары, метры, мобильные карточки; пилот —
-  «Клиенты», «Аудит», «Ноды». Мобильная навигация «4 таба + Ещё» (bottom sheet),
+- UI: Material You (M3) на navy-палитре: drawer 280px, top app bar 64px,
+  page-head 28/36, тональные поверхности, M3-кнопки/поля/чипы, sticky-таблицы,
+  аватары, метры, мобильные карточки; переведены shell и все основные страницы. Мобильная навигация «4 таба + Ещё» (bottom sheet),
   тач-таргеты 44px, массовые действия, сортировка, `BulkBar`, fallback
   копирования в буфер обмена для HTTP.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,

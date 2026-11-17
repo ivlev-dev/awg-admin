@@ -138,7 +138,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                     </dl>
                   </div>
                   <div class="card__foot row-between">
-                    <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.open(group)}>
+                    <button class="btn btn--sm btn--tonal" type="button" onClick={() => this.vm.open(group)}>
                       {t("groups.action.open")}
                     </button>
                     <div class="actions-bar">

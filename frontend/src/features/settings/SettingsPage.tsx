@@ -27,7 +27,7 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
-      <section class="card">
+      <section class="card card--elevated">
         <div class="card__head">
           <div>
             <div class="card__title">{t("language.title")}</div>
@@ -73,7 +73,7 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
 
       <Show when={this.vm.loaded}>
         <form class="stack" onSubmit={(event: SubmitEvent) => this.vm.save(event)}>
-          <section class="card">
+          <section class="card card--elevated">
             <div class="card__head">
               <div>
                 <div class="card__title">{t("settings.obfuscation.title")}</div>
@@ -301,7 +301,7 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
             </div>
           </section>
 
-          <section class="card">
+          <section class="card card--elevated">
             <div class="card__head">
               <div>
                 <div class="card__title">{t("settings.links.title")}</div>
@@ -326,22 +326,21 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
                 </div>
               </div>
             </div>
+            <div class="card__foot actions-bar" style="justify-content:flex-end">
+              <button class="btn" type="button" onClick={() => this.vm.load()} disabled={this.vm.saving}>
+                {t("common.cancel")}
+              </button>
+              <button class="btn btn--primary" type="submit" disabled={!this.vm.canSave}>
+                <Show when={this.vm.saving} fallback={<span>{t("settings.action.save")}</span>}>
+                  <span
+                    class="spinner"
+                    style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"
+                  ></span>
+                  <span>{t("common.saving")}</span>
+                </Show>
+              </button>
+            </div>
           </section>
-
-          <div class="actions-bar" style="justify-content:flex-end">
-            <button class="btn" type="button" onClick={() => this.vm.load()} disabled={this.vm.saving}>
-              {t("common.cancel")}
-            </button>
-            <button class="btn btn--primary" type="submit" disabled={!this.vm.canSave}>
-              <Show when={this.vm.saving} fallback={<span>{t("settings.action.save")}</span>}>
-                <span
-                  class="spinner"
-                  style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"
-                ></span>
-                <span>{t("common.saving")}</span>
-              </Show>
-            </button>
-          </div>
         </form>
       </Show>
     </div>

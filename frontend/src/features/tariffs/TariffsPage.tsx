@@ -3,6 +3,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { TariffsPageVM } from "./TariffsPage.vm";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
+import { SkeletonTable } from "@/components/Skeleton";
 import { formatBytes, formatRate } from "@/domain/format";
 
 export function TariffsPage(this: { vm: TariffsPageVM }) {
@@ -10,87 +11,106 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
     <div class="stack">
       <div class="page-head">
         <div class="page-head__eyebrow">Тарифы</div>
-        <div class="row-between wrap">
-          <div>
-            <h1>Тарифы</h1>
-            <p>Управление тарифами и лимитами скорости.</p>
-          </div>
-          <div class="actions-bar">
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-              <Icon name="plus" size={16} class="" /> Новый тариф
-            </button>
-          </div>
-        </div>
+        <h1>Тарифы</h1>
+        <p>Управление тарифами и лимитами скорости.</p>
       </div>
 
       <Show when={this.vm.error}>
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">Список тарифов</div>
-            <div class="card__sub">Всего: {this.vm.tariffs.length}</div>
+      <section class="card card--flush" aria-busy={this.vm.loading ? "true" : "false"}>
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">Список тарифов</div>
+              <div class="data-toolbar__sub">Всего: {this.vm.tariffs.length}</div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
+                <Icon name="plus" size={16} class="" /> Новый тариф
+              </button>
+            </div>
           </div>
         </div>
-        <div class="card__body">
-          <Show when={!this.vm.loading} fallback={<div class="skeleton" style="height:120px"></div>}>
-            <Show
-              when={this.vm.tariffs.length > 0}
-              fallback={<div class="empty"><div class="empty__title">Нет тарифов</div><div class="small">Создайте первый тариф.</div></div>}
-            >
-              <div class="table-wrap">
-                <table class="table table--cards">
-                  <thead>
-                    <tr>
-                      <th>Название</th>
-                      <th>Устройств</th>
-                      <th>Устр. ↓</th>
-                      <th>Устр. ↑</th>
-                      <th>Группа ↓</th>
-                      <th>Группа ↑</th>
-                      <th>Квота</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={this.vm.tariffs}>
-                      {(tariff) => (
-                        <tr>
-                          <td data-label="Название">
-                            <span class="strong">{tariff.name}</span>
-                            <Show when={tariff.description}>
-                              <div class="xs muted">{tariff.description}</div>
-                            </Show>
-                          </td>
-                          <td data-label="Устройств" class="mono">{tariff.max_devices}</td>
-                          <td data-label="Устр. ↓" class="mono">{formatRate(tariff.device_down_kbps)}</td>
-                          <td data-label="Устр. ↑" class="mono">{formatRate(tariff.device_up_kbps)}</td>
-                          <td data-label="Группа ↓" class="mono">{formatRate(tariff.group_down_kbps)}</td>
-                          <td data-label="Группа ↑" class="mono">{formatRate(tariff.group_up_kbps)}</td>
-                          <td data-label="Квота" class="mono">
-                            {tariff.traffic_quota_bytes === null ? "Безлимит" : formatBytes(tariff.traffic_quota_bytes)}
-                          </td>
-                          <td>
-                            <div class="row" style="gap:6px">
-                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label="Редактировать">
-                                <Icon name="edit" size={14} class="" />
-                              </button>
-                              <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => this.vm.remove(tariff.id)} aria-label="Удалить">
-                                <Icon name="trash" size={14} class="" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
+
+        <Show
+          when={!this.vm.loading}
+          fallback={
+            <div class="card__body">
+              <SkeletonTable rows={5} columns={8} />
+            </div>
+          }
+        >
+          <Show
+            when={this.vm.tariffs.length > 0}
+            fallback={
+              <div class="empty">
+                <Icon name="tariffs" size={40} class="empty__icon" />
+                <div class="empty__title">Нет тарифов</div>
+                <div class="empty__text">Создайте первый тариф.</div>
+                <div style="margin-top:16px">
+                  <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
+                    <Icon name="plus" size={16} class="" /> Новый тариф
+                  </button>
+                </div>
               </div>
-            </Show>
+            }
+          >
+            <div class="data-scroll">
+              <table class="table table--cards table--fixed">
+                <thead>
+                  <tr>
+                    <th>Название</th>
+                    <th>Устройств</th>
+                    <th>Устр. ↓</th>
+                    <th>Устр. ↑</th>
+                    <th>Группа ↓</th>
+                    <th>Группа ↑</th>
+                    <th>Квота</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={this.vm.tariffs}>
+                    {(tariff) => (
+                      <tr>
+                        <td data-label="Название">
+                          <div class="cell-name">
+                            <span class="cell-name__text">
+                              <span class="strong">{tariff.name}</span>
+                              <Show when={tariff.description}>
+                                <div class="xs muted">{tariff.description}</div>
+                              </Show>
+                            </span>
+                          </div>
+                        </td>
+                        <td data-label="Устройств" class="mono">{tariff.max_devices}</td>
+                        <td data-label="Устр. ↓" class="mono">{formatRate(tariff.device_down_kbps)}</td>
+                        <td data-label="Устр. ↑" class="mono">{formatRate(tariff.device_up_kbps)}</td>
+                        <td data-label="Группа ↓" class="mono">{formatRate(tariff.group_down_kbps)}</td>
+                        <td data-label="Группа ↑" class="mono">{formatRate(tariff.group_up_kbps)}</td>
+                        <td data-label="Квота" class="mono">
+                          {tariff.traffic_quota_bytes === null ? "Безлимит" : formatBytes(tariff.traffic_quota_bytes)}
+                        </td>
+                        <td class="cell-actions">
+                          <div class="row" style="gap:6px">
+                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label="Редактировать">
+                              <Icon name="edit" size={14} class="" />
+                            </button>
+                            <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => this.vm.remove(tariff.id)} aria-label="Удалить">
+                              <Icon name="trash" size={14} class="" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </div>
           </Show>
-        </div>
+        </Show>
       </section>
 
       <Modal

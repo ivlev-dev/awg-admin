@@ -7,32 +7,17 @@ import { Select } from "@/components/Select";
 import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
+function avatarLetter(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "?";
+}
+
 export function StatsPage(this: { vm: StatsVM }) {
   return (
     <div class="stack">
       <div class="page-head">
         <div class="page-head__eyebrow">{t("stats.eyebrow")}</div>
-        <div class="row-between wrap">
-          <div>
-            <h1>{t("stats.title")}</h1>
-            <p>
-              {t("stats.subtitle")}
-            </p>
-          </div>
-          <div class="actions-bar">
-            <button
-              class="btn btn--sm"
-              type="button"
-              disabled={this.vm.seriesLoading}
-              onClick={() => this.vm.refresh()}
-            >
-              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
-            </button>
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.exportCsv()}>
-              <Icon name="download" size={14} class="" /> CSV
-            </button>
-          </div>
-        </div>
+        <h1>{t("stats.title")}</h1>
+        <p>{t("stats.subtitle")}</p>
       </div>
 
       <Show when={this.vm.error}>
@@ -42,9 +27,29 @@ export function StatsPage(this: { vm: StatsVM }) {
         <div class="alert alert--warn">{this.vm.entitiesError}</div>
       </Show>
 
-      <section class="card">
-        <div class="card__body stack">
-          <div class="grid grid--2">
+      <section class="card card--flush">
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">{this.vm.selectedScopeLabel}</div>
+              <div class="data-toolbar__sub">{this.vm.periodLabel}</div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button
+                class="btn btn--sm"
+                type="button"
+                disabled={this.vm.seriesLoading}
+                onClick={() => this.vm.refresh()}
+              >
+                <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+              </button>
+              <button class="btn btn--sm" type="button" onClick={() => this.vm.exportCsv()}>
+                <Icon name="download" size={14} class="" /> CSV
+              </button>
+            </div>
+          </div>
+
+          <div class="data-toolbar__bottom">
             <div class="field">
               <label for="stats-scope">{t("stats.scope.label")}</label>
               <Select
@@ -61,7 +66,7 @@ export function StatsPage(this: { vm: StatsVM }) {
               fallback={
                 <div class="field">
                   <label>{t("stats.detail.label")}</label>
-                  <div class="xs muted" style="padding-top:10px">
+                  <div class="small muted" style="padding-top:8px">
                     {this.vm.isAdmin
                       ? t("stats.detail.admin")
                       : t("stats.detail.user")}
@@ -82,61 +87,80 @@ export function StatsPage(this: { vm: StatsVM }) {
                 />
               </div>
             </Show>
-          </div>
 
-          <div class="tabs">
+            <div class="data-toolbar__spacer"></div>
+
             <button
-              class={`tab ${this.vm.rangeKey === "24h" ? "is-active" : ""}`}
+              class={`chip ${this.vm.rangeKey === "24h" ? "is-selected" : ""}`}
               type="button"
+              aria-pressed={this.vm.rangeKey === "24h" ? "true" : "false"}
               onClick={() => this.vm.setRange("24h")}
             >
-              {t("stats.range.24h")}
+              <Icon name="check" size={14} class="chip__check" /> {t("stats.range.24h")}
             </button>
             <button
-              class={`tab ${this.vm.rangeKey === "7d" ? "is-active" : ""}`}
+              class={`chip ${this.vm.rangeKey === "7d" ? "is-selected" : ""}`}
               type="button"
+              aria-pressed={this.vm.rangeKey === "7d" ? "true" : "false"}
               onClick={() => this.vm.setRange("7d")}
             >
-              {t("stats.range.7d")}
+              <Icon name="check" size={14} class="chip__check" /> {t("stats.range.7d")}
             </button>
             <button
-              class={`tab ${this.vm.rangeKey === "30d" ? "is-active" : ""}`}
+              class={`chip ${this.vm.rangeKey === "30d" ? "is-selected" : ""}`}
               type="button"
+              aria-pressed={this.vm.rangeKey === "30d" ? "true" : "false"}
               onClick={() => this.vm.setRange("30d")}
             >
-              {t("stats.range.30d")}
+              <Icon name="check" size={14} class="chip__check" /> {t("stats.range.30d")}
             </button>
           </div>
         </div>
       </section>
 
-      <Show when={this.vm.initialized} fallback={<SkeletonCards count={3} />}>
-        <div class="grid grid--3">
+      <Show when={this.vm.initialized} fallback={<SkeletonCards count={4} />}>
+        <div class="grid grid--4">
           <div class="stat">
-            <div class="stat__label">
-              <span class="dot dot--green"></span>{t("stats.card.rx")}
+            <div class="stat__top" style="justify-content:flex-start">
+              <div class="stat__icon"><Icon name="arrowDown" size={22} class="" /></div>
+              <div class="stat__label">{t("stats.card.rx")}</div>
             </div>
             <div class="stat__value">{this.vm.totalRxLabel}</div>
             <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
           </div>
           <div class="stat">
-            <div class="stat__label">
-              <span class="dot" style="background:var(--brand-3)"></span>{t("stats.card.tx")}
+            <div class="stat__top" style="justify-content:flex-start">
+              <div class="stat__icon"><Icon name="arrowUp" size={22} class="" /></div>
+              <div class="stat__label">{t("stats.card.tx")}</div>
             </div>
             <div class="stat__value">{this.vm.totalTxLabel}</div>
             <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
           </div>
           <div class="stat">
-            <div class="stat__label">{t("stats.card.average")}</div>
+            <div class="stat__top" style="justify-content:flex-start">
+              <div class="stat__icon"><Icon name="stats" size={22} class="" /></div>
+              <div class="stat__label">{t("stats.card.average")}</div>
+            </div>
             <div class="stat__value">{this.vm.averageRxLabel}</div>
             <div class="stat__hint">
               {t("stats.card.averageHint", { tx: this.vm.averageTxLabel })}
             </div>
           </div>
+          <div class="stat">
+            <div class="stat__top" style="justify-content:flex-start">
+              <div class="stat__icon"><Icon name="traffic" size={22} class="" /></div>
+              <div class="stat__label">{t("stats.card.points")}</div>
+            </div>
+            <div class="stat__value">{this.vm.points}</div>
+            <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
+          </div>
         </div>
       </Show>
 
-      <section class="card">
+      <section
+        class="card card--elevated"
+        aria-busy={this.vm.seriesLoading || !this.vm.initialized ? "true" : "false"}
+      >
         <div class="card__head">
           <div>
             <div class="card__title">{t("stats.chart.title")}</div>
@@ -149,7 +173,7 @@ export function StatsPage(this: { vm: StatsVM }) {
             <span><i style="background:var(--brand-3)"></i>{t("stats.chart.tx")}</span>
           </div>
         </div>
-        <div class="card__body" aria-busy={this.vm.seriesLoading || !this.vm.initialized ? "true" : "false"}>
+        <div class="card__body">
           <Show
             when={this.vm.seriesLoading || !this.vm.initialized}
             fallback={
@@ -157,10 +181,9 @@ export function StatsPage(this: { vm: StatsVM }) {
                 when={this.vm.series.length > 0}
                 fallback={
                   <div class="empty">
+                    <div class="empty__icon"><Icon name="traffic" size={28} class="" /></div>
                     <div class="empty__title">{t("stats.chart.emptyTitle")}</div>
-                    <div class="small">
-                      {t("stats.chart.emptyText")}
-                    </div>
+                    <div class="empty__text">{t("stats.chart.emptyText")}</div>
                   </div>
                 }
               >
@@ -173,20 +196,15 @@ export function StatsPage(this: { vm: StatsVM }) {
         </div>
       </section>
 
-      <section class="card card--flush" aria-busy={this.vm.devicesLoading || !this.vm.initialized ? "true" : "false"}>
+      <section
+        class="card card--flush"
+        aria-busy={this.vm.devicesLoading || !this.vm.initialized ? "true" : "false"}
+      >
         <div class="card__head">
           <div>
             <div class="card__title">{t("stats.devices.breakdown")}</div>
             <div class="card__sub">{t("stats.devices.subtitle")}</div>
           </div>
-          <button
-            class="btn btn--sm"
-            type="button"
-            disabled={this.vm.devicesLoading}
-            onClick={() => this.vm.refresh()}
-          >
-            <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
-          </button>
         </div>
         <Show
           when={this.vm.devicesLoading || !this.vm.initialized}
@@ -195,21 +213,22 @@ export function StatsPage(this: { vm: StatsVM }) {
               when={this.vm.deviceRowsView.length > 0}
               fallback={
                 <div class="empty">
+                  <div class="empty__icon"><Icon name="clients" size={28} class="" /></div>
                   <div class="empty__title">{t("stats.devices.emptyTitle")}</div>
-                  <div class="small">{t("stats.devices.emptyText")}</div>
+                  <div class="empty__text">{t("stats.devices.emptyText")}</div>
                 </div>
               }
             >
-              <div class="table-wrap">
-                <table class="table table--cards">
+              <div class="data-scroll">
+                <table class="table table--cards table--fixed">
                   <thead>
                     <tr>
                       <th>{t("stats.devices.column.device")}</th>
-                      <th>{t("stats.devices.column.todayRx")}</th>
-                      <th>{t("stats.devices.column.todayTx")}</th>
-                      <th>{t("stats.devices.column.monthRx")}</th>
-                      <th>{t("stats.devices.column.monthTx")}</th>
-                      <th></th>
+                      <th style="width:132px">{t("stats.devices.column.todayRx")}</th>
+                      <th style="width:132px">{t("stats.devices.column.todayTx")}</th>
+                      <th style="width:132px">{t("stats.devices.column.monthRx")}</th>
+                      <th style="width:132px">{t("stats.devices.column.monthTx")}</th>
+                      <th style="width:116px"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -217,29 +236,36 @@ export function StatsPage(this: { vm: StatsVM }) {
                       {(row) => (
                         <tr>
                           <td data-label={t("stats.devices.column.device")}>
-                            <div class="stack-sm">
-                              <span class="strong">{row.name}</span>
-                              <span class="xs muted truncate">{row.addresses || "—"}</span>
+                            <div class="cell-name">
+                              <span class="cell-avatar">{avatarLetter(row.name)}</span>
+                              <span class="cell-name__text">
+                                <span class="strong" title={row.name}>{row.name}</span>
+                                <span class="xs muted truncate">{row.addresses || "—"}</span>
+                              </span>
                             </div>
                           </td>
                           <td data-label={t("stats.devices.column.todayRx")} class="mono">{row.todayRx}</td>
                           <td data-label={t("stats.devices.column.todayTx")} class="mono">{row.todayTx}</td>
                           <td data-label={t("stats.devices.column.monthRx")} class="mono">{row.monthRx}</td>
                           <td data-label={t("stats.devices.column.monthTx")} class="mono">{row.monthTx}</td>
-                          <td>
+                          <td class="cell-actions">
                             <Show
                               when={row.failed}
                               fallback={
                                 <button
-                                  class="btn btn--sm btn--ghost"
+                                  class="btn btn--text btn--sm"
                                   type="button"
+                                  aria-label={t("stats.devices.open")}
                                   onClick={() => this.vm.openDevice(row.id)}
                                 >
-                                  {t("stats.devices.open")}
+                                  {t("stats.devices.open")} <Icon name="chevron" size={14} class="" />
                                 </button>
                               }
                             >
-                              <span class="badge badge--amber">{t("stats.devices.noData")}</span>
+                              <span class="status-chip status-chip--error">
+                                <span class="status-chip__dot"></span>
+                                {t("stats.devices.noData")}
+                              </span>
                             </Show>
                           </td>
                         </tr>

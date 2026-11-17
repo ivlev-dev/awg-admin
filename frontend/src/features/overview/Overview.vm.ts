@@ -185,6 +185,12 @@ export class OverviewVM {
   }
 
   @computed
+  get nodesShare(): number {
+    if (this.nodesTotal === 0) return 0;
+    return Math.round((this.nodesOnline / this.nodesTotal) * 100);
+  }
+
+  @computed
   get topDevices() {
     return this.data?.top_devices ?? [];
   }

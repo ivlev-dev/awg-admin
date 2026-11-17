@@ -244,6 +244,7 @@ describe("OverviewVM", () => {
     expect(vm.devices).toBe(3);
     expect(vm.nodesOnline).toBe(1);
     expect(vm.nodesTotal).toBe(2);
+    expect(vm.nodesShare).toBe(50);
     expect(vm.todayRx).toBe("1.0 КБ");
     expect(vm.todayTx).toBe("2.0 КБ");
     expect(vm.todayTotal).toBe("3.0 КБ");
@@ -333,6 +334,7 @@ describe("OverviewVM", () => {
     expect(vm.rxRate).toBe("0 B/с");
     expect(vm.txRate).toBe("0 B/с");
     expect(vm.devices).toBe(0);
+    expect(vm.nodesShare).toBe(0);
     expect(vm.topDevices).toEqual([]);
   });
 

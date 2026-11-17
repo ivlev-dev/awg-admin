@@ -18,15 +18,16 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
 
       <div class="profile-layout">
         <div class="stack">
-          <section class="card">
+          <section class="card card--elevated">
             <div class="card__body stack">
               <div class="row" style="gap:16px">
-                <div
-                  class="avatar avatar--lg"
+                <span
+                  class="cell-avatar"
                   style="width:72px;height:72px;border-radius:22px;font-size:1.7rem"
+                  aria-hidden="true"
                 >
                   {this.vm.userInitial}
-                </div>
+                </span>
                 <div class="grow">
                   <div class="row wrap" style="gap:8px">
                     <div class="strong" style="font-size:var(--t-lg)">{this.vm.login}</div>
@@ -83,14 +84,15 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 <div class="card__sub">{t("quota.period", { period: this.vm.quotaPeriodLabel })}</div>
               </div>
               <span
-                class={`badge ${
+                class={`status-chip ${
                   this.vm.quotaView.exceeded
-                    ? "badge--red"
+                    ? "status-chip--error"
                     : this.vm.quotaView.hasQuota
-                      ? "badge--green"
-                      : "badge--blue"
+                      ? "status-chip--ok"
+                      : "status-chip--neutral"
                 }`}
               >
+                <span class="status-chip__dot"></span>
                 {this.vm.quotaStatusLabel}
               </span>
             </div>
@@ -218,7 +220,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
             </div>
           </section>
 
-          <section class="card card--sessions">
+          <section class="card">
             <div class="card__head">
               <div>
                 <div class="card__title">{t("profile.sessions.title")}</div>
@@ -263,8 +265,8 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                     </div>
                   }
                 >
-                  <div class="table-wrap table-wrap--cards">
-                    <table class="table table--cards table--sessions">
+                  <div class="data-scroll table-wrap--cards">
+                    <table class="table table--cards table--fixed table--sessions">
                       <thead>
                         <tr>
                           <th>{t("profile.sessions.column.device")}</th>
@@ -280,9 +282,16 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                           {(row) => (
                             <tr>
                               <td data-label={t("profile.sessions.column.device")}>
-                                <span class="strong" title={row.deviceTitle}>
-                                  {row.device}
-                                </span>
+                                <div class="cell-name">
+                                  <span class="cell-avatar" aria-hidden="true">
+                                    {row.device.charAt(0).toUpperCase()}
+                                  </span>
+                                  <span class="cell-name__text">
+                                    <span class="strong" title={row.deviceTitle}>
+                                      {row.device}
+                                    </span>
+                                  </span>
+                                </div>
                               </td>
                               <td data-label={t("profile.sessions.column.ip")}>
                                 <span class="small mono">{row.ip}</span>
@@ -298,12 +307,14 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                               </td>
                               <td data-label={t("profile.sessions.column.actions")}>
                                 <button
-                                  class="btn btn--sm btn--danger"
+                                  class="btn btn--icon btn--danger"
                                   type="button"
+                                  aria-label={t("profile.sessions.revoke")}
+                                  title={t("profile.sessions.revoke")}
                                   disabled={!row.revocable || row.busy || this.vm.sessionsBusy}
                                   onClick={() => this.vm.revokeSession(row.jti)}
                                 >
-                                  {row.busy ? t("common.saving") : t("profile.sessions.revoke")}
+                                  <Icon name="trash" size={16} class="" />
                                 </button>
                               </td>
                             </tr>

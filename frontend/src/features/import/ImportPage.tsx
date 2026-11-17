@@ -12,17 +12,47 @@ const STEPS: ReadonlyArray<{ step: ImportStep; labelKey: TranslationKey }> = [
   { step: 4, labelKey: "import.steps.result" },
 ];
 
-function stepBadge(vm: ImportVM, step: ImportStep, labelKey: TranslationKey) {
-  const active = vm.step === step;
-  const done = vm.isStepDone(step);
+type StatusTone = "ok" | "warn" | "error" | "info" | "neutral";
+
+function clientTone(status: string): StatusTone {
+  switch (status) {
+    case "create":
+      return "ok";
+    case "update":
+      return "info";
+    case "duplicate":
+      return "warn";
+    case "error":
+      return "error";
+    default:
+      return "neutral";
+  }
+}
+
+function peerTone(status: string): StatusTone {
+  switch (status) {
+    case "create":
+      return "ok";
+    case "duplicate":
+      return "warn";
+    case "error":
+      return "error";
+    default:
+      return "neutral";
+  }
+}
+
+function stepChip(vm: ImportVM, step: ImportStep, labelKey: TranslationKey) {
   return (
     <button
-      class={`wizard-step ${active ? "is-active" : ""} ${done ? "is-done" : ""}`}
+      class={`chip ${vm.step === step ? "is-selected" : ""}`}
       type="button"
-      aria-current={active ? "step" : undefined}
+      aria-current={vm.step === step ? "step" : undefined}
       onClick={() => vm.goToStep(step)}
     >
-      <span class="wizard-step__index">{done ? <Icon name="check" size={12} class="" /> : step}</span>
+      <span class="strong">
+        {vm.isStepDone(step) ? <Icon name="check" size={14} class="" /> : step}
+      </span>
       <span>{t(labelKey)}</span>
     </button>
   );
@@ -30,13 +60,14 @@ function stepBadge(vm: ImportVM, step: ImportStep, labelKey: TranslationKey) {
 
 function groupStep(vm: ImportVM) {
   return (
-    <section class="card">
+    <section class="card card--elevated">
       <div class="card__head">
         <div>
           <div class="card__title">{t("import.group.title")}</div>
           <div class="card__sub">{t("import.group.subtitle")}</div>
         </div>
-        <span class={`badge ${vm.groupValid ? "badge--green" : "badge--amber"}`}>
+        <span class={`status-chip ${vm.groupValid ? "status-chip--ok" : "status-chip--warn"}`}>
+          <span class="status-chip__dot"></span>
           {vm.groupValid ? t("import.badge.ready") : t("import.badge.fillFields")}
         </span>
       </div>
@@ -64,7 +95,7 @@ function groupStep(vm: ImportVM) {
               onInput={(event: Event) => vm.setBaseCidr(event)}
             />
             <Show when={vm.baseCidr.trim().length > 0 && vm.baseCidrError !== null}>
-              <div class="hint" style="color:var(--red)">{vm.baseCidrError}</div>
+              <div class="hint" style="color:var(--md-error)">{vm.baseCidrError}</div>
             </Show>
           </div>
         </div>
@@ -99,7 +130,7 @@ function groupStep(vm: ImportVM) {
               />
             </Show>
             <Show when={vm.nodesError}>
-              <div class="hint" style="color:var(--red)">{vm.nodesError}</div>
+              <div class="hint" style="color:var(--md-error)">{vm.nodesError}</div>
             </Show>
             <Show when={!vm.nodesLoading && vm.nodes.length === 0}>
               <button class="btn btn--sm btn--ghost" type="button" onClick={() => vm.openNodes()}>
@@ -125,12 +156,13 @@ function groupStep(vm: ImportVM) {
               />
             </Show>
             <Show when={vm.ownersError}>
-              <div class="hint" style="color:var(--red)">{vm.ownersError}</div>
+              <div class="hint" style="color:var(--md-error)">{vm.ownersError}</div>
             </Show>
           </div>
         </div>
-
-        <div class="actions-bar">
+      </div>
+      <div class="card__foot actions-bar">
+        <div class="data-toolbar__actions">
           <button class="btn" type="button" onClick={() => vm.reset()}>
             {t("import.action.reset")}
           </button>
@@ -153,7 +185,7 @@ function poolsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: number)
     <div class="stack-sm">
       <div class="section-title">
         <h2>{t("import.pools.title")}</h2>
-        <button class="btn btn--sm" type="button" onClick={() => vm.addPool(interfaceIndex)}>
+        <button class="btn btn--sm btn--tonal" type="button" onClick={() => vm.addPool(interfaceIndex)}>
           <Icon name="plus" size={14} class="" />
           {t("import.pools.add")}
         </button>
@@ -163,77 +195,82 @@ function poolsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: number)
         when={draft.pools.length > 0}
         fallback={
           <div class="empty">
+            <div class="empty__icon">
+              <Icon name="interfaces" size={24} class="" />
+            </div>
             <div class="empty__title">{t("import.pools.emptyTitle")}</div>
-            <div class="small">{t("import.pools.emptyText")}</div>
+            <div class="empty__text">{t("import.pools.emptyText")}</div>
           </div>
         }
       >
         <div class="stack-sm">
           <For each={draft.pools}>
             {(pool, poolIndex) => (
-              <div class="panel" style="padding:12px">
-                <div class="grid grid--2">
-                  <div class="field">
-                    <label>{t("import.pool.name")}</label>
-                    <input
-                      class="input"
-                      type="text"
-                      placeholder="default"
-                      value={pool.name}
-                      onInput={(event: Event) => vm.setPoolName(interfaceIndex, poolIndex(), event)}
-                    />
+              <div class="card card--filled">
+                <div class="card__body stack-sm">
+                  <div class="grid grid--2">
+                    <div class="field">
+                      <label>{t("import.pool.name")}</label>
+                      <input
+                        class="input"
+                        type="text"
+                        placeholder="default"
+                        value={pool.name}
+                        onInput={(event: Event) => vm.setPoolName(interfaceIndex, poolIndex(), event)}
+                      />
+                    </div>
+                    <div class="field">
+                      <label>{t("import.pool.cidr")}</label>
+                      <input
+                        class="input mono"
+                        type="text"
+                        placeholder="10.8.0.0/24"
+                        value={pool.cidr}
+                        onInput={(event: Event) => vm.setPoolCidr(interfaceIndex, poolIndex(), event)}
+                      />
+                    </div>
+                    <div class="field">
+                      <label>{t("import.pool.mode")}</label>
+                      <Select
+                        value={pool.mode}
+                        options={[
+                          { value: "auto", label: t("import.pool.mode.auto") },
+                          { value: "rf_only", label: t("import.pool.mode.rfOnly") },
+                          { value: "external_only", label: t("import.pool.mode.externalOnly") },
+                        ]}
+                        onChange={(value) => vm.setPoolMode(interfaceIndex, poolIndex(), value)}
+                        ariaLabel={t("import.pool.mode")}
+                      />
+                    </div>
+                    <div class="field">
+                      <label>{t("import.pool.gateway")}</label>
+                      <input
+                        class="input mono"
+                        type="text"
+                        placeholder={t("import.pool.gatewayPlaceholder")}
+                        value={pool.gateway}
+                        onInput={(event: Event) => vm.setPoolGateway(interfaceIndex, poolIndex(), event)}
+                      />
+                    </div>
                   </div>
-                  <div class="field">
-                    <label>{t("import.pool.cidr")}</label>
-                    <input
-                      class="input mono"
-                      type="text"
-                      placeholder="10.8.0.0/24"
-                      value={pool.cidr}
-                      onInput={(event: Event) => vm.setPoolCidr(interfaceIndex, poolIndex(), event)}
-                    />
+                  <Show when={vm.poolError(interfaceIndex, poolIndex())}>
+                    <div class="hint" style="color:var(--md-error)">
+                      {vm.poolError(interfaceIndex, poolIndex())}
+                    </div>
+                  </Show>
+                  <div class="row-between wrap">
+                    <span class="xs muted">
+                      {t("import.pool.inBase", { cidr: vm.baseCidr || t("import.preview.none") })}
+                    </span>
+                    <button
+                      class="btn btn--sm btn--danger"
+                      type="button"
+                      onClick={() => vm.removePool(interfaceIndex, poolIndex())}
+                    >
+                      <Icon name="trash" size={14} class="" />
+                      {t("import.pools.remove")}
+                    </button>
                   </div>
-                  <div class="field">
-                    <label>{t("import.pool.mode")}</label>
-                    <Select
-                      value={pool.mode}
-                      options={[
-                        { value: "auto", label: t("import.pool.mode.auto") },
-                        { value: "rf_only", label: t("import.pool.mode.rfOnly") },
-                        { value: "external_only", label: t("import.pool.mode.externalOnly") },
-                      ]}
-                      onChange={(value) => vm.setPoolMode(interfaceIndex, poolIndex(), value)}
-                      ariaLabel={t("import.pool.mode")}
-                    />
-                  </div>
-                  <div class="field">
-                    <label>{t("import.pool.gateway")}</label>
-                    <input
-                      class="input mono"
-                      type="text"
-                      placeholder={t("import.pool.gatewayPlaceholder")}
-                      value={pool.gateway}
-                      onInput={(event: Event) => vm.setPoolGateway(interfaceIndex, poolIndex(), event)}
-                    />
-                  </div>
-                </div>
-                <Show when={vm.poolError(interfaceIndex, poolIndex())}>
-                  <div class="xs" style="color:var(--red);margin-top:8px">
-                    {vm.poolError(interfaceIndex, poolIndex())}
-                  </div>
-                </Show>
-                <div class="row-between wrap" style="margin-top:8px">
-                  <span class="xs muted">
-                    {t("import.pool.inBase", { cidr: vm.baseCidr || t("import.preview.none") })}
-                  </span>
-                  <button
-                    class="btn btn--sm btn--danger"
-                    type="button"
-                    onClick={() => vm.removePool(interfaceIndex, poolIndex())}
-                  >
-                    <Icon name="trash" size={14} class="" />
-                    {t("import.pools.remove")}
-                  </button>
                 </div>
               </div>
             )}
@@ -249,18 +286,21 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
     <div class="stack-sm">
       <div class="section-title">
         <h2>{t("import.interface.clientsTitle")}</h2>
-        <span class={`badge ${draft.clients.length > 0 ? "badge--green" : "badge--amber"}`}>
+        <span class={`status-chip ${draft.clients.length > 0 ? "status-chip--ok" : "status-chip--warn"}`}>
+          <span class="status-chip__dot"></span>
           {t("import.badge.count", { count: draft.clients.length })}
         </span>
       </div>
 
-      <textarea
-        class="textarea"
-        rows={8}
-        placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
-        value={draft.clientsText}
-        onInput={(event: Event) => vm.setClientsText(interfaceIndex, event)}
-      ></textarea>
+      <div class="field">
+        <textarea
+          class="textarea"
+          rows={8}
+          placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
+          value={draft.clientsText}
+          onInput={(event: Event) => vm.setClientsText(interfaceIndex, event)}
+        ></textarea>
+      </div>
 
       <div class="actions-bar">
         <button class="btn btn--sm" type="button" onClick={() => vm.parseClients(interfaceIndex)}>
@@ -294,15 +334,18 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
         when={draft.clients.length > 0}
         fallback={
           <div class="empty">
+            <div class="empty__icon">
+              <Icon name="clients" size={24} class="" />
+            </div>
             <div class="empty__title">{t("import.interface.clientsEmptyTitle")}</div>
-            <div class="small">{t("import.interface.clientsEmptyText")}</div>
+            <div class="empty__text">{t("import.interface.clientsEmptyText")}</div>
           </div>
         }
       >
         <div class="stack-sm">
           <For each={draft.clients}>
             {(client, clientIndex) => (
-              <div class="panel">
+              <div class="card card--filled">
                 <div class="card__body stack-sm">
                   <div class="row-between wrap">
                     <div class="field grow">
@@ -317,7 +360,7 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
                       />
                     </div>
                     <button
-                      class="btn btn--sm btn--ghost"
+                      class="btn btn--sm btn--ghost btn--icon"
                       type="button"
                       aria-label={t("import.interface.removeClient")}
                       onClick={() => vm.removeClient(interfaceIndex, clientIndex())}
@@ -325,13 +368,17 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
                       <Icon name="trash" size={16} class="" />
                     </button>
                   </div>
-                  <div class="actions-bar">
-                    <span class="badge badge--blue">{vm.clientAddress(client.config)}</span>
+                  <div class="row wrap">
+                    <span class="status-chip status-chip--info">{vm.clientAddress(client.config)}</span>
                     <Show
                       when={vm.clientPeerKey(client.config)}
-                      fallback={<span class="badge badge--amber">{t("import.interface.noPublicKey")}</span>}
+                      fallback={
+                        <span class="status-chip status-chip--warn">
+                          {t("import.interface.noPublicKey")}
+                        </span>
+                      }
                     >
-                      <span class="badge mono truncate" style="max-width:100%">
+                      <span class="status-chip status-chip--neutral mono truncate" style="max-width:100%">
                         {vm.clientPeerKey(client.config)}
                       </span>
                     </Show>
@@ -349,14 +396,15 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
 
 function interfaceCard(vm: ImportVM, draft: InterfaceDraft, index: number) {
   return (
-    <div class="panel">
+    <article class="card card--filled">
       <div class="card__head">
         <div>
           <div class="card__title">{t("import.interface.title", { index: index + 1 })}</div>
           <div class="card__sub">{draft.name || t("import.interface.name")}</div>
         </div>
-        <div class="actions-bar">
-          <span class={`badge ${vm.serverConfigValid(index) ? "badge--green" : "badge--amber"}`}>
+        <div class="row wrap">
+          <span class={`status-chip ${vm.serverConfigValid(index) ? "status-chip--ok" : "status-chip--warn"}`}>
+            <span class="status-chip__dot"></span>
             {vm.serverConfigValid(index) ? t("import.badge.ready") : t("import.badge.waitingConfig")}
           </span>
           <button
@@ -482,23 +530,24 @@ function interfaceCard(vm: ImportVM, draft: InterfaceDraft, index: number) {
           </div>
         </Show>
       </div>
-    </div>
+    </article>
   );
 }
 
 function interfacesStep(vm: ImportVM) {
   return (
-    <section class="card">
+    <section class="card card--elevated">
       <div class="card__head">
         <div>
           <div class="card__title">{t("import.interfaces.title")}</div>
           <div class="card__sub">{t("import.interfaces.subtitle")}</div>
         </div>
-        <div class="actions-bar">
-          <span class={`badge ${vm.valid ? "badge--green" : "badge--amber"}`}>
+        <div class="row wrap">
+          <span class={`status-chip ${vm.valid ? "status-chip--ok" : "status-chip--warn"}`}>
+            <span class="status-chip__dot"></span>
             {vm.valid ? t("import.badge.ready") : t("import.badge.fillFields")}
           </span>
-          <button class="btn btn--sm" type="button" onClick={() => vm.addInterface()}>
+          <button class="btn btn--sm btn--tonal" type="button" onClick={() => vm.addInterface()}>
             <Icon name="plus" size={14} class="" />
             {t("import.interfaces.add")}
           </button>
@@ -511,8 +560,11 @@ function interfacesStep(vm: ImportVM) {
           when={vm.interfaces.length > 0}
           fallback={
             <div class="empty">
+              <div class="empty__icon">
+                <Icon name="interfaces" size={24} class="" />
+              </div>
               <div class="empty__title">{t("import.interfaces.emptyTitle")}</div>
-              <div class="small">{t("import.interfaces.emptyText")}</div>
+              <div class="empty__text">{t("import.interfaces.emptyText")}</div>
             </div>
           }
         >
@@ -530,8 +582,9 @@ function interfacesStep(vm: ImportVM) {
         <Show when={!vm.valid}>
           <div class="alert alert--warn">{t("import.validation.hasErrors")}</div>
         </Show>
-
-        <div class="actions-bar">
+      </div>
+      <div class="card__foot actions-bar">
+        <div class="data-toolbar__actions">
           <button class="btn" type="button" onClick={() => vm.back()}>
             {t("import.action.back")}
           </button>
@@ -568,20 +621,28 @@ function previewStep(vm: ImportVM) {
       <Show
         when={vm.preview}
         fallback={
-          <section class="card">
+          <section class="card card--elevated">
             <div class="card__head">
               <div>
                 <div class="card__title">{t("import.preview.title")}</div>
                 <div class="card__sub">{t("import.preview.subtitle")}</div>
               </div>
-              <span class="badge badge--amber">{t("import.preview.emptyTitle")}</span>
+              <span class="status-chip status-chip--warn">
+                <span class="status-chip__dot"></span>
+                {t("import.preview.emptyTitle")}
+              </span>
             </div>
             <div class="card__body stack">
               <div class="empty">
+                <div class="empty__icon">
+                  <Icon name="import" size={24} class="" />
+                </div>
                 <div class="empty__title">{t("import.preview.emptyTitle")}</div>
-                <div class="small">{t("import.preview.emptyText")}</div>
+                <div class="empty__text">{t("import.preview.emptyText")}</div>
               </div>
-              <div class="actions-bar">
+            </div>
+            <div class="card__foot actions-bar">
+              <div class="data-toolbar__actions">
                 <button class="btn" type="button" onClick={() => vm.back()}>
                   {t("import.preview.back")}
                 </button>
@@ -609,13 +670,14 @@ function previewStep(vm: ImportVM) {
           </section>
         }
       >
-        <section class="card">
+        <section class="card card--elevated">
           <div class="card__head">
             <div>
               <div class="card__title">{t("import.preview.title")}</div>
               <div class="card__sub">{t("import.preview.subtitle")}</div>
             </div>
-            <span class="badge badge--blue">
+            <span class="status-chip status-chip--info">
+              <span class="status-chip__dot"></span>
               {t("import.preview.group", { name: vm.preview?.group.name ?? "" })}
             </span>
           </div>
@@ -669,8 +731,9 @@ function previewStep(vm: ImportVM) {
                 </ul>
               </div>
             </Show>
-
-            <div class="actions-bar">
+          </div>
+          <div class="card__foot actions-bar">
+            <div class="data-toolbar__actions">
               <button class="btn" type="button" onClick={() => vm.back()}>
                 {t("import.preview.back")}
               </button>
@@ -707,29 +770,34 @@ function previewStep(vm: ImportVM) {
 
         <For each={vm.previewInterfaces}>
           {(iface) => (
-            <section class="card">
+            <section class="card card--elevated">
               <div class="card__head">
-                <div>
+                <div style="min-width:0">
                   <div class="card__title">
                     {t("import.preview.interface")} #{iface.index + 1} · {iface.name}
                   </div>
-                  <div class="card__sub mono truncate">{t("import.preview.publicKey")}: {vm.previewKey(iface)}</div>
+                  <div class="card__sub mono truncate">
+                    {t("import.preview.publicKey")}: {vm.previewKey(iface)}
+                  </div>
                 </div>
-                <div class="actions-bar">
-                  <span class="badge badge--green">
+                <div class="row wrap">
+                  <span class="status-chip status-chip--ok">
+                    <span class="status-chip__dot"></span>
                     {t("import.preview.summary.create")}: {iface.counts.create}
                   </span>
-                  <span class="badge badge--amber">
+                  <span class="status-chip status-chip--warn">
+                    <span class="status-chip__dot"></span>
                     {t("import.preview.summary.duplicate")}: {iface.counts.duplicate}
                   </span>
-                  <span class="badge badge--red">
+                  <span class="status-chip status-chip--error">
+                    <span class="status-chip__dot"></span>
                     {t("import.preview.summary.error")}: {iface.counts.error}
                   </span>
                 </div>
               </div>
               <div class="card__body stack">
                 <div class="table-wrap">
-                  <table class="table table--cards">
+                  <table class="table table--cards table--fixed" aria-label={t("import.preview.title")}>
                     <thead>
                       <tr>
                         <th>{t("import.preview.client")}</th>
@@ -746,7 +814,8 @@ function previewStep(vm: ImportVM) {
                               <span class="strong">{client.name}</span>
                             </td>
                             <td data-label={t("import.preview.status")}>
-                              <span class={vm.previewStatusClass(client.status)}>
+                              <span class={`status-chip status-chip--${clientTone(client.status)}`}>
+                                <span class="status-chip__dot"></span>
                                 {vm.previewStatusLabel(client.status)}
                               </span>
                             </td>
@@ -767,22 +836,25 @@ function previewStep(vm: ImportVM) {
                   <div class="stack-sm">
                     <div class="section-title">
                       <h2>{t("import.preview.servers.title")}</h2>
-                      <div class="actions-bar">
-                        <span class="badge badge--green">
+                      <div class="row wrap">
+                        <span class="status-chip status-chip--ok">
+                          <span class="status-chip__dot"></span>
                           {t("import.preview.status.create")}: {iface.server_peer_counts.create}
                         </span>
-                        <span class="badge badge--amber">
+                        <span class="status-chip status-chip--warn">
+                          <span class="status-chip__dot"></span>
                           {t("import.preview.status.duplicate")}: {iface.server_peer_counts.duplicate}
                         </span>
-                        <span class="badge badge--red">
+                        <span class="status-chip status-chip--error">
+                          <span class="status-chip__dot"></span>
                           {t("import.preview.status.error")}: {iface.server_peer_counts.error}
                         </span>
                       </div>
                     </div>
                     <div class="small muted">{t("import.preview.servers.subtitle")}</div>
                     <div class="table-wrap">
-                      <table class="table table--cards">
-                        <thead>
+                      <table class="table table--cards table--fixed" aria-label={t("import.preview.servers.title")}>
+                          <thead>
                           <tr>
                             <th>{t("import.preview.publicKey")}</th>
                             <th>{t("import.preview.status")}</th>
@@ -798,7 +870,8 @@ function previewStep(vm: ImportVM) {
                                   <span title={peer.public_key}>{vm.shortKey(peer.public_key)}</span>
                                 </td>
                                 <td data-label={t("import.preview.status")}>
-                                  <span class={vm.serverPeerStatusClass(peer.status)}>
+                                  <span class={`status-chip status-chip--${peerTone(peer.status)}`}>
+                                    <span class="status-chip__dot"></span>
                                     {vm.serverPeerStatusLabel(peer.status)}
                                   </span>
                                 </td>
@@ -830,23 +903,34 @@ function resultStep(vm: ImportVM) {
     <Show
       when={vm.applied}
       fallback={
-        <section class="card">
-          <div class="card__body stack">
+        <section class="card card--elevated">
+          <div class="card__head">
+            <div>
+              <div class="card__title">{t("import.result.title")}</div>
+            </div>
+          </div>
+          <div class="card__body">
             <div class="empty">
+              <div class="empty__icon">
+                <Icon name="import" size={24} class="" />
+              </div>
               <div class="empty__title">{t("import.result.title")}</div>
-              <div class="small">{t("import.preview.emptyText")}</div>
+              <div class="empty__text">{t("import.preview.emptyText")}</div>
             </div>
           </div>
         </section>
       }
     >
-      <section class="card">
+      <section class="card card--elevated">
         <div class="card__head">
           <div>
             <div class="card__title">{t("import.result.title")}</div>
             <div class="card__sub">{t("import.result.subtitle")}</div>
           </div>
-          <span class="badge badge--blue">{t("import.result.group", { id: vm.resultGroupId })}</span>
+          <span class="status-chip status-chip--info">
+            <span class="status-chip__dot"></span>
+            {t("import.result.group", { id: vm.resultGroupId })}
+          </span>
         </div>
         <div class="card__body stack">
           <div class="grid grid--4">
@@ -875,13 +959,14 @@ function resultStep(vm: ImportVM) {
           <div class="stack-sm">
             <For each={vm.resultInterfaces}>
               {(iface) => (
-                <div class="panel" style="padding:12px">
-                  <div class="row-between wrap">
-                    <span class="strong mono">{iface.name}</span>
-                    <span class="badge badge--blue">
-                      {t("import.result.interfaceDevices", { count: iface.device_ids.length })}
-                    </span>
+                <div class="panel summary">
+                  <div class="grow">
+                    <div class="strong mono">{iface.name}</div>
                   </div>
+                  <span class="status-chip status-chip--info">
+                    <span class="status-chip__dot"></span>
+                    {t("import.result.interfaceDevices", { count: iface.device_ids.length })}
+                  </span>
                 </div>
               )}
             </For>
@@ -892,9 +977,11 @@ function resultStep(vm: ImportVM) {
             fallback={<div class="alert alert--info">{t("import.result.noFailures")}</div>}
           >
             <div class="stack-sm">
-              <div class="strong">{t("import.result.failures")}</div>
+              <div class="alert alert--error">
+                <div class="strong">{t("import.result.failures")}</div>
+              </div>
               <div class="table-wrap">
-                <table class="table table--cards">
+                <table class="table table--cards table--fixed" aria-label={t("import.result.failures")}>
                   <thead>
                     <tr>
                       <th>{t("import.preview.interface")}</th>
@@ -923,8 +1010,9 @@ function resultStep(vm: ImportVM) {
               </div>
             </div>
           </Show>
-
-          <div class="actions-bar">
+        </div>
+        <div class="card__foot actions-bar">
+          <div class="data-toolbar__actions">
             <button class="btn btn--primary" type="button" onClick={() => vm.openGroup()}>
               <Icon name="groups" size={16} class="" />
               {t("import.result.openGroup")}
@@ -945,13 +1033,14 @@ function resultStep(vm: ImportVM) {
 
 function clientsFormStep(vm: ImportVM) {
   return (
-    <section class="card">
+    <section class="card card--elevated">
       <div class="card__head">
         <div>
           <div class="card__title">{t("import.clients.title")}</div>
           <div class="card__sub">{t("import.clients.subtitle")}</div>
         </div>
-        <span class={`badge ${vm.clientsValid ? "badge--green" : "badge--amber"}`}>
+        <span class={`status-chip ${vm.clientsValid ? "status-chip--ok" : "status-chip--warn"}`}>
+          <span class="status-chip__dot"></span>
           {t("import.badge.count", { count: vm.clientsTotal })}
         </span>
       </div>
@@ -974,7 +1063,7 @@ function clientsFormStep(vm: ImportVM) {
               />
             </Show>
             <Show when={vm.ownersError}>
-              <div class="hint" style="color:var(--red)">{vm.ownersError}</div>
+              <div class="hint" style="color:var(--md-error)">{vm.ownersError}</div>
             </Show>
           </div>
 
@@ -995,25 +1084,28 @@ function clientsFormStep(vm: ImportVM) {
               />
             </Show>
             <Show when={vm.interfacesError}>
-              <div class="hint" style="color:var(--red)">{vm.interfacesError}</div>
+              <div class="hint" style="color:var(--md-error)">{vm.interfacesError}</div>
             </Show>
           </div>
         </div>
 
         <div class="section-title">
           <h2>{t("import.clients.configsTitle")}</h2>
-          <span class={`badge ${vm.clientsTotal > 0 ? "badge--green" : "badge--amber"}`}>
+          <span class={`status-chip ${vm.clientsTotal > 0 ? "status-chip--ok" : "status-chip--neutral"}`}>
+            <span class="status-chip__dot"></span>
             {t("import.badge.count", { count: vm.clientsTotal })}
           </span>
         </div>
 
-        <textarea
-          class="textarea"
-          rows={10}
-          placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
-          value={vm.clientsImportText}
-          onInput={(event: Event) => vm.setClientsImportText(event)}
-        ></textarea>
+        <div class="field">
+          <textarea
+            class="textarea"
+            rows={10}
+            placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
+            value={vm.clientsImportText}
+            onInput={(event: Event) => vm.setClientsImportText(event)}
+          ></textarea>
+        </div>
 
         <div class="actions-bar">
           <button class="btn btn--sm" type="button" onClick={() => vm.parseClientsImport()}>
@@ -1038,44 +1130,53 @@ function clientsFormStep(vm: ImportVM) {
           when={vm.clientsImport.length > 0}
           fallback={
             <div class="empty">
+              <div class="empty__icon">
+                <Icon name="clients" size={24} class="" />
+              </div>
               <div class="empty__title">{t("import.interface.clientsEmptyTitle")}</div>
-              <div class="small">{t("import.clients.validation")}</div>
+              <div class="empty__text">{t("import.clients.validation")}</div>
             </div>
           }
         >
           <div class="stack-sm">
             <For each={vm.clientsImport}>
               {(client, index) => (
-                <div class="panel" style="padding:12px">
-                  <div class="row-between wrap">
-                    <div class="field grow">
-                      <label>{t("import.interface.clientName")}</label>
-                      <input
-                        class="input"
-                        type="text"
-                        value={client.name}
-                        onInput={(event: Event) => vm.setClientsImportName(index(), event)}
-                      />
+                <div class="card card--filled">
+                  <div class="card__body stack-sm">
+                    <div class="row-between wrap">
+                      <div class="field grow">
+                        <label>{t("import.interface.clientName")}</label>
+                        <input
+                          class="input"
+                          type="text"
+                          value={client.name}
+                          onInput={(event: Event) => vm.setClientsImportName(index(), event)}
+                        />
+                      </div>
+                      <button
+                        class="btn btn--sm btn--ghost btn--icon"
+                        type="button"
+                        aria-label={t("import.interface.removeClient")}
+                        onClick={() => vm.removeClientsImport(index())}
+                      >
+                        <Icon name="trash" size={16} class="" />
+                      </button>
                     </div>
-                    <button
-                      class="btn btn--sm btn--ghost"
-                      type="button"
-                      aria-label={t("import.interface.removeClient")}
-                      onClick={() => vm.removeClientsImport(index())}
-                    >
-                      <Icon name="trash" size={16} class="" />
-                    </button>
-                  </div>
-                  <div class="actions-bar" style="margin-top:8px">
-                    <span class="badge badge--blue">{vm.clientAddress(client.config)}</span>
-                    <Show
-                      when={vm.clientPeerKey(client.config)}
-                      fallback={<span class="badge badge--amber">{t("import.interface.noPublicKey")}</span>}
-                    >
-                      <span class="badge mono truncate" style="max-width:100%">
-                        {vm.clientPeerKey(client.config)}
-                      </span>
-                    </Show>
+                    <div class="row wrap">
+                      <span class="status-chip status-chip--info">{vm.clientAddress(client.config)}</span>
+                      <Show
+                        when={vm.clientPeerKey(client.config)}
+                        fallback={
+                          <span class="status-chip status-chip--warn">
+                            {t("import.interface.noPublicKey")}
+                          </span>
+                        }
+                      >
+                        <span class="status-chip status-chip--neutral mono truncate" style="max-width:100%">
+                          {vm.clientPeerKey(client.config)}
+                        </span>
+                      </Show>
+                    </div>
                   </div>
                 </div>
               )}
@@ -1086,8 +1187,9 @@ function clientsFormStep(vm: ImportVM) {
         <Show when={vm.clientsPlanInvalidated}>
           <div class="alert alert--warn">{t("import.clients.stale")}</div>
         </Show>
-
-        <div class="actions-bar">
+      </div>
+      <div class="card__foot actions-bar">
+        <div class="data-toolbar__actions">
           <button class="btn" type="button" onClick={() => vm.resetClientsImport()}>
             {t("import.action.reset")}
           </button>
@@ -1134,20 +1236,28 @@ function clientsPreviewStep(vm: ImportVM) {
       <Show
         when={vm.clientsPreview}
         fallback={
-          <section class="card">
+          <section class="card card--elevated">
             <div class="card__head">
               <div>
                 <div class="card__title">{t("import.clients.preview.title")}</div>
                 <div class="card__sub">{t("import.clients.preview.subtitle")}</div>
               </div>
-              <span class="badge badge--amber">{t("import.clients.preview.emptyTitle")}</span>
+              <span class="status-chip status-chip--warn">
+                <span class="status-chip__dot"></span>
+                {t("import.clients.preview.emptyTitle")}
+              </span>
             </div>
             <div class="card__body stack">
               <div class="empty">
+                <div class="empty__icon">
+                  <Icon name="clients" size={24} class="" />
+                </div>
                 <div class="empty__title">{t("import.clients.preview.emptyTitle")}</div>
-                <div class="small">{t("import.clients.preview.emptyText")}</div>
+                <div class="empty__text">{t("import.clients.preview.emptyText")}</div>
               </div>
-              <div class="actions-bar">
+            </div>
+            <div class="card__foot actions-bar">
+              <div class="data-toolbar__actions">
                 <button class="btn" type="button" onClick={() => vm.clientsBack()}>
                   {t("import.action.back")}
                 </button>
@@ -1164,36 +1274,45 @@ function clientsPreviewStep(vm: ImportVM) {
           </section>
         }
       >
-        <section class="card">
+        <section class="card card--elevated">
           <div class="card__head">
             <div>
               <div class="card__title">{t("import.clients.preview.title")}</div>
               <div class="card__sub">{t("import.clients.preview.subtitle")}</div>
             </div>
-            <div class="actions-bar">
-              <Show when={vm.clientInterfaceId === ""}>
-                <span class="badge badge--blue">{t("import.clients.preview.auto")}</span>
-              </Show>
-              <span class="badge badge--green">
+            <Show when={vm.clientInterfaceId === ""}>
+              <span class="status-chip status-chip--info">
+                <span class="status-chip__dot"></span>
+                {t("import.clients.preview.auto")}
+              </span>
+            </Show>
+          </div>
+          <div class="card__body stack">
+            <div class="row wrap">
+              <span class="status-chip status-chip--ok">
+                <span class="status-chip__dot"></span>
                 {t("import.preview.summary.create")}: {vm.clientsPreviewSummary?.create ?? 0}
               </span>
-              <span class="badge badge--gray">
+              <span class="status-chip status-chip--neutral">
+                <span class="status-chip__dot"></span>
                 {t("import.preview.summary.unchanged")}: {vm.clientsPreviewSummary?.unchanged ?? 0}
               </span>
-              <span class="badge badge--blue">
+              <span class="status-chip status-chip--info">
+                <span class="status-chip__dot"></span>
                 {t("import.preview.summary.update")}: {vm.clientsPreviewSummary?.update ?? 0}
               </span>
-              <span class="badge badge--amber">
+              <span class="status-chip status-chip--warn">
+                <span class="status-chip__dot"></span>
                 {t("import.preview.summary.duplicate")}: {vm.clientsPreviewSummary?.duplicate ?? 0}
               </span>
-              <span class="badge badge--red">
+              <span class="status-chip status-chip--error">
+                <span class="status-chip__dot"></span>
                 {t("import.preview.summary.error")}: {vm.clientsPreviewSummary?.error ?? 0}
               </span>
             </div>
-          </div>
-          <div class="card__body stack">
+
             <div class="table-wrap">
-              <table class="table table--cards">
+              <table class="table table--cards table--fixed" aria-label={t("import.clients.preview.title")}>
                 <thead>
                   <tr>
                     <th>{t("import.clients.preview.interface")}</th>
@@ -1227,7 +1346,8 @@ function clientsPreviewStep(vm: ImportVM) {
                               <td data-label={t("import.preview.status")}>
                                 <div class="stack-sm">
                                   <div class="row-between wrap">
-                                    <span class={vm.previewStatusClass(client.status)}>
+                                    <span class={`status-chip status-chip--${clientTone(client.status)}`}>
+                                      <span class="status-chip__dot"></span>
                                       {vm.previewStatusLabel(client.status)}
                                     </span>
                                     <Show when={client.changes.length > 0}>
@@ -1288,8 +1408,9 @@ function clientsPreviewStep(vm: ImportVM) {
                 </ul>
               </div>
             </Show>
-
-            <div class="actions-bar">
+          </div>
+          <div class="card__foot actions-bar">
+            <div class="data-toolbar__actions">
               <button class="btn" type="button" onClick={() => vm.clientsBack()}>
                 {t("import.action.back")}
               </button>
@@ -1333,23 +1454,32 @@ function clientsResultStep(vm: ImportVM) {
     <Show
       when={vm.clientsApplied}
       fallback={
-        <section class="card">
+        <section class="card card--elevated">
+          <div class="card__head">
+            <div>
+              <div class="card__title">{t("import.clients.result.title")}</div>
+            </div>
+          </div>
           <div class="card__body">
             <div class="empty">
+              <div class="empty__icon">
+                <Icon name="clients" size={24} class="" />
+              </div>
               <div class="empty__title">{t("import.clients.result.title")}</div>
-              <div class="small">{t("import.clients.preview.emptyText")}</div>
+              <div class="empty__text">{t("import.clients.preview.emptyText")}</div>
             </div>
           </div>
         </section>
       }
     >
-      <section class="card">
+      <section class="card card--elevated">
         <div class="card__head">
           <div>
             <div class="card__title">{t("import.clients.result.title")}</div>
             <div class="card__sub">{t("import.clients.result.subtitle")}</div>
           </div>
-          <span class="badge badge--green">
+          <span class="status-chip status-chip--ok">
+            <span class="status-chip__dot"></span>
             {t("import.preview.summary.create")}: {vm.clientsResultCreatedCount}
           </span>
         </div>
@@ -1384,20 +1514,19 @@ function clientsResultStep(vm: ImportVM) {
           <div class="stack-sm">
             <For each={vm.clientsResultInterfaces}>
               {(iface) => (
-                <div class="panel" style="padding:12px">
-                  <div class="row-between wrap">
-                    <div>
-                      <div class="strong mono">{iface.name}</div>
-                      <div class="xs muted">{iface.group_name}</div>
-                    </div>
-                    <span class="badge badge--blue">
-                      {t("import.result.interfaceDevices", {
-                        count:
-                          vm.clientsApplied?.created.interfaces.find((item) => item.id === iface.id)
-                            ?.device_ids.length ?? 0,
-                      })}
-                    </span>
+                <div class="panel summary">
+                  <div class="grow">
+                    <div class="strong mono">{iface.name}</div>
+                    <div class="xs muted">{iface.group_name}</div>
                   </div>
+                  <span class="status-chip status-chip--info">
+                    <span class="status-chip__dot"></span>
+                    {t("import.result.interfaceDevices", {
+                      count:
+                        vm.clientsApplied?.created.interfaces.find((item) => item.id === iface.id)
+                          ?.device_ids.length ?? 0,
+                    })}
+                  </span>
                 </div>
               )}
             </For>
@@ -1408,9 +1537,11 @@ function clientsResultStep(vm: ImportVM) {
             fallback={<div class="alert alert--info">{t("import.clients.result.noFailures")}</div>}
           >
             <div class="stack-sm">
-              <div class="strong">{t("import.clients.result.failures")}</div>
+              <div class="alert alert--error">
+                <div class="strong">{t("import.clients.result.failures")}</div>
+              </div>
               <div class="table-wrap">
-                <table class="table table--cards">
+                <table class="table table--cards table--fixed" aria-label={t("import.clients.result.failures")}>
                   <thead>
                     <tr>
                       <th>{t("import.clients.preview.interface")}</th>
@@ -1443,8 +1574,9 @@ function clientsResultStep(vm: ImportVM) {
               </div>
             </div>
           </Show>
-
-          <div class="actions-bar">
+        </div>
+        <div class="card__foot actions-bar">
+          <div class="data-toolbar__actions">
             <button class="btn btn--primary" type="button" onClick={() => vm.openClientsGroup()}>
               <Icon name="groups" size={16} class="" />
               {t("import.clients.result.openGroup")}
@@ -1500,14 +1632,18 @@ export function ImportPage(this: { vm: ImportVM }) {
       </div>
 
       <Show when={this.vm.mode === "group"}>
-        <div class="wizard-steps">
-          <For each={STEPS}>
-            {(item) => stepBadge(this.vm, item.step, item.labelKey)}
-          </For>
-          <span class="xs muted wizard-steps__hint">
-            {t("import.step.of", { step: this.vm.step })}
-          </span>
-        </div>
+        <section class="card card--filled">
+          <div class="card__body">
+            <div class="row wrap">
+              <For each={STEPS}>
+                {(item) => stepChip(this.vm, item.step, item.labelKey)}
+              </For>
+              <span class="xs muted" style="margin-left:auto">
+                {t("import.step.of", { step: this.vm.step })}
+              </span>
+            </div>
+          </div>
+        </section>
 
         <Show when={this.vm.step === 1}>{groupStep(this.vm)}</Show>
         <Show when={this.vm.step === 2}>{interfacesStep(this.vm)}</Show>

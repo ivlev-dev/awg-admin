@@ -697,6 +697,42 @@ describe("StatsPageVM", () => {
     result.dispose();
   });
 
+  it("рендерит M3-сводку, график и таблицу устройств", async () => {
+    const { stats, devices, groups, interfaces, users, liveStats, session, router, toasts } = setup("admin");
+
+    const container = createAppContainer();
+    container.bind(DefaultStatsService, () => new DefaultStatsService(stats.repository));
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groups));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfaces));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(users));
+    container.bind(LiveStats, () => liveStats);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(StatsPage, {}, { container });
+    await result.ready;
+
+    const root = result.node as HTMLElement;
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".stat")).toHaveLength(4);
+      expect(root.textContent).toContain("Разбивка по устройствам");
+      expect(root.textContent).toContain("laptop");
+    });
+
+    expect(root.querySelector("h1")?.textContent).toBe("Статистика");
+    expect(root.querySelector(".data-toolbar__actions")?.textContent).toContain("Обновить");
+    expect(root.querySelector(".card--elevated svg")).not.toBeNull();
+    expect(root.querySelector(".chip.is-selected")?.textContent).toContain("24 часа");
+    expect(root.querySelectorAll(".table--fixed tbody tr")).toHaveLength(2);
+    expect(root.querySelector('[data-label="Устройство"] .cell-avatar')?.textContent).toBe("L");
+    expect(root.textContent).toContain("нет данных");
+
+    result.dispose();
+  });
+
   it("резолвится контейнером вместе с LiveStats", async () => {
     const container = createAppContainer();
     const tokens = new MemoryTokenStore();

@@ -3,238 +3,249 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { InterfacesPageVM } from "./InterfacesPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
-import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
+import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
+
+function avatarLetter(name: string): string {
+  return name.trim().charAt(0).toUpperCase() || "?";
+}
 
 export function InterfacesPage(this: { vm: InterfacesPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
         <div class="page-head__eyebrow">{t("interfaces.eyebrow")}</div>
-        <div class="row-between wrap">
-          <div>
-            <h1>{t("interfaces.title")}</h1>
-            <p>{t("interfaces.subtitle")}</p>
-          </div>
-          <div class="actions-bar">
-            <span class="badge badge--blue">
-              {t("interfaces.count", { visible: this.vm.visible.length, total: this.vm.interfaces.length })}
-            </span>
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.load()} disabled={this.vm.loading}>
-              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
-            </button>
-            <Show when={this.vm.isAdmin}>
-              <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                <Icon name="plus" size={14} class="" /> {t("interfaces.add")}
-              </button>
-            </Show>
-          </div>
-        </div>
+        <h1>{t("interfaces.title")}</h1>
+        <p>{t("interfaces.subtitle")}</p>
       </div>
 
       <Show when={this.vm.error}>
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
-      <section class="card">
-        <div class="card__body grid grid--3">
-          <div class="field">
-            <label for="iface-search">{t("interfaces.search.label")}</label>
-            <input
-              id="iface-search"
-              class="input"
-              type="search"
-              placeholder={t("interfaces.search.placeholder")}
-              value={this.vm.search}
-              onInput={(event: Event) => this.vm.setSearch(event)}
-            />
+      <section class="card card--flush">
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">{t("interfaces.card.title")}</div>
+              <div class="data-toolbar__sub">
+                {t("interfaces.count", { visible: this.vm.visible.length, total: this.vm.interfaces.length })}
+              </div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button class="btn btn--sm" type="button" onClick={() => this.vm.load()} disabled={this.vm.loading}>
+                <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+              </button>
+              <Show when={this.vm.isAdmin}>
+                <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openCreate()}>
+                  <Icon name="plus" size={14} class="" /> {t("interfaces.add")}
+                </button>
+              </Show>
+            </div>
           </div>
-          <Show when={this.vm.isAdmin}>
-            <div class="field">
-              <label for="iface-group">{t("interfaces.filter.group")}</label>
-              <Select
-                id="iface-group"
-                value={this.vm.groupFilter}
-                options={[{ value: "", label: t("interfaces.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
-                onChange={(value) => this.vm.setGroupFilter(value)}
-                ariaLabel={t("interfaces.filter.group")}
+
+          <div class="data-toolbar__bottom">
+            <div class="search">
+              <Icon name="search" size={18} class="" />
+              <input
+                id="iface-search"
+                type="search"
+                aria-label={t("interfaces.search.label")}
+                placeholder={t("interfaces.search.placeholder")}
+                value={this.vm.search}
+                onInput={(event: Event) => this.vm.setSearch(event)}
               />
             </div>
-            <div class="field">
-              <label for="iface-node">{t("interfaces.filter.node")}</label>
-              <Select
-                id="iface-node"
-                value={this.vm.nodeFilter}
-                options={[{ value: "", label: t("interfaces.filter.allNodes") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
-                onChange={(value) => this.vm.setNodeFilter(value)}
-                ariaLabel={t("interfaces.filter.node")}
-              />
-            </div>
+            <Show when={this.vm.isAdmin}>
+              <div class="field">
+                <label for="iface-group">{t("interfaces.filter.group")}</label>
+                <Select
+                  id="iface-group"
+                  value={this.vm.groupFilter}
+                  options={[{ value: "", label: t("interfaces.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
+                  onChange={(value) => this.vm.setGroupFilter(value)}
+                  ariaLabel={t("interfaces.filter.group")}
+                />
+              </div>
+              <div class="field">
+                <label for="iface-node">{t("interfaces.filter.node")}</label>
+                <Select
+                  id="iface-node"
+                  value={this.vm.nodeFilter}
+                  options={[{ value: "", label: t("interfaces.filter.allNodes") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
+                  onChange={(value) => this.vm.setNodeFilter(value)}
+                  ariaLabel={t("interfaces.filter.node")}
+                />
+              </div>
+            </Show>
+            <Show when={this.vm.filtersActive}>
+              <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.resetFilters()}>
+                <Icon name="close" size={14} class="" /> {t("filters.reset")}
+              </button>
+            </Show>
+          </div>
+        </div>
+
+        <div class="data-scroll table-wrap--cards" aria-busy={this.vm.loading ? "true" : "false"}>
+          <Show when={!this.vm.loading} fallback={<SkeletonTable rows={5} columns={6} />}>
+            <Show
+              when={this.vm.visible.length > 0}
+              fallback={
+                <div class="empty">
+                  <div class="empty__icon"><Icon name="interfaces" size={28} class="" /></div>
+                  <div class="empty__title">
+                    {this.vm.hasInterfaces ? t("interfaces.emptyFiltered.title") : t("interfaces.empty.title")}
+                  </div>
+                  <div class="empty__text">
+                    {this.vm.hasInterfaces
+                      ? t("interfaces.emptyFiltered.text")
+                      : this.vm.isAdmin
+                        ? t("interfaces.empty.textAdmin")
+                        : t("interfaces.empty.textUser")}
+                  </div>
+                  <Show when={this.vm.filtersActive || this.vm.isAdmin}>
+                    <div class="row" style="justify-content:center;margin-top:14px">
+                      <Show when={this.vm.filtersActive}>
+                        <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.resetFilters()}>
+                          <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                        </button>
+                      </Show>
+                      <Show when={this.vm.isAdmin}>
+                        <button class="btn btn--sm" type="button" onClick={() => this.vm.openCreate()}>
+                          <Icon name="plus" size={14} class="" /> {t("interfaces.create")}
+                        </button>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              }
+            >
+              <table class="table table--cards table--interfaces table--fixed">
+                <thead>
+                  <tr>
+                    <th class="col-interface">{t("interfaces.column.interface")}</th>
+                    <th class="col-address" style="width:230px">{t("interfaces.column.address")}</th>
+                    <th class="col-peers" style="width:110px">{t("interfaces.column.peers")}</th>
+                    <th class="col-limits" style="width:160px">{t("interfaces.column.limits")}</th>
+                    <th class="col-status" style="width:170px">{t("interfaces.column.status")}</th>
+                    <th class="col-actions" style="width:218px"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={this.vm.visible}>
+                    {(item) => (
+                      <tr>
+                        <td class="col-interface" data-label={t("interfaces.column.interface")}>
+                          <div class="cell-name">
+                            <span class="cell-avatar" aria-hidden="true">{avatarLetter(item.name)}</span>
+                            <span class="cell-name__text">
+                              <span class="strong" title={item.label ? `${item.name} · ${item.label}` : item.name}>
+                                {item.name}
+                                <Show when={item.label}>
+                                  <span class="xs muted"> · {item.label}</span>
+                                </Show>
+                              </span>
+                              <span class="cell-sub xs muted" title={`${item.group_name} · ${item.node_name}`}>
+                                {item.group_name} · {item.node_name}
+                              </span>
+                            </span>
+                          </div>
+                        </td>
+                        <td class="col-address" data-label={t("interfaces.column.address")}>
+                          <div class="cell-name">
+                            <span class="cell-name__text">
+                              <span class="mono xs truncate" title={this.vm.endpoint(item)}>{this.vm.endpoint(item)}</span>
+                            </span>
+                            <button
+                              class="btn btn--icon"
+                              type="button"
+                              aria-label={t("interfaces.endpoint.copyAria")}
+                              title={t("interfaces.endpoint.copyAria")}
+                              onClick={() => this.vm.copyEndpoint(item)}
+                            >
+                              <Icon name="copy" size={16} class="" />
+                            </button>
+                          </div>
+                        </td>
+                        <td class="col-peers" data-label={t("interfaces.column.peers")}>
+                          <span class="small strong nowrap">{this.vm.peersLabel(item)}</span>
+                        </td>
+                        <td class="col-limits" data-label={t("interfaces.column.limits")}>
+                          <div class="cell-name__text">
+                            <span class="xs nowrap">
+                              <span class="muted">{t("interfaces.form.listenPort")}</span>{" "}
+                              <span class="mono strong">{item.listen_port}</span>
+                            </span>
+                            <span class="cell-sub xs muted nowrap">
+                              <span>{t("interfaces.form.mtu")}</span>{" "}
+                              <span class="mono strong">{item.mtu}</span>
+                            </span>
+                          </div>
+                        </td>
+                        <td class="col-status" data-label={t("interfaces.column.status")}>
+                          <div class="cell-name__text">
+                            <span class={`status-chip ${item.enabled ? "status-chip--ok" : "status-chip--warn"}`}>
+                              <span class="status-chip__dot"></span>
+                              {item.enabled ? t("interfaces.status.enabled") : t("interfaces.status.disabled")}
+                            </span>
+                            <Show when={item.obf.random_trailers}>
+                              <span class="cell-sub xs muted">RandomTrailers</span>
+                            </Show>
+                          </div>
+                        </td>
+                        <td class="cell-actions col-actions">
+                          <button
+                            class="btn btn--icon"
+                            type="button"
+                            aria-label={t("interfaces.publicKey.copyAria")}
+                            title={`${t("interfaces.publicKey")}: ${item.public_key}`}
+                            onClick={() => this.vm.copyPublicKey(item)}
+                          >
+                            <Icon name="copy" size={16} class="" />
+                          </button>
+                          <Show when={this.vm.isAdmin}>
+                            <button
+                              class="btn btn--icon"
+                              type="button"
+                              disabled={this.vm.busy}
+                              aria-label={t("interfaces.action.edit")}
+                              title={t("interfaces.action.edit")}
+                              onClick={() => this.vm.openEdit(item)}
+                            >
+                              <Icon name="edit" size={16} class="" />
+                            </button>
+                            <button
+                              class="btn btn--icon"
+                              type="button"
+                              disabled={this.vm.busy}
+                              aria-label={t("interfaces.action.rotate")}
+                              title={t("interfaces.action.rotate")}
+                              onClick={() => this.vm.rotate(item)}
+                            >
+                              <Icon name="refresh" size={16} class="" />
+                            </button>
+                            <button
+                              class="btn btn--icon btn--danger"
+                              type="button"
+                              disabled={this.vm.busy}
+                              aria-label={t("interfaces.action.delete")}
+                              title={t("interfaces.action.delete")}
+                              onClick={() => this.vm.remove(item)}
+                            >
+                              <Icon name="trash" size={16} class="" />
+                            </button>
+                          </Show>
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
+            </Show>
           </Show>
         </div>
-        <Show when={this.vm.filtersActive}>
-          <div class="card__foot row-between wrap">
-            <span class="xs muted">{t("interfaces.found", { count: this.vm.visible.length })}</span>
-            <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.resetFilters()}>
-              {t("filters.reset")}
-            </button>
-          </div>
-        </Show>
       </section>
-
-      <Show when={this.vm.loading}>
-        <div class="grid grid--2">
-          <div class="skeleton" style="height:300px"></div>
-          <div class="skeleton" style="height:300px"></div>
-        </div>
-      </Show>
-
-      <Show when={!this.vm.loading}>
-        <Show
-          when={this.vm.visible.length > 0}
-          fallback={
-            <section class="card">
-              <div class="empty">
-                <Icon name="interfaces" size={40} class="empty__icon" />
-                <div class="empty__title">
-                  {this.vm.hasInterfaces ? t("interfaces.emptyFiltered.title") : t("interfaces.empty.title")}
-                </div>
-                <div class="small">
-                  {this.vm.hasInterfaces
-                    ? t("interfaces.emptyFiltered.text")
-                    : this.vm.isAdmin
-                      ? t("interfaces.empty.textAdmin")
-                      : t("interfaces.empty.textUser")}
-                </div>
-              </div>
-              <Show when={this.vm.filtersActive || this.vm.isAdmin}>
-                <div class="card__foot actions-bar" style="justify-content:flex-end">
-                  <Show when={this.vm.filtersActive}>
-                    <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.resetFilters()}>
-                      {t("filters.reset")}
-                    </button>
-                  </Show>
-                  <Show when={this.vm.isAdmin}>
-                    <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                      <Icon name="plus" size={14} class="" /> {t("interfaces.create")}
-                    </button>
-                  </Show>
-                </div>
-              </Show>
-            </section>
-          }
-        >
-          <div class="grid grid--2">
-            <For each={this.vm.visible}>
-              {(item) => (
-                <article class="card">
-                  <div class="card__head">
-                    <div class="grow">
-                      <div class="card__title">{item.name}</div>
-                      <div class="card__sub">{item.label || t("interfaces.noLabel")}</div>
-                    </div>
-                    <span class={`badge ${item.enabled ? "badge--green" : "badge--amber"}`}>
-                      <span class={`dot ${item.enabled ? "dot--green" : "dot--red"}`}></span>
-                      {item.enabled ? t("interfaces.status.enabled") : t("interfaces.status.disabled")}
-                    </span>
-                  </div>
-
-                  <div class="card__body stack-sm">
-                    <div class="row wrap" style="gap:6px">
-                      <span class="badge badge--blue">
-                        <Icon name="groups" size={12} class="" />{item.group_name}
-                      </span>
-                      <span class="badge badge--violet">
-                        <Icon name="nodes" size={12} class="" />{item.node_name}
-                      </span>
-                      <span class="badge badge--amber">
-                        <Icon name="clients" size={12} class="" />{this.vm.peersLabel(item)}
-                      </span>
-                    </div>
-
-                    <dl class="kv">
-                      <dt>Endpoint</dt>
-                      <dd>
-                        <span class="row" style="justify-content:flex-end;gap:6px">
-                          <span class="mono small">{this.vm.endpoint(item)}</span>
-                          <button
-                            class="btn btn--sm btn--ghost btn--icon"
-                            type="button"
-                            aria-label={t("interfaces.endpoint.copyAria")}
-                            onClick={() => this.vm.copyEndpoint(item)}
-                          >
-                            <Icon name="copy" size={14} class="" />
-                          </button>
-                        </span>
-                      </dd>
-                      <dt>Listen port</dt>
-                      <dd class="mono">{item.listen_port}</dd>
-                      <dt>MTU</dt>
-                      <dd class="mono">{item.mtu}</dd>
-                    </dl>
-
-                    <div class="field">
-                      <label>{t("interfaces.publicKey")}</label>
-                      <div class="copy-row">
-                        <input class="input" readonly value={item.public_key} />
-                        <button
-                          class="btn btn--icon"
-                          type="button"
-                          aria-label={t("interfaces.publicKey.copyAria")}
-                          onClick={() => this.vm.copyPublicKey(item)}
-                        >
-                          <Icon name="copy" size={16} class="" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div class="stack-sm">
-                      <div class="row-between">
-                        <span class="xs muted">{t("interfaces.obfuscation")}</span>
-                        <Show when={item.obf.random_trailers}>
-                          <span class="badge badge--violet">RandomTrailers</span>
-                        </Show>
-                      </div>
-                      <div class="xs mono truncate" title={this.vm.obfHeaders(item)}>{this.vm.obfHeaders(item)}</div>
-                      <div class="xs mono">{this.vm.obfSigned(item)}</div>
-                    </div>
-                  </div>
-
-                  <Show when={this.vm.isAdmin}>
-                    <div class="card__foot actions-bar" style="justify-content:flex-end">
-                      <button
-                        class="btn btn--sm"
-                        type="button"
-                        disabled={this.vm.busy}
-                        onClick={() => this.vm.openEdit(item)}
-                      >
-                        <Icon name="edit" size={14} class="" /> {t("interfaces.action.edit")}
-                      </button>
-                      <button
-                        class="btn btn--sm"
-                        type="button"
-                        disabled={this.vm.busy}
-                        onClick={() => this.vm.rotate(item)}
-                      >
-                        <Icon name="refresh" size={14} class="" /> {t("interfaces.action.rotate")}
-                      </button>
-                      <button
-                        class="btn btn--sm btn--danger"
-                        type="button"
-                        disabled={this.vm.busy}
-                        onClick={() => this.vm.remove(item)}
-                      >
-                        <Icon name="trash" size={14} class="" /> {t("interfaces.action.delete")}
-                      </button>
-                    </div>
-                  </Show>
-                </article>
-              )}
-            </For>
-          </div>
-        </Show>
-      </Show>
 
       <Modal
         open={this.vm.createOpen}
