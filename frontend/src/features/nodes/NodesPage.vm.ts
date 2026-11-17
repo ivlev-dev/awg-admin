@@ -12,6 +12,7 @@ import {
 import type { NodesService } from "@/application/nodes/service";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
+import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
@@ -121,7 +122,7 @@ export class NodesPageVM {
   async copyToken(): Promise<void> {
     const token = this.createdNode?.token;
     if (!token) return;
-    const copied = await copyText(token);
+    const copied = await copyText(token).then(() => true, () => false);
     this.tokenCopied = copied;
     if (copied) {
       this.toasts.success(t("nodes.toast.tokenCopied"));
@@ -133,7 +134,7 @@ export class NodesPageVM {
   async copyRotatedToken(): Promise<void> {
     const token = this.rotatedNode?.token;
     if (!token) return;
-    const copied = await copyText(token);
+    const copied = await copyText(token).then(() => true, () => false);
     this.rotatedTokenCopied = copied;
     if (copied) {
       this.toasts.success(t("nodes.toast.tokenCopied"));
@@ -215,23 +216,3 @@ function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-async function copyText(value: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      await navigator.clipboard.writeText(value);
-      return true;
-    }
-    const area = document.createElement("textarea");
-    area.value = value;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.top = "-1000px";
-    document.body.appendChild(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    document.body.removeChild(area);
-    return copied;
-  } catch {
-    return false;
-  }
-}

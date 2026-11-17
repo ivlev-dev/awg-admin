@@ -7,6 +7,7 @@ import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
+import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
 
@@ -332,7 +333,7 @@ export class InterfacesPageVM {
   async copyRotatedPublicKey(): Promise<void> {
     const key = this.rotated?.public_key;
     if (!key) return;
-    const copied = await copyText(key);
+    const copied = await copyText(key).then(() => true, () => false);
     this.rotatedCopied = copied;
     if (copied) {
       this.toasts.success(t("interfaces.copy.publicKeyCopied"));
@@ -358,7 +359,7 @@ export class InterfacesPageVM {
   }
 
   async copyPublicKey(item: InterfaceInfo): Promise<void> {
-    const copied = await copyText(item.public_key);
+    const copied = await copyText(item.public_key).then(() => true, () => false);
     if (copied) {
       this.toasts.success(t("interfaces.copy.publicKeyCopied"));
     } else {
@@ -367,7 +368,7 @@ export class InterfacesPageVM {
   }
 
   async copyEndpoint(item: InterfaceInfo): Promise<void> {
-    const copied = await copyText(this.endpoint(item));
+    const copied = await copyText(this.endpoint(item)).then(() => true, () => false);
     if (copied) {
       this.toasts.success(t("interfaces.copy.endpointCopied"));
     } else {
@@ -433,23 +434,3 @@ function sortInterfaces(items: InterfaceInfo[]): InterfaceInfo[] {
   );
 }
 
-async function copyText(value: string): Promise<boolean> {
-  try {
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
-      await navigator.clipboard.writeText(value);
-      return true;
-    }
-    const area = document.createElement("textarea");
-    area.value = value;
-    area.setAttribute("readonly", "");
-    area.style.position = "fixed";
-    area.style.top = "-1000px";
-    document.body.appendChild(area);
-    area.select();
-    const copied = document.execCommand("copy");
-    document.body.removeChild(area);
-    return copied;
-  } catch {
-    return false;
-  }
-}

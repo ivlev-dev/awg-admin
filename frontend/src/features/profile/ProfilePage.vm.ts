@@ -9,6 +9,7 @@ import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
 import type { AuthService } from "@/application/auth/service";
 import type { AuthSessionInfo, TotpSetup } from "@/domain/auth/types";
+import { copyText } from "@/domain/clipboard";
 import { initials, userAgentLabel } from "@/domain/format";
 import {
   LANGUAGE_OPTIONS,
@@ -581,8 +582,7 @@ export class ProfilePageVM {
     const codes = this.totpSetup?.recovery_codes ?? [];
     if (codes.length === 0) return;
     try {
-      if (!navigator.clipboard) throw new Error("clipboard unavailable");
-      await navigator.clipboard.writeText(codes.join("\n"));
+      await copyText(codes.join("\n"));
       this.toasts.success(t("profile.totp.modal.copied"));
     } catch {
       this.toasts.error(t("profile.totp.error.copy"));
@@ -593,8 +593,7 @@ export class ProfilePageVM {
     const secret = this.totpSetup?.secret ?? "";
     if (secret.length === 0) return;
     try {
-      if (!navigator.clipboard) throw new Error("clipboard unavailable");
-      await navigator.clipboard.writeText(secret);
+      await copyText(secret);
       this.toasts.success(t("profile.totp.modal.secretCopied"));
     } catch {
       this.toasts.error(t("profile.totp.error.copy"));

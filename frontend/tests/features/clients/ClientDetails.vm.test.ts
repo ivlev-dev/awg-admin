@@ -1047,8 +1047,8 @@ describe("ClientDetailsVM", () => {
     vm.copyQrValue();
     await vi.waitFor(() => {
       expect(writeText).toHaveBeenCalledWith("https://example.com/share-1");
+      expect(toasts.items.at(-1)).toMatchObject({ kind: "success" });
     });
-    expect(toasts.items.at(-1)).toMatchObject({ kind: "success" });
   });
 
   it("открывает QR для vpn:// активного профиля", async () => {

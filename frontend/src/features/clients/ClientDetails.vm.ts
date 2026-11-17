@@ -7,6 +7,7 @@ import type { GroupsService } from "@/application/groups/service";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
+import { copyText } from "@/domain/clipboard";
 import type { DeviceStats } from "@/domain/devices/types";
 import type {
   Device,
@@ -735,7 +736,7 @@ export class ClientDetailsVM {
       return;
     }
     try {
-      await navigator.clipboard.writeText(value);
+      await copyText(value);
       this.toasts.success(t("clients.copy.done", { label }));
     } catch {
       this.toasts.error(t("clients.copy.failed"));
