@@ -1,0 +1,72 @@
+use serde::Deserialize;
+use uuid::Uuid;
+
+use awg_clients::{Forwarding, ShareFormat};
+
+#[derive(Debug, Deserialize)]
+pub struct CreateDeviceRequest {
+    pub user_id: Option<Uuid>,
+    pub group_id: Option<Uuid>,
+    pub name: String,
+    #[serde(default)]
+    pub down_kbps: u32,
+    #[serde(default)]
+    pub up_kbps: u32,
+    pub forwarding: Option<Forwarding>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct UpdateDeviceRequest {
+    pub name: Option<String>,
+    pub down_kbps: Option<u32>,
+    pub up_kbps: Option<u32>,
+    pub forwarding: Option<Forwarding>,
+    pub revoked: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateShareRequest {
+    pub interface_id: Uuid,
+    pub format: ShareFormat,
+    pub ttl_secs: Option<u64>,
+    pub max_uses: Option<u32>,
+    #[serde(default)]
+    pub one_time: bool,
+}
+
+impl CreateShareRequest {
+    pub fn resolved_max_uses(&self) -> Result<Option<u32>, String> {
+        match (self.one_time, self.max_uses) {
+            (true, Some(_)) => Err("one_time and max_uses are mutually exclusive".into()),
+            (true, None) => Ok(Some(1)),
+            (false, max_uses) => Ok(max_uses),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(one_time: bool, max_uses: Option<u32>) -> CreateShareRequest {
+        CreateShareRequest {
+            interface_id: Uuid::nil(),
+            format: ShareFormat::Conf,
+            ttl_secs: None,
+            max_uses,
+            one_time,
+        }
+    }
+
+    #[test]
+    fn one_time_resolves_to_single_use() {
+        assert_eq!(request(true, None).resolved_max_uses(), Ok(Some(1)));
+        assert_eq!(request(false, None).resolved_max_uses(), Ok(None));
+        assert_eq!(request(false, Some(5)).resolved_max_uses(), Ok(Some(5)));
+    }
+
+    #[test]
+    fn one_time_conflicts_with_max_uses() {
+        assert!(request(true, Some(1)).resolved_max_uses().is_err());
+    }
+}

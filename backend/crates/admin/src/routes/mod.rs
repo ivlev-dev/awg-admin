@@ -2,22 +2,26 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use awg_storage::{CURRENT_SCHEMA_VERSION, Store};
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, Extension, Request, State};
+use axum::extract::{DefaultBodyLimit, Request};
 use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{delete, get, patch, post};
+use axum::routing::get;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
 use uuid::Uuid;
 
-use crate::controllers;
 use crate::state::AppState;
-use crate::ws;
+
+mod auth;
+mod billing;
+mod clients;
+mod network;
+mod stats;
+mod system;
 
 pub const REQUEST_ID_HEADER: &str = "x-request-id";
 const MAX_REQUEST_ID_LEN: usize = 128;
@@ -25,12 +29,12 @@ const BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Clone)]
 pub struct Readiness {
-    store: Arc<Store>,
+    store: Arc<awg_storage::Store>,
     shutting_down: Arc<AtomicBool>,
 }
 
 impl Readiness {
-    pub fn new(store: Arc<Store>) -> Self {
+    pub fn new(store: Arc<awg_storage::Store>) -> Self {
         Self {
             store,
             shutting_down: Arc::new(AtomicBool::new(false)),
@@ -49,171 +53,12 @@ impl Readiness {
 pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
     let timeout = Duration::from_secs(state.config.http_timeout_secs);
     let api = Router::new()
-        .route("/health", get(health))
-        .route("/ready", get(ready))
-        .route("/dev/mail", get(dev_mail).delete(dev_mail_clear))
-        .route("/auth/login", post(controllers::auth::login))
-        .route("/auth/register", post(controllers::auth::register))
-        .route("/auth/verify-email", post(controllers::auth::verify_email))
-        .route(
-            "/auth/resend-verification",
-            post(controllers::auth::resend_verification),
-        )
-        .route(
-            "/auth/forgot-password",
-            post(controllers::auth::forgot_password),
-        )
-        .route(
-            "/auth/reset-password",
-            post(controllers::auth::reset_password),
-        )
-        .route("/auth/refresh", post(controllers::auth::refresh))
-        .route("/auth/logout", post(controllers::auth::logout))
-        .route("/auth/me", get(controllers::auth::me))
-        .route("/auth/password", post(controllers::auth::change_password))
-        .route("/auth/sessions", get(controllers::auth::sessions))
-        .route(
-            "/auth/sessions/{jti}",
-            delete(controllers::auth::revoke_session),
-        )
-        .route("/auth/logout-all", post(controllers::auth::logout_all))
-        .route("/auth/totp/setup", post(controllers::auth::totp_setup))
-        .route("/auth/totp/enable", post(controllers::auth::totp_enable))
-        .route("/auth/totp/disable", post(controllers::auth::totp_disable))
-        .route("/users/pending", get(controllers::users::pending))
-        .route(
-            "/users",
-            get(controllers::users::list).post(controllers::users::create),
-        )
-        .route(
-            "/users/{id}",
-            get(controllers::users::get)
-                .patch(controllers::users::update)
-                .delete(controllers::users::delete),
-        )
-        .route(
-            "/users/{id}/password",
-            post(controllers::users::reset_password),
-        )
-        .route("/users/{id}/approve", post(controllers::users::approve))
-        .route("/users/{id}/reject", post(controllers::users::reject))
-        .route(
-            "/tariffs",
-            get(controllers::tariffs::list).post(controllers::tariffs::create),
-        )
-        .route(
-            "/tariffs/{id}",
-            patch(controllers::tariffs::update).delete(controllers::tariffs::delete),
-        )
-        .route(
-            "/groups",
-            get(controllers::groups::list).post(controllers::groups::create),
-        )
-        .route(
-            "/groups/{id}",
-            patch(controllers::groups::update).delete(controllers::groups::delete),
-        )
-        .route(
-            "/groups/{id}/pools",
-            get(controllers::groups::list_pools).post(controllers::groups::create_pool),
-        )
-        .route(
-            "/pools/{id}",
-            patch(controllers::groups::update_pool).delete(controllers::groups::delete_pool),
-        )
-        .route(
-            "/nodes",
-            get(controllers::nodes::list).post(controllers::nodes::create),
-        )
-        .route("/nodes/{id}", delete(controllers::nodes::delete))
-        .route(
-            "/interfaces",
-            get(controllers::interfaces::list).post(controllers::interfaces::create),
-        )
-        .route(
-            "/interfaces/{id}",
-            patch(controllers::interfaces::update).delete(controllers::interfaces::delete),
-        )
-        .route(
-            "/interfaces/{id}/rotate",
-            post(controllers::interfaces::rotate),
-        )
-        .route(
-            "/devices",
-            get(controllers::devices::list).post(controllers::devices::create),
-        )
-        .route(
-            "/devices/{id}",
-            get(controllers::devices::get)
-                .patch(controllers::devices::update)
-                .delete(controllers::devices::delete),
-        )
-        .route(
-            "/devices/{id}/profiles",
-            get(controllers::devices::profiles),
-        )
-        .route(
-            "/devices/{id}/profiles/{interface_id}",
-            get(controllers::devices::profile),
-        )
-        .route(
-            "/devices/{id}/shares",
-            get(controllers::devices::list_shares).post(controllers::devices::create_share),
-        )
-        .route("/devices/{id}/stats", get(controllers::stats::device_stats))
-        .route(
-            "/shares/{token}",
-            delete(controllers::devices::revoke_share),
-        )
-        .route("/stats/overview", get(controllers::stats::overview))
-        .route("/stats/series", get(controllers::stats::series))
-        .route("/stats/aggregate", get(controllers::stats::aggregate))
-        .route("/quota", get(controllers::quota::current))
-        .route("/quota/users", get(controllers::quota::users))
-        .route(
-            "/settings",
-            get(controllers::settings::get).put(controllers::settings::update),
-        )
-        .route("/audit", get(controllers::audit::list))
-        .route("/import", post(controllers::import::run))
-        .route("/import/preview", post(controllers::import::preview))
-        .route("/import/apply", post(controllers::import::apply))
-        .route(
-            "/import/clients/preview",
-            post(controllers::import::clients_preview),
-        )
-        .route(
-            "/import/clients/apply",
-            post(controllers::import::clients_apply),
-        )
-        .route("/ws/stats", get(ws::stats_ws))
-        .route("/share/{token}", get(controllers::share::download));
-
-    let billing = Router::new()
-        .route(
-            "/billing/plans",
-            get(controllers::billing::list_plans).post(controllers::billing::create_plan),
-        )
-        .route(
-            "/billing/plans/{id}",
-            patch(controllers::billing::update_plan),
-        )
-        .route(
-            "/billing/subscription",
-            get(controllers::billing::subscription),
-        )
-        .route("/billing/invoices", get(controllers::billing::invoices))
-        .route(
-            "/billing/admin/subscriptions",
-            get(controllers::billing::admin_subscriptions),
-        )
-        .route_layer(middleware::from_fn_with_state(
-            state.clone(),
-            controllers::billing::require_enabled,
-        ));
-
-    let api = api
-        .merge(billing)
+        .merge(system::router())
+        .merge(auth::router())
+        .merge(network::router())
+        .merge(clients::router())
+        .merge(stats::router())
+        .merge(billing::router(state.clone()))
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
         .layer(TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
@@ -225,7 +70,7 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
 
     Router::new()
         .route(crate::metrics::METRICS_PATH, get(crate::metrics::scrape))
-        .route("/ready", get(ready))
+        .route("/ready", get(system::ready))
         .nest("/api/v1", api)
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -235,87 +80,8 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
         .layer(TraceLayer::new_for_http())
         .layer(middleware::from_fn(crate::metrics::middleware))
         .layer(middleware::from_fn(request_id))
-        .layer(Extension(readiness))
+        .layer(axum::Extension(readiness))
         .with_state(state)
-}
-
-async fn health(State(_): State<Arc<AppState>>) -> axum::Json<serde_json::Value> {
-    axum::Json(serde_json::json!({
-        "status": "ok",
-        "service": "awg-admin",
-        "version": env!("CARGO_PKG_VERSION"),
-    }))
-}
-
-async fn ready(Extension(readiness): Extension<Readiness>) -> Response {
-    readiness_response(&readiness)
-}
-
-async fn dev_mail(State(state): State<Arc<AppState>>) -> Response {
-    if dev_mail_disabled(&state) {
-        return dev_mail_not_found();
-    }
-    axum::Json(crate::mailer::dev_mailbox().list()).into_response()
-}
-
-async fn dev_mail_clear(State(state): State<Arc<AppState>>) -> Response {
-    if dev_mail_disabled(&state) {
-        return dev_mail_not_found();
-    }
-    crate::mailer::dev_mailbox().clear();
-    StatusCode::NO_CONTENT.into_response()
-}
-
-fn dev_mail_disabled(state: &AppState) -> bool {
-    state.config.environment.is_production()
-}
-
-fn dev_mail_not_found() -> Response {
-    (
-        StatusCode::NOT_FOUND,
-        axum::Json(serde_json::json!({
-            "error": {
-                "code": "not_found",
-                "message": "dev mail sink is disabled",
-            },
-        })),
-    )
-        .into_response()
-}
-
-fn readiness_response(readiness: &Readiness) -> Response {
-    if readiness.is_shutting_down() {
-        return unavailable("shutting_down", None);
-    }
-    match readiness.store.schema_version() {
-        Ok(version) if version == CURRENT_SCHEMA_VERSION => (
-            StatusCode::OK,
-            axum::Json(serde_json::json!({
-                "status": "ready",
-                "service": "awg-admin",
-                "version": env!("CARGO_PKG_VERSION"),
-                "schema_version": version,
-            })),
-        )
-            .into_response(),
-        Ok(version) => unavailable("schema_not_migrated", Some(version)),
-        Err(error) => {
-            tracing::warn!(%error, "readiness check failed");
-            unavailable("schema_unavailable", None)
-        }
-    }
-}
-
-fn unavailable(reason: &str, schema_version: Option<u32>) -> Response {
-    let mut body = serde_json::json!({
-        "status": "unavailable",
-        "service": "awg-admin",
-        "reason": reason,
-    });
-    if let Some(version) = schema_version {
-        body["schema_version"] = serde_json::json!(version);
-    }
-    (StatusCode::SERVICE_UNAVAILABLE, axum::Json(body)).into_response()
 }
 
 async fn json_timeout(request: Request, next: Next) -> Response {
@@ -403,7 +169,7 @@ fn build_cors(origins: &[String]) -> CorsLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awg_storage::{SCHEMA_VERSION_KEY, Table};
+    use awg_storage::{CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, Store, Table};
     use axum::body::{Body, to_bytes};
     use serde_json::Value;
     use tower::ServiceExt;
@@ -511,8 +277,8 @@ mod tests {
     #[tokio::test]
     async fn readiness_reports_ready_with_working_store() {
         let app = Router::new()
-            .route("/ready", get(ready))
-            .layer(Extension(test_readiness()));
+            .route("/ready", get(system::ready))
+            .layer(axum::Extension(test_readiness()));
 
         let response = app.oneshot(request("/ready")).await.unwrap();
 
@@ -529,8 +295,8 @@ mod tests {
         assert!(readiness.is_shutting_down());
 
         let app = Router::new()
-            .route("/ready", get(ready))
-            .layer(Extension(readiness));
+            .route("/ready", get(system::ready))
+            .layer(axum::Extension(readiness));
 
         let response = app.oneshot(request("/ready")).await.unwrap();
 
@@ -544,8 +310,8 @@ mod tests {
         let store = Arc::new(Store::open_in_memory().unwrap());
         store.delete(Table::Meta, SCHEMA_VERSION_KEY).unwrap();
         let app = Router::new()
-            .route("/ready", get(ready))
-            .layer(Extension(Readiness::new(store)));
+            .route("/ready", get(system::ready))
+            .layer(axum::Extension(Readiness::new(store)));
 
         let response = app.oneshot(request("/ready")).await.unwrap();
 
