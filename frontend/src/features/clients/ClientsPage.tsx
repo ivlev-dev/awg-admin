@@ -19,26 +19,32 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
             <h1>{t("clients.title")}</h1>
             <p>{t("clients.subtitle")}</p>
           </div>
-          <div class="actions-bar">
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
-            </button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-              <Icon name="plus" size={16} class="" /> {t("clients.new")}
-            </button>
-          </div>
         </div>
       </div>
 
-      <section class="card">
-        <div class="card__body">
-          <div class="grid grid--2">
-            <div class="field">
-              <label for="clients-search">{t("filters.search")}</label>
+      <section class="card card--flush">
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">{t("clients.card.title")}</div>
+              <div class="data-toolbar__sub">{this.vm.countLabel}</div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button class="btn" type="button" onClick={() => this.vm.load()}>
+                <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+              </button>
+              <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
+                <Icon name="plus" size={16} class="" /> {t("clients.new")}
+              </button>
+            </div>
+          </div>
+          <div class="data-toolbar__bottom">
+            <div class="search">
+              <Icon name="search" size={18} class="" />
               <input
                 id="clients-search"
-                class="input"
                 type="search"
+                aria-label={t("filters.search")}
                 placeholder={t("filters.search.clients")}
                 value={this.vm.query}
                 onInput={(event: Event) => this.vm.setQuery(event)}
@@ -56,7 +62,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 />
               </div>
             </Show>
-            <div class="field field--compact" style="flex:0 1 180px">
+            <div class="field">
               <label for="clients-status">{t("clients.column.status")}</label>
               <Select
                 id="clients-status"
@@ -70,28 +76,14 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 ariaLabel={t("clients.column.status")}
               />
             </div>
-          </div>
-          <Show when={this.vm.hasActiveFilters}>
-            <div class="row" style="justify-content:flex-end;padding-top:var(--sp-3)">
-              <button class="btn btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+            <Show when={this.vm.hasActiveFilters}>
+              <button class="btn btn--text btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                 <Icon name="close" size={14} class="" /> {t("filters.reset")}
               </button>
-            </div>
-          </Show>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">{t("clients.card.title")}</div>
-            <div class="card__sub">{this.vm.countLabel}</div>
+            </Show>
           </div>
-          <span class="badge badge--blue">
-            <Icon name="clients" size={12} class="" /> {t("clients.badge")}
-          </span>
         </div>
-        <div class="card__body" aria-busy={this.vm.loading ? "true" : "false"}>
+        <div class="data-scroll table-wrap--cards" aria-busy={this.vm.loading ? "true" : "false"}>
           <Show
             when={!this.vm.loading}
             fallback={<SkeletonTable rows={5} columns={this.vm.isAdmin ? 7 : 6} />}
@@ -100,10 +92,11 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               when={this.vm.filteredDevices.length > 0}
               fallback={
                 <div class="empty">
+                  <div class="empty__icon"><Icon name="clients" size={28} class="" /></div>
                   <div class="empty__title">
                     {this.vm.devices.length === 0 ? t("clients.empty.title") : t("filters.emptyTitle")}
                   </div>
-                  <div class="small">
+                  <div class="empty__text">
                     {this.vm.devices.length === 0
                       ? t("clients.empty.text")
                       : t("filters.emptyText")}
@@ -117,7 +110,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         </button>
                       }
                     >
-                      <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                      <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                         <Icon name="close" size={14} class="" /> {t("filters.reset")}
                       </button>
                     </Show>
@@ -125,106 +118,113 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 </div>
               }
             >
-              <div class="table-wrap table-wrap--cards">
-                <table class="table table--cards table--clients">
-                  <thead>
-                    <tr>
-                      <th class="cell-select">
-                        <input
-                          type="checkbox"
-                          aria-label={t("clients.selectAll")}
-                          checked={this.vm.allFilteredSelected}
-                          onChange={() => this.vm.toggleSelectAll()}
-                        />
-                      </th>
-                      <th class="is-sortable">
-                        <button type="button" onClick={() => this.vm.sortBy("name")}>
-                          {t("clients.column.device")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
-                        </button>
-                      </th>
-                      <Show when={this.vm.isAdmin}>
-                        <th>{t("clients.column.owner")}</th>
-                      </Show>
-                      <th>{t("clients.column.addresses")}</th>
-                      <th>{t("clients.column.limits")}</th>
-                      <th>{t("clients.column.peers")}</th>
-                      <th class="is-sortable">
-                        <button type="button" onClick={() => this.vm.sortBy("status")}>
-                          {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
-                        </button>
-                      </th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={this.vm.filteredDevices}>
-                      {(device) => (
-                        <tr class={this.vm.isSelected(device.id) ? "is-selected" : ""}>
-                          <td class="cell-select">
-                            <input
-                              type="checkbox"
-                              aria-label={device.name}
-                              checked={this.vm.isSelected(device.id)}
-                              onChange={() => this.vm.toggleSelected(device.id)}
-                            />
-                          </td>
-                          <td data-label={t("clients.column.device")}>
-                            <span class="strong">{device.name}</span>
-                          </td>
-                          <Show when={this.vm.isAdmin}>
-                            <td data-label={t("clients.column.owner")}>
-                              <div class="stack-sm cell-stack">
-                                <div class="small strong">{this.vm.userLogin(device.user_id)}</div>
-                                <div class="xs muted">{this.vm.groupName(device.group_id)}</div>
-                              </div>
-                            </td>
-                          </Show>
-                          <td data-label={t("clients.column.addresses")}>
-                            <Show
-                              when={device.addresses.length > 0}
-                              fallback={<span class="muted">—</span>}
-                            >
-                              <span class="mono xs">{device.addresses.join(", ")}</span>
-                            </Show>
-                          </td>
-                          <td data-label={t("clients.column.limits")}>
-                            <div class="stack-sm cell-stack">
-                              <div class="xs"><span class="muted">↓</span> {formatRateI18n(device.down_kbps)}</div>
-                              <div class="xs"><span class="muted">↑</span> {formatRateI18n(device.up_kbps)}</div>
+              <table class="table table--cards table--clients">
+                <thead>
+                  <tr>
+                    <th class="cell-select">
+                      <input
+                        type="checkbox"
+                        aria-label={t("clients.selectAll")}
+                        checked={this.vm.allFilteredSelected}
+                        onChange={() => this.vm.toggleSelectAll()}
+                      />
+                    </th>
+                    <th class="is-sortable">
+                      <button type="button" onClick={() => this.vm.sortBy("name")}>
+                        {t("clients.column.device")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+                      </button>
+                    </th>
+                    <Show when={this.vm.isAdmin}>
+                      <th>{t("clients.column.owner")}</th>
+                    </Show>
+                    <th>{t("clients.column.addresses")}</th>
+                    <th>{t("clients.column.limits")}</th>
+                    <th>{t("clients.column.peers")}</th>
+                    <th class="is-sortable">
+                      <button type="button" onClick={() => this.vm.sortBy("status")}>
+                        {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                      </button>
+                    </th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <For each={this.vm.filteredDevices}>
+                    {(device) => (
+                      <tr class={this.vm.isSelected(device.id) ? "is-selected" : ""}>
+                        <td class="cell-select">
+                          <input
+                            type="checkbox"
+                            aria-label={device.name}
+                            checked={this.vm.isSelected(device.id)}
+                            onChange={() => this.vm.toggleSelected(device.id)}
+                          />
+                        </td>
+                        <td data-label={t("clients.column.device")}>
+                          <div class="cell-name">
+                            <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
+                            <span class="cell-name__text">
+                              <span class="strong">{device.name}</span>
+                              <Show when={!this.vm.isAdmin}>
+                                <span class="cell-sub">{this.vm.groupName(device.group_id)}</span>
+                              </Show>
+                            </span>
+                          </div>
+                        </td>
+                        <Show when={this.vm.isAdmin}>
+                          <td data-label={t("clients.column.owner")}>
+                            <div class="cell-name__text cell-stack">
+                              <span class="small strong">{this.vm.userLogin(device.user_id)}</span>
+                              <span class="xs muted">{this.vm.groupName(device.group_id)}</span>
                             </div>
                           </td>
-                          <td data-label={t("clients.column.peers")}>
-                            <Show
-                              when={device.peers.length > 0}
-                              fallback={<span class="muted">—</span>}
-                            >
-                              <div class="stack-sm cell-stack">
-                                <div class="small strong">{this.vm.peersLabel(device)}</div>
-                                <div class="xs muted">{this.vm.interfaceNames(device)}</div>
-                              </div>
-                            </Show>
-                          </td>
-                          <td data-label={t("clients.column.status")}>
-                            <span class={`badge ${device.revoked ? "badge--red" : "badge--green"}`}>
-                              <span class={`dot ${device.revoked ? "dot--red" : "dot--green"}`}></span>
-                              {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
-                            </span>
-                          </td>
-                          <td class="cell-actions">
-                            <button
-                              class="btn btn--sm btn--ghost"
-                              type="button"
-                              onClick={() => this.vm.openDevice(device.id)}
-                            >
-                              {t("common.open")} <Icon name="chevron" size={14} class="" />
-                            </button>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-              </div>
+                        </Show>
+                        <td data-label={t("clients.column.addresses")}>
+                          <Show
+                            when={device.addresses.length > 0}
+                            fallback={<span class="muted">—</span>}
+                          >
+                            <span class="mono xs">{device.addresses.join(", ")}</span>
+                          </Show>
+                        </td>
+                        <td data-label={t("clients.column.limits")}>
+                          <div class="cell-name__text">
+                            <span class="xs"><span class="muted">↓</span> {formatRateI18n(device.down_kbps)}</span>
+                            <span class="xs"><span class="muted">↑</span> {formatRateI18n(device.up_kbps)}</span>
+                          </div>
+                        </td>
+                        <td data-label={t("clients.column.peers")}>
+                          <Show
+                            when={device.peers.length > 0}
+                            fallback={<span class="muted">—</span>}
+                          >
+                            <div class="cell-name__text">
+                              <span class="small strong">{this.vm.peersLabel(device)}</span>
+                              <span class="xs muted">{this.vm.interfaceNames(device)}</span>
+                            </div>
+                          </Show>
+                        </td>
+                        <td data-label={t("clients.column.status")}>
+                          <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
+                            <span class="status-chip__dot"></span>
+                            {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
+                          </span>
+                        </td>
+                        <td class="cell-actions">
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            aria-label={t("common.open")}
+                            onClick={() => this.vm.openDevice(device.id)}
+                          >
+                            {t("common.open")} <Icon name="chevron" size={14} class="" />
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+                  </For>
+                </tbody>
+              </table>
             </Show>
           </Show>
         </div>

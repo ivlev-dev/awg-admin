@@ -1,0 +1,1356 @@
+<!doctype html>
+<html lang="ru" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AWG Admin — Material You · прототип</title>
+<style>
+  :root {
+    --md-primary: #0e4688;
+    --md-on-primary: #ffffff;
+    --md-primary-container: #cdddff;
+    --md-on-primary-container: #001738;
+    --md-secondary: #3f4756;
+    --md-on-secondary: #ffffff;
+    --md-secondary-container: #d5ddef;
+    --md-on-secondary-container: #101825;
+    --md-tertiary: #46536a;
+    --md-on-tertiary: #ffffff;
+    --md-tertiary-container: #cdddff;
+    --md-on-tertiary-container: #0e1c30;
+    --md-error: #b91c1c;
+    --md-on-error: #ffffff;
+    --md-error-container: #ffdad6;
+    --md-on-error-container: #410002;
+    --md-success: #005323;
+    --md-success-container: #95f8a7;
+    --md-on-success-container: #00210a;
+    --md-warning: #893c00;
+    --md-warning-container: #ffdbca;
+    --md-on-warning-container: #331200;
+    --md-info: #2151da;
+    --md-info-container: #dce1ff;
+    --md-on-info-container: #001551;
+    --md-surface: #fbf9fb;
+    --md-surface-dim: #d8d6d9;
+    --md-surface-bright: #fbf9fb;
+    --md-surface-lowest: #ffffff;
+    --md-surface-low: #f5f3f6;
+    --md-surface-container: #efedf0;
+    --md-surface-high: #e7e5e7;
+    --md-surface-highest: #dedcdf;
+    --md-on-surface: #1b1b1e;
+    --md-on-surface-variant: #404247;
+    --md-outline: #75777d;
+    --md-outline-variant: #c5c6cd;
+    --md-inverse-surface: #2f3033;
+    --md-inverse-on-surface: #f2f0f4;
+    --md-inverse-primary: #a9c7ff;
+    --sidebar: #08172b;
+    --sidebar-2: #0d2340;
+    --sidebar-text: #c7d5e8;
+    --sidebar-muted: #7d8fb0;
+    --sidebar-active: #173a63;
+    --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+    --shadow-2: 0 4px 12px rgba(16, 24, 40, 0.10), 0 2px 4px rgba(16, 24, 40, 0.06);
+    --shadow-3: 0 12px 32px rgba(16, 24, 40, 0.16);
+    --shape-xs: 4px;
+    --shape-sm: 8px;
+    --shape-md: 12px;
+    --shape-lg: 16px;
+    --shape-xl: 28px;
+    --shape-full: 999px;
+    --font: Roboto, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --t-display: 36px;
+    --t-headline: 28px;
+    --t-headline-sm: 24px;
+    --t-title-lg: 22px;
+    --t-title: 16px;
+    --t-title-sm: 14px;
+    --t-body-lg: 16px;
+    --t-body: 14px;
+    --t-body-sm: 12px;
+    --t-label: 14px;
+    --t-label-sm: 12px;
+    --t-label-xs: 11px;
+    --dur: 200ms;
+    --ease: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+  }
+
+  [data-theme="dark"] {
+    --md-primary: #a9c7ff;
+    --md-on-primary: #003063;
+    --md-primary-container: #0e4688;
+    --md-on-primary-container: #cdddff;
+    --md-secondary: #bec6d8;
+    --md-on-secondary: #263141;
+    --md-secondary-container: #3b4352;
+    --md-on-secondary-container: #d5ddef;
+    --md-tertiary: #b4c3dd;
+    --md-on-tertiary: #20314c;
+    --md-tertiary-container: #374458;
+    --md-on-tertiary-container: #cdddff;
+    --md-error: #ffb4ab;
+    --md-on-error: #690005;
+    --md-error-container: #93000b;
+    --md-on-error-container: #ffdad6;
+    --md-success: #6fd98a;
+    --md-success-container: #005223;
+    --md-on-success-container: #95f8a7;
+    --md-warning: #ffb68f;
+    --md-warning-container: #6c3a00;
+    --md-on-warning-container: #ffdbca;
+    --md-info: #b5c5fb;
+    --md-info-container: #2043bd;
+    --md-on-info-container: #dce1ff;
+    --md-surface: #131315;
+    --md-surface-dim: #131315;
+    --md-surface-bright: #39393c;
+    --md-surface-lowest: #0e0e10;
+    --md-surface-low: #191a1c;
+    --md-surface-container: #1f2022;
+    --md-surface-high: #28292c;
+    --md-surface-highest: #333437;
+    --md-on-surface: #e4e2e5;
+    --md-on-surface-variant: #c4c5cb;
+    --md-outline: #8e8f96;
+    --md-outline-variant: #44454b;
+    --md-inverse-surface: #e3e2e6;
+    --md-inverse-on-surface: #2f3033;
+    --md-inverse-primary: #305ea1;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-2: 0 6px 18px rgba(0, 0, 0, 0.45);
+    --shadow-3: 0 18px 48px rgba(0, 0, 0, 0.6);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    min-height: 100vh;
+    background: var(--md-surface);
+    color: var(--md-on-surface);
+    font-family: var(--font);
+    font-size: var(--t-body);
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+  h1, h2, h3, h4, p { margin: 0; }
+  button, input { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  svg { display: block; }
+
+  .proto-bar {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 24px;
+    background: color-mix(in oklab, var(--md-surface-low) 92%, transparent);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--md-outline-variant);
+  }
+  .proto-brand { font-size: var(--t-title); font-weight: 650; letter-spacing: -0.01em; }
+  .proto-brand span { color: var(--md-on-surface-variant); font-weight: 400; }
+  .proto-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-left: auto; }
+
+  .segmented {
+    display: inline-flex;
+    padding: 4px;
+    gap: 4px;
+    border-radius: var(--shape-full);
+    background: var(--md-surface-container);
+  }
+  .segmented button {
+    min-height: 36px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: var(--shape-full);
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    font-size: var(--t-label-sm);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  .segmented button[aria-pressed="true"] {
+    background: var(--md-secondary-container);
+    color: var(--md-on-secondary-container);
+  }
+
+  .proto-canvas {
+    width: 100%;
+    max-width: 1480px;
+    margin: 0 auto;
+    padding: 32px 24px 96px;
+    container-type: inline-size;
+    transition: max-width var(--dur) var(--ease), padding var(--dur) var(--ease);
+  }
+  .proto-canvas.is-mobile {
+    max-width: 438px;
+    padding: 16px 16px 96px;
+    border-inline: 1px solid var(--md-outline-variant);
+    background: var(--md-surface);
+  }
+
+  .section { margin-bottom: 56px; }
+  .section__eyebrow {
+    font-size: var(--t-label-xs);
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--md-primary);
+    margin-bottom: 8px;
+  }
+  .section h2 { font-size: var(--t-headline); font-weight: 700; letter-spacing: -0.02em; }
+  .section__lead {
+    max-width: 760px;
+    margin-top: 6px;
+    color: var(--md-on-surface-variant);
+    font-size: var(--t-body-lg);
+    line-height: 24px;
+  }
+  .section__body { margin-top: 24px; }
+
+  .grid { display: grid; gap: 16px; }
+  .grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @container (max-width: 1100px) {
+    .grid--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @container (max-width: 680px) {
+    .grid--4, .grid--3, .grid--2 { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    min-height: 40px;
+    padding: 0 20px;
+    border: 1px solid transparent;
+    border-radius: var(--shape-full);
+    background: transparent;
+    color: var(--md-primary);
+    font-size: var(--t-label);
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  }
+  .btn--filled { background: var(--md-primary); color: var(--md-on-primary); }
+  [data-theme="dark"] .btn--filled { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+  .btn--filled:hover { background: color-mix(in oklab, var(--md-primary) 92%, var(--md-on-primary) 8%); box-shadow: var(--shadow-1); }
+  .btn--tonal { background: var(--md-secondary-container); color: var(--md-on-secondary-container); }
+  .btn--outlined { border-color: var(--md-outline); color: var(--md-primary); }
+  .btn--outlined:hover, .btn--text:hover { background: color-mix(in oklab, var(--md-primary) 8%, transparent); }
+  .btn--text { padding-inline: 12px; }
+  .btn--icon {
+    width: 40px;
+    min-width: 40px;
+    padding: 0;
+    border-radius: var(--shape-full);
+    color: var(--md-on-surface-variant);
+  }
+  .btn--icon:hover { background: color-mix(in oklab, var(--md-on-surface) 8%, transparent); }
+  .btn:focus-visible, .chip:focus-visible, .search:focus-within, .sort-btn:focus-visible,
+  .check input:focus-visible + span, .mobile-card:focus-visible {
+    outline: 2px solid var(--md-primary);
+    outline-offset: 2px;
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn--sm { min-height: 32px; padding: 0 14px; font-size: var(--t-label-sm); }
+  .btn--fab { width: 56px; min-width: 56px; height: 56px; border-radius: var(--shape-lg); box-shadow: var(--shadow-2); }
+
+  .card {
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--shape-lg);
+    background: var(--md-surface-lowest);
+    overflow: hidden;
+  }
+  [data-theme="dark"] .card { background: var(--md-surface-low); }
+  .card--filled {
+    background: var(--md-surface-high);
+    border-color: transparent;
+  }
+  .card--elevated {
+    background: color-mix(in oklab, var(--md-surface-lowest) 97%, var(--md-primary) 3%);
+    border-color: transparent;
+    box-shadow: var(--shadow-1);
+  }
+  [data-theme="dark"] .card--elevated {
+    background: color-mix(in oklab, var(--md-surface-low) 95%, var(--md-primary) 5%);
+  }
+  .card__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 20px 0;
+  }
+  .card__head--bordered { padding-bottom: 16px; border-bottom: 1px solid var(--md-outline-variant); }
+  .card__title { font-size: var(--t-title); font-weight: 650; letter-spacing: -0.01em; }
+  .card__sub { margin-top: 2px; color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  .card__actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  .card__body { padding: 16px 20px 20px; }
+  .card__foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-low);
+  }
+  @container (max-width: 680px) {
+    .card__head { padding: 16px 16px 0; flex-wrap: wrap; }
+    .card__body { padding: 12px 16px 16px; }
+    .card__foot { padding: 10px 16px; flex-wrap: wrap; }
+    .card__actions { margin-left: 0; width: 100%; }
+  }
+
+  .metric { display: flex; flex-direction: column; gap: 12px; padding: 20px; }
+  .metric__top { display: flex; align-items: center; gap: 12px; }
+  .metric__icon {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: var(--shape-md);
+    background: var(--md-primary-container);
+    color: var(--md-on-primary-container);
+    flex: none;
+  }
+  .metric__label { color: var(--md-on-surface-variant); font-size: var(--t-label-sm); font-weight: 600; letter-spacing: 0.02em; }
+  .metric__value { font-size: var(--t-display); line-height: 44px; font-weight: 700; letter-spacing: -0.03em; }
+  .metric__value small { font-size: var(--t-title-lg); color: var(--md-on-surface-variant); font-weight: 500; }
+  .metric__foot { display: flex; align-items: center; gap: 8px; color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  .delta { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: var(--shape-sm); font-size: var(--t-label-xs); font-weight: 700; }
+  .delta--up { background: var(--md-success-container); color: var(--md-on-success-container); }
+  .delta--down { background: var(--md-error-container); color: var(--md-on-error-container); }
+
+  .hero { display: flex; flex-direction: column; gap: 18px; padding: 22px; }
+  .hero__top { display: flex; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+  .hero__value { font-size: var(--t-display); line-height: 44px; font-weight: 700; letter-spacing: -0.03em; }
+  .hero__value span { color: var(--md-on-surface-variant); font-size: var(--t-title-lg); font-weight: 500; }
+  .hero__meta { display: flex; gap: 24px; flex-wrap: wrap; color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  .progress { height: 4px; border-radius: var(--shape-full); background: var(--md-surface-highest); overflow: hidden; }
+  .progress > span { display: block; width: 38%; height: 100%; border-radius: inherit; background: var(--md-primary); }
+  .row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .muted { color: var(--md-on-surface-variant); }
+  .small { font-size: var(--t-body-sm); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+
+  .field { display: flex; flex-direction: column; gap: 6px; }
+  .field label { font-size: var(--t-label-sm); font-weight: 600; color: var(--md-on-surface-variant); }
+  .input {
+    min-height: 48px;
+    padding: 0 14px;
+    border: 1px solid var(--md-outline);
+    border-radius: var(--shape-sm);
+    background: var(--md-surface-lowest);
+    color: var(--md-on-surface);
+    font-size: var(--t-body);
+  }
+  [data-theme="dark"] .input { background: var(--md-surface-low); }
+  .input:focus { border-color: var(--md-primary); outline: 1px solid var(--md-primary); }
+
+  .search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 48px;
+    padding: 0 16px;
+    border-radius: var(--shape-full);
+    background: var(--md-surface-high);
+    color: var(--md-on-surface-variant);
+    flex: 0 0 auto;
+    height: 48px;
+  }
+  .data-toolbar__bottom .search { flex: 1 1 260px; }
+  .search input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; outline: none; font-size: var(--t-body); color: var(--md-on-surface); }
+  .search input::placeholder { color: var(--md-on-surface-variant); }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--md-outline);
+    border-radius: var(--shape-sm);
+    background: transparent;
+    color: var(--md-on-surface-variant);
+    font-size: var(--t-label-sm);
+    font-weight: 600;
+  }
+  .chip:hover { background: color-mix(in oklab, var(--md-on-surface) 6%, transparent); }
+  .chip[aria-pressed="true"] {
+    background: var(--md-secondary-container);
+    border-color: transparent;
+    color: var(--md-on-secondary-container);
+  }
+  .chip[aria-pressed="true"] .chip__check { display: block; }
+  .chip__check { display: none; }
+
+  .status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 24px;
+    padding: 0 8px;
+    border-radius: var(--shape-sm);
+    font-size: var(--t-label-xs);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+  .status--ok { background: var(--md-success-container); color: var(--md-on-success-container); }
+  .status--warn { background: var(--md-warning-container); color: var(--md-on-warning-container); }
+  .status--error { background: var(--md-error-container); color: var(--md-on-error-container); }
+  .status--info { background: var(--md-info-container); color: var(--md-on-info-container); }
+  .status--neutral { background: var(--md-surface-high); color: var(--md-on-surface-variant); }
+  .status__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+
+  .data-card {
+    background: var(--md-surface-lowest);
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--shape-lg);
+    overflow: hidden;
+  }
+  [data-theme="dark"] .data-card { background: var(--md-surface-low); }
+  .data-toolbar { display: flex; flex-direction: column; gap: 12px; padding: 16px 20px; }
+  .data-toolbar__top { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+  .data-toolbar__title { font-size: var(--t-title); font-weight: 650; letter-spacing: -0.01em; }
+  .data-toolbar__sub { color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  .data-toolbar__actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+  .data-toolbar__bottom { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .data-toolbar__spacer { margin-left: auto; }
+  .data-scroll { overflow: auto; max-height: 520px; }
+  .data { width: 100%; border-collapse: separate; border-spacing: 0; font-size: var(--t-body); }
+  .data caption { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .data thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    height: 48px;
+    padding: 0 16px;
+    background: var(--md-surface-low);
+    border-bottom: 1px solid var(--md-outline-variant);
+    color: var(--md-on-surface-variant);
+    font-size: var(--t-label-xs);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    text-align: left;
+    white-space: nowrap;
+  }
+  .data thead th:first-child { position: sticky; left: 0; z-index: 3; }
+  .data tbody td {
+    height: 52px;
+    padding: 0 16px;
+    border-bottom: 1px solid var(--md-outline-variant);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+  .data tbody tr:last-child td { border-bottom: 0; }
+  .data tbody tr { transition: background 100ms linear; }
+  .data tbody tr:hover { background: color-mix(in oklab, var(--md-on-surface) 6%, transparent); }
+  .data tbody tr.is-selected { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+  .data tbody tr.is-selected:hover { background: color-mix(in oklab, var(--md-primary-container) 92%, var(--md-on-primary-container) 8%); }
+  .data tbody tr.is-selected .muted { color: color-mix(in oklab, var(--md-on-primary-container) 72%, transparent); }
+  .data td.cell-check, .data th.cell-check { width: 52px; padding-inline: 12px; text-align: center; }
+  .data th.cell-check:first-child { background: var(--md-surface-low); }
+  .data .cell-main { font-weight: 600; }
+  .data .cell-sub { display: block; margin-top: 2px; color: var(--md-on-surface-variant); font-size: var(--t-body-sm); font-weight: 400; }
+  .data .cell-actions { text-align: right; width: 96px; }
+  .data-card.is-dense .data tbody td { height: 44px; padding-inline: 12px; }
+  .data-card.is-dense .data thead th { height: 44px; }
+  .data tr.is-selected .check span { border-color: var(--md-on-primary-container); background: var(--md-on-primary-container); }
+  .data tr.is-selected .check svg { color: var(--md-primary-container); }
+
+  .sort-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    cursor: pointer;
+  }
+  .sort-btn svg { opacity: 0.55; }
+  .data th[aria-sort="ascending"] .sort-btn, .data th[aria-sort="descending"] .sort-btn { color: var(--md-primary); }
+  .data th[aria-sort="ascending"] .sort-btn svg, .data th[aria-sort="descending"] .sort-btn svg { opacity: 1; }
+
+  .check { position: relative; display: inline-flex; width: 18px; height: 18px; vertical-align: middle; }
+  .check input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; }
+  .check span {
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--md-outline);
+    border-radius: 4px;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    transition: background 100ms linear, border-color 100ms linear;
+  }
+  .check svg { display: none; color: var(--md-on-primary); }
+  .check input:checked + span { background: var(--md-primary); border-color: var(--md-primary); }
+  .check input:checked + span svg { display: block; }
+  .check input:indeterminate + span { background: var(--md-primary); border-color: var(--md-primary); }
+  .check input:indeterminate + span::after { content: ""; width: 10px; height: 2px; border-radius: 2px; background: var(--md-on-primary); }
+
+  .data-foot {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px;
+    border-top: 1px solid var(--md-outline-variant);
+    background: var(--md-surface-low);
+    color: var(--md-on-surface-variant);
+    font-size: var(--t-body-sm);
+  }
+
+  .toolbar-toggle { display: inline-flex; padding: 3px; gap: 2px; border-radius: var(--shape-full); background: var(--md-surface-container); }
+  .toolbar-toggle button { width: 36px; height: 30px; border: 0; border-radius: var(--shape-full); background: transparent; color: var(--md-on-surface-variant); display: grid; place-items: center; }
+  .toolbar-toggle button[aria-pressed="true"] { background: var(--md-surface-highest); color: var(--md-on-surface); }
+
+  .mobile-list { display: none; padding: 12px; gap: 12px; flex-direction: column; background: var(--md-surface-low); }
+  .mobile-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px;
+    border-radius: var(--shape-md);
+    background: var(--md-surface-lowest);
+    border: 1px solid var(--md-outline-variant);
+  }
+  [data-theme="dark"] .mobile-card { background: var(--md-surface-container); }
+  .mobile-card.is-selected { background: var(--md-primary-container); border-color: transparent; color: var(--md-on-primary-container); }
+  .mobile-card__top { display: flex; align-items: center; gap: 10px; }
+  .mobile-card__name { font-size: var(--t-title-sm); font-weight: 650; }
+  .mobile-card__sub { color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  .mobile-card__status { margin-left: auto; }
+  .mobile-card__meta { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+  .mobile-card__meta dt { color: var(--md-on-surface-variant); font-size: var(--t-label-xs); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+  .mobile-card__meta dd { margin: 2px 0 0; font-size: var(--t-body-sm); font-variant-numeric: tabular-nums; }
+  .mobile-card__foot { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--md-outline-variant); }
+  .mobile-card.is-selected .mobile-card__foot, .mobile-card.is-selected .mobile-card__sub { border-color: color-mix(in oklab, var(--md-on-primary-container) 20%, transparent); color: color-mix(in oklab, var(--md-on-primary-container) 75%, transparent); }
+
+  @container (max-width: 640px) {
+    .data-scroll { display: none; }
+    .mobile-list { display: flex; }
+    .data-toolbar__spacer { display: none; }
+    .data-toolbar__bottom .search { flex-basis: 100%; }
+    .data-toolbar__actions { width: 100%; margin-left: 0; }
+    .data-toolbar__actions .btn { flex: 1; }
+  }
+
+  .bulk {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 10px 12px 10px 20px;
+    border-radius: var(--shape-lg);
+    background: var(--md-surface-highest);
+    box-shadow: var(--shadow-3);
+    color: var(--md-on-surface);
+  }
+  .bulk__count { font-size: var(--t-label); font-weight: 700; }
+  .bulk__actions { display: flex; align-items: center; gap: 4px; margin-left: auto; flex-wrap: wrap; }
+
+  .empty { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 8px; padding: 40px 20px; }
+  .empty__icon { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 50%; background: var(--md-surface-container); color: var(--md-on-surface-variant); margin-bottom: 4px; }
+  .empty__title { font-size: var(--t-title); font-weight: 650; }
+  .empty__text { max-width: 360px; color: var(--md-on-surface-variant); font-size: var(--t-body); }
+
+  .error-box { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: var(--shape-md); background: var(--md-error-container); color: var(--md-on-error-container); font-size: var(--t-body); }
+  .error-box .btn { margin-left: auto; color: var(--md-on-error-container); }
+
+  .skeleton { border-radius: var(--shape-sm); background: var(--md-surface-high); }
+  .skeleton--line { height: 12px; }
+  .skeleton--title { height: 16px; width: 42%; }
+  .skeleton--field { height: 48px; }
+  .skeleton--row { height: 44px; margin: 8px 0; }
+  .skeleton-card { display: flex; flex-direction: column; gap: 10px; padding: 20px; }
+
+  .found-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  @container (max-width: 900px) { .found-grid { grid-template-columns: minmax(0, 1fr); } }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .swatch { border-radius: var(--shape-md); overflow: hidden; border: 1px solid var(--md-outline-variant); }
+  .swatch__color { height: 56px; }
+  .swatch__meta { padding: 8px 10px; background: var(--md-surface-lowest); }
+  [data-theme="dark"] .swatch__meta { background: var(--md-surface-low); }
+  .swatch__name { font-size: var(--t-label-xs); font-weight: 700; }
+  .swatch__hex { font-size: 10px; color: var(--md-on-surface-variant); font-family: ui-monospace, monospace; }
+
+  .type-row { display: flex; align-items: baseline; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--md-outline-variant); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row code { flex: 0 0 130px; font-size: 11px; color: var(--md-on-surface-variant); }
+  .type-row div { flex: 1; }
+
+  .shape-row { display: flex; flex-wrap: wrap; gap: 12px; }
+  .shape { display: grid; place-items: center; width: 72px; height: 56px; background: var(--md-primary-container); color: var(--md-on-primary-container); font-size: 11px; font-weight: 700; }
+
+  .elev-row { display: flex; flex-wrap: wrap; gap: 16px; }
+  .elev { width: 150px; height: 92px; border-radius: var(--shape-lg); display: flex; align-items: flex-end; padding: 12px; font-size: 11px; color: var(--md-on-surface-variant); }
+  .elev--0 { background: var(--md-surface-lowest); border: 1px solid var(--md-outline-variant); }
+  .elev--1 { background: color-mix(in oklab, var(--md-surface-lowest) 97%, var(--md-primary) 3%); box-shadow: var(--shadow-1); }
+  .elev--2 { background: color-mix(in oklab, var(--md-surface-container) 95%, var(--md-primary) 5%); box-shadow: var(--shadow-2); }
+  .elev--3 { background: color-mix(in oklab, var(--md-surface-high) 92%, var(--md-primary) 8%); box-shadow: var(--shadow-3); }
+
+  .baseline { height: 1px; background: var(--md-outline-variant); margin: 8px 0 24px; }
+  .caption { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--md-on-surface-variant); margin-bottom: 8px; }
+
+
+  .cell-name { display: flex; align-items: center; gap: 10px; }
+  .avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--md-primary-container); color: var(--md-on-primary-container);
+    display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none;
+  }
+  .data tr.is-selected .avatar { background: color-mix(in oklab, var(--md-on-primary-container) 16%, transparent); color: var(--md-on-primary-container); }
+  .cell-name__text { display: flex; flex-direction: column; }
+  .meter { width: 92px; height: 6px; border-radius: var(--shape-full); background: var(--md-surface-highest); overflow: hidden; margin-bottom: 4px; }
+  .meter > span { display: block; height: 100%; border-radius: inherit; background: var(--md-primary); }
+  .meter--warn > span { background: var(--md-warning); }
+  .meter--error > span { background: var(--md-error); }
+  .cell-quota { color: var(--md-on-surface-variant); font-size: var(--t-label-xs); font-variant-numeric: tabular-nums; }
+  .data tr.is-selected .cell-quota { color: color-mix(in oklab, var(--md-on-primary-container) 75%, transparent); }
+  .peer-stack { display: flex; align-items: center; }
+  .peer-avatar {
+    width: 24px; height: 24px; border-radius: 50%; margin-left: -7px;
+    background: var(--md-surface-high); border: 2px solid var(--md-surface-lowest);
+    display: grid; place-items: center; font-size: 9px; font-weight: 700; color: var(--md-on-surface-variant);
+  }
+  [data-theme="dark"] .peer-avatar { border-color: var(--md-surface-low); }
+  .peer-avatar:first-child { margin-left: 0; }
+  .peer-more { margin-left: 6px; font-size: 11px; color: var(--md-on-surface-variant); }
+  .spark { width: 76px; height: 26px; }
+  .spark path { fill: none; stroke: var(--md-primary); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .spark--warn path { stroke: var(--md-warning); }
+  .spark--muted path { stroke: var(--md-outline); }
+  .metric__row { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; }
+  .metric__trend { display: flex; align-items: center; gap: 6px; margin-top: 2px; font-size: 11px; color: var(--md-on-surface-variant); }
+  .hero__grid { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 20px; align-items: center; }
+  .donut { position: relative; width: 96px; height: 96px; flex: none; }
+  .donut svg { transform: rotate(-90deg); }
+  .donut__center { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; font-size: 10px; color: var(--md-on-surface-variant); }
+  .donut__center strong { display: block; font-size: 19px; line-height: 22px; color: var(--md-on-surface); }
+  .health-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .resource { display: flex; flex-direction: column; gap: 6px; padding: 12px; border-radius: var(--shape-md); background: var(--md-surface-container); }
+  .resource__top { display: flex; justify-content: space-between; gap: 6px; color: var(--md-on-surface-variant); font-size: 11px; }
+  .resource__value { font-size: var(--t-title-sm); font-weight: 700; }
+  .resource .meter { width: 100%; margin: 0; }
+  .health-list { display: flex; flex-direction: column; gap: 6px; }
+  .health-row { display: flex; justify-content: space-between; gap: 10px; font-size: var(--t-body-sm); }
+  .health-row span:first-child { color: var(--md-on-surface-variant); }
+  .event-list { display: flex; flex-direction: column; }
+  .event { display: flex; align-items: flex-start; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--md-outline-variant); }
+  .event:last-child { border-bottom: 0; padding-bottom: 0; }
+  .event__icon { width: 32px; height: 32px; border-radius: 50%; background: var(--md-surface-container); color: var(--md-on-surface-variant); display: grid; place-items: center; flex: none; }
+  .event__title { font-size: 13px; font-weight: 600; }
+  .event__meta { margin-top: 2px; color: var(--md-on-surface-variant); font-size: 11px; }
+  .event__time { margin-left: auto; color: var(--md-on-surface-variant); font-size: 11px; white-space: nowrap; }
+  .row-expand td { height: auto; padding: 0; background: var(--md-surface-low); }
+  .row-expand__inner { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; padding: 16px 20px; border-bottom: 1px solid var(--md-outline-variant); }
+  .row-expand__label { color: var(--md-on-surface-variant); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+  .row-expand__value { margin-top: 2px; font-size: 12px; font-variant-numeric: tabular-nums; }
+  .search .kbd { margin-left: auto; border: 1px solid var(--md-outline-variant); border-radius: 4px; padding: 0 5px; font-size: 10px; color: var(--md-on-surface-variant); }
+  .row-hover-actions { opacity: 0; transition: opacity 100ms linear; }
+  .data tr:hover .row-hover-actions, .data tr:focus-within .row-hover-actions { opacity: 1; }
+  .pager { display: flex; align-items: center; gap: 2px; }
+  .pager button { width: 32px; height: 32px; border: 0; border-radius: var(--shape-full); background: transparent; color: var(--md-on-surface-variant); display: grid; place-items: center; }
+  .pager button:hover { background: color-mix(in oklab, var(--md-on-surface) 8%, transparent); }
+  .pager button:disabled { opacity: 0.38; }
+  .range { color: var(--md-on-surface-variant); font-size: var(--t-body-sm); }
+  @container (max-width: 900px) {
+    .health-grid { grid-template-columns: minmax(0, 1fr); }
+    .row-expand__inner { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @container (max-width: 640px) {
+    .hero__grid { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 1ms !important; animation-duration: 1ms !important; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-grid" viewBox="0 0 24 24"><path fill="currentColor" d="M3 3h8v8H3V3zm10 0h8v8h-8V3zM3 13h8v8H3v-8zm10 0h8v8h-8v-8z"/></symbol>
+  <symbol id="i-node" viewBox="0 0 24 24"><path fill="currentColor" d="M4 5h16v4H4V5zm0 6h16v4H4v-4zm0 6h16v4H4v-4z"/></symbol>
+  <symbol id="i-devices" viewBox="0 0 24 24"><path fill="currentColor" d="M4 2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm8 16h6v2H6v-2h6z"/></symbol>
+  <symbol id="i-groups" viewBox="0 0 24 24"><path fill="currentColor" d="M16 11a4 4 0 1 1 0-8 4 4 0 0 1 0 8zM8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm8 1c3.3 0 6 1.6 6 3.6V20h-5v-3.4c0-1.4-.7-2.7-1.9-3.6H16zm-8 0c3.3 0 6 1.6 6 3.6V20H2v-3.4C2 14.6 4.7 13 8 13z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path fill="currentColor" d="M10 3a7 7 0 1 1-4.9 12L2 18.1 3.9 20l3.1-3.1A7 7 0 0 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path fill="currentColor" d="M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6V5z"/></symbol>
+  <symbol id="i-more" viewBox="0 0 24 24"><path fill="currentColor" d="M12 8a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4zm0 6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path fill="currentColor" d="M9 16.2 4.8 12l-1.4 1.4L9 19 21 7l-1.4-1.4L9 16.2z"/></symbol>
+  <symbol id="i-sort" viewBox="0 0 24 24"><path fill="currentColor" d="M7 10l5-5 5 5H7zm0 4h10l-5 5-5-5z"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path fill="currentColor" d="m9 6 6 6-6 6-1.4-1.4L12.2 12 7.6 7.4 9 6z"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path fill="currentColor" d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6 10.6 12 5 6.4 6.4 5z"/></symbol>
+  <symbol id="i-wifi" viewBox="0 0 24 24"><path fill="currentColor" d="M12 18a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm0-5c1.7 0 3.2.7 4.2 1.8l-1.4 1.4A4 4 0 0 0 12 15a4 4 0 0 0-2.8 1.2l-1.4-1.4A6 6 0 0 1 12 13zm0-5c2.8 0 5.3 1.1 7.1 2.9l-1.4 1.4A8 8 0 0 0 12 10a8 8 0 0 0-5.7 2.3L4.9 10.9A10 10 0 0 1 12 8zm0-5c3.9 0 7.4 1.6 9.9 4.1l-1.4 1.4A12 12 0 0 0 12 5 12 12 0 0 0 3.5 8.5L2.1 7.1A14 14 0 0 1 12 3z"/></symbol>
+  <symbol id="i-density" viewBox="0 0 24 24"><path fill="currentColor" d="M3 4h18v2H3V4zm0 7h18v2H3v-2zm0 7h18v2H3v-2z"/></symbol>
+  <symbol id="i-empty" viewBox="0 0 24 24"><path fill="currentColor" d="M4 4h16v4H4V4zm0 6h10v2H4v-2zm0 4h16v2H4v-2zm0 4h10v2H4v-2z"/></symbol>
+</svg>
+
+<header class="proto-bar">
+  <div class="proto-brand">AWG Admin <span>· Material You</span></div>
+  <div class="proto-controls">
+    <div class="segmented" role="group" aria-label="Тема">
+      <button type="button" data-theme-btn="light" aria-pressed="true">Светлая</button>
+      <button type="button" data-theme-btn="dark" aria-pressed="false">Тёмная</button>
+    </div>
+    <button class="btn btn--outlined btn--sm" type="button" id="density-btn" aria-pressed="false">
+      <svg width="16" height="16" aria-hidden="true"><use href="#i-density"></use></svg>
+      Плотность
+    </button>
+    <button class="btn btn--outlined btn--sm" type="button" id="mobile-btn" aria-pressed="false">
+      Мобильный вид
+    </button>
+  </div>
+</header>
+
+<main class="proto-canvas" id="canvas">
+  <section class="section" id="foundations">
+    <div class="section__eyebrow">Foundations</div>
+    <h2>Цвет, типографика, форма</h2>
+    <p class="section__lead">Роли Material 3 выведены из нашего navy-цвета. Secondary — приглушённый стальной, tertiary — сине-фиолетовый из палитры. Семантика отдельная.</p>
+    <div class="section__body found-grid">
+      <div class="card">
+        <div class="card__head"><div><div class="card__title">Цветовые роли</div><div class="card__sub">light / dark переключаются сверху</div></div></div>
+        <div class="card__body swatches">
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-primary)"></div><div class="swatch__meta"><div class="swatch__name">primary</div><div class="swatch__hex" data-hex="primary"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-primary-container)"></div><div class="swatch__meta"><div class="swatch__name">primary-container</div><div class="swatch__hex" data-hex="primary-container"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-secondary)"></div><div class="swatch__meta"><div class="swatch__name">secondary</div><div class="swatch__hex" data-hex="secondary"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-secondary-container)"></div><div class="swatch__meta"><div class="swatch__name">secondary-container</div><div class="swatch__hex" data-hex="secondary-container"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-tertiary)"></div><div class="swatch__meta"><div class="swatch__name">tertiary</div><div class="swatch__hex" data-hex="tertiary"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-error)"></div><div class="swatch__meta"><div class="swatch__name">error</div><div class="swatch__hex" data-hex="error"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-success)"></div><div class="swatch__meta"><div class="swatch__name">success</div><div class="swatch__hex" data-hex="success"></div></div></div>
+          <div class="swatch"><div class="swatch__color" style="background:var(--md-warning)"></div><div class="swatch__meta"><div class="swatch__name">warning</div><div class="swatch__hex" data-hex="warning"></div></div></div>
+        </div>
+        <div class="card__body" style="padding-top:0">
+          <div class="caption">Surface ladder</div>
+          <div class="swatches" style="grid-template-columns:repeat(auto-fit,minmax(96px,1fr))">
+            <div class="swatch"><div class="swatch__color" style="background:var(--md-surface-lowest);border-bottom:1px solid var(--md-outline-variant)"></div><div class="swatch__meta"><div class="swatch__name">lowest</div><div class="swatch__hex" data-hex="surface-lowest"></div></div></div>
+            <div class="swatch"><div class="swatch__color" style="background:var(--md-surface-low)"></div><div class="swatch__meta"><div class="swatch__name">low</div><div class="swatch__hex" data-hex="surface-low"></div></div></div>
+            <div class="swatch"><div class="swatch__color" style="background:var(--md-surface-container)"></div><div class="swatch__meta"><div class="swatch__name">container</div><div class="swatch__hex" data-hex="surface-container"></div></div></div>
+            <div class="swatch"><div class="swatch__color" style="background:var(--md-surface-high)"></div><div class="swatch__meta"><div class="swatch__name">high</div><div class="swatch__hex" data-hex="surface-high"></div></div></div>
+            <div class="swatch"><div class="swatch__color" style="background:var(--md-surface-highest)"></div><div class="swatch__meta"><div class="swatch__name">highest</div><div class="swatch__hex" data-hex="surface-highest"></div></div></div>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px">
+        <div class="card">
+          <div class="card__head"><div><div class="card__title">Типографика</div><div class="card__sub">M3 type scale для админки</div></div></div>
+          <div class="card__body">
+            <div class="type-row"><code>display-small</code><div style="font-size:36px;line-height:44px;font-weight:700;letter-spacing:-0.03em">8 / 8</div></div>
+            <div class="type-row"><code>headline-medium</code><div style="font-size:28px;line-height:36px;font-weight:700;letter-spacing:-0.02em">Клиенты</div></div>
+            <div class="type-row"><code>title-medium</code><div style="font-size:16px;line-height:24px;font-weight:650">Устройства</div></div>
+            <div class="type-row"><code>body-medium</code><div style="font-size:14px;line-height:20px">10.44.0.111 · pairuser</div></div>
+            <div class="type-row"><code>label-medium</code><div style="font-size:12px;line-height:16px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--md-on-surface-variant)">Устройство</div></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><div class="card__title">Форма и elevation</div><div class="card__sub">shape 4 / 8 / 16 / 28</div></div></div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:16px">
+            <div class="shape-row">
+              <div class="shape" style="border-radius:var(--shape-xs)">4</div>
+              <div class="shape" style="border-radius:var(--shape-sm)">8</div>
+              <div class="shape" style="border-radius:var(--shape-md)">12</div>
+              <div class="shape" style="border-radius:var(--shape-lg)">16</div>
+              <div class="shape" style="border-radius:var(--shape-xl)">28</div>
+            </div>
+            <div class="elev-row">
+              <div class="elev elev--0">level 0</div>
+              <div class="elev elev--1">level 1</div>
+              <div class="elev elev--2">level 2</div>
+              <div class="elev elev--3">level 3</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="cards">
+    <div class="section__eyebrow">Cards</div>
+    <h2>Карточки</h2>
+    <p class="section__lead">Не просто контейнеры: метрика с трендом, квота с прогрессом, здоровье ноды, активность, формы и обязательные состояния.</p>
+    <div class="section__body">
+      <div class="grid grid--4">
+        <div class="card card--filled">
+          <div class="metric">
+            <div class="metric__top">
+              <div class="metric__icon"><svg width="22" height="22" aria-hidden="true"><use href="#i-node"></use></svg></div>
+              <div><div class="metric__label">Ноды</div><div class="small muted">всего в системе</div></div>
+            </div>
+            <div class="metric__row">
+              <div class="metric__value">1 <small>/ 1</small></div>
+              <svg class="spark" viewBox="0 0 76 26" aria-hidden="true"><path d="M2 20h18v-6h18V9h16v-4h20"/></svg>
+            </div>
+            <div class="metric__trend"><span class="delta delta--up">100%</span><span>онлайн</span><span style="margin-left:auto">uptime 3ч</span></div>
+          </div>
+        </div>
+        <div class="card card--filled">
+          <div class="metric">
+            <div class="metric__top">
+              <div class="metric__icon"><svg width="22" height="22" aria-hidden="true"><use href="#i-grid"></use></svg></div>
+              <div><div class="metric__label">Интерфейсы</div><div class="small muted">на всех нодах</div></div>
+            </div>
+            <div class="metric__row">
+              <div class="metric__value">4</div>
+              <svg class="spark spark--muted" viewBox="0 0 76 26" aria-hidden="true"><path d="M2 18h20v-3h16v3h18v-2h18"/></svg>
+            </div>
+            <div class="metric__trend"><span class="delta" style="background:var(--md-surface-container);color:var(--md-on-surface-variant)">3 пира</span><span>среднее</span><span style="margin-left:auto">12 пиров</span></div>
+          </div>
+        </div>
+        <div class="card card--filled">
+          <div class="metric">
+            <div class="metric__top">
+              <div class="metric__icon"><svg width="22" height="22" aria-hidden="true"><use href="#i-devices"></use></svg></div>
+              <div><div class="metric__label">Клиенты</div><div class="small muted">устройства в системе</div></div>
+            </div>
+            <div class="metric__row">
+              <div class="metric__value">8</div>
+              <svg class="spark" viewBox="0 0 76 26" aria-hidden="true"><path d="M2 22 14 20 26 21 38 15 50 16 62 10 74 7"/></svg>
+            </div>
+            <div class="metric__trend"><span class="delta delta--up">+3</span><span>за неделю</span><span style="margin-left:auto">6 активных</span></div>
+          </div>
+        </div>
+        <div class="card card--filled">
+          <div class="metric">
+            <div class="metric__top">
+              <div class="metric__icon"><svg width="22" height="22" aria-hidden="true"><use href="#i-groups"></use></svg></div>
+              <div><div class="metric__label">Группы</div><div class="small muted">с интерфейсами</div></div>
+            </div>
+            <div class="metric__row">
+              <div class="metric__value">4</div>
+              <div class="peer-stack" aria-label="12 устройств">
+                <span class="peer-avatar">A</span><span class="peer-avatar">B</span><span class="peer-avatar">P</span><span class="peer-more">+9</span>
+              </div>
+            </div>
+            <div class="metric__trend"><span>Test group</span><span style="margin-left:auto">quota 38%</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2" style="margin-top:16px">
+        <div class="card card--filled">
+          <div class="hero">
+            <div class="hero__top">
+              <div>
+                <div class="card__sub">Квота трафика · текущий период</div>
+                <div class="hero__value">19 GB <span>из 50 GB</span></div>
+              </div>
+              <div class="card__actions"><span class="status status--warn"><span class="status__dot"></span>38%</span></div>
+            </div>
+            <div class="hero__grid">
+              <div class="donut">
+                <svg viewBox="0 0 42 42" width="96" height="96" aria-hidden="true">
+                  <circle cx="21" cy="21" r="16" fill="none" stroke="var(--md-surface-highest)" stroke-width="5"></circle>
+                  <circle cx="21" cy="21" r="16" fill="none" stroke="var(--md-primary)" stroke-width="5" stroke-linecap="round" stroke-dasharray="38 100"></circle>
+                </svg>
+                <div class="donut__center"><strong>38%</strong>использовано</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:10px">
+                <div class="progress"><span style="width:38%"></span></div>
+                <div class="hero__meta">
+                  <span>Вход: 7,4 GB</span>
+                  <span>Выход: 11,6 GB</span>
+                  <span>Устройств: 8</span>
+                </div>
+                <div class="hero__meta">
+                  <span>Сброс: 01.12.2026</span>
+                  <span>Осталось: 31 GB</span>
+                </div>
+              </div>
+            </div>
+            <div class="card__foot" style="margin:0 -22px -22px;border-radius:0">
+              <button class="btn btn--text btn--sm" type="button">Детали квоты</button>
+              <button class="btn btn--icon" type="button" aria-label="Меню квоты" style="margin-left:auto"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card__head card__head--bordered">
+            <div><div class="card__title">Фильтры</div><div class="card__sub">outlined card · live-применение</div></div>
+            <div class="card__actions"><button class="btn btn--text btn--sm btn--icon" type="button" aria-label="Сбросить фильтры"><svg width="18" height="18" aria-hidden="true"><use href="#i-close"></use></svg></button></div>
+          </div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:12px">
+            <div class="search">
+              <svg width="20" height="20" aria-hidden="true"><use href="#i-search"></use></svg>
+              <input type="search" placeholder="Имя устройства или IP-адрес" aria-label="Поиск">
+              <span class="kbd">/</span>
+            </div>
+            <div class="chips">
+              <button class="chip" type="button" aria-pressed="true"><svg class="chip__check" width="14" height="14" aria-hidden="true"><use href="#i-check"></use></svg>Активные <span class="muted">4</span></button>
+              <button class="chip" type="button" aria-pressed="false">Отозванные 1</button>
+              <button class="chip" type="button" aria-pressed="false">С лимитом 1</button>
+              <button class="chip" type="button" aria-pressed="false">Все группы 4</button>
+            </div>
+            <div class="grid grid--2" style="gap:10px">
+              <div class="field"><label for="f-group">Группа</label><input class="input" id="f-group" value="Test group" readonly></div>
+              <div class="field"><label for="f-status">Статус</label><input class="input" id="f-status" value="Все статусы" readonly></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2" style="margin-top:16px">
+        <div class="card card--elevated">
+          <div class="card__head card__head--bordered">
+            <div>
+              <div class="card__title">vpn-host</div>
+              <div class="card__sub">AmneziaWG worker · 127.0.0.1:9090</div>
+            </div>
+            <div class="card__actions">
+              <span class="status status--ok"><span class="status__dot"></span>online</span>
+              <button class="btn btn--icon" type="button" aria-label="Действия ноды"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button>
+            </div>
+          </div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:14px">
+            <div class="health-grid">
+              <div class="resource">
+                <div class="resource__top"><span>CPU</span><span>34%</span></div>
+                <div class="resource__value">1,99</div>
+                <div class="meter"><span style="width:34%"></span></div>
+              </div>
+              <div class="resource">
+                <div class="resource__top"><span>RAM</span><span>62%</span></div>
+                <div class="resource__value">10,5 / 33,5 GB</div>
+                <div class="meter meter--warn"><span style="width:62%"></span></div>
+              </div>
+              <div class="resource">
+                <div class="resource__top"><span>Uptime</span><span>3ч 09м</span></div>
+                <div class="resource__value">0.1.0</div>
+                <div class="meter"><span style="width:18%"></span></div>
+              </div>
+            </div>
+            <div class="health-list">
+              <div class="health-row"><span>Ядро</span><span class="mono">7.3.4-1-cachyos-bore-lto</span></div>
+              <div class="health-row"><span>Последний heartbeat</span><span>2 секунды назад</span></div>
+              <div class="health-row"><span>Интерфейсы / пиры</span><span>0 / 0</span></div>
+            </div>
+          </div>
+          <div class="card__foot">
+            <button class="btn btn--outlined btn--sm" type="button">Перезапустить worker</button>
+            <button class="btn btn--text btn--sm" type="button" style="margin-left:auto">Метрики</button>
+          </div>
+        </div>
+
+        <div class="card card--elevated">
+          <div class="card__head card__head--bordered">
+            <div><div class="card__title">Активность</div><div class="card__sub">последние события панели</div></div>
+            <div class="card__actions"><button class="btn btn--text btn--sm" type="button">Все события</button></div>
+          </div>
+          <div class="card__body">
+            <div class="event-list">
+              <div class="event">
+                <div class="event__icon"><svg width="18" height="18" aria-hidden="true"><use href="#i-wifi"></use></svg></div>
+                <div><div class="event__title">Нода vpn-host подключилась</div><div class="event__meta">worker 0.1.0 · kernel 7.3.4</div></div>
+                <div class="event__time">2 мин</div>
+              </div>
+              <div class="event">
+                <div class="event__icon"><svg width="18" height="18" aria-hidden="true"><use href="#i-devices"></use></svg></div>
+                <div><div class="event__title">Добавлен клиент phone</div><div class="event__meta">pairuser · Test group · 10.44.0.12</div></div>
+                <div class="event__time">18 мин</div>
+              </div>
+              <div class="event">
+                <div class="event__icon"><svg width="18" height="18" aria-hidden="true"><use href="#i-grid"></use></svg></div>
+                <div><div class="event__title">Лимит трафика достигнут</div><div class="event__meta">phone · 92% квоты · 50 Мбит/с</div></div>
+                <div class="event__time">1 ч</div>
+              </div>
+              <div class="event">
+                <div class="event__icon"><svg width="18" height="18" aria-hidden="true"><use href="#i-check"></use></svg></div>
+                <div><div class="event__title">Обновлён интерфейс awg0</div><div class="event__meta">admin · 3 пира · применено</div></div>
+                <div class="event__time">3 ч</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--3" style="margin-top:16px">
+        <div class="card">
+          <div class="card__head">
+            <div><div class="card__title">Outlined</div><div class="card__sub">форма и настройки</div></div>
+          </div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:10px">
+            <div class="field"><label for="n-name">Название ноды</label><input class="input" id="n-name" value="vpn-host"></div>
+            <div class="field"><label for="n-port">gRPC</label><input class="input" id="n-port" value="127.0.0.1:9090"></div>
+            <div class="row" style="justify-content:flex-end"><button class="btn btn--outlined btn--sm" type="button">Отмена</button><button class="btn btn--filled btn--sm" type="button">Сохранить</button></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><div class="card__title">Загрузка</div><div class="card__sub">skeleton без прыжков</div></div></div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:10px">
+            <div class="skeleton skeleton--title"></div>
+            <div class="skeleton skeleton--line" style="width:88%"></div>
+            <div class="skeleton skeleton--line" style="width:62%"></div>
+            <div class="skeleton skeleton--field"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card__head"><div><div class="card__title">Ошибка</div><div class="card__sub">inline, с повтором</div></div></div>
+          <div class="card__body">
+            <div class="error-box">
+              <svg width="20" height="20" aria-hidden="true"><use href="#i-wifi"></use></svg>
+              Не удалось загрузить список
+              <button class="btn btn--text btn--sm" type="button">Повторить</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid--2" style="margin-top:16px">
+        <div class="card">
+          <div class="empty">
+            <div class="empty__icon"><svg width="26" height="26" aria-hidden="true"><use href="#i-empty"></use></svg></div>
+            <div class="empty__title">Пока нет устройств</div>
+            <div class="empty__text">Создайте первого клиента или сбросьте фильтры, чтобы увидеть существующих.</div>
+            <button class="btn btn--outlined" type="button"><svg width="18" height="18" aria-hidden="true"><use href="#i-plus"></use></svg>Новый клиент</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card__head card__head--bordered"><div><div class="card__title">Кнопки и бейджи</div><div class="card__sub">filled / tonal / outlined / text</div></div></div>
+          <div class="card__body" style="display:flex;flex-direction:column;gap:12px">
+            <div class="row">
+              <button class="btn btn--filled" type="button"><svg width="18" height="18" aria-hidden="true"><use href="#i-plus"></use></svg>Создать</button>
+              <button class="btn btn--tonal" type="button">Экспорт</button>
+              <button class="btn btn--outlined" type="button">Отмена</button>
+              <button class="btn btn--text" type="button">Сбросить</button>
+            </div>
+            <div class="row">
+              <span class="status status--ok"><span class="status__dot"></span>Активно</span>
+              <span class="status status--warn"><span class="status__dot"></span>Лимит 92%</span>
+              <span class="status status--error"><span class="status__dot"></span>Ошибка</span>
+              <span class="status status--info"><span class="status__dot"></span>В очереди</span>
+              <span class="status status--neutral">Отозвано</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="table">
+    <div class="section__eyebrow">Data table</div>
+    <h2>Таблица и мобильный список</h2>
+    <p class="section__lead">Одна карточка: сохранённые представления, поиск с горячей клавишей, чипы с количеством, sticky-шапка, выбор строк, раскрытие деталей, плотность 52/44, пагинация и мобильные карточки.</p>
+    <div class="section__body">
+      <div class="data-card" id="clients-table">
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">Устройства</div>
+              <div class="data-toolbar__sub">Найдено <span class="js-found">5</span> из 5 · обновлено 2 мин назад</div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button class="btn btn--outlined" type="button"><svg width="16" height="16" aria-hidden="true"><use href="#i-refresh"></use></svg>Обновить</button>
+              <button class="btn btn--filled" type="button"><svg width="16" height="16" aria-hidden="true"><use href="#i-plus"></use></svg>Новый клиент</button>
+            </div>
+          </div>
+          <div class="data-toolbar__bottom">
+            <button class="chip" type="button" aria-pressed="true" style="min-height:40px;padding-inline:14px">
+              <svg width="14" height="14" aria-hidden="true"><use href="#i-empty"></use></svg>
+              Все устройства
+              <svg width="14" height="14" style="transform:rotate(90deg)" aria-hidden="true"><use href="#i-chevron"></use></svg>
+            </button>
+            <div class="search">
+              <svg width="20" height="20" aria-hidden="true"><use href="#i-search"></use></svg>
+              <input type="search" placeholder="Поиск по имени или IP" aria-label="Поиск устройств">
+              <span class="kbd">/</span>
+            </div>
+            <div class="chips">
+              <button class="chip" type="button" aria-pressed="true"><svg class="chip__check" width="14" height="14" aria-hidden="true"><use href="#i-check"></use></svg>Активные <span class="muted">4</span></button>
+              <button class="chip" type="button" aria-pressed="false">С лимитом 1</button>
+              <button class="chip" type="button" aria-pressed="false">Test group 4</button>
+            </div>
+            <div class="data-toolbar__spacer"></div>
+            <button class="btn btn--icon" type="button" aria-label="Настройки колонок"><svg width="20" height="20" aria-hidden="true"><use href="#i-grid"></use></svg></button>
+            <div class="toolbar-toggle" role="group" aria-label="Плотность таблицы">
+              <button type="button" class="js-density" data-density="normal" aria-pressed="true" aria-label="Обычная плотность (52 px)">52</button>
+              <button type="button" class="js-density" data-density="dense" aria-pressed="false" aria-label="Плотная таблица (44 px)">44</button>
+            </div>
+            <button class="btn btn--icon" type="button" aria-label="Меню таблицы"><svg width="20" height="20" aria-hidden="true"><use href="#i-more"></use></svg></button>
+          </div>
+        </div>
+
+        <div class="data-scroll">
+          <table class="data">
+            <caption>Список устройств AmneziaWG</caption>
+            <thead>
+              <tr>
+                <th class="cell-check"><label class="check"><input type="checkbox" class="js-all" aria-label="Выбрать все"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></th>
+                <th aria-sort="ascending"><button class="sort-btn" type="button">Устройство<svg width="14" height="14" aria-hidden="true"><use href="#i-sort"></use></svg></button></th>
+                <th>Владелец</th>
+                <th>Адрес</th>
+                <th>Лимит</th>
+                <th>Трафик</th>
+                <th>Статус</th>
+                <th class="cell-actions"><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Действия</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr data-row>
+                <td class="cell-check"><label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать A"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></td>
+                <td><div class="cell-name"><span class="avatar">A</span><span class="cell-name__text"><span class="cell-main">A</span><span class="cell-sub">Test group</span></span></div></td>
+                <td>pairuser</td>
+                <td class="mono">10.44.0.111</td>
+                <td><div class="meter"><span style="width:18%"></span></div><span class="cell-quota">18% · 110/110</span></td>
+                <td><div style="display:flex;align-items:center;gap:8px"><svg class="spark" style="width:56px;height:20px" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 16 10 14 18 15 26 9 34 11 42 6 54 4"/></svg><span class="cell-quota">2,1 Мбит/с</span></div></td>
+                <td><span class="status status--ok"><span class="status__dot"></span>Активно</span></td>
+                <td class="cell-actions"><div class="row-hover-actions" style="display:flex;gap:2px;justify-content:flex-end"><button class="btn btn--icon" type="button" aria-label="Копировать адрес A"><svg width="18" height="18" aria-hidden="true"><use href="#i-grid"></use></svg></button><button class="btn btn--icon" type="button" aria-label="Действия для A"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button></div></td>
+              </tr>
+              <tr data-row class="is-selected">
+                <td class="cell-check"><label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать B" checked><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></td>
+                <td><div class="cell-name"><span class="avatar">B</span><span class="cell-name__text"><span class="cell-main">B</span><span class="cell-sub">Test group</span></span></div></td>
+                <td>pairuser</td>
+                <td class="mono">10.44.0.251</td>
+                <td><div class="meter"><span style="width:64%"></span></div><span class="cell-quota">64% · 110/110</span></td>
+                <td><div style="display:flex;align-items:center;gap:8px"><svg class="spark" style="width:56px;height:20px" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 15 10 12 18 13 26 8 34 9 42 5 54 7"/></svg><span class="cell-quota">6,8 Мбит/с</span></div></td>
+                <td><span class="status status--ok"><span class="status__dot"></span>Активно</span></td>
+                <td class="cell-actions"><button class="btn btn--icon" type="button" aria-label="Свернуть детали B"><svg width="18" height="18" aria-hidden="true"><use href="#i-chevron"></use></svg></button></td>
+              </tr>
+              <tr class="row-expand">
+                <td colspan="8">
+                  <div class="row-expand__inner">
+                    <div><div class="row-expand__label">Интерфейс</div><div class="row-expand__value">awg0 · 51820/udp</div></div>
+                    <div><div class="row-expand__label">Пиры</div><div class="row-expand__value">1 активный · handshake 12 c</div></div>
+                    <div><div class="row-expand__label">Forwarding</div><div class="row-expand__value">A ↔ B разрешён</div></div>
+                    <div><div class="row-expand__label">Создан</div><div class="row-expand__value">12.11.2026 · admin</div></div>
+                  </div>
+                  <div class="row-expand__inner" style="border-bottom:0;padding-top:0">
+                    <div><div class="row-expand__label">rx / tx</div><div class="row-expand__value">7,4 GB / 11,6 GB</div></div>
+                    <div><div class="row-expand__label">Last handshake</div><div class="row-expand__value">12 секунд назад</div></div>
+                    <div><div class="row-expand__label">Квота</div><div class="row-expand__value">64% · сброс 01.12</div></div>
+                    <div style="display:flex;align-items:flex-end;justify-content:flex-end;gap:6px">
+                      <button class="btn btn--outlined btn--sm" type="button">Открыть</button>
+                      <button class="btn btn--text btn--sm" type="button">Отозвать</button>
+                    </div>
+                  </div>
+                </td>
+              </tr>
+              <tr data-row>
+                <td class="cell-check"><label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать phone"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></td>
+                <td><div class="cell-name"><span class="avatar">P</span><span class="cell-name__text"><span class="cell-main">phone</span><span class="cell-sub">Test group</span></span></div></td>
+                <td>pairuser</td>
+                <td class="mono">10.44.0.12</td>
+                <td><div class="meter meter--warn"><span style="width:92%"></span></div><span class="cell-quota">92% · 50/50</span></td>
+                <td><div style="display:flex;align-items:center;gap:8px"><svg class="spark spark--warn" style="width:56px;height:20px" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 16 10 10 18 12 26 6 34 8 42 3 54 5"/></svg><span class="cell-quota">1,9 Мбит/с</span></div></td>
+                <td><span class="status status--warn"><span class="status__dot"></span>Лимит 92%</span></td>
+                <td class="cell-actions"><div class="row-hover-actions" style="display:flex;gap:2px;justify-content:flex-end"><button class="btn btn--icon" type="button" aria-label="Копировать адрес phone"><svg width="18" height="18" aria-hidden="true"><use href="#i-grid"></use></svg></button><button class="btn btn--icon" type="button" aria-label="Действия для phone"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button></div></td>
+              </tr>
+              <tr data-row>
+                <td class="cell-check"><label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать tablet"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></td>
+                <td><div class="cell-name"><span class="avatar">T</span><span class="cell-name__text"><span class="cell-main">tablet</span><span class="cell-sub">External</span></span></div></td>
+                <td>pairuser</td>
+                <td class="mono">10.44.0.33</td>
+                <td><div class="meter meter--error"><span style="width:100%"></span></div><span class="cell-quota">100% · отозван</span></td>
+                <td><div style="display:flex;align-items:center;gap:8px"><svg class="spark spark--muted" style="width:56px;height:20px" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 14h52"/></svg><span class="cell-quota">0 Б/с</span></div></td>
+                <td><span class="status status--neutral">Отозвано</span></td>
+                <td class="cell-actions"><div class="row-hover-actions" style="display:flex;gap:2px;justify-content:flex-end"><button class="btn btn--icon" type="button" aria-label="Копировать адрес tablet"><svg width="18" height="18" aria-hidden="true"><use href="#i-grid"></use></svg></button><button class="btn btn--icon" type="button" aria-label="Действия для tablet"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button></div></td>
+              </tr>
+              <tr data-row>
+                <td class="cell-check"><label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать C"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label></td>
+                <td><div class="cell-name"><span class="avatar">C</span><span class="cell-name__text"><span class="cell-main">C</span><span class="cell-sub">Test group</span></span></div></td>
+                <td>admin</td>
+                <td class="mono">10.44.0.90</td>
+                <td><div class="meter"><span style="width:7%"></span></div><span class="cell-quota">7% · 200/200</span></td>
+                <td><div style="display:flex;align-items:center;gap:8px"><svg class="spark" style="width:56px;height:20px" viewBox="0 0 56 20" aria-hidden="true"><path d="M2 17 10 16 18 17 26 14 34 15 42 12 54 13"/></svg><span class="cell-quota">0,4 Мбит/с</span></div></td>
+                <td><span class="status status--error"><span class="status__dot"></span>Ошибка</span></td>
+                <td class="cell-actions"><div class="row-hover-actions" style="display:flex;gap:2px;justify-content:flex-end"><button class="btn btn--icon" type="button" aria-label="Копировать адрес C"><svg width="18" height="18" aria-hidden="true"><use href="#i-grid"></use></svg></button><button class="btn btn--icon" type="button" aria-label="Действия для C"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button></div></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mobile-list">
+          <article class="mobile-card">
+            <div class="mobile-card__top">
+              <label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать A"><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label>
+              <span class="avatar">A</span>
+              <span class="mobile-card__name">A</span>
+              <span class="mobile-card__status"><span class="status status--ok"><span class="status__dot"></span>Активно</span></span>
+            </div>
+            <div class="mobile-card__sub">Test group · pairuser</div>
+            <div><div class="meter" style="width:100%"><span style="width:18%"></span></div><span class="mobile-card__sub">18% квоты · 110/110 Мбит/с</span></div>
+            <dl class="mobile-card__meta">
+              <div><dt>Адрес</dt><dd class="mono">10.44.0.111</dd></div>
+              <div><dt>Трафик</dt><dd class="mono">2,1 Мбит/с</dd></div>
+              <div><dt>Пиры</dt><dd>1 пир</dd></div>
+              <div><dt>Handshake</dt><dd>12 c</dd></div>
+            </dl>
+            <div class="mobile-card__foot">
+              <button class="btn btn--text btn--sm" type="button">Открыть</button>
+              <button class="btn btn--icon" type="button" aria-label="Действия для A"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button>
+            </div>
+          </article>
+          <article class="mobile-card is-selected">
+            <div class="mobile-card__top">
+              <label class="check"><input type="checkbox" class="js-row" aria-label="Выбрать B" checked><span><svg width="12" height="12" aria-hidden="true"><use href="#i-check"></use></svg></span></label>
+              <span class="avatar">B</span>
+              <span class="mobile-card__name">B</span>
+              <span class="mobile-card__status"><span class="status status--ok"><span class="status__dot"></span>Активно</span></span>
+            </div>
+            <div class="mobile-card__sub">Test group · pairuser</div>
+            <div><div class="meter" style="width:100%"><span style="width:64%"></span></div><span class="mobile-card__sub">64% квоты · 110/110 Мбит/с</span></div>
+            <dl class="mobile-card__meta">
+              <div><dt>Адрес</dt><dd class="mono">10.44.0.251</dd></div>
+              <div><dt>Трафик</dt><dd class="mono">6,8 Мбит/с</dd></div>
+              <div><dt>Пиры</dt><dd>1 пир</dd></div>
+              <div><dt>Handshake</dt><dd>18 c</dd></div>
+            </dl>
+            <div class="mobile-card__foot">
+              <button class="btn btn--text btn--sm" type="button">Открыть</button>
+              <button class="btn btn--icon" type="button" aria-label="Действия для B"><svg width="18" height="18" aria-hidden="true"><use href="#i-more"></use></svg></button>
+            </div>
+          </article>
+        </div>
+
+        <div class="data-foot">
+          <span class="range">1–5 из 156</span>
+          <button class="btn btn--text btn--sm" type="button" style="padding-inline:8px">Строк: 50</button>
+          <div class="pager" style="margin-left:auto">
+            <button type="button" aria-label="Предыдущая страница" disabled><svg width="18" height="18" style="transform:rotate(180deg)" aria-hidden="true"><use href="#i-chevron"></use></svg></button>
+            <button type="button" aria-label="Следующая страница"><svg width="18" height="18" aria-hidden="true"><use href="#i-chevron"></use></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="bulk" style="margin-top:16px" id="bulk-bar">
+        <span class="bulk__count">Выбрано: <span class="js-selected-count">0</span></span>
+        <div class="bulk__actions">
+          <button class="btn btn--text btn--sm" type="button" disabled>Отозвать</button>
+          <button class="btn btn--text btn--sm" type="button" disabled>Лимиты</button>
+          <button class="btn btn--text btn--sm" type="button" disabled>Удалить</button>
+          <button class="btn btn--icon" type="button" aria-label="Снять выделение" id="clear-selection"><svg width="18" height="18" aria-hidden="true"><use href="#i-close"></use></svg></button>
+        </div>
+      </div>
+
+      <div class="grid grid--2" style="margin-top:16px">
+        <div class="data-card">
+          <div class="data-toolbar">
+            <div class="data-toolbar__top"><div><div class="data-toolbar__title">Загрузка</div><div class="data-toolbar__sub">skeleton-строки</div></div></div>
+          </div>
+          <div style="padding:0 20px 20px">
+            <div class="skeleton skeleton--row"></div>
+            <div class="skeleton skeleton--row"></div>
+            <div class="skeleton skeleton--row"></div>
+            <div class="skeleton skeleton--row" style="margin-bottom:0"></div>
+          </div>
+        </div>
+        <div class="data-card">
+          <div class="empty">
+            <div class="empty__icon"><svg width="26" height="26" aria-hidden="true"><use href="#i-search"></use></svg></div>
+            <div class="empty__title">Ничего не найдено</div>
+            <div class="empty__text">Попробуйте изменить запрос или сбросить фильтры.</div>
+            <button class="btn btn--outlined" type="button">Сбросить фильтры</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script>
+  const root = document.documentElement;
+  const hexOf = (name) => getComputedStyle(root).getPropertyValue("--md-" + name).trim();
+  const paintHex = () => {
+    document.querySelectorAll("[data-hex]").forEach((el) => {
+      el.textContent = hexOf(el.dataset.hex);
+    });
+  };
+
+  document.querySelectorAll("[data-theme-btn]").forEach((button) => {
+    button.addEventListener("click", () => {
+      root.dataset.theme = button.dataset.themeBtn;
+      document.querySelectorAll("[data-theme-btn]").forEach((other) => {
+        other.setAttribute("aria-pressed", String(other === button));
+      });
+      paintHex();
+    });
+  });
+
+  const densityBtn = document.getElementById("density-btn");
+  const setDensity = (dense) => {
+    document.querySelectorAll(".data-card").forEach((card) => card.classList.toggle("is-dense", dense));
+    document.querySelectorAll(".js-density").forEach((button) => {
+      button.setAttribute("aria-pressed", String((button.dataset.density === "dense") === dense));
+    });
+    densityBtn.setAttribute("aria-pressed", String(dense));
+  };
+  densityBtn.addEventListener("click", () => setDensity(densityBtn.getAttribute("aria-pressed") !== "true"));
+
+  document.querySelectorAll(".js-density").forEach((button) => {
+    button.addEventListener("click", () => setDensity(button.dataset.density === "dense"));
+  });
+
+  const mobileBtn = document.getElementById("mobile-btn");
+  mobileBtn.addEventListener("click", () => {
+    const mobile = document.getElementById("canvas").classList.toggle("is-mobile");
+    mobileBtn.setAttribute("aria-pressed", String(mobile));
+  });
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      chip.setAttribute("aria-pressed", String(chip.getAttribute("aria-pressed") !== "true"));
+    });
+  });
+
+  const rows = () => Array.from(document.querySelectorAll(".js-row"));
+  const visibleRows = () => rows().filter((input) => input.offsetParent !== null);
+  const syncSelection = () => {
+    document.querySelectorAll("[data-row]").forEach((tr) => {
+      const input = tr.querySelector(".js-row");
+      tr.classList.toggle("is-selected", Boolean(input && input.checked));
+    });
+    document.querySelectorAll(".mobile-card").forEach((card) => {
+      const input = card.querySelector(".js-row");
+      card.classList.toggle("is-selected", Boolean(input && input.checked));
+    });
+    const visible = visibleRows();
+    const count = visible.filter((input) => input.checked).length;
+    document.querySelectorAll(".js-selected-count").forEach((el) => { el.textContent = String(count); });
+    const all = document.querySelector(".js-all");
+    if (all) {
+      all.checked = count === visible.length && count > 0;
+      all.indeterminate = count > 0 && count < visible.length;
+    }
+    document.querySelectorAll(".bulk .btn").forEach((button) => {
+      if (button.id !== "clear-selection") button.disabled = count === 0;
+    });
+  };
+
+  rows().forEach((input) => input.addEventListener("change", syncSelection));
+  document.querySelectorAll(".js-all").forEach((input) => {
+    input.addEventListener("change", () => {
+      rows().forEach((row) => { row.checked = input.checked; });
+      syncSelection();
+    });
+  });
+  document.getElementById("clear-selection").addEventListener("click", () => {
+    rows().forEach((row) => { row.checked = false; });
+    syncSelection();
+  });
+
+  paintHex();
+  syncSelection();
+</script>
+</body>
+</html>

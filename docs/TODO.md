@@ -27,9 +27,11 @@
   Страницы рендерит `RouterView` с DI-контейнером, слотами `error`/`notFound` и
   переиспользованием view; фасад `src/app/router.ts` сохраняет API для VM.
   DI работает в строгом режиме (`di: "error"` в Vite и `implicitBindings`).
-- UI: navy-палитра, мобильная навигация «4 таба + Ещё» (bottom sheet), тач-таргеты
-  44px, фильтры и массовые действия в списках, сортировка колонок, выделенные
-  строки, `BulkBar`, fallback копирования в буфер обмена для HTTP.
+- UI: Material You (M3) на navy-палитре: тональные поверхности, status-chip,
+  chips-фильтры, sticky-таблицы, аватары, метры, мобильные карточки; пилот —
+  «Клиенты», «Аудит», «Ноды». Мобильная навигация «4 таба + Ещё» (bottom sheet),
+  тач-таргеты 44px, массовые действия, сортировка, `BulkBar`, fallback
+  копирования в буфер обмена для HTTP.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 - Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
@@ -58,6 +60,8 @@
 - `cd frontend && pnpm typecheck` — чисто.
 - `cd frontend && pnpm test` — 758 тестов, зелёные.
 - `cd frontend && pnpm e2e` — 26/26 (Chromium + Firefox).
+- Дизайн-система: `docs/DESIGN-SYSTEM.md`, живой прототип
+  `frontend/public/design-preview.html`.
 - Фреймворк `@ivlev-dev/*` 0.11.17: `RouterView` с DI-контейнером, общий
   `load` страниц, `navigate()` без unhandled rejection; обход `insertBefore`
   на аудите снят, `Switch`/`Match` работают после фикса issue #1 в 0.11.17.

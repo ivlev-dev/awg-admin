@@ -50,7 +50,7 @@ describe("AuditPage loading state", () => {
       expect(query(result.node, ".skeleton-table")).not.toBeNull();
     });
     expect(query(result.node, ".skeleton-table")?.getAttribute("aria-hidden")).toBe("true");
-    expect(query(result.node, ".card__body[aria-busy='true']")).not.toBeNull();
+    expect(query(result.node, "section.card--flush[aria-busy='true']")).not.toBeNull();
     expect(query(result.node, "table.table")).toBeNull();
 
     if (!resolveList) throw new Error("Запрос аудита не был запущен");
@@ -60,7 +60,7 @@ describe("AuditPage loading state", () => {
       expect(query(result.node, ".skeleton-table")).toBeNull();
       expect(query(result.node, "table.table")).not.toBeNull();
     });
-    expect(query(result.node, ".card__body[aria-busy='false']")).not.toBeNull();
+    expect(query(result.node, "section.card--flush[aria-busy='false']")).not.toBeNull();
     expect(result.node.textContent).toContain("admin");
 
     result.dispose();

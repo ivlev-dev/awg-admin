@@ -6,39 +6,57 @@ import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
+function statusTone(status: number): string {
+  if (status >= 500) return "error";
+  if (status >= 400) return "warn";
+  if (status >= 200 && status < 300) return "ok";
+  return "info";
+}
+
+function actorInitial(actor: string): string {
+  const trimmed = actor.trim();
+  return trimmed.length > 0 ? trimmed.slice(0, 1).toUpperCase() : "?";
+}
+
 export function AuditPage(this: { vm: AuditPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
         <div class="page-head__eyebrow">{t("audit.eyebrow")}</div>
-        <div class="row-between wrap">
-          <div>
-            <h1>{t("audit.title")}</h1>
-            <p>{t("audit.subtitle")}</p>
-          </div>
-          <div class="actions-bar">
-            <button class="btn btn--sm" type="button" disabled={this.vm.loading} onClick={() => this.vm.refresh()}>
-              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
-            </button>
-            <button
-              class="btn btn--sm"
-              type="button"
-              disabled={!this.vm.canExport}
-              onClick={() => this.vm.exportCsv()}
-            >
-              <Icon name="download" size={14} class="" /> {t("audit.export")}
-            </button>
-          </div>
-        </div>
+        <h1>{t("audit.title")}</h1>
+        <p>{t("audit.subtitle")}</p>
       </div>
 
       <Show when={this.vm.error}>
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
-      <section class="card">
-        <div class="card__body stack">
-          <div class="grid grid--3">
+      <section
+        class="card card--flush"
+        aria-busy={this.vm.loading || !this.vm.initialized ? "true" : "false"}
+      >
+        <div class="data-toolbar">
+          <div class="data-toolbar__top">
+            <div>
+              <div class="data-toolbar__title">{t("audit.log.title")}</div>
+              <div class="data-toolbar__sub">{this.vm.loadedLabel}</div>
+            </div>
+            <div class="data-toolbar__actions">
+              <button class="btn btn--sm" type="button" disabled={this.vm.loading} onClick={() => this.vm.refresh()}>
+                <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+              </button>
+              <button
+                class="btn btn--sm"
+                type="button"
+                disabled={!this.vm.canExport}
+                onClick={() => this.vm.exportCsv()}
+              >
+                <Icon name="download" size={14} class="" /> {t("audit.export")}
+              </button>
+            </div>
+          </div>
+
+          <div class="data-toolbar__bottom">
             <div class="field">
               <label for="audit-action">{t("audit.filter.action")}</label>
               <Select
@@ -101,10 +119,9 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 onInput={(event: Event) => this.vm.setTo(event)}
               />
             </div>
-          </div>
-          <div class="row wrap" style="gap:8px">
+            <div class="data-toolbar__spacer"></div>
             <button
-              class="btn btn--primary"
+              class="btn btn--primary btn--sm"
               type="button"
               disabled={this.vm.loading || this.vm.loadingMore}
               onClick={() => this.vm.apply()}
@@ -112,7 +129,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               {t("audit.action.apply")}
             </button>
             <button
-              class="btn"
+              class="btn btn--sm"
               type="button"
               disabled={this.vm.loading || this.vm.loadingMore}
               onClick={() => this.vm.reset()}
@@ -121,104 +138,113 @@ export function AuditPage(this: { vm: AuditPageVM }) {
             </button>
           </div>
         </div>
-      </section>
 
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">{t("audit.log.title")}</div>
-            <div class="card__sub">{this.vm.loadedLabel}</div>
-          </div>
-        </div>
-        <div class="card__body" aria-busy={this.vm.loading || !this.vm.initialized ? "true" : "false"}>
+        <Show
+          when={!this.vm.loading && this.vm.initialized}
+          fallback={
+            <div class="card__body">
+              <SkeletonTable rows={6} columns={7} />
+            </div>
+          }
+        >
           <Show
-            when={!this.vm.loading && this.vm.initialized}
-            fallback={<SkeletonTable rows={6} columns={7} />}
-          >
-            <Show
-              when={this.vm.isEmpty}
-              fallback={
-                <div class="table-wrap table-wrap--cards">
-                  <table class="table table--cards table--audit">
-                    <thead>
-                      <tr>
-                        <th>{t("audit.column.time")}</th>
-                        <th>{t("audit.column.actor")}</th>
-                        <th>{t("audit.column.action")}</th>
-                        <th>{t("audit.column.entity")}</th>
-                        <th>{t("audit.column.status")}</th>
-                        <th>{t("audit.column.ip")}</th>
-                        <th>{t("audit.column.details")}</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <For each={this.vm.rows}>
-                        {(row) => (
-                          <tr>
-                            <td data-label={t("audit.column.time")}>
-                              <span class="small nowrap mono">{row.at}</span>
-                            </td>
-                            <td data-label={t("audit.column.actor")}>
-                              <span class="strong cell-entity" title={row.actorId ?? undefined}>{row.actor}</span>
-                            </td>
-                            <td data-label={t("audit.column.action")}>
-                              <span class="mono small">{row.action}</span>
-                            </td>
-                            <td data-label={t("audit.column.entity")}>
-                              <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
-                            </td>
-                            <td data-label={t("audit.column.status")}>
-                              <span class={`badge ${row.statusClass}`}>{row.status}</span>
-                            </td>
-                            <td data-label="IP">
-                              <span class="small mono">{row.ip}</span>
-                            </td>
-                            <td class="cell-details" data-label={t("audit.column.details")}>
-                              <Show
-                                when={row.hasDetails}
-                                fallback={<span class="small muted">{row.detailsPreview}</span>}
+            when={this.vm.isEmpty}
+            fallback={
+              <div class="data-scroll">
+                <table class="table table--cards table--audit">
+                  <thead>
+                    <tr>
+                      <th>{t("audit.column.time")}</th>
+                      <th>{t("audit.column.actor")}</th>
+                      <th>{t("audit.column.action")}</th>
+                      <th>{t("audit.column.entity")}</th>
+                      <th>{t("audit.column.status")}</th>
+                      <th>{t("audit.column.ip")}</th>
+                      <th>{t("audit.column.details")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={this.vm.rows}>
+                      {(row) => (
+                        <tr>
+                          <td data-label={t("audit.column.time")}>
+                            <span class="small nowrap mono">{row.at}</span>
+                          </td>
+                          <td data-label={t("audit.column.actor")}>
+                            <div class="cell-name">
+                              <span class="cell-avatar">{actorInitial(row.actor)}</span>
+                              <span class="cell-name__text">
+                                <span class="strong cell-entity" title={row.actorId ?? undefined}>
+                                  {row.actor}
+                                </span>
+                              </span>
+                            </div>
+                          </td>
+                          <td data-label={t("audit.column.action")}>
+                            <span class="mono small">{row.action}</span>
+                          </td>
+                          <td data-label={t("audit.column.entity")}>
+                            <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
+                          </td>
+                          <td data-label={t("audit.column.status")}>
+                            <span class={`status-chip status-chip--${statusTone(row.status)}`}>
+                              <span class="status-chip__dot"></span>
+                              {row.status}
+                            </span>
+                          </td>
+                          <td data-label="IP">
+                            <span class="small mono">{row.ip}</span>
+                          </td>
+                          <td class="cell-details" data-label={t("audit.column.details")}>
+                            <Show
+                              when={row.hasDetails}
+                              fallback={<span class="small muted">{row.detailsPreview}</span>}
+                            >
+                              <button
+                                class="audit-details"
+                                type="button"
+                                aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
+                                title={row.details ?? undefined}
+                                onClick={() => this.vm.toggleDetails(row.id)}
                               >
-                                <button
-                                  class="audit-details"
-                                  type="button"
-                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                  title={row.details ?? undefined}
-                                  onClick={() => this.vm.toggleDetails(row.id)}
+                                <span
+                                  class={`audit-details__text ${
+                                    this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
+                                  }`}
                                 >
-                                  <span
-                                    class={`audit-details__text ${
-                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                    }`}
-                                  >
-                                    {row.details ?? row.detailsPreview}
-                                  </span>
-                                </button>
-                              </Show>
-                            </td>
-                          </tr>
-                        )}
-                      </For>
-                    </tbody>
-                  </table>
-                </div>
-              }
-            >
-              <div class="empty">
-                <div class="empty__title">{t("audit.empty.title")}</div>
-                <div class="small">{t("audit.empty.text")}</div>
-                <Show when={this.vm.hasActiveFilters}>
-                  <div style="margin-top:14px">
-                    <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
-                      <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                    </button>
-                  </div>
-                </Show>
+                                  {row.details ?? row.detailsPreview}
+                                </span>
+                              </button>
+                            </Show>
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
               </div>
-            </Show>
+            }
+          >
+            <div class="empty">
+              <div class="empty__icon">
+                <Icon name="clock" size={24} class="" />
+              </div>
+              <div class="empty__title">{t("audit.empty.title")}</div>
+              <div class="empty__text">{t("audit.empty.text")}</div>
+              <Show when={this.vm.hasActiveFilters}>
+                <div style="margin-top:14px">
+                  <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
+                    <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                  </button>
+                </div>
+              </Show>
+            </div>
           </Show>
+        </Show>
 
-          <Show when={this.vm.hasMore && !this.vm.loading}>
-            <div class="row" style="justify-content:center;padding-top:var(--sp-4)">
+        <Show when={this.vm.hasMore && !this.vm.loading}>
+          <div class="card__foot">
+            <div class="row" style="justify-content:center">
               <button
                 class="btn btn--sm"
                 type="button"
@@ -228,8 +254,8 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 {this.vm.loadingMore ? t("common.loading") : t("audit.loadMore")}
               </button>
             </div>
-          </Show>
-        </div>
+          </div>
+        </Show>
       </section>
     </div>
   );

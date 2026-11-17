@@ -233,3 +233,77 @@
 .table tbody td { padding-top: 12px; padding-bottom: 12px; }
 .table tbody tr { transition: background var(--dur-1) var(--ease); }
 .table-wrap { border-radius: var(--r-3); }
+
+.table-wrap { border-radius: var(--shape-lg); }
+.table { border-collapse: separate; border-spacing: 0; }
+.table thead th {
+  position: sticky; top: 0; z-index: 2;
+  height: 48px; padding: 0 16px;
+  background: var(--md-surface-low);
+  color: var(--md-on-surface-variant);
+  font-size: 11px; font-weight: 700; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.table thead th.cell-select { background: var(--md-surface-low); }
+.table tbody td { height: 52px; padding: 8px 16px; border-bottom: 1px solid var(--md-outline-variant); }
+.table tbody tr:last-child td { border-bottom: 0; }
+.table tbody tr { transition: background 100ms linear; }
+.table tbody tr:hover { background: color-mix(in oklab, var(--md-on-surface) 6%, transparent); }
+.table tbody tr.is-selected { background: var(--md-primary-container); color: var(--md-on-primary-container); }
+.table tbody tr.is-selected .muted,
+.table tbody tr.is-selected .cell-quota,
+.table tbody tr.is-selected .cell-sub { color: color-mix(in oklab, var(--md-on-primary-container) 74%, transparent); }
+.table tbody tr.is-selected:hover { background: color-mix(in oklab, var(--md-primary-container) 92%, var(--md-on-primary-container) 8%); }
+.table tbody tr.is-selected .cell-avatar { background: color-mix(in oklab, var(--md-on-primary-container) 16%, transparent); color: var(--md-on-primary-container); }
+.table .cell-actions { white-space: nowrap; }
+.cell-select { width: 52px; }
+.table thead th.is-sortable button:hover { color: var(--md-primary); }
+.sort-indicator.is-active { color: var(--md-primary); }
+
+.bulk-bar {
+  border: 0;
+  border-radius: var(--shape-lg);
+  background: var(--md-surface-highest);
+  box-shadow: var(--shadow-3);
+  padding: 10px 12px 10px 20px;
+}
+.bulk-bar__count { font-size: var(--t-sm); font-weight: 700; }
+
+@media (max-width: 767px), ((pointer: coarse) and (max-width: 1023px)) {
+  .table--cards tr {
+    border: 1px solid var(--md-outline-variant);
+    border-radius: var(--shape-md);
+    background: var(--md-surface-lowest);
+    padding: 12px;
+  }
+  [data-theme="dark"] .table--cards tr { background: var(--md-surface-container); }
+  .table--cards tr.is-selected { background: var(--md-primary-container); border-color: transparent; color: var(--md-on-primary-container); }
+  .table--cards td::before { color: var(--md-on-surface-variant); }
+  .table--cards tr.is-selected td::before { color: color-mix(in oklab, var(--md-on-primary-container) 70%, transparent); }
+  .table--cards td:first-child { border-bottom-color: var(--md-outline-variant); }
+  .table--cards .cell-avatar { width: 30px; height: 30px; }
+}
+
+@media (max-width: 767px), ((pointer: coarse) and (max-width: 1023px)) {
+  .table--cards tr:has(td.cell-select) { position: relative; }
+  .table--cards td.cell-select {
+    position: absolute;
+    top: 14px;
+    left: 12px;
+    width: auto;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
+    border: 0;
+  }
+  .table--cards tr:has(td.cell-select) td:nth-child(2) {
+    justify-content: flex-start;
+    padding-left: 44px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--md-outline-variant);
+    text-align: left;
+  }
+  .table--cards tr:has(td.cell-select) td:nth-child(2)::before { display: none; }
+  .table--cards tr.is-selected td:nth-child(2) { border-bottom-color: color-mix(in oklab, var(--md-on-primary-container) 20%, transparent); }
+  .table--cards .cell-name { width: 100%; }
+}

@@ -95,7 +95,8 @@ describe("AuditPageVM constructor DI", () => {
     });
 
     expect(root.querySelector("table.table--audit")?.classList.contains("table--cards")).toBe(true);
-    expect(root.querySelector(".table-wrap--cards")).not.toBeNull();
+    expect(root.querySelector(".data-scroll")).not.toBeNull();
+    expect(root.querySelector(".data-toolbar .data-toolbar__title")?.textContent).toBe("Журнал");
     expect(root.querySelector("td.cell-details[data-label='Детали']")).not.toBeNull();
     expect(root.querySelectorAll(".cell-entity")).toHaveLength(2);
 
