@@ -1,5 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { debounce } from "@/app/debounce";
+import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
@@ -15,6 +17,22 @@ import { formatDateI18n } from "@/i18n/format";
 
 export type UsersTab = "active" | "pending";
 
+export interface UsersFilters {
+  tab: UsersTab;
+  query: string;
+}
+
+const SEARCH_DEBOUNCE_MS = 250;
+const QUERY_LIMIT = 200;
+
+const EMPTY_FILTERS: UsersFilters = { tab: "active", query: "" };
+
+export const usersFiltersStorage = persistedSignal<UsersFilters>(
+  "awg.ui.users.filters",
+  EMPTY_FILTERS,
+  validateUsersFilters,
+);
+
 export class UsersPageVM {
   @reactive accessor users: User[] = [];
   @reactive accessor pending: User[] = [];
@@ -26,6 +44,12 @@ export class UsersPageVM {
   @reactive accessor pendingLoading = false;
   @reactive accessor pendingError: string | null = null;
   @reactive accessor tab: UsersTab = "active";
+  @reactive accessor query = "";
+  @reactive accessor appliedQuery = "";
+
+  private readonly applyQuery = debounce(() => {
+    this.appliedQuery = this.query;
+  }, SEARCH_DEBOUNCE_MS);
 
   @reactive accessor modalOpen = false;
   @reactive accessor editingId: string | null = null;
@@ -57,10 +81,19 @@ export class UsersPageVM {
     private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    const stored = usersFiltersStorage.read();
+    this.tab = stored.tab;
+    this.query = stored.query;
+    this.appliedQuery = stored.query;
+  }
 
   created(): void {
     void this.load();
+  }
+
+  beforeUnmount(): void {
+    this.applyQuery.cancel();
   }
 
   async load(): Promise<void> {
@@ -119,8 +152,53 @@ export class UsersPageVM {
     return this.pending.length;
   }
 
+  @computed
+  get filteredActiveUsers(): User[] {
+    return this.activeUsers.filter((user) => matchesQuery(user, this.appliedQuery));
+  }
+
+  @computed
+  get filteredPending(): User[] {
+    return this.pending.filter((user) => matchesQuery(user, this.appliedQuery));
+  }
+
+  @computed
+  get hasActiveFilters(): boolean {
+    return this.appliedQuery.trim().length > 0;
+  }
+
+  @computed
+  get activeCountLabel(): string {
+    return t("filters.found", {
+      found: this.filteredActiveUsers.length,
+      total: this.activeUsers.length,
+    });
+  }
+
+  @computed
+  get pendingCountLabel(): string {
+    return t("filters.found", {
+      found: this.filteredPending.length,
+      total: this.pending.length,
+    });
+  }
+
   setTab(value: string): void {
     this.tab = value === "pending" ? "pending" : "active";
+    this.persistFilters();
+  }
+
+  setQuery(event: Event): void {
+    this.query = (event.target as HTMLInputElement).value;
+    this.applyQuery();
+    this.persistFilters();
+  }
+
+  resetFilters(): void {
+    this.applyQuery.cancel();
+    this.query = "";
+    this.appliedQuery = "";
+    this.persistFilters();
   }
 
   emailLabel(user: User): string {
@@ -401,4 +479,24 @@ export class UsersPageVM {
       this.toasts.error(userMessage(error, t("users.pending.error.reject")));
     }
   }
+
+  private persistFilters(): void {
+    usersFiltersStorage.write({ tab: this.tab, query: this.query });
+  }
+}
+
+function matchesQuery(user: User, query: string): boolean {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return true;
+  if (user.login.toLowerCase().includes(normalized)) return true;
+  return (user.email ?? "").toLowerCase().includes(normalized);
+}
+
+function validateUsersFilters(value: unknown): UsersFilters | null {
+  if (!isRecord(value)) return null;
+  const query = stringField(value, "query", QUERY_LIMIT);
+  if (query === null) return null;
+  const tab = value["tab"];
+  if (tab !== "active" && tab !== "pending") return null;
+  return { tab, query };
 }

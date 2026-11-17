@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { userMessage } from "@/application/errors";
 import type { AuditService } from "../../application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
@@ -13,6 +14,34 @@ const ACTIONS = ["POST", "PATCH", "PUT", "DELETE"] as const;
 const STATUSES = [200, 201, 204, 400, 401, 403, 404, 409, 429, 500] as const;
 
 const PERIOD_ERROR = "Начало периода не может быть позже конца";
+
+const QUERY_LIMIT = 200;
+const DATE_LIMIT = 32;
+const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+
+export interface AuditFiltersState {
+  action: string;
+  entity: string;
+  actor: string;
+  status: string;
+  from: string;
+  to: string;
+}
+
+const EMPTY_FILTERS: AuditFiltersState = {
+  action: "",
+  entity: "",
+  actor: "",
+  status: "",
+  from: "",
+  to: "",
+};
+
+export const auditFiltersStorage = persistedSignal<AuditFiltersState>(
+  "awg.ui.audit.filters",
+  EMPTY_FILTERS,
+  validateAuditFilters,
+);
 
 export interface AuditRowView {
   id: string;
@@ -117,7 +146,15 @@ export class AuditPageVM {
   @reactive accessor from = "";
   @reactive accessor to = "";
 
-  constructor(private readonly auditService: AuditService) {}
+  constructor(private readonly auditService: AuditService) {
+    const stored = auditFiltersStorage.read();
+    this.action = stored.action;
+    this.entity = stored.entity;
+    this.actor = stored.actor;
+    this.status = stored.status;
+    this.from = stored.from;
+    this.to = stored.to;
+  }
 
   created(): void {
     void this.reload();
@@ -159,32 +196,50 @@ export class AuditPageVM {
     return !this.loading && this.entries.length === 0;
   }
 
+  @computed
+  get hasActiveFilters(): boolean {
+    return (
+      this.action !== "" ||
+      this.entity.trim() !== "" ||
+      this.actor.trim() !== "" ||
+      this.status !== "" ||
+      this.from !== "" ||
+      this.to !== ""
+    );
+  }
+
   get canExport(): boolean {
     return this.entries.length > 0;
   }
 
   setAction(value: string): void {
     this.action = value;
+    this.persistFilters();
   }
 
   setStatus(value: string): void {
     this.status = value;
+    this.persistFilters();
   }
 
   setEntity(event: Event): void {
     this.entity = readInput(event);
+    this.persistFilters();
   }
 
   setActor(event: Event): void {
     this.actor = readInput(event);
+    this.persistFilters();
   }
 
   setFrom(event: Event): void {
     this.from = readInput(event);
+    this.persistFilters();
   }
 
   setTo(event: Event): void {
     this.to = readInput(event);
+    this.persistFilters();
   }
 
   async apply(): Promise<void> {
@@ -193,6 +248,7 @@ export class AuditPageVM {
       this.error = error;
       return;
     }
+    this.persistFilters();
     await this.reload();
   }
 
@@ -204,6 +260,7 @@ export class AuditPageVM {
     this.from = "";
     this.to = "";
     this.expandedId = null;
+    auditFiltersStorage.clear();
     await this.reload();
   }
 
@@ -288,10 +345,54 @@ export class AuditPageVM {
     };
   }
 
+  private persistFilters(): void {
+    auditFiltersStorage.write({
+      action: this.action,
+      entity: this.entity,
+      actor: this.actor,
+      status: this.status,
+      from: this.from,
+      to: this.to,
+    });
+  }
+
   private periodError(): string | null {
     const from = toUnix(this.from);
     const to = toUnix(this.to);
     if (from !== undefined && to !== undefined && from > to) return PERIOD_ERROR;
     return null;
   }
+}
+
+function validateAuditFilters(value: unknown): AuditFiltersState | null {
+  if (!isRecord(value)) return null;
+  const action = stringField(value, "action", 16);
+  const entity = stringField(value, "entity", QUERY_LIMIT);
+  const actor = stringField(value, "actor", QUERY_LIMIT);
+  const status = stringField(value, "status", 8);
+  const from = dateField(value["from"]);
+  const to = dateField(value["to"]);
+  if (
+    action === null ||
+    entity === null ||
+    actor === null ||
+    status === null ||
+    from === null ||
+    to === null
+  ) {
+    return null;
+  }
+  if (action !== "" && !(ACTIONS as readonly string[]).includes(action)) return null;
+  if (status !== "" && !STATUSES.some((item) => String(item) === status)) return null;
+  const fromTime = from === "" ? null : new Date(from).getTime();
+  const toTime = to === "" ? null : new Date(to).getTime();
+  if (fromTime !== null && Number.isNaN(fromTime)) return null;
+  if (toTime !== null && Number.isNaN(toTime)) return null;
+  if (fromTime !== null && toTime !== null && fromTime > toTime) return null;
+  return { action, entity, actor, status, from, to };
+}
+
+function dateField(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > DATE_LIMIT) return null;
+  return value === "" || LOCAL_DATE.test(value) ? value : null;
 }

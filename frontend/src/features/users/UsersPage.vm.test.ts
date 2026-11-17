@@ -29,7 +29,7 @@ import type {
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { UsersRepository } from "@/domain/users/repository";
 import type { TokenStore } from "@/infrastructure/storage";
-import { UsersPageVM } from "./UsersPage.vm";
+import { UsersPageVM, usersFiltersStorage } from "./UsersPage.vm";
 
 const ADMIN: User = {
   id: "u1",
@@ -380,6 +380,26 @@ class FakeAuthRepository implements AuthRepository {
   }
 }
 
+class MemoryStorage {
+  private readonly store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
 class MemoryTokenStore implements TokenStore {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
@@ -459,6 +479,10 @@ function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  vi.stubGlobal("localStorage", new MemoryStorage());
 });
 
 describe("UsersPageVM", () => {
@@ -717,8 +741,105 @@ describe("UsersPageVM", () => {
 
     vm.setTab("pending");
     expect(vm.tab).toBe("pending");
+    expect(JSON.parse(localStorage.getItem(usersFiltersStorage.key) ?? "{}")).toMatchObject({
+      tab: "pending",
+    });
     vm.setTab("active");
     expect(vm.tab).toBe("active");
+  });
+
+  it("сохраняет таб и поиск между переходами", () => {
+    localStorage.setItem(
+      usersFiltersStorage.key,
+      JSON.stringify({ tab: "pending", query: "new" }),
+    );
+
+    const { vm } = setup();
+
+    expect(vm.tab).toBe("pending");
+    expect(vm.query).toBe("new");
+    expect(vm.appliedQuery).toBe("new");
+  });
+
+  it("игнорирует некорректное сохранённое состояние", () => {
+    localStorage.setItem(
+      usersFiltersStorage.key,
+      JSON.stringify({ tab: "unknown", query: 42 }),
+    );
+
+    const { vm } = setup();
+
+    expect(vm.tab).toBe("active");
+    expect(vm.query).toBe("");
+    expect(localStorage.getItem(usersFiltersStorage.key)).toBeNull();
+  });
+
+  it("фильтрует активных пользователей и заявки после debounce", async () => {
+    vi.useFakeTimers();
+    try {
+      const { vm } = setup([ADMIN, ALICE, PENDING]);
+      await vm.load();
+
+      vm.setQuery({ target: { value: "alice" } } as unknown as Event);
+
+      expect(vm.query).toBe("alice");
+      expect(vm.filteredActiveUsers).toHaveLength(2);
+
+      vi.advanceTimersByTime(250);
+
+      expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
+      expect(vm.filteredPending).toEqual([]);
+      expect(vm.activeCountLabel).toBe("Найдено 1 из 2");
+      expect(vm.hasActiveFilters).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("фильтрует заявки по email", async () => {
+    const { vm } = setup([ADMIN, ALICE, PENDING]);
+    await vm.load();
+
+    vm.query = "newbie@example.com";
+    vm.appliedQuery = "newbie@example.com";
+
+    expect(vm.filteredPending.map((user) => user.id)).toEqual([PENDING.id]);
+    expect(vm.filteredActiveUsers).toEqual([]);
+    expect(vm.pendingCountLabel).toBe("Найдено 1 из 1");
+  });
+
+  it("сбрасывает поиск и очищает storage", async () => {
+    const { vm } = setup();
+    await vm.load();
+
+    vm.setQuery({ target: { value: "admin" } } as unknown as Event);
+    expect(localStorage.getItem(usersFiltersStorage.key)).not.toBeNull();
+
+    vm.resetFilters();
+
+    expect(vm.query).toBe("");
+    expect(vm.appliedQuery).toBe("");
+    expect(vm.hasActiveFilters).toBe(false);
+    expect(vm.filteredActiveUsers).toHaveLength(2);
+    expect(JSON.parse(localStorage.getItem(usersFiltersStorage.key) ?? "{}")).toEqual({
+      tab: "active",
+      query: "",
+    });
+  });
+
+  it("не сохраняет пароли и данные форм", () => {
+    const { vm } = setup();
+
+    vm.setTab("active");
+    vm.openCreate();
+    vm.setPassword({ target: { value: "secret123" } } as unknown as Event);
+    vm.setLogin({ target: { value: "bob" } } as unknown as Event);
+
+    const raw = localStorage.getItem(usersFiltersStorage.key);
+    expect(raw).not.toBeNull();
+    expect(Object.keys(JSON.parse(raw ?? "{}")).sort()).toEqual(["query", "tab"]);
+    expect(raw).not.toContain("secret123");
+    expect(raw).not.toContain("bob");
   });
 
   it("requires a tariff before approving a pending account", async () => {

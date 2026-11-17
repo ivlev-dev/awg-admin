@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Modal } from "@/components/Modal";
 import { formatRate } from "@/domain/format";
+import { t } from "@/i18n";
 
 export function ClientsPage(this: { vm: ClientsPageVM }) {
   return (
@@ -31,12 +32,12 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
         <div class="card__body">
           <div class="grid grid--2">
             <div class="field">
-              <label for="clients-search">Поиск</label>
+              <label for="clients-search">{t("filters.search")}</label>
               <input
                 id="clients-search"
                 class="input"
                 type="search"
-                placeholder="Имя устройства или IP-адрес"
+                placeholder={t("filters.search.clients")}
                 value={this.vm.query}
                 onInput={(event: Event) => this.vm.setQuery(event)}
               />
@@ -54,6 +55,13 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               </div>
             </Show>
           </div>
+          <Show when={this.vm.hasActiveFilters}>
+            <div class="row" style="justify-content:flex-end;padding-top:var(--sp-3)">
+              <button class="btn btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                <Icon name="close" size={14} class="" /> {t("filters.reset")}
+              </button>
+            </div>
+          </Show>
         </div>
       </section>
 
@@ -61,7 +69,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
         <div class="card__head">
           <div>
             <div class="card__title">Устройства</div>
-            <div class="card__sub">Показано {this.vm.countLabel}</div>
+            <div class="card__sub">{this.vm.countLabel}</div>
           </div>
           <span class="badge badge--blue">
             <Icon name="clients" size={12} class="" /> клиенты
@@ -77,17 +85,26 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               fallback={
                 <div class="empty">
                   <div class="empty__title">
-                    {this.vm.devices.length === 0 ? "Пока нет клиентов" : "Ничего не найдено"}
+                    {this.vm.devices.length === 0 ? "Пока нет клиентов" : t("filters.emptyTitle")}
                   </div>
                   <div class="small">
                     {this.vm.devices.length === 0
                       ? "Создайте первое устройство, чтобы подключить его к интерфейсу."
-                      : "Измените поисковый запрос или фильтр по группе."}
+                      : t("filters.emptyText")}
                   </div>
                   <div style="margin-top:14px">
-                    <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
-                      <Icon name="plus" size={14} class="" /> Создать устройство
-                    </button>
+                    <Show
+                      when={this.vm.devices.length > 0}
+                      fallback={
+                        <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
+                          <Icon name="plus" size={14} class="" /> Создать устройство
+                        </button>
+                      }
+                    >
+                      <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                        <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                      </button>
+                    </Show>
                   </div>
                 </div>
               }

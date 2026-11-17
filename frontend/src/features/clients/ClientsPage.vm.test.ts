@@ -11,7 +11,7 @@ import type { GroupsRepository } from "@/domain/groups/repository";
 import type { UsersRepository } from "@/domain/users/repository";
 import type { Device, Group, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
-import { ClientsPageVM } from "./ClientsPage.vm";
+import { ClientsPageVM, clientsFiltersStorage } from "./ClientsPage.vm";
 
 const ADMIN: User = {
   id: "u1",
@@ -78,6 +78,14 @@ const DEVICE: Device = {
     },
   ],
   addresses: ["10.0.0.2", "10.0.1.2"],
+};
+
+const PHONE: Device = {
+  ...DEVICE,
+  id: "d2",
+  name: "phone",
+  addresses: ["10.0.0.3"],
+  peers: [],
 };
 
 class MemoryTokenStore implements TokenStore {
@@ -222,9 +230,29 @@ function usersHarness(users: User[]): UsersRepository {
   };
 }
 
-function setup(role: Role = "admin") {
+class MemoryStorage {
+  private readonly store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
+function setup(role: Role = "admin", seed: Device[] = [DEVICE]) {
   const user = role === "admin" ? ADMIN : OWNER;
-  const devices = devicesHarness([DEVICE]);
+  const devices = devicesHarness(seed);
   const groups = groupsHarness([GROUP]);
   const users = usersHarness([ADMIN, OWNER]);
   const session = makeSession(user);
@@ -243,8 +271,13 @@ function setup(role: Role = "admin") {
 }
 
 describe("ClientsPageVM", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", new MemoryStorage());
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it("загружает устройства, группы и пользователей для администратора", async () => {
@@ -259,7 +292,7 @@ describe("ClientsPageVM", () => {
     expect(vm.groups).toEqual([GROUP]);
     expect(vm.users).toHaveLength(2);
     expect(vm.loading).toBe(false);
-    expect(vm.countLabel).toBe("1 из 1");
+    expect(vm.countLabel).toBe("Найдено 1 из 1");
   });
 
   it("не запрашивает группы и пользователей для обычного пользователя", async () => {
@@ -394,15 +427,86 @@ describe("ClientsPageVM", () => {
   });
 
   it("фильтрует устройства по запросу и группе", async () => {
-    const { vm } = setup("admin");
+    const { vm } = setup("admin", [DEVICE, PHONE]);
     await vm.load();
 
     vm.groupFilter = "g1";
     vm.query = "10.0.1.2";
+    vm.appliedQuery = "10.0.1.2";
     expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+    expect(vm.hasActiveFilters).toBe(true);
 
     vm.query = "missing";
+    vm.appliedQuery = "missing";
     expect(vm.filteredDevices).toEqual([]);
+  });
+
+  it("восстанавливает поиск и группу из storage", () => {
+    localStorage.setItem(
+      clientsFiltersStorage.key,
+      JSON.stringify({ query: "phone", groupFilter: "g1" }),
+    );
+
+    const { vm } = setup("admin", [DEVICE, PHONE]);
+
+    expect(vm.query).toBe("phone");
+    expect(vm.appliedQuery).toBe("phone");
+    expect(vm.groupFilter).toBe("g1");
+  });
+
+  it("не применяет сохранённую группу для обычного пользователя", async () => {
+    localStorage.setItem(
+      clientsFiltersStorage.key,
+      JSON.stringify({ query: "", groupFilter: "g1" }),
+    );
+
+    const { vm } = setup("user", [DEVICE, PHONE]);
+    await vm.load();
+
+    expect(vm.groupFilter).toBe("");
+    expect(vm.filteredDevices).toHaveLength(2);
+  });
+
+  it("применяет поиск после debounce и сохраняет запрос сразу", async () => {
+    vi.useFakeTimers();
+    try {
+      const { vm } = setup("admin", [DEVICE, PHONE]);
+      await vm.load();
+
+      vm.setQuery({ target: { value: "phone" } } as unknown as Event);
+
+      expect(vm.query).toBe("phone");
+      expect(vm.filteredDevices).toHaveLength(2);
+      expect(localStorage.getItem(clientsFiltersStorage.key)).toBe(
+        JSON.stringify({ query: "phone", groupFilter: "" }),
+      );
+
+      vi.advanceTimersByTime(249);
+      expect(vm.filteredDevices).toHaveLength(2);
+
+      vi.advanceTimersByTime(1);
+      expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d2"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("сбрасывает фильтры и очищает storage", async () => {
+    const { vm } = setup("admin", [DEVICE, PHONE]);
+    await vm.load();
+
+    vm.setQuery({ target: { value: "phone" } } as unknown as Event);
+    vm.setGroupFilter("g1");
+    expect(localStorage.getItem(clientsFiltersStorage.key)).not.toBeNull();
+
+    vm.resetFilters();
+
+    expect(vm.query).toBe("");
+    expect(vm.appliedQuery).toBe("");
+    expect(vm.groupFilter).toBe("");
+    expect(vm.hasActiveFilters).toBe(false);
+    expect(localStorage.getItem(clientsFiltersStorage.key)).toBeNull();
+    expect(vm.filteredDevices).toHaveLength(2);
   });
 
   it("подставляет логин, имя группы и пиров", async () => {

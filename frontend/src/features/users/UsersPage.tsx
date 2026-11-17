@@ -28,6 +28,29 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
+      <section class="card">
+        <div class="card__body">
+          <div class="row" style="gap:8px;align-items:flex-end">
+            <div class="field" style="flex:1">
+              <label for="users-search">{t("filters.search")}</label>
+              <input
+                id="users-search"
+                class="input"
+                type="search"
+                placeholder={t("filters.search.users")}
+                value={this.vm.query}
+                onInput={(event: Event) => this.vm.setQuery(event)}
+              />
+            </div>
+            <Show when={this.vm.hasActiveFilters}>
+              <button class="btn btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                <Icon name="close" size={14} class="" /> {t("filters.reset")}
+              </button>
+            </Show>
+          </div>
+        </div>
+      </section>
+
       <div class="tabs">
         <button
           class={`tab ${this.vm.tab === "active" ? "is-active" : ""}`}
@@ -50,7 +73,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           <div class="card__head">
             <div>
               <div class="card__title">Учётные записи</div>
-              <div class="card__sub">Всего: {this.vm.activeUsers.length}</div>
+              <div class="card__sub">{this.vm.activeCountLabel}</div>
             </div>
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
               <Icon name="refresh" size={14} class="" /> Обновить
@@ -59,8 +82,26 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           <div class="card__body">
             <Show when={!this.vm.loading} fallback={<div class="skeleton" style="height:140px"></div>}>
               <Show
-                when={this.vm.activeUsers.length > 0}
-                fallback={<div class="empty"><div class="empty__title">Нет пользователей</div><div class="small">Создайте первую учётную запись.</div></div>}
+                when={this.vm.filteredActiveUsers.length > 0}
+                fallback={
+                  <div class="empty">
+                    <div class="empty__title">
+                      {this.vm.activeUsers.length === 0 ? "Нет пользователей" : t("filters.emptyTitle")}
+                    </div>
+                    <div class="small">
+                      {this.vm.activeUsers.length === 0
+                        ? "Создайте первую учётную запись."
+                        : t("filters.emptyText")}
+                    </div>
+                    <Show when={this.vm.activeUsers.length > 0}>
+                      <div style="margin-top:14px">
+                        <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                          <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                        </button>
+                      </div>
+                    </Show>
+                  </div>
+                }
               >
                 <div class="table-wrap">
                   <table class="table table--cards">
@@ -77,7 +118,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                       </tr>
                     </thead>
                     <tbody>
-                      <For each={this.vm.activeUsers}>
+                      <For each={this.vm.filteredActiveUsers}>
                         {(user) => (
                           <tr>
                             <td data-label="Логин">
@@ -151,7 +192,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           <div class="card__head">
             <div>
               <div class="card__title">{t("users.pending.title")}</div>
-              <div class="card__sub">{t("users.pending.subtitle")}</div>
+              <div class="card__sub">{this.vm.pendingCountLabel}</div>
             </div>
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
               <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
@@ -163,11 +204,26 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 <div class="alert alert--error">{this.vm.pendingError}</div>
               </Show>
               <Show
-                when={this.vm.pending.length > 0}
+                when={this.vm.filteredPending.length > 0}
                 fallback={
                   <div class="empty">
-                    <div class="empty__title">{t("users.pending.emptyTitle")}</div>
-                    <div class="small">{t("users.pending.emptyText")}</div>
+                    <div class="empty__title">
+                      {this.vm.pending.length === 0
+                        ? t("users.pending.emptyTitle")
+                        : t("filters.emptyTitle")}
+                    </div>
+                    <div class="small">
+                      {this.vm.pending.length === 0
+                        ? t("users.pending.emptyText")
+                        : t("filters.emptyText")}
+                    </div>
+                    <Show when={this.vm.pending.length > 0}>
+                      <div style="margin-top:14px">
+                        <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                          <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                        </button>
+                      </div>
+                    </Show>
                   </div>
                 }
               >
@@ -182,7 +238,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                       </tr>
                     </thead>
                     <tbody>
-                      <For each={this.vm.pending}>
+                      <For each={this.vm.filteredPending}>
                         {(user) => (
                           <tr>
                             <td data-label={t("users.column.email")}>

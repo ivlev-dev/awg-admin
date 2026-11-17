@@ -3,6 +3,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { AuditPageVM } from "./AuditPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { t } from "@/i18n";
 
 export function AuditPage(this: { vm: AuditPageVM }) {
   return (
@@ -136,6 +137,13 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 <div class="empty">
                   <div class="empty__title">Событий нет</div>
                   <div class="small">Измените фильтры или выберите другой период.</div>
+                  <Show when={this.vm.hasActiveFilters}>
+                    <div style="margin-top:14px">
+                      <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
+                        <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                      </button>
+                    </div>
+                  </Show>
                 </div>
               }
             >

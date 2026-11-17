@@ -1,7 +1,7 @@
 import { DefaultAuditService } from "@/application/audit/service";
 import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
-import { formatAuditRow, AuditPageVM } from "./AuditPage.vm";
+import { formatAuditRow, AuditPageVM, auditFiltersStorage } from "./AuditPage.vm";
 
 function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {
@@ -31,6 +31,26 @@ class FakeAuditRepository implements AuditRepository {
   }
 }
 
+class MemoryStorage {
+  private readonly store = new Map<string, string>();
+
+  getItem(key: string): string | null {
+    return this.store.get(key) ?? null;
+  }
+
+  setItem(key: string, value: string): void {
+    this.store.set(key, value);
+  }
+
+  removeItem(key: string): void {
+    this.store.delete(key);
+  }
+
+  clear(): void {
+    this.store.clear();
+  }
+}
+
 function makeVM(repository: FakeAuditRepository): AuditPageVM {
   return new AuditPageVM(new DefaultAuditService(repository));
 }
@@ -40,6 +60,14 @@ function unix(value: string): number {
 }
 
 describe("AuditPageVM", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", new MemoryStorage());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("грузит первую страницу и передаёт нормализованные фильтры", async () => {
     const repository = new FakeAuditRepository();
     repository.pages.push({ items: [entry(), entry({ id: "e2", action: "PATCH" })], next_cursor: "c1" });
@@ -149,6 +177,121 @@ describe("AuditPageVM", () => {
     expect(vm.to).toBe("");
     expect(repository.calls[0]?.action).toBeUndefined();
     expect(repository.calls[0]?.status).toBeUndefined();
+  });
+
+  it("восстанавливает и применяет сохранённые фильтры", async () => {
+    localStorage.setItem(
+      auditFiltersStorage.key,
+      JSON.stringify({
+        action: "POST",
+        entity: "devices",
+        actor: "admin",
+        status: "500",
+        from: "2024-01-01T10:00",
+        to: "2024-01-02T10:00",
+      }),
+    );
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+
+    expect(vm.action).toBe("POST");
+    expect(vm.entity).toBe("devices");
+    expect(vm.actor).toBe("admin");
+    expect(vm.status).toBe("500");
+    expect(vm.hasActiveFilters).toBe(true);
+
+    await vm.reload();
+
+    expect(repository.calls[0]).toEqual({
+      limit: 50,
+      before: undefined,
+      action: "POST",
+      entity: "devices",
+      actor: "admin",
+      status: 500,
+      from: unix("2024-01-01T10:00"),
+      to: unix("2024-01-02T10:00"),
+    });
+  });
+
+  it("сохраняет фильтры при изменении и применении", async () => {
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+
+    vm.setAction("DELETE");
+    vm.setStatus("404");
+    vm.entity = "users";
+    await vm.apply();
+
+    expect(JSON.parse(localStorage.getItem(auditFiltersStorage.key) ?? "{}")).toEqual({
+      action: "DELETE",
+      entity: "users",
+      actor: "",
+      status: "404",
+      from: "",
+      to: "",
+    });
+  });
+
+  it("очищает storage при сбросе фильтров", async () => {
+    localStorage.setItem(
+      auditFiltersStorage.key,
+      JSON.stringify({
+        action: "PATCH",
+        entity: "",
+        actor: "admin",
+        status: "",
+        from: "",
+        to: "",
+      }),
+    );
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+    expect(vm.action).toBe("PATCH");
+
+    await vm.reset();
+
+    expect(vm.action).toBe("");
+    expect(vm.actor).toBe("");
+    expect(vm.hasActiveFilters).toBe(false);
+    expect(localStorage.getItem(auditFiltersStorage.key)).toBeNull();
+  });
+
+  it("игнорирует некорректные сохранённые фильтры", () => {
+    localStorage.setItem(
+      auditFiltersStorage.key,
+      JSON.stringify({
+        action: "GET",
+        entity: "devices",
+        actor: "admin",
+        status: "999",
+        from: "",
+        to: "",
+      }),
+    );
+    const vm = makeVM(new FakeAuditRepository());
+
+    expect(vm.action).toBe("");
+    expect(vm.entity).toBe("");
+    expect(localStorage.getItem(auditFiltersStorage.key)).toBeNull();
+  });
+
+  it("не восстанавливает период с началом позже конца", () => {
+    localStorage.setItem(
+      auditFiltersStorage.key,
+      JSON.stringify({
+        action: "",
+        entity: "",
+        actor: "",
+        status: "",
+        from: "2024-02-02T10:00",
+        to: "2024-02-01T10:00",
+      }),
+    );
+    const vm = makeVM(new FakeAuditRepository());
+
+    expect(vm.from).toBe("");
+    expect(vm.to).toBe("");
   });
 
   it("сообщает об ошибке периода и не ходит в сеть", async () => {

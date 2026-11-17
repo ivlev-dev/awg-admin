@@ -609,6 +609,14 @@ export const ru = {
   "import.clients.result.openInterfaces": "К интерфейсам",
   "import.clients.result.newImport": "Новый импорт клиентов",
   "import.clients.rollback": "Изменения на сервере откатаны, устройства не созданы.",
+
+  "filters.search": "Поиск",
+  "filters.search.clients": "Имя устройства или IP-адрес",
+  "filters.search.users": "Логин или email",
+  "filters.found": "Найдено {found} из {total}",
+  "filters.reset": "Сбросить фильтры",
+  "filters.emptyTitle": "Ничего не найдено",
+  "filters.emptyText": "Измените поисковый запрос или сбросьте фильтры.",
 } as const;
 
 export type TranslationKey = keyof typeof ru;

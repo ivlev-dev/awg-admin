@@ -611,4 +611,12 @@ export const en: Dictionary = {
   "import.clients.result.openInterfaces": "Go to interfaces",
   "import.clients.result.newImport": "New client import",
   "import.clients.rollback": "The changes on the server have been rolled back; no devices were created.",
+
+  "filters.search": "Search",
+  "filters.search.clients": "Device name or IP address",
+  "filters.search.users": "Login or email",
+  "filters.found": "Found {found} of {total}",
+  "filters.reset": "Reset filters",
+  "filters.emptyTitle": "Nothing found",
+  "filters.emptyText": "Change the search query or reset the filters.",
 };
