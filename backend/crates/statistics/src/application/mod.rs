@@ -1,5 +1,5 @@
-use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Datelike, Duration, Utc};
 use uuid::Uuid;
@@ -7,9 +7,11 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
-    AggregateBucket, Aggregator, Bucket, CounterSample, DailyBucket, DeviceDirectory,
-    MonthlyBucket, StatsBroadcaster, StatsRepository, StatsScope,
+    AggregateBucket, Aggregator, Bucket, CounterSample, CounterState, DailyBucket, DeviceDirectory,
+    MonthlyBucket, Rate, StatsBroadcaster, StatsRepository, StatsScope,
 };
+
+const RATE_SNAPSHOTS: usize = 2;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StatsUpdate {
@@ -23,14 +25,56 @@ pub struct StatsUpdate {
     pub at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone)]
+pub struct SeriesPoint {
+    pub bucket: Bucket,
+    pub rate: Rate,
+}
+
+#[derive(Debug, Default)]
+struct RateTracker {
+    samples: VecDeque<CounterState>,
+}
+
+impl RateTracker {
+    fn push(&mut self, state: CounterState) {
+        if self.samples.len() >= RATE_SNAPSHOTS {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(state);
+    }
+
+    fn current(&self) -> Option<Rate> {
+        if self.samples.len() < RATE_SNAPSHOTS {
+            return None;
+        }
+        let previous = *self.samples.front()?;
+        let current = *self.samples.back()?;
+        Rate::between(previous, current)
+    }
+}
+
 pub struct StatsService {
     repo: Arc<dyn StatsRepository>,
     broadcaster: Arc<dyn StatsBroadcaster>,
+    rates: Mutex<HashMap<StatsScope, RateTracker>>,
 }
 
 impl StatsService {
     pub fn new(repo: Arc<dyn StatsRepository>, broadcaster: Arc<dyn StatsBroadcaster>) -> Self {
-        Self { repo, broadcaster }
+        Self {
+            repo,
+            broadcaster,
+            rates: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub fn current_rate(&self, scope: &StatsScope) -> Option<Rate> {
+        let guard = self
+            .rates
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        guard.get(scope).and_then(RateTracker::current)
     }
 
     pub fn record_snapshot(
@@ -40,19 +84,44 @@ impl StatsService {
         samples: &[(Uuid, CounterSample)],
         directory: &dyn DeviceDirectory,
     ) -> CoreResult<Vec<StatsUpdate>> {
+        self.record_snapshot_at(node_id, interface_id, samples, directory, Utc::now())
+    }
+
+    pub fn record_snapshot_at(
+        &self,
+        node_id: Uuid,
+        interface_id: Uuid,
+        samples: &[(Uuid, CounterSample)],
+        directory: &dyn DeviceDirectory,
+        at: DateTime<Utc>,
+    ) -> CoreResult<Vec<StatsUpdate>> {
         let mut updates = Vec::with_capacity(samples.len());
+        let mut scoped: HashMap<StatsScope, (u64, u64)> = HashMap::new();
+        let mut devices: Vec<(Uuid, CounterSample)> = Vec::with_capacity(samples.len());
         for (device_id, sample) in samples {
             let previous = self.repo.counter(node_id, interface_id, *device_id)?;
-            let (delta, state) = Aggregator::delta(previous, *sample);
+            let (mut delta, state) = Aggregator::delta(previous, *sample);
+            delta.at = at;
+            let Some((group_id, user_id)) = directory.group_and_user(*device_id)? else {
+                continue;
+            };
+            devices.push((*device_id, *sample));
+            for scope in [
+                StatsScope::Interface(interface_id),
+                StatsScope::Group(group_id),
+                StatsScope::User(user_id),
+                StatsScope::Global,
+            ] {
+                let entry = scoped.entry(scope).or_default();
+                entry.0 = entry.0.saturating_add(delta.rx);
+                entry.1 = entry.1.saturating_add(delta.tx);
+            }
             if delta.rx == 0 && delta.tx == 0 {
                 continue;
             }
             self.repo
                 .save_counter(node_id, interface_id, *device_id, &state)?;
             let hour = Aggregator::hour_of(delta.at);
-            let Some((group_id, user_id)) = directory.group_and_user(*device_id)? else {
-                continue;
-            };
             for scope in [
                 StatsScope::Device(*device_id),
                 StatsScope::Interface(interface_id),
@@ -75,7 +144,46 @@ impl StatsService {
             self.broadcaster.broadcast(update.clone());
             updates.push(update);
         }
+        self.record_rates(&scoped, &devices, at);
         Ok(updates)
+    }
+
+    fn record_rates(
+        &self,
+        scoped: &HashMap<StatsScope, (u64, u64)>,
+        devices: &[(Uuid, CounterSample)],
+        at: DateTime<Utc>,
+    ) {
+        let mut guard = self
+            .rates
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        for (scope, (rx, tx)) in scoped {
+            let tracker = guard.entry(*scope).or_default();
+            let state = match tracker.samples.back() {
+                Some(last) => CounterState {
+                    rx_total: last.rx_total.saturating_add(*rx),
+                    tx_total: last.tx_total.saturating_add(*tx),
+                    updated_at: at,
+                },
+                None => CounterState {
+                    rx_total: *rx,
+                    tx_total: *tx,
+                    updated_at: at,
+                },
+            };
+            tracker.push(state);
+        }
+        for (device_id, sample) in devices {
+            guard
+                .entry(StatsScope::Device(*device_id))
+                .or_default()
+                .push(CounterState {
+                    rx_total: sample.rx_total,
+                    tx_total: sample.tx_total,
+                    updated_at: at,
+                });
+        }
     }
 
     pub fn series(
@@ -84,11 +192,27 @@ impl StatsService {
         from: DateTime<Utc>,
         to: DateTime<Utc>,
     ) -> CoreResult<Vec<Bucket>> {
+        Ok(self
+            .series_with_rates(scope, from, to)?
+            .into_iter()
+            .map(|point| point.bucket)
+            .collect())
+    }
+
+    pub fn series_with_rates(
+        &self,
+        scope: StatsScope,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> CoreResult<Vec<SeriesPoint>> {
         if to <= from {
             return Err(CoreError::Invalid("range end must be after start".into()));
         }
-        self.repo
-            .series(scope, Aggregator::hour_of(from), Aggregator::hour_of(to))
+        Ok(with_rates(self.repo.series(
+            scope,
+            Aggregator::hour_of(from),
+            Aggregator::hour_of(to),
+        )?))
     }
 
     pub fn totals(
@@ -185,6 +309,27 @@ impl StatsService {
         let cutoff = Aggregator::hour_of(Utc::now() - Duration::days(keep_days));
         self.repo.cleanup_before(cutoff)
     }
+}
+
+fn with_rates(mut buckets: Vec<Bucket>) -> Vec<SeriesPoint> {
+    buckets.sort_by_key(|bucket| bucket.hour);
+    let mut points = Vec::with_capacity(buckets.len());
+    let mut previous_hour: Option<i64> = None;
+    for bucket in buckets {
+        let rate = match previous_hour {
+            Some(previous) if bucket.hour > previous => {
+                let seconds = (bucket.hour - previous) as f64;
+                Rate {
+                    rx_bps: bucket.rx as f64 / seconds,
+                    tx_bps: bucket.tx as f64 / seconds,
+                }
+            }
+            _ => Rate::ZERO,
+        };
+        previous_hour = Some(bucket.hour);
+        points.push(SeriesPoint { bucket, rate });
+    }
+    points
 }
 
 fn validate_window(

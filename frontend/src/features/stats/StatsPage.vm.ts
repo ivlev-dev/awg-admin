@@ -6,6 +6,7 @@ import { ToastStore } from "@/app/toast";
 import type { DevicesService } from "@/application/devices/service";
 import type { GroupsService } from "@/application/groups/service";
 import type { InterfacesService } from "@/application/interfaces/service";
+import { formatRateBps } from "@/application/stats/rate";
 import type { StatsService } from "@/application/stats/service";
 import type { UsersService } from "@/application/users/service";
 import type { Device, Group, InterfaceInfo, StatsPoint, TrafficTotals, User } from "@/domain/types";
@@ -245,6 +246,16 @@ export class StatsVM {
   }
 
   @computed
+  get currentRxRate(): string {
+    return formatRateBps(this.series.at(-1)?.rx_bps);
+  }
+
+  @computed
+  get currentTxRate(): string {
+    return formatRateBps(this.series.at(-1)?.tx_bps);
+  }
+
+  @computed
   get liveConnected(): boolean {
     return this.liveStats.connected;
   }
@@ -434,9 +445,11 @@ export class StatsVM {
       this.toasts.error(t("stats.toast.noExport"));
       return;
     }
-    const lines = ["at,rx,tx"];
+    const lines = ["at,rx,tx,rx_bps,tx_bps"];
     for (const point of this.series) {
-      lines.push(`${csvCell(point.at)},${point.rx},${point.tx}`);
+      lines.push(
+        `${csvCell(point.at)},${point.rx},${point.tx},${point.rx_bps},${point.tx_bps}`,
+      );
     }
     const blob = new Blob(["\uFEFF", lines.join("\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);

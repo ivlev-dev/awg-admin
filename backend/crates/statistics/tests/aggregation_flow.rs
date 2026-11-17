@@ -4,7 +4,7 @@ use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 use awg_statistics::{
-    AggregateBucket, Aggregator, CounterSample, DailyBucket, DeviceDirectory, MonthlyBucket,
+    AggregateBucket, Aggregator, CounterSample, DailyBucket, DeviceDirectory, MonthlyBucket, Rate,
     RedbStatsRepository, StatsHub, StatsRepository, StatsScope, StatsService,
 };
 use awg_storage::Store;
@@ -353,5 +353,216 @@ fn cleanup_applies_given_retention_window() {
             .series(scope, old - Duration::hours(1), old + Duration::hours(1))
             .unwrap()
             .is_empty()
+    );
+}
+
+#[test]
+fn rate_uses_two_latest_snapshots() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let start = utc("2026-04-01T00:00:00Z");
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[(
+                fixture.device_id,
+                CounterSample {
+                    rx_total: 1_000,
+                    tx_total: 2_000,
+                },
+            )],
+            &directory,
+            start,
+        )
+        .unwrap();
+
+    assert_eq!(
+        fixture
+            .service
+            .current_rate(&StatsScope::Device(fixture.device_id)),
+        None
+    );
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[(
+                fixture.device_id,
+                CounterSample {
+                    rx_total: 3_000,
+                    tx_total: 4_000,
+                },
+            )],
+            &directory,
+            start + Duration::seconds(10),
+        )
+        .unwrap();
+
+    let rate = fixture
+        .service
+        .current_rate(&StatsScope::Device(fixture.device_id))
+        .unwrap();
+    assert_eq!(
+        rate,
+        Rate {
+            rx_bps: 200.0,
+            tx_bps: 200.0,
+        }
+    );
+
+    let global = fixture.service.current_rate(&StatsScope::Global).unwrap();
+    assert_eq!(
+        global,
+        Rate {
+            rx_bps: 200.0,
+            tx_bps: 200.0,
+        }
+    );
+}
+
+#[test]
+fn rate_is_none_for_zero_interval() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let at = utc("2026-04-01T00:00:00Z");
+
+    for totals in [1_000u64, 2_000] {
+        fixture
+            .service
+            .record_snapshot_at(
+                node_id,
+                fixture.interface_id,
+                &[(
+                    fixture.device_id,
+                    CounterSample {
+                        rx_total: totals,
+                        tx_total: totals,
+                    },
+                )],
+                &directory,
+                at,
+            )
+            .unwrap();
+    }
+
+    assert_eq!(
+        fixture
+            .service
+            .current_rate(&StatsScope::Device(fixture.device_id)),
+        None
+    );
+}
+
+#[test]
+fn rate_is_zero_when_counters_decrease() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let start = utc("2026-04-01T00:00:00Z");
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[(
+                fixture.device_id,
+                CounterSample {
+                    rx_total: 10_000,
+                    tx_total: 20_000,
+                },
+            )],
+            &directory,
+            start,
+        )
+        .unwrap();
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[(
+                fixture.device_id,
+                CounterSample {
+                    rx_total: 100,
+                    tx_total: 200,
+                },
+            )],
+            &directory,
+            start + Duration::seconds(60),
+        )
+        .unwrap();
+
+    assert_eq!(
+        fixture
+            .service
+            .current_rate(&StatsScope::Device(fixture.device_id)),
+        Some(Rate::ZERO)
+    );
+}
+
+#[test]
+fn rate_is_none_without_snapshots() {
+    let fixture = fixture();
+    assert_eq!(fixture.service.current_rate(&StatsScope::Global), None);
+    assert_eq!(
+        fixture
+            .service
+            .current_rate(&StatsScope::Device(fixture.device_id)),
+        None
+    );
+}
+
+#[test]
+fn series_reports_rates_for_sorted_adjacent_buckets() {
+    let fixture = fixture();
+    let scope = StatsScope::User(fixture.user_id);
+    add(&fixture, scope, "2026-06-01T03:00:00Z", 10_800, 3_600);
+    add(&fixture, scope, "2026-06-01T01:00:00Z", 3_600, 7_200);
+    add(&fixture, scope, "2026-06-01T02:00:00Z", 7_200, 0);
+
+    let points = fixture
+        .service
+        .series_with_rates(
+            scope,
+            utc("2026-06-01T00:30:00Z"),
+            utc("2026-06-01T03:30:00Z"),
+        )
+        .unwrap();
+
+    assert_eq!(points.len(), 3);
+    assert_eq!(
+        points
+            .iter()
+            .map(|point| point.bucket.hour)
+            .collect::<Vec<_>>(),
+        vec![
+            Aggregator::hour_of(utc("2026-06-01T01:00:00Z")),
+            Aggregator::hour_of(utc("2026-06-01T02:00:00Z")),
+            Aggregator::hour_of(utc("2026-06-01T03:00:00Z")),
+        ]
+    );
+    assert_eq!(points[0].rate, Rate::ZERO);
+    assert_eq!(
+        points[1].rate,
+        Rate {
+            rx_bps: 2.0,
+            tx_bps: 0.0,
+        }
+    );
+    assert_eq!(
+        points[2].rate,
+        Rate {
+            rx_bps: 3.0,
+            tx_bps: 1.0,
+        }
     );
 }

@@ -112,6 +112,16 @@ export function Overview(this: { vm: OverviewVM }) {
           <div class="stat__value">{this.vm.devices}</div>
           <div class="stat__hint">{t("overview.stats.nodesOnline", { online: this.vm.nodesOnline, total: this.vm.nodesTotal })}</div>
         </div>
+        <div class="stat">
+          <div class="stat__label"><span class="dot dot--green"></span>{t("overview.stats.rateRx")}</div>
+          <div class="stat__value">{this.vm.rxRate}</div>
+          <div class="stat__hint">{t("overview.stats.rateHint")}</div>
+        </div>
+        <div class="stat">
+          <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("overview.stats.rateTx")}</div>
+          <div class="stat__value">{this.vm.txRate}</div>
+          <div class="stat__hint">{t("overview.stats.rateHint")}</div>
+        </div>
       </div>
 
       <div class="grid grid--main">

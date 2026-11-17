@@ -44,6 +44,8 @@ const OWNER: User = {
 const OVERVIEW: Overview = {
   today: { rx: 1024, tx: 2048 },
   month: { rx: 4096, tx: 8192 },
+  rx_bps: 2048,
+  tx_bps: 1024,
   nodes_online: 1,
   nodes_total: 2,
   interfaces: 2,
@@ -71,8 +73,8 @@ const OVERVIEW: Overview = {
 };
 
 const POINTS: StatsPoint[] = [
-  { at: "2020-01-01T00:00:00Z", rx: 1024, tx: 2048 },
-  { at: "2020-01-01T01:00:00Z", rx: 0, tx: 1024 },
+  { at: "2020-01-01T00:00:00Z", rx: 1024, tx: 2048, rx_bps: 0, tx_bps: 0 },
+  { at: "2020-01-01T01:00:00Z", rx: 0, tx: 1024, rx_bps: 1024, tx_bps: 512 },
 ];
 
 const QUOTA: QuotaState = {
@@ -248,6 +250,8 @@ describe("OverviewVM", () => {
     expect(vm.monthRx).toBe("4.0 КБ");
     expect(vm.monthTx).toBe("8.0 КБ");
     expect(vm.monthTotal).toBe("12.0 КБ");
+    expect(vm.rxRate).toBe("2.0 КБ/с");
+    expect(vm.txRate).toBe("1.0 КБ/с");
     expect(vm.spark).toEqual([3072, 1024]);
     expect(vm.live).toBe(false);
   });
@@ -326,6 +330,8 @@ describe("OverviewVM", () => {
     expect(vm.error).toBe("Бэкенд недоступен");
     expect(vm.data).toBeNull();
     expect(vm.todayRx).toBe("0 B");
+    expect(vm.rxRate).toBe("0 B/с");
+    expect(vm.txRate).toBe("0 B/с");
     expect(vm.devices).toBe(0);
     expect(vm.topDevices).toEqual([]);
   });

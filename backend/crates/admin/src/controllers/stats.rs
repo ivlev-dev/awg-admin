@@ -11,7 +11,7 @@ use awg_statistics::{AggregateBucket, StatsScope};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
-use crate::views::{DeviceTrafficView, OverviewView, StatsPoint, TrafficTotals};
+use crate::views::{DeviceTrafficView, OverviewView, StatsPoint, StatsSeriesPoint, TrafficTotals};
 
 #[derive(Debug, Deserialize)]
 pub struct SeriesQuery {
@@ -47,6 +47,7 @@ pub async fn overview(
     };
     let (today_rx, today_tx) = state.stats.today(scope).map_err(ApiError::from)?;
     let (month_rx, month_tx) = state.stats.month(scope).map_err(ApiError::from)?;
+    let rate = state.stats.current_rate(&scope).unwrap_or_default();
 
     let devices = if user.is_admin() {
         state.devices.list_all().map_err(ApiError::from)?
@@ -93,6 +94,8 @@ pub async fn overview(
             rx: month_rx,
             tx: month_tx,
         },
+        rx_bps: rate.rx_bps,
+        tx_bps: rate.tx_bps,
         nodes_online,
         nodes_total: nodes.len(),
         interfaces: if user.is_admin() {
@@ -123,7 +126,7 @@ pub async fn series(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
     Query(query): Query<SeriesQuery>,
-) -> ApiResult<Json<Vec<StatsPoint>>> {
+) -> ApiResult<Json<Vec<StatsSeriesPoint>>> {
     let scope = parse_scope(&query.scope, query.id)?;
     authorize_scope(&state, &user, scope)?;
     let to = query
@@ -134,17 +137,19 @@ pub async fn series(
         .from
         .and_then(|ts| DateTime::from_timestamp(ts, 0))
         .unwrap_or_else(|| to - Duration::days(1));
-    let buckets = state
+    let points = state
         .stats
-        .series(scope, from, to)
+        .series_with_rates(scope, from, to)
         .map_err(ApiError::from)?;
     Ok(Json(
-        buckets
+        points
             .into_iter()
-            .map(|bucket| StatsPoint {
-                at: DateTime::from_timestamp(bucket.hour, 0).unwrap_or_else(Utc::now),
-                rx: bucket.rx,
-                tx: bucket.tx,
+            .map(|point| StatsSeriesPoint {
+                at: DateTime::from_timestamp(point.bucket.hour, 0).unwrap_or_else(Utc::now),
+                rx: point.bucket.rx,
+                tx: point.bucket.tx,
+                rx_bps: point.rate.rx_bps,
+                tx_bps: point.rate.tx_bps,
             })
             .collect(),
     ))
@@ -212,10 +217,13 @@ pub async fn device_stats(
     let scope = StatsScope::Device(id);
     let (today_rx, today_tx) = state.stats.today(scope).map_err(ApiError::from)?;
     let (month_rx, month_tx) = state.stats.month(scope).map_err(ApiError::from)?;
+    let rate = state.stats.current_rate(&scope).unwrap_or_default();
     Ok(Json(serde_json::json!({
         "device_id": id,
         "today": { "rx": today_rx, "tx": today_tx },
         "month": { "rx": month_rx, "tx": month_tx },
+        "rx_bps": rate.rx_bps,
+        "tx_bps": rate.tx_bps,
     })))
 }
 

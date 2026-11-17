@@ -154,6 +154,16 @@ export function StatsPage(this: { vm: StatsVM }) {
             <div class="stat__hint">{this.vm.periodLabel}</div>
           </div>
           <div class="stat">
+            <div class="stat__label"><span class="dot dot--green"></span>{t("stats.card.rateRx")}</div>
+            <div class="stat__value">{this.vm.currentRxRate}</div>
+            <div class="stat__hint">{t("stats.card.rateHint")}</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("stats.card.rateTx")}</div>
+            <div class="stat__value">{this.vm.currentTxRate}</div>
+            <div class="stat__hint">{t("stats.card.rateHint")}</div>
+          </div>
+          <div class="stat">
             <div class="stat__label">{t("stats.card.liveToday")}</div>
             <div class="stat__value">{this.vm.liveEnabled ? this.vm.liveTodayTotal : "—"}</div>
             <div class="stat__hint">

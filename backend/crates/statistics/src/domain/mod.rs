@@ -61,6 +61,37 @@ pub struct TrafficDelta {
     pub at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Rate {
+    pub rx_bps: f64,
+    pub tx_bps: f64,
+}
+
+impl Rate {
+    pub const ZERO: Self = Self {
+        rx_bps: 0.0,
+        tx_bps: 0.0,
+    };
+
+    pub fn between(previous: CounterState, current: CounterState) -> Option<Self> {
+        let seconds = current
+            .updated_at
+            .signed_duration_since(previous.updated_at)
+            .num_milliseconds() as f64
+            / 1_000.0;
+        if seconds <= 0.0 {
+            return None;
+        }
+        if current.rx_total < previous.rx_total || current.tx_total < previous.tx_total {
+            return Some(Self::ZERO);
+        }
+        Some(Self {
+            rx_bps: (current.rx_total - previous.rx_total) as f64 / seconds,
+            tx_bps: (current.tx_total - previous.tx_total) as f64 / seconds,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bucket {
     pub scope: StatsScope,

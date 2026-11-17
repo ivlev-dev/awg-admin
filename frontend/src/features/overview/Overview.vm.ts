@@ -5,6 +5,7 @@ import { Session } from "@/app/session";
 import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
+import { formatRateBps } from "@/application/stats/rate";
 import type { StatsService } from "@/application/stats/service";
 import { formatDateI18n, formatBytesI18n } from "@/i18n/format";
 import type { Overview } from "@/domain/types";
@@ -97,6 +98,16 @@ export class OverviewVM {
   get monthTotal(): string {
     const totals = this.liveStats.connected ? this.liveStats.month : this.data?.month;
     return formatBytesI18n((totals?.rx ?? 0) + (totals?.tx ?? 0));
+  }
+
+  @computed
+  get rxRate(): string {
+    return formatRateBps(this.data?.rx_bps);
+  }
+
+  @computed
+  get txRate(): string {
+    return formatRateBps(this.data?.tx_bps);
   }
 
   @computed
