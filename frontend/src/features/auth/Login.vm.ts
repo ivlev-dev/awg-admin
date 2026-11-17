@@ -132,4 +132,8 @@ export class LoginVM {
   goRegister(): void {
     this.router.navigate("/register");
   }
+
+  goForgotPassword(): void {
+    this.router.navigate("/forgot-password");
+  }
 }

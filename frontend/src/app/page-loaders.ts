@@ -20,6 +20,8 @@ export const PAGE_NAMES = [
   "login",
   "register",
   "verify-email",
+  "forgot-password",
+  "reset-password",
 ] as const;
 
 export type PageName = (typeof PAGE_NAMES)[number];
@@ -48,6 +50,8 @@ export const PAGE_LOADERS: Readonly<Record<PageName, PageLoader>> = {
   login: () => import("@/features/auth/Login").then((module) => ({ default: module.Login })),
   register: () => import("@/features/auth/Register").then((module) => ({ default: module.Register })),
   "verify-email": () => import("@/features/auth/VerifyEmail").then((module) => ({ default: module.VerifyEmail })),
+  "forgot-password": () => import("@/features/auth/ForgotPassword").then((module) => ({ default: module.ForgotPassword })),
+  "reset-password": () => import("@/features/auth/ResetPassword").then((module) => ({ default: module.ResetPassword })),
 };
 
 const PAGE_NAME_SET: ReadonlySet<string> = new Set(PAGE_NAMES);

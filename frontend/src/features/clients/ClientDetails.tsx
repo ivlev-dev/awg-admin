@@ -2,6 +2,8 @@ import { For, Match, Show, Switch } from "@ivlev-dev/silent-core";
 
 import type { ClientDetailsVM } from "./ClientDetails.vm";
 import { Icon } from "@/components/Icon";
+import { Modal } from "@/components/Modal";
+import { QrCode } from "@/components/QrCode";
 import { Select } from "@/components/Select";
 import { t } from "@/i18n";
 import { formatDateTimeI18n } from "@/i18n/format";
@@ -489,6 +491,15 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button class="btn btn--sm" type="button" onClick={() => this.vm.copyVpn()}>
                                   <Icon name="link" size={14} class="" /> {t("clients.details.profiles.copyVpn")}
                                 </button>
+                                <button
+                                  class="btn btn--sm"
+                                  type="button"
+                                  disabled={!this.vm.canShowVpnQr}
+                                  aria-label={t("clients.details.qr.openVpn")}
+                                  onClick={() => this.vm.openVpnQr()}
+                                >
+                                  <Icon name="qr" size={14} class="" /> {t("clients.details.qr.button")}
+                                </button>
                               </div>
                             </div>
                             <pre class="code">{this.vm.activeProfile?.conf ?? ""}</pre>
@@ -592,6 +603,14 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button
                                   class="btn btn--sm"
                                   type="button"
+                                  aria-label={t("clients.details.qr.openShare")}
+                                  onClick={() => this.vm.openShareQr(share)}
+                                >
+                                  <Icon name="qr" size={14} class="" />
+                                </button>
+                                <button
+                                  class="btn btn--sm"
+                                  type="button"
                                   aria-label={t("clients.details.share.copyAria")}
                                   onClick={() => { void this.vm.copyText(share.url, t("clients.details.share.copyLabel")); }}
                                 >
@@ -619,6 +638,29 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
           </Show>
         </div>
       </Show>
+
+      <Modal
+        open={this.vm.qrOpen}
+        title={this.vm.qrTitle}
+        onClose={() => this.vm.closeQr()}
+        footer={
+          <button class="btn btn--primary" type="button" onClick={() => this.vm.copyQrValue()}>
+            <Icon name="copy" size={14} class="" /> {this.vm.qrCopyLabel}
+          </button>
+        }
+      >
+        <div class="stack" style="align-items:center;gap:12px">
+          <QrCode
+            value={this.vm.qrValue}
+            size={220}
+            label={t("clients.details.qr.aria")}
+            loadingLabel={t("clients.details.qr.loading")}
+            errorLabel={t("clients.details.qr.error")}
+            limitLabel={t("clients.details.qr.limit")}
+          />
+          <div class="hint" style="text-align:center">{t("clients.details.qr.hint")}</div>
+        </div>
+      </Modal>
     </div>
   );
 }

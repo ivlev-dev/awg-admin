@@ -191,6 +191,35 @@
 .copy-row { display: flex; gap: var(--sp-2); align-items: stretch; }
 .copy-row .input { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: var(--t-xs); }
 
+.qr-code { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: 100%; }
+.qr-code__svg {
+  display: block;
+  width: min(var(--qr-size, 192px), 100%);
+  height: auto;
+  box-sizing: border-box;
+  padding: var(--sp-2);
+  border-radius: var(--r-3);
+  background: #fff;
+  border: var(--hairline) solid var(--border);
+}
+.qr-code__placeholder {
+  width: min(var(--qr-size, 192px), 100%);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-3);
+}
+.qr-code__error {
+  width: min(var(--qr-size, 192px), 100%);
+  padding: var(--sp-3);
+  border: var(--hairline) dashed var(--border);
+  border-radius: var(--r-3);
+  color: var(--muted);
+  font-size: var(--t-sm);
+  text-align: center;
+}
+
 .modal-backdrop {
   position: fixed; inset: 0; z-index: var(--z-modal);
   background: rgba(8, 11, 20, 0.6);

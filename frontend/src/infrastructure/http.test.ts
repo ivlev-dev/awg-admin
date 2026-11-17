@@ -134,6 +134,34 @@ describe("HTTP backend", () => {
     );
   });
 
+  it("requests and confirms a password reset", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(202, { status: "sent" }))
+      .mockResolvedValueOnce(mockResponse(200, { status: "reset" }));
+
+    await expect(backend.repositories.auth.forgotPassword("user@example.com")).resolves.toEqual({
+      status: "sent",
+    });
+    await expect(backend.repositories.auth.resetPassword("token-1", "secret123")).resolves.toEqual({
+      status: "reset",
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/auth/forgot-password",
+      expect.objectContaining({ body: JSON.stringify({ email: "user@example.com" }) }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/auth/reset-password",
+      expect.objectContaining({
+        body: JSON.stringify({ token: "token-1", password: "secret123" }),
+      }),
+    );
+    expect(store.access()).toBeNull();
+  });
+
   it("sets up, enables and disables TOTP with the access token", async () => {
     store.set("tok-123", "ref-123");
     const setup = {
@@ -166,6 +194,57 @@ describe("HTTP backend", () => {
       "/api/v1/auth/totp/disable",
       expect.objectContaining({
         body: JSON.stringify({ password: "secret", code: "654321" }),
+      }),
+    );
+  });
+
+  it("lists, revokes sessions and logs out everywhere", async () => {
+    store.set("tok-123", "ref-123");
+    const info = {
+      jti: "jti-1",
+      family_id: "fam-1",
+      created_at: "2026-11-10T10:00:00Z",
+      expires_at: "2099-01-01T00:00:00Z",
+      revoked: false,
+      used: false,
+      user_agent: "Mozilla/5.0 Firefox/121.0",
+      ip: "203.0.113.7",
+    };
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(200, [info]))
+      .mockResolvedValueOnce(mockResponse(200, { ok: true }))
+      .mockResolvedValueOnce(mockResponse(200, { ok: true, revoked: 2 }));
+
+    await expect(backend.repositories.auth.sessions()).resolves.toEqual([info]);
+    await expect(backend.repositories.auth.revokeSession("jti-1")).resolves.toBeUndefined();
+    await expect(backend.repositories.auth.logoutAll()).resolves.toEqual({
+      ok: true,
+      revoked: 2,
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/auth/sessions",
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/auth/sessions/jti-1",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/auth/logout-all",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
       }),
     );
   });

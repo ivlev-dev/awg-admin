@@ -1,3 +1,5 @@
+import { createComponent, flushSync } from "@ivlev-dev/silent-core";
+
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -6,12 +8,15 @@ import { ToastStore } from "@/app/toast";
 import { DefaultAuthService } from "@/application/auth/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import type { AuthRepository } from "@/domain/auth/repository";
+import type { AuthSessionInfo, LogoutAllResult } from "@/domain/auth/types";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState } from "@/domain/quota/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import type { Mock } from "vitest";
 import { setLocale } from "@/i18n";
+import { formatDateTimeI18n } from "@/i18n/format";
+import { ProfilePage } from "./ProfilePage";
 import { ProfilePageVM } from "./ProfilePage.vm";
 
 const ADMIN: User = {
@@ -53,6 +58,52 @@ const QUOTA: QuotaState = {
   reset_at: "2026-12-01T00:00:00Z",
 };
 
+const CHROME_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
+const SESSIONS: AuthSessionInfo[] = [
+  {
+    jti: "jti-old-active",
+    family_id: "fam-1",
+    created_at: "2026-11-10T10:00:00Z",
+    expires_at: "2099-01-01T00:00:00Z",
+    revoked: false,
+    used: false,
+    user_agent: CHROME_AGENT,
+    ip: "203.0.113.7",
+  },
+  {
+    jti: "jti-new-active",
+    family_id: "fam-2",
+    created_at: "2026-11-12T10:00:00Z",
+    expires_at: "2099-01-01T00:00:00Z",
+    revoked: false,
+    used: true,
+    user_agent: "Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    ip: "198.51.100.9",
+  },
+  {
+    jti: "jti-revoked",
+    family_id: "fam-3",
+    created_at: "2026-11-05T10:00:00Z",
+    expires_at: "2099-01-01T00:00:00Z",
+    revoked: true,
+    used: false,
+    user_agent: null,
+    ip: null,
+  },
+  {
+    jti: "jti-expired",
+    family_id: "fam-4",
+    created_at: "2026-11-01T10:00:00Z",
+    expires_at: "2020-01-01T00:00:00Z",
+    revoked: false,
+    used: false,
+    user_agent: "curl/8.0",
+    ip: "192.0.2.5",
+  },
+];
+
 class MemoryTokenStore implements TokenStore {
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
@@ -91,6 +142,9 @@ interface Harness {
   totpSetup: Mock<() => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>>;
   totpEnable: Mock<(code: string) => Promise<void>>;
   totpDisable: Mock<(password: string, code: string) => Promise<void>>;
+  sessions: Mock<() => Promise<AuthSessionInfo[]>>;
+  revokeSession: Mock<(jti: string) => Promise<void>>;
+  logoutAll: Mock<() => Promise<LogoutAllResult>>;
 }
 
 function quotaHarness(state: QuotaState = QUOTA): {
@@ -115,6 +169,9 @@ function makeHarness(
     totpSetup?: () => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>;
     totpEnable?: (code: string) => Promise<void>;
     totpDisable?: (password: string, code: string) => Promise<void>;
+    sessions?: () => Promise<AuthSessionInfo[]>;
+    revokeSession?: (jti: string) => Promise<void>;
+    logoutAll?: () => Promise<LogoutAllResult>;
   } = {},
   quotaState: QuotaState = QUOTA,
 ): Harness {
@@ -128,6 +185,11 @@ function makeHarness(
   );
   const totpEnable = vi.fn(handlers.totpEnable ?? (async () => undefined));
   const totpDisable = vi.fn(handlers.totpDisable ?? (async () => undefined));
+  const sessions = vi.fn(handlers.sessions ?? (async () => []));
+  const revokeSession = vi.fn(handlers.revokeSession ?? (async () => undefined));
+  const logoutAll = vi.fn(
+    handlers.logoutAll ?? (async () => ({ ok: true, revoked: 0 })),
+  );
   let current: User = user;
   const auth: AuthRepository = {
     login: vi.fn(async () => SESSION),
@@ -149,6 +211,11 @@ function makeHarness(
       current = { ...current, totp_enabled: false };
       return { enabled: false };
     }),
+    forgotPassword: vi.fn(async () => ({ status: "sent" as const })),
+    resetPassword: vi.fn(async () => ({ status: "reset" as const })),
+    sessions,
+    revokeSession,
+    logoutAll,
   };
   const tokens = new MemoryTokenStore();
   tokens.set("access-1", "refresh-1");
@@ -182,6 +249,9 @@ function makeHarness(
     totpSetup,
     totpEnable,
     totpDisable,
+    sessions,
+    revokeSession,
+    logoutAll,
   };
 }
 
@@ -193,6 +263,12 @@ function valueEvent(value: string): Event {
   const event = new Event("input");
   Object.defineProperty(event, "target", { value: { value } });
   return event;
+}
+
+function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
+  const confirm = vi.fn(() => result);
+  vi.stubGlobal("confirm", confirm);
+  return confirm;
 }
 
 class MemoryStorage {
@@ -278,6 +354,7 @@ describe("ProfilePageVM", () => {
 
     harness.vm.created();
     await vi.waitFor(() => expect(harness.vm.quotaLoading).toBe(false));
+    await vi.waitFor(() => expect(harness.sessions).toHaveBeenCalledTimes(1));
 
     expect(harness.quotaMe).toHaveBeenCalledTimes(1);
     expect(harness.vm.quotaError).toBeNull();
@@ -338,6 +415,208 @@ describe("ProfilePageVM", () => {
     expect(harness.vm.quotaError).toBe("Квота недоступна");
     expect(harness.vm.quotaLoading).toBe(false);
     expect(harness.vm.quotaView.hasQuota).toBe(false);
+  });
+
+  it("загружает сессии и помечает статусы", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+
+    await harness.vm.loadSessions();
+
+    expect(harness.sessions).toHaveBeenCalledTimes(1);
+    expect(harness.vm.sessionsLoading).toBe(false);
+    expect(harness.vm.sessionsError).toBeNull();
+    expect(harness.vm.sessionsEmpty).toBe(false);
+    expect(harness.vm.canRevokeAll).toBe(true);
+    expect(harness.vm.sessionRows.map((row) => row.jti)).toEqual([
+      "jti-new-active",
+      "jti-old-active",
+      "jti-revoked",
+      "jti-expired",
+    ]);
+
+    const [newest, chrome, revoked, expired] = harness.vm.sessionRows;
+    expect(newest?.device).toBe("Firefox · Linux");
+    expect(newest?.ip).toBe("198.51.100.9");
+    expect(newest?.statusLabel).toBe("Активна");
+    expect(newest?.statusClass).toBe("badge--green");
+    expect(newest?.revocable).toBe(true);
+    expect(newest?.busy).toBe(false);
+
+    expect(chrome?.device).toBe("Chrome · Windows");
+    expect(chrome?.deviceTitle).toBe(CHROME_AGENT);
+    expect(chrome?.createdLabel).toBe(formatDateTimeI18n("2026-11-10T10:00:00Z"));
+    expect(chrome?.expiresLabel).toBe(formatDateTimeI18n("2099-01-01T00:00:00Z"));
+
+    expect(revoked?.device).toBe("Неизвестное устройство");
+    expect(revoked?.ip).toBe("—");
+    expect(revoked?.statusLabel).toBe("Отозвана");
+    expect(revoked?.statusClass).toBe("badge--red");
+    expect(revoked?.revocable).toBe(false);
+
+    expect(expired?.device).toBe("curl/8.0");
+    expect(expired?.statusLabel).toBe("Истекла");
+    expect(expired?.statusClass).toBe("badge--gray");
+    expect(expired?.revocable).toBe(false);
+  });
+
+  it("сокращает длинный user agent без распознавания", async () => {
+    const longAgent = "custom-agent/" + "x".repeat(80);
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => [
+        {
+          ...SESSIONS[0]!,
+          jti: "jti-long",
+          user_agent: longAgent,
+        },
+      ],
+    });
+
+    await harness.vm.loadSessions();
+
+    const row = harness.vm.sessionRows[0];
+    expect(row?.device).toBe(`${longAgent.slice(0, 47)}…`);
+    expect(row?.deviceTitle).toBe(longAgent);
+  });
+
+  it("показывает пустое состояние без сессий", async () => {
+    const harness = makeHarness();
+
+    await harness.vm.loadSessions();
+
+    expect(harness.vm.sessionRows).toEqual([]);
+    expect(harness.vm.sessionsEmpty).toBe(true);
+    expect(harness.vm.canRevokeAll).toBe(false);
+    expect(harness.vm.sessionsError).toBeNull();
+  });
+
+  it("обрабатывает ошибку загрузки сессий", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => {
+        throw new Error("Сессии недоступны");
+      },
+    });
+
+    await harness.vm.loadSessions();
+
+    expect(harness.vm.sessions).toEqual([]);
+    expect(harness.vm.sessionsError).toBe("Сессии недоступны");
+    expect(harness.vm.sessionsLoading).toBe(false);
+    expect(harness.vm.sessionsEmpty).toBe(true);
+  });
+
+  it("использует запасное сообщение при неизвестной ошибке загрузки сессий", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => {
+        throw "boom";
+      },
+    });
+
+    await harness.vm.loadSessions();
+
+    expect(harness.vm.sessionsError).toBe("Не удалось загрузить сессии");
+  });
+
+  it("завершает одну сессию после подтверждения и обновляет список", async () => {
+    const confirm = stubConfirm(true);
+    let sessions = SESSIONS.map((session) => ({ ...session }));
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => sessions.map((session) => ({ ...session })),
+      revokeSession: async (jti) => {
+        sessions = sessions.filter((session) => session.jti !== jti);
+      },
+    });
+    await harness.vm.loadSessions();
+
+    await harness.vm.revokeSession("jti-old-active");
+
+    expect(confirm).toHaveBeenCalledWith("Завершить эту сессию?");
+    expect(harness.revokeSession).toHaveBeenCalledWith("jti-old-active");
+    expect(harness.sessions).toHaveBeenCalledTimes(2);
+    expect(harness.vm.sessionRows.map((row) => row.jti)).not.toContain("jti-old-active");
+    expect(harness.toasts.items.some((item) => item.message === "Сессия завершена")).toBe(true);
+    expect(harness.vm.sessionsBusy).toBe(false);
+    expect(harness.vm.sessionsBusyJti).toBeNull();
+  });
+
+  it("не завершает сессию без подтверждения", async () => {
+    const confirm = stubConfirm(false);
+    const harness = makeHarness(ADMIN, { sessions: async () => SESSIONS });
+
+    await harness.vm.revokeSession("jti-old-active");
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(harness.revokeSession).not.toHaveBeenCalled();
+    expect(harness.vm.sessionsBusy).toBe(false);
+  });
+
+  it("сообщает об ошибке завершения сессии", async () => {
+    stubConfirm(true);
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS,
+      revokeSession: async () => {
+        throw new Error("Нет доступа");
+      },
+    });
+
+    await harness.vm.revokeSession("jti-old-active");
+
+    expect(harness.toasts.items.some((item) => item.message === "Нет доступа")).toBe(true);
+    expect(harness.vm.sessionsBusy).toBe(false);
+    expect(harness.vm.sessionsBusyJti).toBeNull();
+  });
+
+  it("завершает все сессии и выводит из аккаунта", async () => {
+    const confirm = stubConfirm(true);
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS,
+      logoutAll: async () => ({ ok: true, revoked: 3 }),
+    });
+
+    await harness.vm.revokeAll();
+
+    expect(confirm).toHaveBeenCalledWith("Завершить все сессии? Потребуется войти заново.");
+    expect(harness.logoutAll).toHaveBeenCalledTimes(1);
+    expect(harness.logout).toHaveBeenCalledWith("refresh-1");
+    expect(harness.tokens.access()).toBeNull();
+    expect(harness.tokens.refresh()).toBeNull();
+    expect(harness.session.user).toBeNull();
+    expect(harness.router.path).toBe("/login");
+    expect(
+      harness.toasts.items.some((item) => item.message === "Все сессии завершены. Отозвано: 3"),
+    ).toBe(true);
+    expect(harness.vm.sessionsBusy).toBe(false);
+  });
+
+  it("не завершает все сессии без подтверждения", async () => {
+    const confirm = stubConfirm(false);
+    const harness = makeHarness(ADMIN, { sessions: async () => SESSIONS });
+
+    await harness.vm.revokeAll();
+
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(harness.logoutAll).not.toHaveBeenCalled();
+    expect(harness.router.path).toBe("/profile");
+    expect(harness.session.user).not.toBeNull();
+  });
+
+  it("сообщает об ошибке завершения всех сессий и остаётся в аккаунте", async () => {
+    stubConfirm(true);
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS,
+      logoutAll: async () => {
+        throw new Error("Сервер недоступен");
+      },
+    });
+
+    await harness.vm.revokeAll();
+
+    expect(harness.logout).not.toHaveBeenCalled();
+    expect(harness.router.path).toBe("/profile");
+    expect(harness.session.user).not.toBeNull();
+    expect(harness.toasts.items.some((item) => item.message === "Сервер недоступен")).toBe(true);
+    expect(harness.vm.sessionsBusy).toBe(false);
   });
 
   it("переключает язык интерфейса и сохраняет выбор", () => {
@@ -647,6 +926,67 @@ describe("ProfilePageVM", () => {
 
     expect(writeText).toHaveBeenCalledWith("1111\n2222");
     expect(harness.toasts.items.some((item) => item.message === "Резервные коды скопированы")).toBe(true);
+  });
+
+  it("копирует секрет TOTP", async () => {
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const harness = makeHarness();
+    await harness.vm.openTotpSetup();
+
+    await harness.vm.copyTotpSecret();
+
+    expect(writeText).toHaveBeenCalledWith("SECRET");
+    expect(harness.toasts.items.some((item) => item.message === "Секрет скопирован")).toBe(true);
+    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
+  });
+
+  it("показывает QR с otpauth_url в модалке включения 2FA", async () => {
+    const harness = makeHarness();
+    const container = createAppContainer();
+    container.bind(Session, () => harness.session);
+    container.bind(DefaultAuthService, () => new DefaultAuthService(harness.auth));
+    container.bind(DefaultQuotaService, () => new DefaultQuotaService(harness.quota));
+    container.bind(Router, () => harness.router);
+    container.bind(ThemeStore, () => harness.theme);
+    container.bind(ToastStore, () => harness.toasts);
+
+    const result = createComponent(ProfilePage, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+    flushSync();
+
+    const enableButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Включить",
+    );
+    expect(enableButton).not.toBeUndefined();
+    enableButton?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("Включение 2FA");
+    });
+    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
+
+    await vi.waitFor(() => {
+      expect(document.querySelector(".modal svg.qr-code__svg")).not.toBeNull();
+    });
+
+    const svg = document.querySelector(".modal svg.qr-code__svg");
+    expect(svg?.getAttribute("aria-label")).toBe(
+      "QR-код для добавления в приложение-аутентификатор",
+    );
+    expect(svg?.getAttribute("role")).toBe("img");
+
+    const readonly = Array.from(
+      document.querySelectorAll<HTMLInputElement>(".modal input[readonly]"),
+    ).map((input) => input.value);
+    expect(readonly).toContain("otpauth://totp/test");
+    expect(readonly).toContain("SECRET");
+    expect(document.body.textContent).toContain("Копировать секрет");
+
+    result.dispose();
+    document.body.replaceChildren();
   });
 
   it("resolves constructor dependencies through the container", async () => {

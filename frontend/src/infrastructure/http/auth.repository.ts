@@ -1,8 +1,12 @@
 import type { AuthRepository } from "../../domain/auth/repository";
 import type {
+  AuthSessionInfo,
+  ForgotPasswordResult,
   LoginInput,
+  LogoutAllResult,
   RegisterInput,
   RegisterResult,
+  ResetPasswordResult,
   TotpSetup,
   TotpToggleResult,
   VerifyEmailResult,
@@ -41,6 +45,26 @@ export class HttpAuthRepository implements AuthRepository {
   async resendVerification(email: string): Promise<void> {
     await this.request(() =>
       this.transport.post<void>("/auth/resend-verification", { email }, { source: "auth" }),
+    );
+  }
+
+  forgotPassword(email: string): Promise<ForgotPasswordResult> {
+    return this.request(() =>
+      this.transport.post<ForgotPasswordResult>(
+        "/auth/forgot-password",
+        { email },
+        { source: "auth" },
+      ),
+    );
+  }
+
+  resetPassword(token: string, password: string): Promise<ResetPasswordResult> {
+    return this.request(() =>
+      this.transport.post<ResetPasswordResult>(
+        "/auth/reset-password",
+        { token, password },
+        { source: "auth" },
+      ),
     );
   }
 
@@ -115,6 +139,33 @@ export class HttpAuthRepository implements AuthRepository {
         { password, code },
         { source: "auth", headers: this.authHeaders() },
       ),
+    );
+  }
+
+  sessions(): Promise<AuthSessionInfo[]> {
+    return this.request(() =>
+      this.transport.get<AuthSessionInfo[]>("/auth/sessions", {
+        source: "auth",
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  async revokeSession(jti: string): Promise<void> {
+    await this.request(() =>
+      this.transport.delete<void>(`/auth/sessions/${encodeURIComponent(jti)}`, {
+        source: "auth",
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  logoutAll(): Promise<LogoutAllResult> {
+    return this.request(() =>
+      this.transport.post<LogoutAllResult>("/auth/logout-all", undefined, {
+        source: "auth",
+        headers: this.authHeaders(),
+      }),
     );
   }
 

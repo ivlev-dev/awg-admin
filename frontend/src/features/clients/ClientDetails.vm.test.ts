@@ -1,4 +1,4 @@
-import { createComponent } from "@ivlev-dev/silent-core";
+import { createComponent, flushSync } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
 import { DefaultGroupsService } from "@/application/groups/service";
@@ -231,6 +231,11 @@ function fakeAuth(user: User): AuthRepository {
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),
     totpDisable: vi.fn(async () => ({ enabled: false })),
+    forgotPassword: vi.fn(async () => ({ status: "sent" as const })),
+    resetPassword: vi.fn(async () => ({ status: "reset" as const })),
+    sessions: vi.fn(async () => []),
+    revokeSession: vi.fn(async () => undefined),
+    logoutAll: vi.fn(async () => ({ ok: true, revoked: 0 })),
   };
 }
 
@@ -1009,6 +1014,123 @@ describe("ClientDetailsVM", () => {
       kind: "error",
       message: "Сервис недоступен",
     });
+  });
+
+  it("открывает QR для share-ссылки и копирует её", async () => {
+    const { vm, toasts } = setup("admin");
+    await vm.load();
+    const writeText = vi.fn(async () => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    const share = vm.shares[0];
+    if (share === undefined) throw new Error("share fixture is missing");
+    vm.openShareQr(share);
+
+    expect(vm.qrOpen).toBe(true);
+    expect(vm.qrValue).toBe("https://example.com/share-1");
+    expect(vm.qrTitle).toBe("QR-код временной ссылки");
+    expect(vm.qrCopyLabel).toBe("Копировать ссылку");
+
+    vm.copyQrValue();
+    await vi.waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("https://example.com/share-1");
+    });
+    expect(toasts.items.at(-1)).toMatchObject({ kind: "success" });
+  });
+
+  it("открывает QR для vpn:// активного профиля", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    expect(vm.canShowVpnQr).toBe(true);
+    vm.openVpnQr();
+
+    expect(vm.qrOpen).toBe(true);
+    expect(vm.qrValue).toBe("vpn://profile-1");
+    expect(vm.qrTitle).toBe("QR-код профиля wg0");
+    expect(vm.qrCopyLabel).toBe("Копировать vpn://");
+
+    vm.selectProfile("i2");
+    vm.openVpnQr();
+    expect(vm.qrValue).toBe("vpn://profile-2");
+
+    vm.closeQr();
+    expect(vm.qrOpen).toBe(false);
+    expect(vm.qrValue).toBe("");
+  });
+
+  it("не открывает QR без vpn-ссылки и сбрасывает состояние при перезагрузке", async () => {
+    const { vm, state } = setup("user");
+    state.profiles = [{ ...PROFILE_1, vpn_link: "" }];
+    await vm.load();
+
+    expect(vm.canShowVpnQr).toBe(false);
+    vm.openVpnQr();
+    expect(vm.qrOpen).toBe(false);
+
+    vm.openShareQr({ ...SHARE });
+    expect(vm.qrOpen).toBe(true);
+    await vm.load();
+    expect(vm.qrOpen).toBe(false);
+    expect(vm.qrValue).toBe("");
+  });
+
+  it("открывает модалки QR из share-ссылки и профиля", async () => {
+    const { devicesService, groupsService, quota, session, router, toasts } = setup("admin");
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultGroupsService, () => groupsService);
+    container.bind(DefaultQuotaService, () => quota.service);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(ClientDetails, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+    flushSync();
+    const root = document.body;
+    const text = () => document.body.textContent ?? "";
+    await vi.waitFor(() => {
+      expect(text()).toContain("laptop");
+    });
+
+    const shareButton = root.querySelector<HTMLButtonElement>(
+      'button[aria-label="Показать QR-код ссылки"]',
+    );
+    expect(shareButton).not.toBeNull();
+    shareButton?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      expect(text()).toContain("QR-код временной ссылки");
+    });
+    await vi.waitFor(() => {
+      expect(root.querySelector(".modal .qr-code__svg")).not.toBeNull();
+    });
+    const shareSvg = root.querySelector(".modal .qr-code__svg");
+    expect(shareSvg?.getAttribute("aria-label")).toBe("QR-код для подключения");
+
+    root.querySelector<HTMLButtonElement>('.modal button[aria-label="Закрыть"]')?.click();
+    flushSync();
+    expect(root.querySelector(".modal")).toBeNull();
+
+    const vpnButton = root.querySelector<HTMLButtonElement>(
+      'button[aria-label="Показать QR-код vpn://"]',
+    );
+    expect(vpnButton).not.toBeNull();
+    vpnButton?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      expect(text()).toContain("QR-код профиля wg0");
+    });
+    await vi.waitFor(() => {
+      expect(root.querySelector(".modal .qr-code__svg")).not.toBeNull();
+    });
+
+    result.dispose();
+    document.body.replaceChildren();
   });
 
   it("резолвит VM через DI и монтирует представление с внедрёнными зависимостями", async () => {

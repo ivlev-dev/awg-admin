@@ -48,6 +48,22 @@ describe("matchRoute", () => {
     expect(match.route.title).toBe("Подтверждение почты");
     expect(match.route.public).toBe(true);
   });
+
+  it("forgot-password is public", () => {
+    const match = matchRoute("/forgot-password");
+    expect(match.route.name).toBe("forgot-password");
+    expect(match.route.title).toBe("Восстановление пароля");
+    expect(match.route.public).toBe(true);
+    expect(match.route.adminOnly).toBeUndefined();
+  });
+
+  it("reset-password is public and ignores the query string", () => {
+    const match = matchRoute("/reset-password");
+    expect(match.route.name).toBe("reset-password");
+    expect(match.route.title).toBe("Сброс пароля");
+    expect(match.route.public).toBe(true);
+    expect(match.params).toEqual({});
+  });
 });
 
 describe("normalize", () => {

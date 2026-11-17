@@ -35,6 +35,8 @@ function pageOptions(route: string): LazyOptions {
 const Login = lazy(() => loadPage("login"), pageOptions("login"));
 const Register = lazy(() => loadPage("register"), pageOptions("register"));
 const VerifyEmail = lazy(() => loadPage("verify-email"), pageOptions("verify-email"));
+const ForgotPassword = lazy(() => loadPage("forgot-password"), pageOptions("forgot-password"));
+const ResetPassword = lazy(() => loadPage("reset-password"), pageOptions("reset-password"));
 const Overview = lazy(() => loadPage("overview"), pageOptions("overview"));
 const ClientsPage = lazy(() => loadPage("clients"), pageOptions("clients"));
 const ClientDetails = lazy(() => loadPage("client"), pageOptions("client"));
@@ -328,6 +330,18 @@ export function App(this: { vm: AppVM }) {
       <Show when={!this.vm.booting && this.vm.routeName === "verify-email"}>
         <PageSlot main>
           <VerifyEmail />
+        </PageSlot>
+      </Show>
+
+      <Show when={!this.vm.booting && this.vm.routeName === "forgot-password"}>
+        <PageSlot main>
+          <ForgotPassword />
+        </PageSlot>
+      </Show>
+
+      <Show when={!this.vm.booting && this.vm.routeName === "reset-password"}>
+        <PageSlot main>
+          <ResetPassword />
         </PageSlot>
       </Show>
 

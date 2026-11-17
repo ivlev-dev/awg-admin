@@ -66,6 +66,8 @@ const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
   login: "route.login",
   register: "route.register",
   "verify-email": "route.verifyEmail",
+  "forgot-password": "auth.forgot.title",
+  "reset-password": "auth.reset.title",
   "not-found": "route.notFound",
 };
 

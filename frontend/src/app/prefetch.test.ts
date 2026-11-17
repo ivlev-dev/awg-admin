@@ -8,10 +8,13 @@ const pageLoaders = vi.hoisted(() => {
       "/login": "login",
       "/register": "register",
       "/verify-email": "verify-email",
+      "/forgot-password": "forgot-password",
+      "/reset-password": "reset-password",
     };
     return routes[path] ?? null;
   });
-  const isPublicPage = vi.fn((name: string): boolean => ["login", "register", "verify-email"].includes(name));
+  const isPublicPage = vi.fn((name: string): boolean =>
+    ["login", "register", "verify-email", "forgot-password", "reset-password"].includes(name));
   return { loadPage, pageNameForPath, isPublicPage };
 });
 
@@ -36,6 +39,8 @@ describe("prefetchPath", () => {
     await prefetchPath("/login");
     await prefetchPath("/register");
     await prefetchPath("/verify-email");
+    await prefetchPath("/forgot-password");
+    await prefetchPath("/reset-password");
 
     expect(pageLoaders.loadPage).not.toHaveBeenCalled();
   });
@@ -115,7 +120,7 @@ describe("scheduleIdlePrefetch", () => {
     });
     vi.stubGlobal("requestIdleCallback", idle);
 
-    scheduleIdlePrefetch({ network: null, routes: ["/login", "/register", "/verify-email"] });
+    scheduleIdlePrefetch({ network: null, routes: ["/login", "/register", "/verify-email", "/forgot-password", "/reset-password"] });
 
     expect(pageLoaders.loadPage).not.toHaveBeenCalled();
   });

@@ -117,6 +117,11 @@ function makeAuth(current: User | null): AuthRepository {
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),
     totpDisable: vi.fn(async () => ({ enabled: false })),
+    forgotPassword: vi.fn(async () => ({ status: "sent" as const })),
+    resetPassword: vi.fn(async () => ({ status: "reset" as const })),
+    sessions: vi.fn(async () => []),
+    revokeSession: vi.fn(async () => undefined),
+    logoutAll: vi.fn(async () => ({ ok: true, revoked: 0 })),
   };
 }
 
@@ -193,6 +198,22 @@ describe("AppVM access guard", () => {
     expect(harness.router.path).toBe("/verify-email");
   });
 
+  it("keeps a guest on the public forgot-password route", () => {
+    const harness = makeHarness({ user: null, path: "/forgot-password" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/forgot-password");
+  });
+
+  it("keeps a guest on the public reset-password route", () => {
+    const harness = makeHarness({ user: null, path: "/reset-password" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/reset-password");
+  });
+
   it("does not render the shell for public auth routes", () => {
     const harness = makeHarness({ user: ADMIN, path: "/register" });
 
@@ -201,6 +222,14 @@ describe("AppVM access guard", () => {
     harness.vm.guard();
 
     expect(harness.router.path).toBe("/register");
+  });
+
+  it("does not render the shell for password reset routes", () => {
+    const forgot = makeHarness({ user: ADMIN, path: "/forgot-password" });
+    const reset = makeHarness({ user: ADMIN, path: "/reset-password" });
+
+    expect(forgot.vm.showShell).toBe(false);
+    expect(reset.vm.showShell).toBe(false);
   });
 
   it("moves an authenticated user away from the login page", () => {

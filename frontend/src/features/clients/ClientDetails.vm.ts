@@ -75,6 +75,11 @@ export class ClientDetailsVM {
   @reactive accessor shareTtl = 86400;
   @reactive accessor shareBusy = false;
 
+  @reactive accessor qrOpen = false;
+  @reactive accessor qrValue = "";
+  @reactive accessor qrTitle = "";
+  @reactive accessor qrCopyLabel = "";
+
   @reactive accessor editName = "";
   @reactive accessor editDown = "0";
   @reactive accessor editUp = "0";
@@ -310,6 +315,11 @@ export class ClientDetailsVM {
     ];
   }
 
+  @computed
+  get canShowVpnQr(): boolean {
+    return (this.activeProfile?.vpn_link.length ?? 0) > 0;
+  }
+
   async load(): Promise<void> {
     const id = this.deviceId;
     if (!id) {
@@ -328,6 +338,10 @@ export class ClientDetailsVM {
     this.ownerQuota = null;
     this.activeProfileId = "";
     this.shareInterfaceId = "";
+    this.qrOpen = false;
+    this.qrValue = "";
+    this.qrTitle = "";
+    this.qrCopyLabel = "";
     try {
       const groupsPromise: Promise<Group[]> = this.isAdmin
         ? this.groupsService.listGroups()
@@ -635,6 +649,32 @@ export class ClientDetailsVM {
     const profile = this.activeProfile;
     if (!profile) return;
     void this.copyText(profile.vpn_link, t("clients.copy.vpnLabel"));
+  }
+
+  openShareQr(share: ShareLink): void {
+    if (!share.url) return;
+    this.qrValue = share.url;
+    this.qrTitle = t("clients.details.qr.shareTitle");
+    this.qrCopyLabel = t("clients.details.qr.copy");
+    this.qrOpen = true;
+  }
+
+  openVpnQr(): void {
+    const profile = this.activeProfile;
+    if (!profile || !profile.vpn_link) return;
+    this.qrValue = profile.vpn_link;
+    this.qrTitle = t("clients.details.qr.vpnTitle", { name: profile.interface_name });
+    this.qrCopyLabel = t("clients.details.profiles.copyVpn");
+    this.qrOpen = true;
+  }
+
+  closeQr(): void {
+    this.qrOpen = false;
+    this.qrValue = "";
+  }
+
+  copyQrValue(): void {
+    void this.copyText(this.qrValue, this.qrCopyLabel);
   }
 
   downloadProfile(): void {

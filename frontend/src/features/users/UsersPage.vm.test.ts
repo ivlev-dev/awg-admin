@@ -6,7 +6,9 @@ import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type {
+  AuthSessionInfo,
   LoginInput,
+  LogoutAllResult,
   RegisterInput,
   RegisterResult,
   TotpSetup,
@@ -355,6 +357,14 @@ class FakeAuthRepository implements AuthRepository {
 
   async resendVerification(_email: string): Promise<void> {}
 
+  async forgotPassword(_email: string): Promise<{ status: "sent" }> {
+    return { status: "sent" };
+  }
+
+  async resetPassword(_token: string, _password: string): Promise<{ status: "reset" }> {
+    return { status: "reset" };
+  }
+
   async refresh(_refreshToken: string): Promise<AuthSession> {
     return this.login({ login: this.current.login, password: "secret" });
   }
@@ -377,6 +387,16 @@ class FakeAuthRepository implements AuthRepository {
 
   async totpDisable(_password: string, _code: string): Promise<TotpToggleResult> {
     return { enabled: false };
+  }
+
+  async sessions(): Promise<AuthSessionInfo[]> {
+    return [];
+  }
+
+  async revokeSession(_jti: string): Promise<void> {}
+
+  async logoutAll(): Promise<LogoutAllResult> {
+    return { ok: true, revoked: 0 };
   }
 }
 

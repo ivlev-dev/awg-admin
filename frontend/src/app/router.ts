@@ -26,6 +26,8 @@ export const ROUTES: RouteDef[] = [
   { name: "login", path: "/login", title: "Вход", public: true },
   { name: "register", path: "/register", title: "Регистрация", public: true },
   { name: "verify-email", path: "/verify-email", title: "Подтверждение почты", public: true },
+  { name: "forgot-password", path: "/forgot-password", title: "Восстановление пароля", public: true },
+  { name: "reset-password", path: "/reset-password", title: "Сброс пароля", public: true },
 ];
 
 export const NOT_FOUND_ROUTE: RouteDef = {

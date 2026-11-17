@@ -15,6 +15,8 @@ describe("PAGE_LOADERS", () => {
     expect(isPublicPage("login")).toBe(true);
     expect(isPublicPage("register")).toBe(true);
     expect(isPublicPage("verify-email")).toBe(true);
+    expect(isPublicPage("forgot-password")).toBe(true);
+    expect(isPublicPage("reset-password")).toBe(true);
     expect(isPublicPage("overview")).toBe(false);
     expect(isPublicPage("clients")).toBe(false);
   });
@@ -26,6 +28,8 @@ describe("PAGE_LOADERS", () => {
     expect(pageNameForPath("/groups/team")).toBe("group");
     expect(pageNameForPath("/login")).toBe("login");
     expect(pageNameForPath("/verify-email")).toBe("verify-email");
+    expect(pageNameForPath("/forgot-password")).toBe("forgot-password");
+    expect(pageNameForPath("/reset-password")).toBe("reset-password");
     expect(pageNameForPath("/missing/page")).toBeNull();
   });
 });

@@ -3,6 +3,8 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { ProfilePageVM } from "./ProfilePage.vm";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
+import { QrCode } from "@/components/QrCode";
+import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
 export function ProfilePage(this: { vm: ProfilePageVM }) {
@@ -215,6 +217,106 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               </button>
             </div>
           </section>
+
+          <section class="card card--sessions">
+            <div class="card__head">
+              <div>
+                <div class="card__title">{t("profile.sessions.title")}</div>
+                <div class="card__sub">{t("profile.sessions.subtitle")}</div>
+              </div>
+              <div class="row wrap" style="gap:8px">
+                <button
+                  class="btn btn--sm"
+                  type="button"
+                  disabled={this.vm.sessionsLoading}
+                  onClick={() => this.vm.loadSessions()}
+                >
+                  <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+                </button>
+                <button
+                  class="btn btn--sm btn--danger"
+                  type="button"
+                  disabled={!this.vm.canRevokeAll}
+                  onClick={() => this.vm.revokeAll()}
+                >
+                  {t("profile.sessions.revokeAll")}
+                </button>
+              </div>
+            </div>
+            <div
+              class="card__body stack"
+              aria-busy={this.vm.sessionsLoading ? "true" : "false"}
+            >
+              <Show when={this.vm.sessionsError}>
+                <div class="alert alert--error">{this.vm.sessionsError}</div>
+              </Show>
+              <Show
+                when={!this.vm.sessionsLoading}
+                fallback={<SkeletonTable rows={3} columns={5} />}
+              >
+                <Show
+                  when={!this.vm.sessionsEmpty}
+                  fallback={
+                    <div class="empty">
+                      <div class="empty__title">{t("profile.sessions.empty.title")}</div>
+                      <div class="small">{t("profile.sessions.empty.text")}</div>
+                    </div>
+                  }
+                >
+                  <div class="table-wrap table-wrap--cards">
+                    <table class="table table--cards table--sessions">
+                      <thead>
+                        <tr>
+                          <th>{t("profile.sessions.column.device")}</th>
+                          <th>{t("profile.sessions.column.ip")}</th>
+                          <th>{t("profile.sessions.column.created")}</th>
+                          <th>{t("profile.sessions.column.expires")}</th>
+                          <th>{t("profile.sessions.column.status")}</th>
+                          <th>{t("profile.sessions.column.actions")}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <For each={this.vm.sessionRows}>
+                          {(row) => (
+                            <tr>
+                              <td data-label={t("profile.sessions.column.device")}>
+                                <span class="strong" title={row.deviceTitle}>
+                                  {row.device}
+                                </span>
+                              </td>
+                              <td data-label={t("profile.sessions.column.ip")}>
+                                <span class="small mono">{row.ip}</span>
+                              </td>
+                              <td data-label={t("profile.sessions.column.created")}>
+                                <span class="small nowrap mono">{row.createdLabel}</span>
+                              </td>
+                              <td data-label={t("profile.sessions.column.expires")}>
+                                <span class="small nowrap mono">{row.expiresLabel}</span>
+                              </td>
+                              <td data-label={t("profile.sessions.column.status")}>
+                                <span class={`badge ${row.statusClass}`}>{row.statusLabel}</span>
+                              </td>
+                              <td data-label={t("profile.sessions.column.actions")}>
+                                <button
+                                  class="btn btn--sm btn--danger"
+                                  type="button"
+                                  disabled={!row.revocable || row.busy || this.vm.sessionsBusy}
+                                  onClick={() => this.vm.revokeSession(row.jti)}
+                                >
+                                  {row.busy ? t("common.saving") : t("profile.sessions.revoke")}
+                                </button>
+                              </td>
+                            </tr>
+                          )}
+                        </For>
+                      </tbody>
+                    </table>
+                  </div>
+                </Show>
+              </Show>
+              <div class="xs muted">{t("profile.sessions.note")}</div>
+            </div>
+          </section>
         </div>
 
         <section class="card">
@@ -340,8 +442,24 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               <div class="alert alert--error">{this.vm.totpSetupError}</div>
             </Show>
             <Show when={this.vm.totpSetup}>
+              <div class="stack" style="align-items:center;gap:10px">
+                <QrCode
+                  value={this.vm.totpSetup?.otpauth_url ?? ""}
+                  size={200}
+                  label={t("profile.totp.modal.qrAria")}
+                  loadingLabel={t("profile.totp.modal.qrLoading")}
+                  errorLabel={t("profile.totp.modal.qrError")}
+                  limitLabel={t("profile.totp.modal.qrLimit")}
+                />
+                <div class="hint" style="text-align:center">{t("profile.totp.modal.qrHint")}</div>
+              </div>
               <div class="field">
-                <label>{t("profile.totp.modal.secret")}</label>
+                <div class="row-between wrap">
+                  <label>{t("profile.totp.modal.secret")}</label>
+                  <button class="btn btn--sm" type="button" onClick={() => { void this.vm.copyTotpSecret(); }}>
+                    <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copySecret")}
+                  </button>
+                </div>
                 <div class="copy-row">
                   <input class="input" type="text" readonly value={this.vm.totpSetup?.secret ?? ""} />
                 </div>

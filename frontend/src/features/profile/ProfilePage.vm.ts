@@ -8,8 +8,8 @@ import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
 import type { AuthService } from "../../application/auth/service";
-import type { TotpSetup } from "@/domain/auth/types";
-import { initials } from "@/domain/format";
+import type { AuthSessionInfo, TotpSetup } from "@/domain/auth/types";
+import { initials, userAgentLabel } from "@/domain/format";
 import {
   LANGUAGE_OPTIONS,
   isLocale,
@@ -33,6 +33,19 @@ export interface ThemeOption {
   value: ThemeMode;
   label: string;
   description: string;
+}
+
+export interface SessionRow {
+  jti: string;
+  device: string;
+  deviceTitle: string;
+  ip: string;
+  createdLabel: string;
+  expiresLabel: string;
+  statusLabel: string;
+  statusClass: string;
+  revocable: boolean;
+  busy: boolean;
 }
 
 interface PermissionDef {
@@ -117,8 +130,15 @@ export class ProfilePageVM {
   @reactive accessor totpDisableCode = "";
   @reactive accessor totpDisableSaving = false;
 
+  @reactive accessor sessions: AuthSessionInfo[] = [];
+  @reactive accessor sessionsLoading = false;
+  @reactive accessor sessionsError: string | null = null;
+  @reactive accessor sessionsBusy = false;
+  @reactive accessor sessionsBusyJti: string | null = null;
+
   created(): void {
     void this.loadQuota();
+    void this.loadSessions();
   }
 
   async loadQuota(): Promise<void> {
@@ -132,6 +152,109 @@ export class ProfilePageVM {
     } finally {
       this.quotaLoading = false;
     }
+  }
+
+  async loadSessions(): Promise<void> {
+    this.sessionsLoading = true;
+    this.sessionsError = null;
+    try {
+      this.sessions = await this.auth.sessions();
+    } catch (error) {
+      this.sessions = [];
+      this.sessionsError = userMessage(error, t("profile.sessions.error.load"));
+    } finally {
+      this.sessionsLoading = false;
+    }
+  }
+
+  @computed
+  get sessionsEmpty(): boolean {
+    return this.sessions.length === 0;
+  }
+
+  @computed
+  get canRevokeAll(): boolean {
+    return !this.sessionsBusy && this.sessions.length > 0;
+  }
+
+  @computed
+  get sessionRows(): SessionRow[] {
+    const now = Date.now();
+    return this.sessions
+      .map((session) => {
+        const expired = Date.parse(session.expires_at) <= now;
+        const state: "active" | "revoked" | "expired" = session.revoked
+          ? "revoked"
+          : expired
+            ? "expired"
+            : "active";
+        return {
+          session,
+          state,
+          row: {
+            jti: session.jti,
+            device: this.sessionDeviceLabel(session),
+            deviceTitle: session.user_agent?.trim() || t("profile.sessions.unknownDevice"),
+            ip: session.ip?.trim() || "—",
+            createdLabel: formatDateTimeI18n(session.created_at),
+            expiresLabel: formatDateTimeI18n(session.expires_at),
+            statusLabel: t(`profile.sessions.status.${state}`),
+            statusClass:
+              state === "active" ? "badge--green" : state === "revoked" ? "badge--red" : "badge--gray",
+            revocable: state === "active",
+            busy: this.sessionsBusyJti === session.jti,
+          } satisfies SessionRow,
+        };
+      })
+      .sort((left, right) => {
+        const leftActive = left.state === "active" ? 0 : 1;
+        const rightActive = right.state === "active" ? 0 : 1;
+        if (leftActive !== rightActive) return leftActive - rightActive;
+        return Date.parse(right.session.created_at) - Date.parse(left.session.created_at);
+      })
+      .map(({ row }) => row);
+  }
+
+  async revokeSession(jti: string): Promise<void> {
+    if (this.sessionsBusy) return;
+    if (!window.confirm(t("profile.sessions.confirm.revoke"))) return;
+    this.sessionsBusy = true;
+    this.sessionsBusyJti = jti;
+    try {
+      await this.auth.revokeSession(jti);
+      this.toasts.success(t("profile.sessions.success.revoked"));
+      await this.loadSessions();
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("profile.sessions.error.revoke")));
+    } finally {
+      this.sessionsBusy = false;
+      this.sessionsBusyJti = null;
+    }
+  }
+
+  async revokeAll(): Promise<void> {
+    if (this.sessionsBusy) return;
+    if (!window.confirm(t("profile.sessions.confirm.revokeAll"))) return;
+    this.sessionsBusy = true;
+    try {
+      const result = await this.auth.logoutAll();
+      this.toasts.success(
+        t("profile.sessions.success.revokedAll", { count: result.revoked }),
+      );
+      await this.logout();
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("profile.sessions.error.revokeAll")));
+    } finally {
+      this.sessionsBusy = false;
+    }
+  }
+
+  private sessionDeviceLabel(session: AuthSessionInfo): string {
+    const agent = session.user_agent?.trim() ?? "";
+    const label = userAgentLabel(agent);
+    if (label !== null) return label;
+    if (agent.length > 48) return `${agent.slice(0, 47)}…`;
+    return agent || t("profile.sessions.unknownDevice");
   }
 
   @computed
@@ -461,6 +584,18 @@ export class ProfilePageVM {
       if (!navigator.clipboard) throw new Error("clipboard unavailable");
       await navigator.clipboard.writeText(codes.join("\n"));
       this.toasts.success(t("profile.totp.modal.copied"));
+    } catch {
+      this.toasts.error(t("profile.totp.error.copy"));
+    }
+  }
+
+  async copyTotpSecret(): Promise<void> {
+    const secret = this.totpSetup?.secret ?? "";
+    if (secret.length === 0) return;
+    try {
+      if (!navigator.clipboard) throw new Error("clipboard unavailable");
+      await navigator.clipboard.writeText(secret);
+      this.toasts.success(t("profile.totp.modal.secretCopied"));
     } catch {
       this.toasts.error(t("profile.totp.error.copy"));
     }

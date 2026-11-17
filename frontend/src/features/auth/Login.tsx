@@ -72,6 +72,12 @@ export function Login(this: { vm: LoginVM }) {
                     <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
                   </button>
                 </div>
+                <div class="row-between">
+                  <span></span>
+                  <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.goForgotPassword()}>
+                    {t("auth.login.forgotLink")}
+                  </button>
+                </div>
               </div>
             </Show>
 

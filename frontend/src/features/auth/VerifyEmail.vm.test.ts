@@ -46,6 +46,11 @@ function makeHarness(
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),
     totpDisable: vi.fn(async () => ({ enabled: false })),
+    forgotPassword: vi.fn(async () => ({ status: "sent" as const })),
+    resetPassword: vi.fn(async () => ({ status: "reset" as const })),
+    sessions: vi.fn(async () => []),
+    revokeSession: vi.fn(async () => undefined),
+    logoutAll: vi.fn(async () => ({ ok: true, revoked: 0 })),
   };
   window.history.replaceState(null, "", `/verify-email${search}`);
   const router = new Router();

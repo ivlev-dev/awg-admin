@@ -20,6 +20,7 @@ import { NodesIcon } from "./icons/NodesIcon";
 import { OverviewIcon } from "./icons/OverviewIcon";
 import { PlusIcon } from "./icons/PlusIcon";
 import { ProfileIcon } from "./icons/ProfileIcon";
+import { QrIcon } from "./icons/QrIcon";
 import { RefreshIcon } from "./icons/RefreshIcon";
 import { SearchIcon } from "./icons/SearchIcon";
 import { ServerIcon } from "./icons/ServerIcon";
@@ -69,6 +70,7 @@ export const ICON_NAMES = [
   "warning",
   "server",
   "traffic",
+  "qr",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -110,6 +112,7 @@ export const ICON_COMPONENTS = {
   warning: WarningIcon,
   server: ServerIcon,
   traffic: TrafficIcon,
+  qr: QrIcon,
 } satisfies Record<IconName, (props: IconProps) => Node>;
 
 export function Icon(props: { name: IconName; size?: number; class?: string }): Node {

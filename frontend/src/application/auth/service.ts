@@ -1,8 +1,12 @@
 import type { AuthRepository } from "../../domain/auth/repository";
 import type {
+  AuthSessionInfo,
+  ForgotPasswordResult,
   LoginInput,
+  LogoutAllResult,
   RegisterInput,
   RegisterResult,
+  ResetPasswordResult,
   TotpSetup,
   TotpToggleResult,
   VerifyEmailResult,
@@ -10,6 +14,7 @@ import type {
 import type { AuthSession, User } from "@/domain/types";
 import { ValidationError } from "../errors";
 import {
+  requireId,
   requireText,
   validateEmail,
   validatePassword,
@@ -21,6 +26,8 @@ export interface AuthService {
   register(input: RegisterInput): Promise<RegisterResult>;
   verifyEmail(token: string): Promise<VerifyEmailResult>;
   resendVerification(email: string): Promise<void>;
+  forgotPassword(email: string): Promise<ForgotPasswordResult>;
+  resetPassword(token: string, password: string): Promise<ResetPasswordResult>;
   refresh(refreshToken: string): Promise<AuthSession>;
   logout(refreshToken: string | null): Promise<void>;
   me(): Promise<User>;
@@ -28,6 +35,9 @@ export interface AuthService {
   totpSetup(): Promise<TotpSetup>;
   totpEnable(code: string): Promise<TotpToggleResult>;
   totpDisable(password: string, code: string): Promise<TotpToggleResult>;
+  sessions(): Promise<AuthSessionInfo[]>;
+  revokeSession(jti: string): Promise<void>;
+  logoutAll(): Promise<LogoutAllResult>;
 }
 
 export class DefaultAuthService implements AuthService {
@@ -57,6 +67,17 @@ export class DefaultAuthService implements AuthService {
 
   async resendVerification(email: string): Promise<void> {
     await this.repository.resendVerification(validateEmail(email));
+  }
+
+  async forgotPassword(email: string): Promise<ForgotPasswordResult> {
+    return this.repository.forgotPassword(validateEmail(email));
+  }
+
+  async resetPassword(token: string, password: string): Promise<ResetPasswordResult> {
+    return this.repository.resetPassword(
+      requireText(token, "Токен сброса пароля"),
+      validatePassword(password),
+    );
   }
 
   async refresh(refreshToken: string): Promise<AuthSession> {
@@ -92,5 +113,17 @@ export class DefaultAuthService implements AuthService {
       requireText(password, "Пароль"),
       validateTotpCode(code),
     );
+  }
+
+  sessions(): Promise<AuthSessionInfo[]> {
+    return this.repository.sessions();
+  }
+
+  async revokeSession(jti: string): Promise<void> {
+    await this.repository.revokeSession(requireId(jti, "Сессия"));
+  }
+
+  logoutAll(): Promise<LogoutAllResult> {
+    return this.repository.logoutAll();
   }
 }

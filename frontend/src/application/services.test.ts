@@ -188,6 +188,11 @@ function makeAuth(): AuthRepository {
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),
     totpDisable: vi.fn(async () => ({ enabled: false })),
+    forgotPassword: vi.fn(async () => ({ status: "sent" as const })),
+    resetPassword: vi.fn(async () => ({ status: "reset" as const })),
+    sessions: vi.fn(async () => []),
+    revokeSession: vi.fn(async () => undefined),
+    logoutAll: vi.fn(async () => ({ ok: true, revoked: 0 })),
   };
 }
 
@@ -275,6 +280,27 @@ describe("AuthService", () => {
     await expect(service.resendVerification("nope")).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("requests a password reset link with a normalized email", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(service.forgotPassword(" user@example.com ")).resolves.toEqual({ status: "sent" });
+    expect(repo.forgotPassword).toHaveBeenCalledWith("user@example.com");
+    await expect(service.forgotPassword("nope")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("resets a password with a trimmed token and a valid password", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(service.resetPassword(" token ", "secret123")).resolves.toEqual({
+      status: "reset",
+    });
+    expect(repo.resetPassword).toHaveBeenCalledWith("token", "secret123");
+    await expect(service.resetPassword(" ", "secret123")).rejects.toBeInstanceOf(ValidationError);
+    await expect(service.resetPassword("token", "short")).rejects.toBeInstanceOf(ValidationError);
+  });
+
   it("passes the TOTP code on login", async () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
@@ -303,6 +329,28 @@ describe("AuthService", () => {
     expect(repo.totpEnable).toHaveBeenCalledWith("123456");
     expect(repo.totpDisable).toHaveBeenCalledWith("secret", "654321");
     await expect(service.totpEnable("abc")).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("delegates listing sessions and logout of all sessions", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await expect(service.sessions()).resolves.toEqual([]);
+    await expect(service.logoutAll()).resolves.toEqual({ ok: true, revoked: 0 });
+
+    expect(repo.sessions).toHaveBeenCalledTimes(1);
+    expect(repo.logoutAll).toHaveBeenCalledTimes(1);
+  });
+
+  it("trims a session jti and rejects an empty one", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await service.revokeSession(" jti-1 ");
+    expect(repo.revokeSession).toHaveBeenCalledWith("jti-1");
+
+    await expect(service.revokeSession("  ")).rejects.toBeInstanceOf(ValidationError);
+    expect(repo.revokeSession).toHaveBeenCalledTimes(1);
   });
 });
 
