@@ -47,7 +47,7 @@ services:
       admin:
         condition: service_healthy
     ports:
-      - "127.0.0.1:8081:80"
+      - "${AWG_FRONTEND_BIND:-127.0.0.1}:8081:80"
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${AWG_DOMAIN}`) && PathPrefix(`/`)"
