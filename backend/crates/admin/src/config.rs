@@ -170,6 +170,8 @@ pub struct ConfigInput {
     pub register_rate_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
+    pub forgot_rate_limit: u32,
+    pub forgot_rate_window_secs: u64,
     pub http_timeout_secs: u64,
     pub shutdown_grace_secs: u64,
     pub mail_mode: String,
@@ -209,6 +211,8 @@ pub struct Config {
     pub register_rate_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
+    pub forgot_rate_limit: u32,
+    pub forgot_rate_window_secs: u64,
     pub http_timeout_secs: u64,
     pub shutdown_grace_secs: u64,
     pub mail_mode: MailMode,
@@ -354,6 +358,8 @@ impl Config {
             register_rate_window_secs: input.register_rate_window_secs.max(1),
             resend_rate_limit: input.resend_rate_limit,
             resend_rate_window_secs: input.resend_rate_window_secs.max(1),
+            forgot_rate_limit: input.forgot_rate_limit,
+            forgot_rate_window_secs: input.forgot_rate_window_secs.max(1),
             http_timeout_secs: input.http_timeout_secs.max(1),
             shutdown_grace_secs: input.shutdown_grace_secs.max(1),
             mail_mode,
@@ -463,6 +469,8 @@ fn input_from_env() -> Result<ConfigInput> {
         register_rate_window_secs: env_u64("AWG_REGISTER_RATE_WINDOW_SECS", 300),
         resend_rate_limit: env_u32("AWG_RESEND_RATE_LIMIT", 5),
         resend_rate_window_secs: env_u64("AWG_RESEND_RATE_WINDOW_SECS", 300),
+        forgot_rate_limit: env_u32("AWG_FORGOT_RATE_LIMIT", 5),
+        forgot_rate_window_secs: env_u64("AWG_FORGOT_RATE_WINDOW_SECS", 300),
         http_timeout_secs: env_u64("AWG_HTTP_TIMEOUT_SECS", 30),
         shutdown_grace_secs: env_u64("AWG_SHUTDOWN_GRACE_SECS", 10),
         mail_mode: env("AWG_MAIL_MODE", "log"),
@@ -535,6 +543,8 @@ mod tests {
             register_rate_window_secs: 300,
             resend_rate_limit: 5,
             resend_rate_window_secs: 300,
+            forgot_rate_limit: 5,
+            forgot_rate_window_secs: 300,
             http_timeout_secs: 30,
             shutdown_grace_secs: 10,
             mail_mode: "log".into(),
@@ -677,11 +687,13 @@ mod tests {
         input.refresh_rate_window_secs = 0;
         input.register_rate_window_secs = 0;
         input.resend_rate_window_secs = 0;
+        input.forgot_rate_window_secs = 0;
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.login_rate_window_secs, 1);
         assert_eq!(config.refresh_rate_window_secs, 1);
         assert_eq!(config.register_rate_window_secs, 1);
         assert_eq!(config.resend_rate_window_secs, 1);
+        assert_eq!(config.forgot_rate_window_secs, 1);
     }
 
     #[test]

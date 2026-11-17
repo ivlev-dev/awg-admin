@@ -32,6 +32,17 @@ pub struct ResendVerificationRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ForgotPasswordRequest {
+    pub email: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ResetPasswordRequest {
+    pub token: String,
+    pub password: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct ApproveUserRequest {
     pub tariff_id: Uuid,
     #[serde(default)]

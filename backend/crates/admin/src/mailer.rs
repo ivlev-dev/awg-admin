@@ -14,6 +14,7 @@ use crate::config::{Config, MailMode};
 
 pub const DEV_MAILBOX_CAPACITY: usize = 50;
 pub const VERIFICATION_SUBJECT: &str = "Подтверждение email";
+pub const PASSWORD_RESET_SUBJECT: &str = "Сброс пароля";
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct DevMail {
@@ -96,6 +97,12 @@ impl LogMailer {
     fn verification_body(link: &str) -> String {
         format!("Для подтверждения email перейдите по ссылке: {link}")
     }
+
+    fn password_reset_body(link: &str) -> String {
+        format!(
+            "Для сброса пароля перейдите по ссылке: {link}\nСсылка действует 1 час. Если вы не запрашивали сброс пароля, проигнорируйте это письмо."
+        )
+    }
 }
 
 impl Mailer for LogMailer {
@@ -112,6 +119,26 @@ impl Mailer for LogMailer {
                     subject: VERIFICATION_SUBJECT.to_string(),
                     link: link.to_string(),
                     body: Self::verification_body(link),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
+            Ok(())
+        })
+    }
+
+    fn send_password_reset<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a> {
+        Box::pin(async move {
+            if self.log_links {
+                tracing::info!(%email, %link, "password reset email (log mailer)");
+            } else {
+                tracing::info!(%email, "password reset email (log mailer)");
+            }
+            if let Some(mailbox) = &self.dev_mailbox {
+                mailbox.push(DevMail {
+                    to: email.to_string(),
+                    subject: PASSWORD_RESET_SUBJECT.to_string(),
+                    link: link.to_string(),
+                    body: Self::password_reset_body(link),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 });
             }
@@ -198,6 +225,25 @@ impl Mailer for SmtpMailer {
             Ok(())
         })
     }
+
+    fn send_password_reset<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a> {
+        Box::pin(async move {
+            let to: Mailbox = email
+                .parse()
+                .map_err(|e| CoreError::Invalid(format!("invalid recipient email: {e}")))?;
+            let message = Message::builder()
+                .from(self.from.clone())
+                .to(to)
+                .subject(PASSWORD_RESET_SUBJECT)
+                .body(LogMailer::password_reset_body(link))
+                .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
+            self.transport
+                .send(message)
+                .await
+                .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
+            Ok(())
+        })
+    }
 }
 
 pub fn build_mailer(config: &Config) -> Result<Arc<dyn Mailer>> {
@@ -272,6 +318,45 @@ mod tests {
         assert_eq!(messages[0].to, "dev@example.com");
         assert_eq!(messages[0].subject, VERIFICATION_SUBJECT);
         assert!(messages[0].link.ends_with("token=abc"));
+    }
+
+    #[tokio::test]
+    async fn log_mailer_stores_password_reset_messages_in_development() {
+        let mailbox = Arc::new(DevMailbox::new());
+        let mailer = LogMailer {
+            dev_mailbox: Some(mailbox.clone()),
+            log_links: true,
+        };
+        mailer
+            .send_password_reset(
+                "dev@example.com",
+                "http://localhost/reset-password?token=reset-abc",
+            )
+            .await
+            .unwrap();
+        let messages = mailbox.list();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].to, "dev@example.com");
+        assert_eq!(messages[0].subject, PASSWORD_RESET_SUBJECT);
+        assert!(messages[0].link.ends_with("token=reset-abc"));
+        assert!(messages[0].body.contains("Ссылка действует 1 час"));
+    }
+
+    #[tokio::test]
+    async fn log_mailer_does_not_store_password_resets_in_production() {
+        let mailbox = Arc::new(DevMailbox::new());
+        let mailer = LogMailer {
+            dev_mailbox: None,
+            log_links: false,
+        };
+        mailer
+            .send_password_reset(
+                "prod@example.com",
+                "http://localhost/reset-password?token=abc",
+            )
+            .await
+            .unwrap();
+        assert!(mailbox.is_empty());
     }
 
     #[tokio::test]

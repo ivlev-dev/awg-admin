@@ -267,6 +267,12 @@ async fn main() -> Result<()> {
         config.resend_rate_limit,
         Duration::from_secs(config.resend_rate_window_secs),
     );
+    let forgot_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "forgot",
+        config.forgot_rate_limit,
+        Duration::from_secs(config.forgot_rate_window_secs),
+    );
 
     {
         let limiter = limiter_backend.clone();
@@ -311,6 +317,7 @@ async fn main() -> Result<()> {
         refresh_limiter,
         register_limiter,
         resend_limiter,
+        forgot_limiter,
     });
 
     {

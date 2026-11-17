@@ -173,4 +173,18 @@ impl crate::domain::Mailer for CaptureMailer {
             Ok(())
         })
     }
+
+    fn send_password_reset<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+    ) -> crate::domain::MailerFuture<'a> {
+        Box::pin(async move {
+            self.sent
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((email.to_string(), link.to_string()));
+            Ok(())
+        })
+    }
 }

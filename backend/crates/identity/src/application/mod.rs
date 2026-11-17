@@ -9,12 +9,14 @@ use sha2::{Digest, Sha256};
 use totp_rs::{Algorithm, Builder, Secret, Totp};
 
 use crate::domain::{
-    CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification, EmailVerificationRepository,
-    IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role, SessionMetadata, TokenIssuer, User,
-    UserRepository, UserStatus, normalize_email, validate_login, validate_password,
+    CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
+    EmailVerificationRepository, IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role,
+    SessionMetadata, TokenIssuer, User, UserRepository, UserStatus, VerificationKind,
+    normalize_email, validate_login, validate_password,
 };
 
 const VERIFICATION_TTL_HOURS: i64 = 24;
+const PASSWORD_RESET_TTL_HOURS: i64 = 1;
 const RECOVERY_CODE_COUNT: usize = 8;
 const TOTP_ISSUER: &str = "awg-admin";
 
@@ -306,6 +308,7 @@ impl IdentityService {
         let mut verification = self
             .verifications
             .find(&key)?
+            .filter(|verification| verification.kind == VerificationKind::VerifyEmail)
             .ok_or_else(|| CoreError::Invalid("verification token is invalid or expired".into()))?;
         if verification.used {
             return Err(CoreError::Invalid(
@@ -341,6 +344,71 @@ impl IdentityService {
             return;
         }
         self.issue_verification(&user, &email).await;
+    }
+
+    pub async fn request_password_reset(&self, email: &str) -> CoreResult<()> {
+        let Ok(email) = normalize_email(email) else {
+            return Ok(());
+        };
+        let Ok(Some(user)) = self.users.find_by_email(&email) else {
+            return Ok(());
+        };
+        if user.ensure_active().is_err() {
+            return Ok(());
+        }
+        let token = generate_token();
+        let key = hash_token(&token);
+        let verification = EmailVerification {
+            user_id: user.id,
+            email: email.clone(),
+            expires_at: Utc::now() + Duration::hours(PASSWORD_RESET_TTL_HOURS),
+            used: false,
+            kind: VerificationKind::ResetPassword,
+        };
+        if let Err(error) = self.verifications.save(&key, &verification) {
+            tracing::warn!(%error, "failed to store password reset token");
+            return Ok(());
+        }
+        let link = format!(
+            "{}/reset-password?token={}",
+            self.public_url.trim_end_matches('/'),
+            token
+        );
+        if let Err(error) = self.mailer.send_password_reset(&email, &link).await {
+            tracing::warn!(%error, "failed to send password reset email");
+        }
+        Ok(())
+    }
+
+    pub fn reset_password(&self, token: &str, new_password: &str) -> CoreResult<()> {
+        validate_password(new_password)?;
+        let token = token.trim();
+        if token.is_empty() {
+            return Err(CoreError::Invalid(CODE_INVALID_TOKEN.into()));
+        }
+        let key = hash_token(token);
+        let Some(mut verification) = self
+            .verifications
+            .find(&key)?
+            .filter(|verification| verification.kind == VerificationKind::ResetPassword)
+        else {
+            return Err(CoreError::Invalid(CODE_INVALID_TOKEN.into()));
+        };
+        if verification.used || verification.expires_at <= Utc::now() {
+            return Err(CoreError::Invalid(CODE_INVALID_TOKEN.into()));
+        }
+        let mut user = self
+            .users
+            .find_by_id(verification.user_id)?
+            .ok_or_else(|| CoreError::Invalid(CODE_INVALID_TOKEN.into()))?;
+        user.ensure_active()?;
+        user.password_hash = self.hasher.hash(new_password)?;
+        user.updated_at = Utc::now();
+        verification.used = true;
+        self.verifications.save(&key, &verification)?;
+        self.users.save(&user)?;
+        self.tokens.revoke_all(user.id)?;
+        Ok(())
     }
 
     pub fn pending_users(&self) -> CoreResult<Vec<User>> {
@@ -456,6 +524,7 @@ impl IdentityService {
             email: email.to_string(),
             expires_at: Utc::now() + Duration::hours(VERIFICATION_TTL_HOURS),
             used: false,
+            kind: VerificationKind::VerifyEmail,
         };
         if let Err(error) = self.verifications.save(&key, &verification) {
             tracing::warn!(%error, "failed to store email verification");
@@ -567,7 +636,7 @@ impl IdentityService {
         Ok(())
     }
 
-    pub fn reset_password(&self, user_id: Uuid, new_password: &str) -> CoreResult<()> {
+    pub fn reset_password_for_user(&self, user_id: Uuid, new_password: &str) -> CoreResult<()> {
         self.change_password(user_id, None, new_password)
     }
 

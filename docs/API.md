@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -17,6 +17,8 @@
 | POST | `/auth/register` | public | `{email,login?,password}` | `202 {status:"pending_email"}` |
 | POST | `/auth/verify-email` | public | `{token}` | `{status:"pending_approval"}` |
 | POST | `/auth/resend-verification` | public | `{email}` | `202 {status:"sent"}` |
+| POST | `/auth/forgot-password` | public | `{email}` | `202 {status:"sent"}` |
+| POST | `/auth/reset-password` | public | `{token,password}` | `200 {status:"reset"}` |
 | POST | `/auth/totp/setup` | user | — | `{secret,otpauth_url,recovery_codes}` |
 | POST | `/auth/totp/enable` | user | `{code}` | `{enabled:true}` |
 | POST | `/auth/totp/disable` | user | `{password,code}` | `{enabled:false}` |
@@ -495,9 +497,9 @@ Access- и refresh-токены подписаны HS256 и содержат `su
   истечения TTL.
 - `POST /auth/logout-all` — отзывает все refresh-сессии пользователя,
   возвращает `{"ok":true,"revoked":N}`.
-- `POST /auth/password`, `PATCH /users/{id}` с `disabled=true`,
-  `POST /users/{id}/password` и `DELETE /users/{id}` отзывают все refresh-сессии
-  затронутого пользователя.
+- `POST /auth/password`, `POST /auth/reset-password`, `PATCH /users/{id}` с
+  `disabled=true`, `POST /users/{id}/password` и `DELETE /users/{id}` отзывают
+  все refresh-сессии затронутого пользователя.
 
 `GET /auth/sessions` возвращает неистёкшие refresh-сессии текущего
 пользователя (без самих токенов, новые сверху):
@@ -575,6 +577,32 @@ TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 кодом — `401 totp_invalid`. В поле `totp_code` принимается код приложения или
 одноразовый recovery-код. Ошибки статусов и коды TOTP отдаются в формате
 `{"error":{"code":"…","message":"…"}}`.
+
+## Сброс пароля
+
+Восстановление пароля использует те же одноразовые токены, что и подтверждение
+email (таблица `email_verifications`, ключ — SHA-256 от токена), с полем
+`kind` = `reset_password`; записи без `kind` считаются токенами подтверждения
+email.
+
+1. `POST /auth/forgot-password` `{"email":"user@example.com"}` всегда отвечает
+   `202 {"status":"sent"}` и не раскрывает, существует ли аккаунт. Для активного
+   пользователя с таким email создаётся токен на **1 час** и отправляется письмо
+   со ссылкой `{AWG_PUBLIC_URL}/reset-password?token=…`; для неизвестного,
+   неподтверждённого, отклонённого или заблокированного пользователя письмо не
+   отправляется. Запрос ограничен по паре IP + email (`AWG_FORGOT_RATE_LIMIT`,
+   по умолчанию 5, и `AWG_FORGOT_RATE_WINDOW_SECS`, по умолчанию 300); при
+   превышении — `429 too_many_requests` с `Retry-After`.
+2. `POST /auth/reset-password` `{"token":"…","password":"…"}` → `200
+   {"status":"reset"}`. Пароль проверяется по общим правилам (8–256 символов).
+   Неизвестный, уже использованный, просроченный токен или токен другого типа
+   дают `400 invalid_token`; слабый пароль — `400 bad_request` с текстом
+   валидации. Успешный сброс меняет хэш пароля, помечает токен использованным и
+   отзывает **все** refresh-сессии пользователя; ранее выданные access-токены
+   действуют до `exp` (не дольше `AWG_ACCESS_TTL_SECS`).
+
+Токены подтверждения email нельзя использовать для сброса пароля, а токены
+сброса — для подтверждения email.
 
 ## Квота трафика
 

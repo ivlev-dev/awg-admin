@@ -12,8 +12,9 @@ use crate::audit::{client_ip, record_login};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
-    ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, LoginRequest, LogoutRequest,
-    RefreshRequest, RegisterRequest, ResendVerificationRequest, VerifyEmailRequest,
+    ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, ForgotPasswordRequest,
+    LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, ResendVerificationRequest,
+    ResetPasswordRequest, VerifyEmailRequest,
 };
 use crate::state::AppState;
 use crate::views::{AuthView, SessionView, UserView};
@@ -185,6 +186,43 @@ pub async fn resend_verification(
     ))
 }
 
+pub async fn forgot_password(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(request): Json<ForgotPasswordRequest>,
+) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    let ip = client_ip(&headers, Some(peer));
+    let key = rate_key(ip.as_deref(), &request.email);
+    if let Err(retry_after) = state.forgot_limiter.check(&key) {
+        crate::metrics::record_rate_limited("forgot_password");
+        return Err(ApiError::TooManyRequests {
+            message: "too many password reset requests, try again later".into(),
+            retry_after,
+        });
+    }
+    state
+        .identity
+        .request_password_reset(&request.email)
+        .await
+        .map_err(ApiError::from)?;
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "sent" })),
+    ))
+}
+
+pub async fn reset_password(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<ResetPasswordRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    state
+        .identity
+        .reset_password(&request.token, &request.password)
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "status": "reset" })))
+}
+
 pub async fn totp_setup(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -301,6 +339,8 @@ fn ip_key(prefix: &str, ip: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rate_limit::{MemoryRateLimiter, RateLimitScope};
+    use std::time::Duration;
 
     #[test]
     fn login_rate_key_combines_ip_and_normalized_login() {
@@ -309,5 +349,27 @@ mod tests {
             "203.0.113.9:admin"
         );
         assert_eq!(rate_key(None, "user"), "unknown:user");
+    }
+
+    #[test]
+    fn forgot_scope_limits_each_ip_and_email_pair() {
+        let backend = Arc::new(MemoryRateLimiter::new());
+        let scope = RateLimitScope::new(backend, "forgot", 2, Duration::from_secs(60));
+        let key = rate_key(Some("203.0.113.9"), " User@Example.COM ");
+        assert_eq!(key, "203.0.113.9:user@example.com");
+
+        assert!(scope.check(&key).is_ok());
+        assert!(scope.check(&key).is_ok());
+        assert!(scope.check(&key).is_err());
+        assert!(
+            scope
+                .check(&rate_key(Some("203.0.113.9"), "other@example.com"))
+                .is_ok()
+        );
+        assert!(
+            scope
+                .check(&rate_key(Some("198.51.100.1"), "user@example.com"))
+                .is_ok()
+        );
     }
 }

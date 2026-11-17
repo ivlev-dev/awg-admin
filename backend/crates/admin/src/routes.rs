@@ -59,6 +59,14 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
             "/auth/resend-verification",
             post(controllers::auth::resend_verification),
         )
+        .route(
+            "/auth/forgot-password",
+            post(controllers::auth::forgot_password),
+        )
+        .route(
+            "/auth/reset-password",
+            post(controllers::auth::reset_password),
+        )
         .route("/auth/refresh", post(controllers::auth::refresh))
         .route("/auth/logout", post(controllers::auth::logout))
         .route("/auth/me", get(controllers::auth::me))

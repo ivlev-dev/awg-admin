@@ -12,6 +12,7 @@ pub const CODE_TOTP_INVALID: &str = "totp_invalid";
 pub const CODE_EMAIL_NOT_VERIFIED: &str = "email_not_verified";
 pub const CODE_PENDING_APPROVAL: &str = "pending_approval";
 pub const CODE_REJECTED: &str = "rejected";
+pub const CODE_INVALID_TOKEN: &str = "invalid_token";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -139,6 +140,15 @@ pub type MailerFuture<'a> = Pin<Box<dyn Future<Output = CoreResult<()>> + Send +
 
 pub trait Mailer: Send + Sync {
     fn send_verification<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a>;
+    fn send_password_reset<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a>;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VerificationKind {
+    #[default]
+    VerifyEmail,
+    ResetPassword,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -147,6 +157,8 @@ pub struct EmailVerification {
     pub email: String,
     pub expires_at: DateTime<Utc>,
     pub used: bool,
+    #[serde(default)]
+    pub kind: VerificationKind,
 }
 
 pub trait EmailVerificationRepository: Send + Sync {
@@ -311,6 +323,26 @@ mod tests {
         user.status = UserStatus::Active;
         user.disabled = true;
         assert!(user.ensure_active().is_err());
+    }
+
+    #[test]
+    fn legacy_verifications_default_to_email_verification() {
+        let raw = r#"{
+            "user_id": "00000000-0000-0000-0000-000000000001",
+            "email": "user@example.com",
+            "expires_at": "2026-01-02T03:04:05Z",
+            "used": false
+        }"#;
+        let verification: EmailVerification = serde_json::from_str(raw).unwrap();
+        assert_eq!(verification.kind, VerificationKind::VerifyEmail);
+    }
+
+    #[test]
+    fn verification_kinds_round_trip_as_snake_case() {
+        let reset = serde_json::to_string(&VerificationKind::ResetPassword).unwrap();
+        assert_eq!(reset, "\"reset_password\"");
+        let parsed: VerificationKind = serde_json::from_str("\"verify_email\"").unwrap();
+        assert_eq!(parsed, VerificationKind::VerifyEmail);
     }
 
     #[test]

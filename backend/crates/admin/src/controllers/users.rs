@@ -96,7 +96,7 @@ pub async fn reset_password(
     user.require_admin()?;
     state
         .identity
-        .reset_password(id, &request.new_password)
+        .reset_password_for_user(id, &request.new_password)
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }

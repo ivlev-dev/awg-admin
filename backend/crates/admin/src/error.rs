@@ -4,14 +4,15 @@ use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
 use awg_identity::{
-    CODE_EMAIL_NOT_VERIFIED, CODE_PENDING_APPROVAL, CODE_REJECTED, CODE_TOTP_INVALID,
-    CODE_TOTP_REQUIRED,
+    CODE_EMAIL_NOT_VERIFIED, CODE_INVALID_TOKEN, CODE_PENDING_APPROVAL, CODE_REJECTED,
+    CODE_TOTP_INVALID, CODE_TOTP_REQUIRED,
 };
 use awg_shared::CoreError;
 
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    InvalidToken,
     Unauthorized(String),
     Forbidden(String),
     NotFound(String),
@@ -29,6 +30,7 @@ pub enum ApiError {
 impl From<CoreError> for ApiError {
     fn from(error: CoreError) -> Self {
         match error {
+            CoreError::Invalid(message) if message == CODE_INVALID_TOKEN => ApiError::InvalidToken,
             CoreError::Invalid(message) => ApiError::BadRequest(message),
             CoreError::NotFound(what) => ApiError::NotFound(what),
             CoreError::Conflict(message) => ApiError::Conflict(message),
@@ -58,6 +60,7 @@ impl ApiError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            ApiError::InvalidToken => StatusCode::BAD_REQUEST,
             ApiError::Unauthorized(_) | ApiError::TotpRequired | ApiError::TotpInvalid(_) => {
                 StatusCode::UNAUTHORIZED
             }
@@ -83,6 +86,10 @@ impl IntoResponse for ApiError {
         };
         let (code, message) = match self {
             ApiError::BadRequest(message) => ("bad_request", message),
+            ApiError::InvalidToken => (
+                "invalid_token",
+                "password reset token is invalid or expired".to_string(),
+            ),
             ApiError::Unauthorized(message) => ("unauthorized", message),
             ApiError::Forbidden(message) => ("forbidden", message),
             ApiError::NotFound(message) => ("not_found", message),
@@ -150,5 +157,9 @@ mod tests {
         let other = ApiError::from(CoreError::Forbidden("user is disabled".into()));
         assert_eq!(other.status_code(), StatusCode::FORBIDDEN);
         assert!(matches!(other, ApiError::Forbidden(_)));
+
+        let invalid_token = ApiError::from(CoreError::Invalid(CODE_INVALID_TOKEN.into()));
+        assert_eq!(invalid_token.status_code(), StatusCode::BAD_REQUEST);
+        assert!(matches!(invalid_token, ApiError::InvalidToken));
     }
 }

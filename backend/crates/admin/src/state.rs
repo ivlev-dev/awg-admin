@@ -33,4 +33,5 @@ pub struct AppState {
     pub refresh_limiter: RateLimitScope,
     pub register_limiter: RateLimitScope,
     pub resend_limiter: RateLimitScope,
+    pub forgot_limiter: RateLimitScope,
 }
