@@ -1,6 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { debounce } from "@/app/debounce";
+import { compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
@@ -50,6 +51,7 @@ export class UsersPageVM {
   @reactive accessor statusFilter: "all" | "active" | "disabled" = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
+  @reactive accessor sort: SortState<"login" | "role" | "status"> | null = { key: "login", direction: "asc" };
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -158,13 +160,29 @@ export class UsersPageVM {
 
   @computed
   get filteredActiveUsers(): User[] {
-    return this.activeUsers.filter((user) => {
+    const users = this.activeUsers.filter((user) => {
       if (!matchesQuery(user, this.appliedQuery)) return false;
       if (this.roleFilter !== "all" && user.role !== this.roleFilter) return false;
       if (this.statusFilter === "active" && user.disabled) return false;
       if (this.statusFilter === "disabled" && !user.disabled) return false;
       return true;
     });
+    const sort = this.sort;
+    if (sort === null) return users;
+    const direction = sort.direction;
+    return [...users].sort((left, right) => {
+      if (sort.key === "login") return compareText(left.login, right.login, direction);
+      if (sort.key === "role") return compareText(left.role, right.role, direction);
+      return compareText(this.statusLabel(left), this.statusLabel(right), direction);
+    });
+  }
+
+  sortBy(key: "login" | "role" | "status"): void {
+    this.sort = nextSort(this.sort, key);
+  }
+
+  sortMark(key: "login" | "role" | "status"): string {
+    return sortIndicator(this.sort, key);
   }
 
   @computed

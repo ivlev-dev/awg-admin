@@ -1,6 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Session } from "@/app/session";
+import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { ToastStore } from "@/app/toast";
 import {
   formatCpuLoad,
@@ -35,6 +36,7 @@ export class NodesPageVM {
   @reactive accessor statusFilter: "all" | "online" | "offline" = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
+  @reactive accessor sort: SortState<"name" | "status"> | null = { key: "name", direction: "asc" };
 
   constructor(
     private readonly nodesService: NodesService,
@@ -53,12 +55,27 @@ export class NodesPageVM {
   @computed
   get filteredNodes(): NodeInfo[] {
     const query = this.query.trim().toLowerCase();
-    return this.nodes.filter((node) => {
+    const filtered = this.nodes.filter((node) => {
       if (this.statusFilter === "online" && !node.online) return false;
       if (this.statusFilter === "offline" && node.online) return false;
       if (query.length === 0) return true;
       return node.name.toLowerCase().includes(query) || node.id.toLowerCase().includes(query);
     });
+    const sort = this.sort;
+    if (sort === null) return filtered;
+    const direction = sort.direction;
+    return [...filtered].sort((left, right) => {
+      if (sort.key === "name") return compareText(left.name, right.name, direction);
+      return compareBoolean(left.online, right.online, direction);
+    });
+  }
+
+  sortBy(key: "name" | "status"): void {
+    this.sort = nextSort(this.sort, key);
+  }
+
+  sortMark(key: "name" | "status"): string {
+    return sortIndicator(this.sort, key);
   }
 
   @computed

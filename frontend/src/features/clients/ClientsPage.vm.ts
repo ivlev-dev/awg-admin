@@ -4,6 +4,7 @@ import type { DevicesService } from "@/application/devices/service";
 import type { GroupsService } from "@/application/groups/service";
 import type { UsersService } from "@/application/users/service";
 import { debounce } from "@/app/debounce";
+import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -54,6 +55,7 @@ export class ClientsPageVM {
   @reactive accessor statusFilter: "all" | "active" | "revoked" = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
+  @reactive accessor sort: SortState<"name" | "status"> | null = { key: "name", direction: "asc" };
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -86,13 +88,28 @@ export class ClientsPageVM {
   get filteredDevices(): Device[] {
     const query = this.appliedQuery.trim().toLowerCase();
     const group = this.isAdmin ? this.groupFilter : "";
-    return this.devices.filter((device) => {
+    const filtered = this.devices.filter((device) => {
       if (group && device.group_id !== group) return false;
       if (this.statusFilter === "active" && device.revoked) return false;
       if (this.statusFilter === "revoked" && !device.revoked) return false;
       if (!query) return true;
       return [device.name, ...device.addresses].some((value) => value.toLowerCase().includes(query));
     });
+    const sort = this.sort;
+    if (sort === null) return filtered;
+    const direction = sort.direction;
+    return [...filtered].sort((left, right) => {
+      if (sort.key === "name") return compareText(left.name, right.name, direction);
+      return compareBoolean(left.revoked, right.revoked, direction);
+    });
+  }
+
+  sortBy(key: "name" | "status"): void {
+    this.sort = nextSort(this.sort, key);
+  }
+
+  sortMark(key: "name" | "status"): string {
+    return sortIndicator(this.sort, key);
   }
 
   @computed

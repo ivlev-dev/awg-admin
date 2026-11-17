@@ -145,13 +145,25 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             onChange={() => this.vm.toggleSelectAll()}
                           />
                         </th>
-                        <th>Логин</th>
+                        <th class="is-sortable">
+                          <button type="button" onClick={() => this.vm.sortBy("login")}>
+                            Логин <span class="sort-indicator">{this.vm.sortMark("login")}</span>
+                          </button>
+                        </th>
                         <th>{t("users.column.email")}</th>
-                        <th>Роль</th>
+                        <th class="is-sortable">
+                          <button type="button" onClick={() => this.vm.sortBy("role")}>
+                            Роль <span class="sort-indicator">{this.vm.sortMark("role")}</span>
+                          </button>
+                        </th>
                         <th>Тариф</th>
                         <th>Группа</th>
                         <th>Квота</th>
-                        <th>{t("users.column.status")}</th>
+                        <th class="is-sortable">
+                          <button type="button" onClick={() => this.vm.sortBy("status")}>
+                            {t("users.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                          </button>
+                        </th>
                         <th></th>
                       </tr>
                     </thead>
@@ -288,7 +300,11 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     <thead>
                       <tr>
                         <th>{t("users.column.email")}</th>
-                        <th>Логин</th>
+                        <th class="is-sortable">
+                          <button type="button" onClick={() => this.vm.sortBy("login")}>
+                            Логин <span class="sort-indicator">{this.vm.sortMark("login")}</span>
+                          </button>
+                        </th>
                         <th>{t("users.pending.createdAt")}</th>
                         <th></th>
                       </tr>

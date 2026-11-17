@@ -143,8 +143,16 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                         onChange={() => this.vm.toggleSelectAll()}
                       />
                     </th>
-                    <th>{t("nodes.column.node")}</th>
-                    <th>{t("nodes.column.status")}</th>
+                    <th class="is-sortable">
+                      <button type="button" onClick={() => this.vm.sortBy("name")}>
+                        {t("nodes.column.node")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+                      </button>
+                    </th>
+                    <th class="is-sortable">
+                      <button type="button" onClick={() => this.vm.sortBy("status")}>
+                        {t("nodes.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                      </button>
+                    </th>
                     <th>{t("nodes.column.metrics")}</th>
                     <th>{t("nodes.column.versions")}</th>
                     <th>{t("nodes.column.tokenIssued")}</th>

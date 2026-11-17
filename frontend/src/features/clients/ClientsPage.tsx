@@ -137,14 +137,22 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           onChange={() => this.vm.toggleSelectAll()}
                         />
                       </th>
-                      <th>{t("clients.column.device")}</th>
+                      <th class="is-sortable">
+                        <button type="button" onClick={() => this.vm.sortBy("name")}>
+                          {t("clients.column.device")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+                        </button>
+                      </th>
                       <Show when={this.vm.isAdmin}>
                         <th>{t("clients.column.owner")}</th>
                       </Show>
                       <th>{t("clients.column.addresses")}</th>
                       <th>{t("clients.column.limits")}</th>
                       <th>{t("clients.column.peers")}</th>
-                      <th>{t("clients.column.status")}</th>
+                      <th class="is-sortable">
+                        <button type="button" onClick={() => this.vm.sortBy("status")}>
+                          {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                        </button>
+                      </th>
                       <th></th>
                     </tr>
                   </thead>
