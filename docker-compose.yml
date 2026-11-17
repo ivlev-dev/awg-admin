@@ -69,7 +69,6 @@ services:
       - -c
       - 'if [ -n "$$TRAEFIK_ACME_EMAIL" ]; then exec traefik --configFile=/etc/traefik/traefik.yml --certificatesresolvers.letsencrypt.acme.email="$$TRAEFIK_ACME_EMAIL"; else exec traefik --configFile=/etc/traefik/traefik.yml; fi'
     ports:
-      - "80:80"
       - "443:443/tcp"
       - "443:443/udp"
     environment:
