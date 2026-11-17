@@ -10,6 +10,7 @@
 |---|---|---|---|
 | `scripts/verify-kernel.sh` | модуль `amneziawg`, `ip link add … type amneziawg`, `SetDevice` (H1–H4Range, S1–S4, HPK, RandomTrailers), `REPLACE_PEERS`, счётчики, ICMP между двумя AWG-интерфейсами | нет: `--apply` всегда работает в одноразовом netns (root) или `--netns` (user+net) | нет |
 | `scripts/verify-dataplane.sh` | HTB egress/IFB ingress, `u32`, лимиты 1 kbit, `inet awg_admin` + `fwd_<ifname>`, изоляция и разрешённые пары на veth | нет при доступных user namespaces | нет |
+| `scripts/verify-hairpin.sh` | живой hairpin между двумя клиентами на одном AWG-интерфейсе: ping/iperf3, сохранение endpoint'ов при PATCH, up/down-лимиты, IFB, изоляция и stateful-ответы | да: netns/veth/`awg-quick`, запуск через `sudo -E` | нет, но нужен запущенный worker с живым интерфейсом |
 | `scripts/verify-tls.sh` | редирект http→https, HTTP/2, HSTS, сертификат, `/api/v1/health`, HTTP/3, статический аудит Traefik | нет | для ACME — да |
 
 Все скрипты по умолчанию работают в режиме dry-run. Разрушающие действия
@@ -26,7 +27,7 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 
 | Блокер | Проверено здесь | Осталось |
 |---|---|---|
-| 1. Ядро/SetDevice/REPLACE_PEERS/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns | e2e с реальными клиентами и замер полосы |
+| 1. Ядро/SetDevice/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns; полоса и hairpin проверены живым стендом | физические клиенты |
 | 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | статистика в API/UI: netlink `GetDevice` падает с `EOPNOTSUPP` (см. «Фактический прогон» и п. 13 сводки) |
 | 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; живая полоса iperf3: 5/2 Mbit → 4.79/1.89, группа 6/3 → 5.62/2.73, снятие лимитов очищает tc; hairpin-пара клиентов на одном интерфейсе проверена | физические клиенты |
 | 3. nftables forwarding | да: таблица/цепь/правила, изоляция; live worker создаёт `fwd_<ifname>`; hairpin между двумя устройствами на одном `awgpanel0` проверен (ping ~2.4 Gbit/s iperf3), изоляция и stateful-ответы работают, в т.ч. при активном IFB | — |
@@ -50,7 +51,7 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 Запуск из корня репозитория:
 
 ```bash
-bash -n scripts/verify-kernel.sh scripts/verify-dataplane.sh scripts/verify-tls.sh
+bash -n scripts/verify-kernel.sh scripts/verify-dataplane.sh scripts/verify-hairpin.sh scripts/verify-tls.sh
 command -v shellcheck >/dev/null && shellcheck scripts/verify-*.sh
 ```
 
@@ -317,7 +318,19 @@ worker (вызывает `replace` на каждом reconcile), а не про�
 `counter drop`. Проверяется текст правил, прохождение ICMP для разрешённой
 пары и блокировка после замены правил на один `drop`.
 
-На реальном AWG-интерфейсе:
+На реальном AWG-интерфейсе (автоматически, два временных клиента в netns):
+
+```bash
+sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilot"
+```
+
+Скрипт сам создаёт/переиспользует устройства `hairpin-a`/`hairpin-b`, поднимает
+два netns с veth, гоняет ping и iperf3, проверяет сохранение endpoint'ов при
+PATCH, up/down-лимиты, удаление IFB при down-only, изоляцию пар (в том числе
+при активном IFB) и восстановление состояния. Устройства удаляются только с
+`--cleanup-devices`; netns и veth убираются всегда, кроме `--keep`.
+
+Вручную:
 
 ```bash
 nft list table inet awg_admin

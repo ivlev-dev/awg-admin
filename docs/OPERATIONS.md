@@ -270,14 +270,21 @@ cat /var/lib/awg-worker/counters.json | jq .
 ./scripts/verify-kernel.sh --apply --netns
 ./scripts/verify-dataplane.sh
 ./scripts/verify-dataplane.sh --apply
+sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilot"
 ./scripts/verify-tls.sh --static
 ./scripts/verify-tls.sh --local --no-hsts-check --no-static
 ```
 
 Типовые ошибки:
 
-- `failed to read counters ... Operation not supported (os error 95)` — netlink `WG_CMD_GET_DEVICE` отправляется без `NLM_F_DUMP`, в live-режиме статистика не собирается.
-- повторный `tc qdisc replace ... root ... htb` возвращает `Change operation not supported by specified qdisc` — после первого reconcile изменения tc не применяются.
+- `failed to read counters ... Operation not supported (os error 95)` — устаревший
+  дефект: с 16.11.2026 `WG_CMD_GET_DEVICE` отправляется с `NLM_F_DUMP`. Если
+  ошибка вернулась, проверьте флаги запроса в `worker/src/infrastructure/netlink.rs`.
+- `tc qdisc replace ... root ... htb` и `Change operation not supported` —
+  устаревший дефект: qdisc пересоздаётся через `del` + `add`. Если вернулся,
+  проверьте `root_reset_commands`/`ingress_reset_commands` в `tc.rs`.
+- трафик пропадает на 10–30 с после PATCH — endpoint'ы сбрасывались
+  `REPLACE_PEERS`; с 18.11.2026 пиры применяются дельтой.
 - `tc filter add` не идемпотентен, правила накапливаются.
 - без тарифа у пользователя `user_limits` пуст и tc не применяется; пул без `gateway` даёт интерфейс без адреса.
 - worker не чистит интерфейс, удалённый из desired state, если worker был остановлен в момент удаления.

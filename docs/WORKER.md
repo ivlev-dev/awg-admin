@@ -105,6 +105,7 @@ reconcile и рестартами воркера.
 ```bash
 scripts/verify-kernel.sh --apply --netns
 scripts/verify-dataplane.sh --apply
+sudo -E PANEL_PASSWORD=... scripts/verify-hairpin.sh --apply --group "VPN Pilot"
 unshare -rn -- cargo test -p awg-worker --test live_dataplane -- --ignored --test-threads=1
 ```
 
