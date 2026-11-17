@@ -1,7 +1,8 @@
 # Замечания по frontend-фреймворку (silent)
 
-Приложение обновлено до `@ivlev-dev/silent` 0.11.13. Ниже — история багов и
-текущие ограничения.
+Приложение обновлено до `@ivlev-dev/*` 0.11.15, включая новый пакет
+`@ivlev-dev/silent-router`. Ниже — история багов, текущие ограничения и
+диагностика для разработчика фреймворка.
 
 ## Исправлено
 
@@ -54,3 +55,107 @@ empty-state; при возврате данных падает `Node.insertBefor
 - `pnpm typecheck`, `pnpm test` (722 теста), `pnpm arch:check`, `pnpm build` — зелёные.
 - `pnpm e2e` — 26/26 (Chromium + Firefox), кроме сценария Audit с пустой выдачей:
   он проходит только с обходом из пункта A.
+
+
+## Миграция на `@ivlev-dev/silent-router` 0.11.15
+
+Что сделано:
+
+- все `@ivlev-dev/*` подняты до 0.11.15 (пакет роутера жёстко требует эти версии);
+- `src/app/routes-def.ts` — таблица маршрутов и метаданные (title/public/adminOnly);
+- `src/app/router-records.ts` — `RouteRecord[]` с `load`, метаданными и
+  инъекцией загрузчика через `setPageLoader` (иначе `page-loaders` и страницы
+  образуют цикл, который ловит `pnpm arch:check`);
+- `src/app/router.ts` — тонкий фасад над пакетным `Router`: сохраняет API
+  `path/params/match/navigate/replace` для 40+ вызовов в VM и тестов, внутри
+  использует `SilentRouter` (история, `resolve`, `prefetch`, скролл);
+- `src/app/container.ts` — все сервисы биндятся через `bindValue` (см. ниже);
+- `src/main.tsx` — `setPageLoader` до `bindAppServices`.
+
+### Блокер: `RouterView` и DI-скоупы
+
+`RouterView` пока не используется: при монтировании ленивой страницы
+`createComponent(next, props, runtimeOptions)` создаёт скоуп, в котором `Session`
+и `Router` резолвятся как **новые экземпляры**. Симптом: после логина URL
+меняется на `/`, но `AppVM` видит `user = null` и оболочка не переключается.
+Воспроизводится на чистом контексте браузера, не только при HMR.
+
+Текущий обход: страницы по-прежнему рендерятся в дереве `App` (ручной switch по
+`routeName`), а пакет отвечает за навигацию, историю, матчинг и ленивые `load`.
+
+Что нужно фреймворку:
+
+1. `RouterView` должен прокидывать контейнер в `createComponent`
+   (`{ container }`), а не полагаться на `getRuntimeOptions()`.
+2. `Container.createScope`/`peek` должны находить value-биндинги родителя
+   синхронно (сейчас фабричные биндинги не видны до первого `resolve`).
+3. Если биндинга нет, DI не должен молча делать `new Token()` — нужен
+   `MissingBindingError` с именем зависимости и путём скоупов.
+4. Добавить тест «layout + вложенные маршруты + ленивый компонент + DI».
+
+### Открытая ошибка `insertBefore ... is not a child of this node`
+
+Причина: в `createMountPoint` (`silent-core/src/dom.js`) якорь проверяется только
+на `null`:
+
+```js
+const place = (target, node) => {
+  if (marker === null) { target.appendChild(node); return; }
+  target.insertBefore(node, marker); // падает, если marker.parentNode !== target
+};
+```
+
+Если внешний `Show`/layout или гидрация перенесли маркер, вставка бросает
+`NotFoundError`. `RouterView`, кроме того, переиспользует гидрационный маркер как
+якорь нового `DocumentFragment`.
+
+Минимальный репро и патч (для репозитория фреймворка):
+
+```ts
+it("survives when an outer boundary moved the end marker", () => {
+  const host = document.createElement("div");
+  const other = document.createElement("div");
+  document.body.append(host, other);
+  const marker = document.createComment("end");
+  host.appendChild(marker);
+
+  const mount = createMountPoint(host, marker);
+  other.appendChild(marker);
+
+  expect(() => mount.render(document.createTextNode("x"))).not.toThrow();
+  expect(host.textContent).toContain("x");
+});
+```
+
+```js
+const place = (target, node) => {
+  if (marker === null) { target.appendChild(node); return; }
+  const parent = marker.parentNode;
+  if (parent === target) { target.insertBefore(node, marker); return; }
+  if (parent === null) {
+    target.appendChild(marker);
+    target.insertBefore(node, marker);
+    return;
+  }
+  if (typeof __DEV__ !== "undefined" && __DEV__) {
+    console.error("[silent] mount marker moved outside its container", { target, parent });
+  }
+  target.appendChild(node);
+};
+```
+
+Для `RouterView` рекомендуется держать собственные `start`/`end` маркеры в
+контейнере и не переиспользовать `adoptedMarker`; перед рендером проверять
+`mountMarker.parentNode === container`.
+
+### Пожелания по фреймворку
+
+- `IRouter.navigate()` (void + `state.error`) или документированный паттерн для
+  `router.push()` в обработчиках клика, чтобы не было unhandled rejection.
+- `router.route.meta` / `router.meta` вместо `matched[i].record.meta`.
+- Контекст DI в `beforeEnter`.
+- `RouterOptions.load`/`resolveComponent` вместо собственного реестра загрузчиков.
+- Публичный `hasLoaded`/`preload` для интеграции с чанк-кэшем.
+- Диапазоны версий (`>=0.11 <0.12`) вместо жёстких пинов.
+- `createTestRouter` + MemoryHistory-хелпер.
+- Devtools: события навигации и граф DI-резолва.

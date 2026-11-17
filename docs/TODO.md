@@ -18,10 +18,17 @@
   `vpn://` кодек, временные share-ссылки.
 - Worker: gRPC-сессия, dry-run, netlink SetDevice, tc (HTB + IFB), nftables
   forwarding, персистентные монотонные счётчики (переживают reload интерфейса).
-- Frontend: silent 0.11.13 + Vite + vitest, MVVM, DDD-слои (domain/application/
+- Frontend: silent 0.11.15 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
-  с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 722 теста.
+  с request/response-интерсепторами, Select, темы, графики, статические
+  SVG-иконки, 746 тестов.
+- Роутинг на `@ivlev-dev/silent-router` 0.11.15: route-записи с метаданными и
+  ленивыми `load`, история, `resolve`, `prefetch`, восстановление скролла.
+  Фасад `src/app/router.ts` сохраняет прежний API для VM; `RouterView` пока не
+  используется (см. `docs/FRAMEWORK-NOTES.md`, блокер DI-скоупа).
+- UI: navy-палитра, мобильная навигация «4 таба + Ещё» (bottom sheet), тач-таргеты
+  44px, фильтры и массовые действия в списках, сортировка колонок, выделенные
+  строки, `BulkBar`, fallback копирования в буфер обмена для HTTP.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 - Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
@@ -48,7 +55,7 @@
 
 - `cargo test --workspace` — 378 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 738 тестов, зелёные.
+- `cd frontend && pnpm test` — 746 тестов, зелёные.
 - Смоук API (17.11.2026): checkout идемпотентен, webhook processed/duplicate,
   неверная подпись — 400, подписка переходит в `active`, способ оплаты сохранён;
   ротация токена ноды, `rx_bps` в overview; одноразовая share-ссылка отдаётся
@@ -79,6 +86,37 @@
 - Кастомный Select в Chromium и Firefox (headless через geckodriver): меню
   открывается, выбор применяется, меню закрывается.
 - `docker compose config` — валиден.
+
+## Текущий этап: UX/UI редизайн (в работе)
+
+Сделано в последних коммитах:
+
+- Мобильная навигация: верхний бургер убран, нижнее меню — Обзор · Клиенты ·
+  Интерфейсы · Статистика · «Ещё» (bottom sheet со всеми разделами, темой,
+  выходом). Focus-trap и Escape — от `Modal`.
+- Navy-палитра: акценты, градиенты, сайдбар, бейджи; фиолетовые хардкоды убраны,
+  тёмная тема пересобрана.
+- Копирование в буфер обмена: `src/domain/clipboard.ts` с fallback через
+  `execCommand` (панель по HTTP не имеет secure context).
+- Обзор и Статистика разведены: обзор — состояние, квота и live-скорости;
+  статистика — периодные суммы, график, разбивка.
+- Списки: фильтры в Пользователях (роль/статус), Нодах (поиск/статус), Клиентах
+  (статус), сортировка колонок (Пользователи, Клиенты, Ноды), массовые действия:
+  Пользователи (блок/разблок/удаление), Ноды (удаление), Интерфейсы
+  (включить/отключить/удалить), Клиенты (отозвать ссылки/удалить).
+- Общая полировка таблиц: sticky-стили заголовков, hover/selected, `list-toolbar`,
+  `BulkBar`, focus-visible, тени мобильного меню.
+
+Осталось в этом этапе:
+
+1. Массовые действия в «Группах», «Тарифах», «Аудите» (у аудита — экспорт/очистка
+   по фильтру, не удаление записей по одной).
+2. Сортировка в «Интерфейсах» и «Тарифах» (хелпер `src/domain/table-sort.ts` готов).
+3. Единый `list-toolbar` в «Тарифах», «Импорте», «Сессиях профиля».
+4. Серверные bulk-эндпоинты (сейчас клиент делает N последовательных запросов и
+   показывает частичный результат «Готово: N, ошибок: M»).
+5. Компактный режим таблиц и настройка плотности.
+6. Довести UX-аудит по оставшимся экранам (Импорт, Настройки, Профиль) на 390px.
 
 ## Не проверено / не доделано
 
@@ -214,6 +252,25 @@
    cargo run -p awg-admin
    cd frontend && pnpm install && pnpm dev
    ```
+   Панель для просмотра на VPN-хосте (как запускалась последняя сессия):
+   ```bash
+   # backend на свободном порту (8080 занят другим процессом)
+   set -a; . ./.env; set +a
+   AWG_BIND=0.0.0.0:18080 AWG_GRPC_BIND=0.0.0.0:19090 \
+   AWG_DB_PATH="$PWD/data/panel-demo.redb" \
+   AWG_BILLING_ENABLED=true AWG_PAYMENT_PROVIDER=mock \
+   AWG_PAYMENT_SECRET=panel-demo-secret-with-32-characters-min \
+   ./target/debug/awg-admin &
+
+   # frontend с проксированием API на backend
+   cd frontend
+   VITE_API_PROXY=http://10.100.0.5:18080 \
+     ./node_modules/.bin/vite --host 0.0.0.0 --port 5173 --strictPort
+   ```
+   Открыть `http://10.100.0.5:5173`, логин `admin` / `admin12345` (из `.env`).
+   БД `data/panel-demo.redb` содержит демо-данные: тариф, план, активная подписка,
+   группа, нода, интерфейс, два устройства и share-ссылки. `data/dev.redb` не
+   используется этим стендом.
 3. Создайте ноду через UI, получите `AWG_NODE_ID`/`AWG_NODE_TOKEN`.
 4. Запустите worker на Linux-хосте:
    ```bash
