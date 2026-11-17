@@ -28,8 +28,8 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 |---|---|---|
 | 1. Ядро/SetDevice/REPLACE_PEERS/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns | e2e с реальными клиентами и замер полосы |
 | 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | статистика в API/UI: netlink `GetDevice` падает с `EOPNOTSUPP` (см. «Фактический прогон» и п. 13 сводки) |
-| 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; живая полоса iperf3: 5/2 Mbit → 4.79/1.89, группа 6/3 → 5.62/2.73, снятие лимитов очищает tc | hairpin на одном интерфейсе; живая пара клиентов |
-| 3. nftables forwarding | да: таблица/цепь/правила, ICMP разрешённой пары, изоляция; live worker создаёт `fwd_<ifname>` | hairpin `iifname == oifname` на реальном интерфейсе и трафик между устройствами |
+| 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; живая полоса iperf3: 5/2 Mbit → 4.79/1.89, группа 6/3 → 5.62/2.73, снятие лимитов очищает tc; hairpin-пара клиентов на одном интерфейсе проверена | физические клиенты |
+| 3. nftables forwarding | да: таблица/цепь/правила, изоляция; live worker создаёт `fwd_<ifname>`; hairpin между двумя устройствами на одном `awgpanel0` проверен (ping ~2.4 Gbit/s iperf3), изоляция и stateful-ответы работают, в т.ч. при активном IFB | — |
 | 4. Docker build | да: образы `awg-admin`/`awg-worker`/`awg-frontend` есть, стек запущен, admin/frontend healthy | чистая пересборка на CI-хосте |
 | 5. TLS/ACME | частично: `verify-tls.sh --local` — redirect, h2, h3, health; живой стенд отдаёт h2/h3, но с TRAEFIK DEFAULT CERT | ACME на реальном домене; `Host(...)` (через `AWG_DOMAIN`) и HSTS настроены, выпуск сертификата остаётся за стендом |
 | 6. Мастер-ключ | да: `.env` с `AWG_MASTER_KEY`/`AWG_JWT_SECRET`, предупреждения об эфемерном ключе нет, профиль устройства читается | рестарт admin на данных production и проверка того же `.conf` |
@@ -287,12 +287,13 @@ worker (вызывает `replace` на каждом reconcile), а не про�
 - `DesiredInterface.group_down_kbps`/`group_up_kbps` в `tc.rs` не используются:
   корневой класс считается как сумма `user_limits`. Если `user_limits` пуст,
   корень получает `10gbit`.
-- `tc.rs` создаёт классы только для пиров с ненулевым лимитом в данном
-  направлении; пир с `down_kbps = 0` не получает egress-класс.
-- Если у владельца устройств нет тарифа, `user_limits` пуст и tc не применяется
-  целиком, даже когда у устройств заданы `down_kbps`/`up_kbps`. Для live-проверки
-  нужен пользователь с тарифом и устройства этого пользователя; пул должен
-  иметь `gateway`, иначе у AWG-интерфейса не будет адреса.
+- `tc.rs` создаёт классы для пиров, у которых ненулевой лимит устройства или
+  ненулевой групповой лимит пользователя в данном направлении. Пир с
+  `down_kbps = 0` без группового лимита egress-класса не получает; при чисто
+  групповом лимите его трафик идёт сразу в пользовательский класс.
+- Если у владельца устройств нет тарифа, `user_limits` содержит нулевые
+  групповые лимиты, поэтому device-лимиты применяются. Для live-проверки пул
+  должен иметь `gateway`, иначе у AWG-интерфейса не будет адреса.
 
 ---
 
@@ -310,23 +311,39 @@ worker (вызывает `replace` на каждом reconcile), а не про�
 ```
 
 Скрипт создаёт `table inet awg_admin`, цепь `fwd_awgtest0` с
-`type filter hook forward priority 10`, правило разрешённой пары
-(`iifname`/`oifname` + `ip saddr`/`ip daddr` + `accept`) и завершающий `drop`.
-Проверяется текст правил, прохождение ICMP для разрешённой пары и блокировка
-после замены правил на один `drop`.
+`type filter hook forward priority 10`, правила разрешённых пар
+(`iifname { ... }`/`oifname` + `ip saddr`/`ip daddr` + `counter accept`,
+обратные `ct state established,related counter accept`) и завершающий
+`counter drop`. Проверяется текст правил, прохождение ICMP для разрешённой
+пары и блокировка после замены правил на один `drop`.
 
 На реальном AWG-интерфейсе:
 
 ```bash
 nft list table inet awg_admin
-nft list chain inet awg_admin fwd_<ifname>
+nft -a list chain inet awg_admin fwd_<ifname>
 # в UI разрешите обмен между устройствами A и B и проверьте ping в обе стороны
 # затем запретите — ping должен перестать проходить
 ```
 
-Worker использует то же имя интерфейса в `iifname` и `oifname` (hairpin внутри
-одного AWG-интерфейса). На veth это состояние недостижимо, поэтому скрипт
-проверяет эквивалентную пару `iifname dp-r1` / `oifname dp-r2`.
+Worker использует набор `iifname { "<ifname>", "ifb-<ifname>" }` и
+`oifname "<ifname>"`: hairpin внутри одного AWG-интерфейса проходит, а при
+ingress-шейпинге пакет приходит уже с IFB, и без второго имени политика пар
+перестала бы применяться.
+
+### Живая проверка hairpin (18.11.2026)
+
+Два клиента (`10.250.0.250` и `10.250.0.226`) в отдельных netns на одном
+`awgpanel0`:
+
+- baseline без лимитов: ping в обе стороны, iperf3 TCP **2.4 / 3.0 Gbit/s**;
+- PATCH лимитов во время ping: **0% потерь**, endpoint'ы обоих пиров сохранены
+  (до и после — 2);
+- up-лимит 2 Mbit: IFB активен, доставлено ~1.9 Mbit/s, ping работает;
+- down-лимит 5 Mbit: IFB и ingress-redirect удалены, доставлено ~4–5 Mbit/s;
+- изоляция: при forwarding только у B — `B→A` работает, `A→B` блокируется,
+  в т.ч. при активном IFB; счётчики `drop` растут;
+- после восстановления — ping в обе стороны, шейпер снят.
 
 ### Откат
 
@@ -343,8 +360,10 @@ nft delete chain inet awg_admin fwd_<ifname>
 - `verify-dataplane.sh --apply` — 0 провалов по nftables/трафику (общий код
   возврата сейчас 1 из-за проверки повторного `tc qdisc replace`, см. блокер 2);
 - на реальном интерфейсе по умолчанию устройства изолированы;
-- разрешённая в UI пара обменивается трафиком в обе стороны;
-- `nft list chain inet awg_admin fwd_<ifname>` содержит ожидаемые пары и `drop`.
+- разрешённая в UI пара обменивается трафиком в обе стороны, включая
+  hairpin и режим с ingress-шейпингом;
+- `nft -a list chain inet awg_admin fwd_<ifname>` содержит ожидаемые пары,
+  established-правила, `counter drop` последним.
 
 ---
 
@@ -642,9 +661,9 @@ WebTransport в репозитории отсутствует: нет завис
 
 | Пункт TODO | Фактическое состояние |
 |---|---|
-| 1. Реальный kernel | `verify-kernel.sh` проверяет модуль, `ip link`, `SetDevice`-параметры, `REPLACE_PEERS`, счётчики и ICMP на реальном ядре. E2E через worker выполнен в dry-run и live: интерфейс, пиры и handshake подтверждены; статистика не работает из-за дефекта netlink (п. 13). Монотонность гарантирована для per-peer счётчиков; интерфейсные тоталы считаются из сырых байт и могут уменьшиться после reload |
-| 2. tc ingress/egress | Структура HTB/IFB/u32 и лимиты проверяются; hairpin и полоса — только на реальном интерфейсе. На реальном AWG htb/ingress/IFB применяются. Найдены дублирующийся `tc filter add` и неидемпотентный `tc qdisc replace` (п. 14); `group_down/up_kbps` не используются; без тарифа пользователя tc не применяется |
-| 3. nftables forwarding | Таблица/цепь/правила и изоляция проверяются на veth; live worker создаёт `fwd_<ifname>`; hairpin `iifname == oifname` — только на реальном AWG |
+| 1. Реальный kernel | `verify-kernel.sh` проверяет модуль, `ip link`, `SetDevice`-параметры, счётчики и ICMP на реальном ядре. E2E через worker выполнен в dry-run и live: интерфейс, пиры и handshake подтверждены; статистика читается dump-запросом (п. 13). Монотонность гарантирована для per-peer счётчиков; интерфейсные тоталы считаются из сырых байт и могут уменьшиться после reload |
+| 2. tc ingress/egress | Структура HTB/IFB/u32 и лимиты проверяются; на реальном AWG htb/ingress/IFB применяются, живая полоса измерена iperf3, hairpin-пара на одном интерфейсе проверена. `group_down/up_kbps` используются, device-лимиты работают без тарифа, снятие лимитов очищает tc |
+| 3. nftables forwarding | Таблица/цепь/правила и изоляция проверяются на veth; live worker создаёт `fwd_<ifname>`; hairpin между двумя устройствами на реальном `awgpanel0` проверен, включая stateful-ответы и активный IFB |
 | 4. Docker build | Образы `awg-admin` (uid 10001), `awg-worker`, `awg-frontend` есть; стек поднят, admin/frontend healthy, worker применяет состояние. Чистая пересборка без кеша не выполнялась |
 | 5. TLS/ACME | Локальный Traefik с self-signed проходит (redirect, h2, h3, health); живой стенд отдаёт h2/h3 с TRAEFIK DEFAULT CERT. Домен задаётся `AWG_DOMAIN`, роутеры содержат `Host(...)`, HSTS настроен; выпуск ACME на реальном домене остаётся за стендом |
 | 6. Секреты | `.env` есть: `AWG_MASTER_KEY` и `AWG_JWT_SECRET` заданы, предупреждения об эфемерном ключе в логах нет, профиль устройства читается. Рестарт admin на тех же данных не выполнялся |
@@ -654,8 +673,9 @@ WebTransport в репозитории отсутствует: нет завис
 | 10. Rate limiting | Вне зоны проверки; на момент проверки в рабочем дереве появился `rate_limit.rs` (параллельные правки) |
 | 11. Монотонность счётчиков | `CounterBook` нормализует только peer-счётчики (`rx_total`/`tx_total` пира). Верхнеуровневые `InterfaceReport.rx_total/tx_total` считаются из сырых `peer.rx_bytes` (`worker/src/application/mod.rs`), поэтому после пересоздания интерфейса агрегат по интерфейсу может уменьшиться. Проверять монотонность нужно по пирам/устройствам |
 | 12. Очистка при удалении интерфейса | `ReconcileService.known` — множество в памяти процесса: интерфейс, удалённый из desired state, пока worker был остановлен, не будет вычищен после рестарта (teardown выполняется только для известных в этой сессии) |
-| 13. Статистика worker | `worker/src/infrastructure/netlink.rs: read_interface` отправляет `WG_CMD_GET_DEVICE` без `NLM_F_DUMP`; в ядре команда только dump-only → `EOPNOTSUPP`, статистика в live-режиме не собирается. В dry-run дефект скрыт заглушкой `InterfaceRuntime::default()` |
-| 14. Повторный reconcile tc | `TcShaper::apply_egress` вызывает `tc qdisc replace` при каждом применении; на проверочном ядре второй вызов возвращает `Change operation not supported by specified qdisc`, поэтому после первого reconcile изменения tc (и nft, который идёт после tc) не применяются |
+| 13. Статистика worker | Закрыто: `read_interface` отправляет `WG_CMD_GET_DEVICE` с `NLM_F_DUMP` и собирает multipart-ответ; live-проверка проходит |
+| 14. Повторный reconcile tc | Закрыто: root- и ingress-qdisc пересоздаются через `del` + `add`, дубликаты классов/фильтров не накапливаются; повторный reconcile проверен live |
+| 15. Инкрементальный reconcile пиров | Закрыто: `REPLACE_PEERS` не используется, дельта по ключам/allowed IPs/PSK; endpoint'ы сохраняются, PATCH лимитов не вызывает потерь трафика |
 
 Дополнительно:
 
