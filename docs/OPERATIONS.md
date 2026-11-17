@@ -55,7 +55,7 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 
 ## 3. Backup и restore redb
 
-БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 2` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
+БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 3` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
 
 Методы `Store`:
 
@@ -63,25 +63,60 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 - `Store::restore_from(path)` — восстановление в работающую базу: backup открывается с проверкой целостности, версия должна строго совпадать с текущей (`IncompatibleBackup`/`UnversionedBackup` иначе, база не меняется). Все таблицы удаляются и заново наполняются в одной write-транзакции вместе с версией; записи после backup исчезают. Файл backup должен быть доступен на запись (redb проверяет целостность только при read-write open).
 - `Store::replace_file_from(backup, target)` — офлайн-замена файла: копия backup во временный файл рядом с `target`, проверка целостности и версии, `fsync`, `rename`. Требует остановленного admin: файл БД открыт эксклюзивно.
 
-Операционный backup (admin остановлен, копия файла):
+### CLI `awg-backup`
+
+Бинарник собирается вместе с admin:
+
+```bash
+cargo build --release -p awg-admin --bin awg-backup
+# запускать из ./target/release/awg-backup или установить в PATH
+```
+
+`docker/Dockerfile.admin` копирует в образ оба бинарника (`awg-admin` и `awg-backup`), поэтому команды можно выполнять через `docker compose exec admin awg-backup ...` (при остановленном admin).
+
+CLI работает с файлом БД без запуска admin, но redb открывает файл эксклюзивно, поэтому **перед backup и restore остановите admin**. На занятом файле команда завершится с кодом `1` и сообщением «файл ... занят».
 
 ```bash
 docker compose stop admin
-docker run --rm -v awg-data:/data -v "$PWD/backups:/backup" alpine \
-  cp /data/awg-admin.redb /backup/awg-admin-$(date +%F).redb
-docker compose start admin
+export AWG_DB_PATH=/data/awg-admin.redb   # или указывайте --db в каждой команде
 ```
 
-Полное восстановление офлайн:
+Путь к БД берётся из `--db`, иначе из `AWG_DB_PATH`.
 
 ```bash
-docker compose stop admin
-docker run --rm -v awg-data:/data -v "$PWD/backups:/backup" alpine \
-  cp /backup/awg-admin-YYYY-MM-DD.redb /data/awg-admin.redb
+# копия БД с проверкой целостности; существующий файл не перезаписывается без --force
+awg-backup backup --db /data/awg-admin.redb --out /backup/awg-$(date +%Y%m%d).redb
+
+# версия схемы, размер и таблицы (включая meta)
+awg-backup info --db /data/awg-admin.redb
+
+# восстановление одной write-транзакцией: записи после backup исчезают, файл БД остаётся прежним
+awg-backup restore --db /data/awg-admin.redb --from /backup/awg-20260101.redb
+
+# офлайн-замена файла целиком: временный файл рядом с БД → проверка → fsync → атомарный rename
+awg-backup restore --db /data/awg-admin.redb --from /backup/awg-20260101.redb --offline
+
 docker compose start admin
 ```
 
-Проверка версии: если backup создан другой версией admin, `restore_from` отклонит его; сначала обновите admin до нужной версии или выполните миграции. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`, шаг `1 → 2` (`v2_billing`) создаёт таблицы биллинга и не меняет существующие данные; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
+`backup` удерживает эксклюзивную блокировку БД, копирует файл во временный `<out>.tmp-<pid>-<n>`, проверяет копию открытием redb с `check_integrity_on_open`, синхронизирует и заменяет `--out` атомарным `rename`. Существующий backup без `--force` не трогается, путь `--out`, совпадающий с БД, запрещён. `info` открывает БД read-only и не меняет её, но также требует остановленного admin.
+
+`restore` всегда сверяет `meta.schema_version` backup с `CURRENT_SCHEMA_VERSION` и при несовместимости или отсутствии версии завершается с кодом `1`, не меняя БД. Режимы: по умолчанию `Store::restore_from` (одна транзакция; файл backup должен быть доступен на запись), `--offline` — `Store::replace_file_from` (полная замена файла без открытия текущей БД; помогает, если файл БД повреждён или не открывается этим бинарником). Оба режима требуют остановленного admin и backup с текущей версией схемы.
+
+Коды выхода: `0` — успех, `1` — ошибка операции (файл занят, файла нет, несовместимая схема, backup существует без `--force`), `2` — ошибка аргументов. `awg-backup --help` — справка.
+
+Проверка после restore:
+
+```bash
+awg-backup info --db /data/awg-admin.redb        # версия схемы и таблицы
+docker compose start admin
+curl -fsS http://127.0.0.1:8080/api/v1/health
+docker compose logs --tail=50 admin              # нет ошибок миграции и целостности
+```
+
+Затем войти в панель и проверить пользователей, ноды, тарифы и последние аудит-события.
+
+Проверка версии: если backup создан другой версией admin, `restore` отклонит его; сначала обновите admin до версии, создавшей backup, или выполните миграции. Для отката на предыдущую версию используйте `awg-backup`, собранный из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`, шаги `1 → 2` (`v2_billing`, таблицы биллинга) и `2 → 3` (`v3_rate_limits`, таблица `rate_limits`) не меняют существующие данные; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
 
 ## 4. Метрики
 
@@ -216,7 +251,7 @@ cat /var/lib/awg-worker/counters.json | jq .
 - Схема новее: сообщение `store schema version N is newer than supported version M`; откатить admin к версии, создавшей БД, или выполнить миграции.
 - Диск: проверить `docker system df`, место под `/data` и `/var/lib/awg-worker`; backup перед очисткой.
 - Сертификат: `verify-tls.sh`, проверить `TRAEFIK_ACME_EMAIL`, том `traefik-letsencrypt`, правила `Host(...)` в compose (сейчас роутеры на `PathPrefix`, ACME не выпустит сертификат без домена).
-- Rate limit: `awg_rate_limited_total`, параметры `AWG_LOGIN_RATE_LIMIT`, `AWG_REFRESH_RATE_LIMIT` и окна; 0 отключает лимит.
+- Rate limit: `awg_rate_limited_total`, параметры `AWG_LOGIN_RATE_LIMIT`, `AWG_REFRESH_RATE_LIMIT` и окна; 0 отключает лимит. Режим хранилища — `AWG_RATE_LIMIT_STORE`: `memory` (по умолчанию, счётчики у каждой реплики свои) или `redb` (общая таблица `rate_limits` в БД, файл открывается в redb `MultiWriter` для нескольких процессов). При нескольких репликах включайте `redb` на всех и давайте им общий `AWG_DB_PATH`; записи старше окна удаляются раз в час и при shutdown.
 
 ## 10. Обновление
 
@@ -226,7 +261,7 @@ cat /var/lib/awg-worker/counters.json | jq .
 4. Проверить health, логи, версию схемы.
 5. Запустить worker: `docker compose --profile worker up -d --build`.
 
-Откат: остановить admin, восстановить БД из backup через `replace_file_from` или офлайн-копию, вернуть прежний образ/`.env`, запустить. Не менять `AWG_MASTER_KEY` при откате.
+Откат: остановить admin, вернуть прежний образ/`.env`, восстановить БД из backup командой `awg-backup restore --offline` той же версии, что и возвращаемый admin (раздел 3), запустить. Не менять `AWG_MASTER_KEY` при откате.
 
 ## 11. Полезные команды
 

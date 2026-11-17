@@ -131,6 +131,8 @@ jobs:
           AWG_ADMIN_PASSWORD=admin12345
           AWG_LOGIN_RATE_LIMIT=100
           AWG_REFRESH_RATE_LIMIT=300
+          AWG_REGISTER_RATE_LIMIT=1000
+          AWG_RESEND_RATE_LIMIT=1000
           EOF
       - name: Start stack
         run: docker compose up -d --build

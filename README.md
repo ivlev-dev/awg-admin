@@ -17,6 +17,7 @@ silent-framework и Traefik с TLS/HTTP/3.
 ## Архитектура
 
 - `awg-admin` — HTTP API (h2c) на `:8080`, gRPC на `:9090`, БД redb (`AWG_DB_PATH`).
+- `awg-backup` — CLI backup/restore/info для redb при остановленном admin (см. `docs/OPERATIONS.md`).
 - `awg-worker` — исходящий gRPC к admin, управляет AmneziaWG (host network, privileged).
 - frontend — Vite-сборка, раздаётся nginx; `/api` и WebSocket проксируются Traefik к admin.
 - Traefik — TLS termination, HTTP/3, ACME (Let's Encrypt) или self-signed по умолчанию.
@@ -155,7 +156,7 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ```bash
 cargo test --workspace          # 28 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 619 тестов
+cd frontend && pnpm test        # 662 теста
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build

@@ -21,7 +21,7 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 619 тестов.
+  статические SVG-иконки, 662 теста.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 - Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
@@ -33,9 +33,9 @@
 
 ## Проверено
 
-- `cargo test --workspace` — 258 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 293 теста, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 619 тестов, зелёные.
+- `cd frontend && pnpm test` — 662 теста, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -150,9 +150,11 @@
   «источник × назначение» по устройствам пользователя, симметричные пары по
   умолчанию, список пар для мобильного, немедленное сохранение с откатом.
   Ограничение бэкенда: только устройства одного пользователя.
-- **i18n**: только русский, строки захардкожены.
-- **A11y**: кастомный Select имеет aria/listbox и клавиатуру, но нет полного
-  набора тестов и focus-trap в модалках.
+- **i18n**: ru/en для всех основных экранов (shell, auth, clients, nodes,
+  interfaces, groups, stats, audit, import, profile, settings), локаль
+  сохраняется; серверные сообщения показываются как есть.
+- **A11y**: focus-trap, Escape и возврат фокуса в модалках, ARIA, skip-link,
+  aria-live для тостов, `aria-busy` для загрузки.
 - **Мобильное меню**: bottom nav + drawer; нет свайпа и safe-area для
   ландшафта (частично учтено `env(safe-area-inset-*)`).
 
@@ -161,12 +163,12 @@
 - CI добавлен: `.github/workflows/ci.yml` (fmt, clippy -D warnings, cargo test,
   pnpm typecheck/test/build, сборка трёх Docker-образов).
 - Версионирование схемы redb сделано (`meta.schema_version`, каркас миграций).
-- Backup/restore: `Store::backup_to`, `restore_from`, `replace_file_from`
-  (офлайн). Ротации файла по расписанию нет.
+- Backup/restore: методы `Store`, CLI `awg-backup backup|restore|info`,
+  проверка `schema_version`, офлайн-замена. Ротации по расписанию нет.
 - Prometheus-метрики (`/metrics`, опциональный Bearer) и structured-логи
   (`AWG_LOG_FORMAT=json|text`) сделаны. OpenTelemetry-трейсинга нет.
-- Нет автоматических e2e-тестов UI: Playwright использовался вручную; набор
-  можно закрепить в CI.
+- E2E Playwright в CI: 26 тестов (Chromium+Firefox) — логин/RBAC, навигация,
+  forwarding, квоты, аудит, регистрация/2FA, импорт.
 - Нет нагрузочных тестов API и gRPC.
 - `docs/API.md` частично описывает DTO; стоит генерировать из кода/OpenAPI.
 - Комментарии в коде отсутствуют по требованию; сложные инварианты описаны в
@@ -196,8 +198,11 @@
    AWG_DRY_RUN=false cargo run -p awg-worker
    ```
 5. Блокеры kernel/tc/nft/ TLS описаны в `docs/PRODUCTION-VERIFICATION.md`;
-   Docker, аудит, rate limit, JWT, CI, миграции/backup redb, lazy-роуты,
-   архитектурные границы, регистрация/2FA, метрики и квоты уже закрыты.
+   Docker, аудит, rate limit (включая общий redb-режим), JWT, CI/E2E,
+   миграции/backup redb + CLI, lazy-роуты, архитектурные границы,
+   регистрация/2FA, метрики, квоты, i18n и a11y уже закрыты.
+- Производительность: списки и snapshot без N+1, prefetch lazy-чанков,
+  sourcemaps выключены в production.
    Архитектура оплаты описана в `docs/PAYMENTS.md`; этап 1 (модель, схема v2,
    read-only API, CRUD планов, `AWG_BILLING_ENABLED=false`) реализован. Нет
    checkout, webhook, автосписаний и UI биллинга.

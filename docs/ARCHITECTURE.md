@@ -203,10 +203,25 @@ E2E работают против поднятого стека: nginx разд�
 только при падении; HTML-отчёт складывается в `frontend/playwright-report`,
 сырые артефакты — в `frontend/test-results`.
 
+При `AWG_ENV=development` и `AWG_MAIL_MODE=log` письма с подтверждением email
+дополнительно складываются в in-memory dev-ящик (последние 50 писем). Спеки
+читают его через `GET /api/v1/dev/mail` и очищают через `DELETE /api/v1/dev/mail`.
+В production оба маршрута отвечают 404, письма не сохраняются, а ссылка
+подтверждения не попадает в логи. Rate limit регистрации в CI и локальном
+`.env` поднят, потому что e2e создают несколько уникальных аккаунтов за прогон.
+
 Покрытие:
 
 - `auth.spec.ts` — вход, неверный пароль, выход, скрытие и запрет
   adminOnly-разделов (`/audit`, `/users`) для роли `user`;
+- `auth-registration.spec.ts` — регистрация уникального email, письмо из
+  dev-ящика, подтверждение почты по токену, отказ во входе до подтверждения и
+  до одобрения, одобрение заявки администратором с тарифом, вход по email;
+- `totp.spec.ts` — включение TOTP из профиля (секрет из UI, код на Node
+  crypto), шаг кода при входе, неверный код и успешный вход по TOTP;
+- `import.spec.ts` — импорт группы с интерфейсом и клиентом, проверка
+  preview/apply и группы через UI и API, импорт клиентов в существующий
+  интерфейс с автоопределением по public key;
 - `navigation.spec.ts` — все разделы через sidebar, заголовки, отсутствие
   ошибок загрузки lazy-чанков и JS-исключений;
 - `forwarding.spec.ts` — устройства A/B/C одного пользователя, включение пар
@@ -238,7 +253,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `2`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `3`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -259,9 +274,10 @@ pnpm e2e:headed                # с видимым браузером
 `InvalidMigration`. Все шаги и запись новой версии выполняются в одной
 write-транзакции: ошибка любого шага откатывает и данные, и версию
 (`failed_migration_rolls_back_and_keeps_version`). Для тестов доступна
-`migrate_with(..., steps)` с произвольным реестром; в `MIGRATIONS` есть шаг
-`1 → 2` (`v2_billing`), который создаёт таблицы биллинга и не меняет
-существующие данные.
+`migrate_with(..., steps)` с произвольным реестром; в `MIGRATIONS` есть шаги
+`1 → 2` (`v2_billing`, создаёт таблицы биллинга) и `2 → 3`
+(`v3_rate_limits`, создаёт таблицу `rate_limits`); существующие данные они не
+меняют.
 
 Добавление миграции: поднять `CURRENT_SCHEMA_VERSION`, добавить
 `MigrationStep { from: old, to: new, apply }` в `MIGRATIONS`. Шаг работает
@@ -398,10 +414,45 @@ Base32-секрет шифруется `awg_shared::crypto::Sealer` перед �
 
 ### Rate limiting
 
-`admin` держит два `SlidingWindowLimiter` в памяти: логин (ключ `IP + login`) и
-refresh (ключ `IP`). Окно очищается лениво при обращении и фоновым таском.
-Настройки — в `Config` (`AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
-`AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`).
+Лимитеры login/refresh/register/resend работают через трейт `RateLimiter`
+(`check(key, limit, window)`, `reset(key)`, `cleanup()`). Ключ в хранилище —
+`scope:sha256(key)`: scope задаёт контроллер (`login`, `refresh`, `register`,
+`resend`), хэш не даёт писать в БД сырые IP и логины. `RateLimitScope`
+связывает общий backend с лимитом и окном конкретного сценария, поэтому
+контроллеры по-прежнему вызывают `check(&key)`/`reset(&key)`.
+
+Две реализации:
+
+- `MemoryRateLimiter` — дефолт (`AWG_RATE_LIMIT_STORE=memory`): точное
+  sliding window в памяти процесса, `VecDeque<Instant>` на ключ. Лимиты не
+  общие между репликами.
+- `StoreRateLimiter` (`AWG_RATE_LIMIT_STORE=redb`) — общее хранилище в
+  redb-таблице `rate_limits`. Значение — `{ hits: Vec<u64> (unix secs),
+  window_secs, updated_at }`: точное sliding window по секундам, в `hits`
+  хранятся только принятые попадания (не больше `limit`), поэтому запись
+  ограничена по размеру. Проверка и обновление выполняются в одной
+  write-транзакции `Store::update`, а redb сериализует писателей: два
+  одновременных запроса (в том числе из разных реплик) не могут оба увидеть
+  один и тот же счётчик и потерять обновление. Write-транзакция короткая:
+  чтение и запись одного ключа. При ошибке хранилища лимитер
+  fail-closed: запрос получает `429` с `Retry-After` на окно.
+
+`Retry-After` считается от самого старого попадания в окне, поведение
+`429`/`Retry-After` и переменные `AWG_LOGIN_RATE_LIMIT/WINDOW_SECS`,
+`AWG_REFRESH_*` (а также `AWG_REGISTER_*`, `AWG_RESEND_*`) не изменились;
+`0` отключает лимит. Фоновый таск раз в час вызывает `cleanup()` (для redb —
+удаление записей, у которых последнее попадание старше их окна; для memory —
+очистка пустых ключей), дополнительный `cleanup()` выполняется при shutdown.
+В production при нескольких репликах нужен `AWG_RATE_LIMIT_STORE=redb`
+(при `memory` пишется предупреждение).
+
+В режиме `redb` admin открывает БД через `Store::open_multi_writer`
+(`redb::ConcurrencyMode::MultiWriter`): несколько процессов могут работать с
+одним файлом, write-транзакции сериализуются, поэтому общий счётчик лимитера
+не теряет обновления. Все реплики должны смотреть на один `AWG_DB_PATH`
+(общий том) и использовать `redb`; смешивать `memory` и `redb` на одном файле
+нельзя — `ExclusiveWriter` (режим `memory` и `awg-backup`) несовместим с
+`MultiWriter`. CLI backup/restore по-прежнему требует остановленного admin.
 
 ## Производительность списков
 
@@ -427,10 +478,34 @@ refresh (ключ `IP`). Окно очищается лениво при обр�
 (`bulk_views_use_constant_repository_calls`,
 `interface_list_counts_peers_in_bulk`, `group_list_counts_in_bulk`).
 
+`SnapshotBuilder` (desired state для worker) тоже собран без N+1:
+
+- один `devices.list_all()` на весь build, устройства разложены по
+  `group_id`;
+- один `peers.list()` (порт `DevicePeerRepository`), индекс
+  `(device_id, interface_id) -> peer`; `peers_for` больше не вызывается;
+- один `pools.list()` вместо `list_pools(group)` на интерфейс, пулы
+  индексируются по `group_id`, а `parse_net` считается один раз на пул и
+  переиспользуется для gateway и адресов пиров;
+- `stats.used_bytes(User)` — один вызов на пользователя, результат кэшируется
+  на build и используется и для `user_limits`, и для блокировки устройств;
+- `tariffs.get` — один вызов на уникальный `tariff_id`;
+- расшифровка секретов (`peer_preshared_key`) выполняется только для пиров,
+  реально попавших в `DesiredState`.
+
+Для узла с `I` интерфейсами было `I` вызовов `devices.list_all` и
+`I` вызовов `list_pools`, по одному `peers_for` на каждую пару
+(интерфейс, устройство его группы) и `used_bytes(User)` на каждого
+пользователя с устройствами у каждого интерфейса плюс повторно на каждое
+устройство. Стало 3 вызова репозиториев (devices, peers, pools), один
+`used_bytes` на пользователя с устройствами на узле и один `tariffs.get` на
+уникальный тариф. Состав и порядок `DesiredState` не изменились — это
+проверяют `snapshot_matches_previous_composition`,
+`snapshot_bulk_loads_and_caches_usage` и `previous_n_plus_one_call_counts`
+(последний фиксирует прежние счётчики вызовов на тех же seed-данных).
+
 Что осталось: списки по-прежнему читают таблицы целиком, поэтому на больших
 установках нужны пагинация и фильтры на уровне репозитория, а не в памяти.
-`SnapshotBuilder` при сборке desired state по-прежнему обходит устройства и
-пиров по одному.
 
 ## Observability
 
@@ -497,7 +572,8 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
    `serve_with_shutdown`);
 3. фоновые задачи (prune refresh-токенов, аудита и traffic buckets, очистка
    rate limiter) получают сигнал через `watch`-канал, выходят из цикла и не
-   мешают дренажу;
+   мешают дренажу; лимитер перед выходом выполняет финальный `cleanup()`
+   (для `redb` удаляет истёкшие записи `rate_limits`);
 4. процесс ждёт не дольше `AWG_SHUTDOWN_GRACE_SECS` (по умолчанию 10 с), затем
    пишет warning и завершается с кодом 0.
 
@@ -633,8 +709,9 @@ snapshot/worker.
 - `billing_payment_methods` — резерв под этап 2;
 - `billing_events` — резерв под webhook/журнал.
 
-Схема поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
+Схема была поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
 таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
+Текущая версия схемы — `3` (шаг `v3_rate_limits` добавляет `rate_limits`).
 Backup/restore по-прежнему требует точного совпадения версии.
 
 Конфигурация:
