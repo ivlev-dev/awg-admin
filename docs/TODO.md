@@ -21,7 +21,7 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 662 теста.
+  статические SVG-иконки, 725 тестов.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 - Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
@@ -33,9 +33,9 @@
 
 ## Проверено
 
-- `cargo test --workspace` — 293 теста, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 307 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 662 теста, зелёные.
+- `cd frontend && pnpm test` — 725 тестов, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
@@ -135,13 +135,13 @@
 - **Статистика**: часовые бакеты, запросы суммируют их на лету. Нет дневных/
   месячных материализованных таблиц, per-second rate на бэкенде, retention-
   политики в настройках (жёстко 90 дней), графиков по нескольким scope сразу.
-- **Share-ссылки**: многоразовые до истечения TTL. Нет одноразовых, лимита
-  использований, QR-кода, отзыва по device_id списком.
+- **Share-ссылки**: многоразовые до истечения TTL, QR-коды для share и `vpn://`,
+  отзыв по токену. Нет одноразовых, лимита использований и отзыва списком.
 - **Ротация ключей интерфейса** инвалидирует клиентские конфиги; в UI есть
   предупреждение, но нет пакетного перевыпуска/доставки.
 - **Пользователи**: регистрация с подтверждением email и одобрением админом,
-  вход по email, TOTP 2FA с recovery-кодами — сделаны. Нет сброса пароля по
-  email и SSO. Список активных refresh-сессий и их отзыв есть в API.
+  вход по email, TOTP 2FA с QR и recovery-кодами, сброс пароля по email,
+  управление активными сессиями в профиле — сделаны. Нет SSO.
 - **Ноды**: токен выдаётся один раз и не ротируется; нет отзыва токена и
   отображения метрик воркера (CPU/RAM/версия ядра).
 - **Пиры**: нет QR, нет выбора нескольких интерфейсов при создании профиля,
@@ -202,7 +202,9 @@
    миграции/backup redb + CLI, lazy-роуты, архитектурные границы,
    регистрация/2FA, метрики, квоты, i18n и a11y уже закрыты.
 - Производительность: списки и snapshot без N+1, prefetch lazy-чанков,
-  sourcemaps выключены в production.
+  sourcemaps выключены в production, i18n разбит на доменные модули.
+- UI: QR-коды (share, vpn, 2FA), сессии, сброс пароля, skeleton, aria-live,
+  мобильные карточки.
    Архитектура оплаты описана в `docs/PAYMENTS.md`; этап 1 (модель, схема v2,
    read-only API, CRUD планов, `AWG_BILLING_ENABLED=false`) реализован. Нет
    checkout, webhook, автосписаний и UI биллинга.
