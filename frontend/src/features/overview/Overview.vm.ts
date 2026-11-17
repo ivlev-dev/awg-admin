@@ -124,6 +124,16 @@ export class OverviewVM {
   }
 
   @computed
+  get interfaces(): number {
+    return this.data?.interfaces ?? 0;
+  }
+
+  @computed
+  get groups(): number {
+    return this.data?.groups ?? 0;
+  }
+
+  @computed
   get quotaView(): QuotaDisplay {
     return quotaDisplay(this.quota);
   }

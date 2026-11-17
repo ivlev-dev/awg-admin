@@ -4,7 +4,6 @@ import type { OverviewVM } from "./Overview.vm";
 import { Sparkline } from "@/components/Charts";
 import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
-import { formatBytesI18n } from "@/i18n/format";
 
 export function Overview(this: { vm: OverviewVM }) {
   return (
@@ -107,34 +106,24 @@ export function Overview(this: { vm: OverviewVM }) {
 
       <div class="grid grid--4">
         <div class="stat">
-          <div class="stat__label"><span class="dot dot--green"></span>{t("overview.stats.rxToday")}</div>
-          <div class="stat__value">{this.vm.todayRx}</div>
-          <div class="stat__hint">{t("overview.stats.month", { value: this.vm.monthRx })}</div>
+          <div class="stat__label">{t("overview.state.nodes")}</div>
+          <div class="stat__value">{this.vm.nodesOnline} / {this.vm.nodesTotal}</div>
+          <div class="stat__hint">{t("overview.state.nodesHint")}</div>
         </div>
         <div class="stat">
-          <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("overview.stats.txToday")}</div>
-          <div class="stat__value">{this.vm.todayTx}</div>
-          <div class="stat__hint">{t("overview.stats.month", { value: this.vm.monthTx })}</div>
+          <div class="stat__label">{t("overview.state.interfaces")}</div>
+          <div class="stat__value">{this.vm.interfaces}</div>
+          <div class="stat__hint">{t("overview.state.interfacesHint")}</div>
         </div>
         <div class="stat">
-          <div class="stat__label">{t("overview.stats.todayTotal")}</div>
-          <div class="stat__value">{this.vm.todayTotal}</div>
-          <div class="stat__hint">{t("overview.stats.monthTotal", { value: this.vm.monthTotal })}</div>
-        </div>
-        <div class="stat">
-          <div class="stat__label">{t("overview.stats.devices")}</div>
+          <div class="stat__label">{t("overview.state.clients")}</div>
           <div class="stat__value">{this.vm.devices}</div>
-          <div class="stat__hint">{t("overview.stats.nodesOnline", { online: this.vm.nodesOnline, total: this.vm.nodesTotal })}</div>
+          <div class="stat__hint">{t("overview.state.clientsHint")}</div>
         </div>
         <div class="stat">
-          <div class="stat__label"><span class="dot dot--green"></span>{t("overview.stats.rateRx")}</div>
-          <div class="stat__value">{this.vm.rxRate}</div>
-          <div class="stat__hint">{t("overview.stats.rateHint")}</div>
-        </div>
-        <div class="stat">
-          <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("overview.stats.rateTx")}</div>
-          <div class="stat__value">{this.vm.txRate}</div>
-          <div class="stat__hint">{t("overview.stats.rateHint")}</div>
+          <div class="stat__label">{t("overview.state.groups")}</div>
+          <div class="stat__value">{this.vm.groups}</div>
+          <div class="stat__hint">{t("overview.state.groupsHint")}</div>
         </div>
       </div>
 
@@ -147,9 +136,16 @@ export function Overview(this: { vm: OverviewVM }) {
         </div>
         <div class="card__body stack">
           <div class="row-between wrap">
-            <div>
-              <div class="xs muted">{t("overview.activity.speed")}</div>
-              <div class="strong mono">
+            <div class="stack-sm">
+              <div>
+                <span class="xs muted">{t("overview.stats.rateRx")}</span>{" "}
+                <strong class="mono">{this.vm.rxRate}</strong>
+              </div>
+              <div>
+                <span class="xs muted">{t("overview.stats.rateTx")}</span>{" "}
+                <strong class="mono">{this.vm.txRate}</strong>
+              </div>
+              <div class="xs muted">
                 {t("overview.activity.slices", { count: this.vm.spark.length })}
               </div>
             </div>
@@ -170,40 +166,6 @@ export function Overview(this: { vm: OverviewVM }) {
         </div>
       </section>
 
-      <section class="card">
-        <div class="card__head">
-          <div>
-            <div class="card__title">{t("overview.top.title")}</div>
-            <div class="card__sub">{t("overview.top.subtitle")}</div>
-          </div>
-          <button class="btn btn--sm" type="button" onClick={() => this.vm.openClients()}>{t("overview.top.all")}</button>
-        </div>
-        <Show
-          when={this.vm.topDevices.length > 0}
-          fallback={<div class="empty"><div class="empty__title">{t("overview.top.emptyTitle")}</div><div class="small">{t("overview.top.emptyText")}</div></div>}
-        >
-          <div class="table-wrap">
-            <table class="table table--cards">
-              <thead>
-                <tr><th>{t("overview.table.device")}</th><th>{t("overview.table.rx")}</th><th>{t("overview.table.tx")}</th><th>{t("overview.table.total")}</th><th></th></tr>
-              </thead>
-              <tbody>
-                <For each={this.vm.topDevices}>
-                  {(device) => (
-                    <tr>
-                      <td data-label={t("overview.table.device")}><span class="strong">{device.name}</span></td>
-                      <td data-label={t("overview.table.rx")} class="mono">{formatBytesI18n(device.rx)}</td>
-                      <td data-label={t("overview.table.tx")} class="mono">{formatBytesI18n(device.tx)}</td>
-                      <td data-label={t("overview.table.total")} class="mono">{formatBytesI18n(device.rx + device.tx)}</td>
-                      <td><button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.openDevice(device.device_id)}>{t("common.open")}</button></td>
-                    </tr>
-                  )}
-                </For>
-              </tbody>
-            </table>
-          </div>
-        </Show>
-      </section>
     </div>
   );
 }
