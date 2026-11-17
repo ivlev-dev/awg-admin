@@ -8,8 +8,9 @@ silent-framework и Traefik с TLS/HTTP/3.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — DDD-контексты, слои, MVC/MVVM, потоки данных.
 - [`docs/API.md`](docs/API.md) — REST API, права, ошибки, WebSocket.
 - [`docs/WORKER.md`](docs/WORKER.md) — протокол воркера, netlink/tc/nft, статистика.
-- [`docs/SECURITY.md`](docs/SECURITY.md) — роли, секреты, JWT, share-ссылки, ограничения.
+- [`docs/SECURITY.md`](docs/SECURITY.md) — роли, секреты, JWT, share-ссылки, HTTP-заголовки безопасности, ограничения.
 - [`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md) — приёмка production-блокеров: ядро, tc, nftables, Docker, TLS/ACME, HTTP/3.
+- [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — эксплуатация: запуск/остановка, секреты, backup/restore redb, метрики, логи, аудит, квоты, worker, инциденты, обновление.
 - [`docs/TODO.md`](docs/TODO.md) — что проверено, что осталось, с чего продолжить.
 - [`docs/FRAMEWORK-NOTES.md`](docs/FRAMEWORK-NOTES.md) — найденные баги silent и обходы.
 
@@ -86,6 +87,21 @@ Traefik проксирует `/api` к admin по HTTP/1.1; HTTP/3 термин�
 Клиенты, которым нужен h2c напрямую, используют
 `curl --http2-prior-knowledge http://127.0.0.1:8080/api/v1/health`.
 
+## Безопасность HTTP
+
+nginx раздаёт frontend с CSP, nosniff, `Referrer-Policy`, `Permissions-Policy`,
+`X-Frame-Options: DENY` и `Cross-Origin-Opener-Policy: same-origin`; Traefik
+добавляет HSTS на HTTPS-роутерах и заголовки для API. CSP использует
+`style-src 'unsafe-inline'` (inline `style="..."` в компонентах) и
+`connect-src ws: wss:` для WebSocket статистики; inline-скриптов нет.
+
+```bash
+curl -sSI http://127.0.0.1:8081/ | grep -Ei 'content-security|x-content|referrer|permissions|x-frame'
+curl -sSI -k https://127.0.0.1/ | grep -i strict-transport-security
+```
+
+Детали и компромиссы — в [`docs/SECURITY.md`](docs/SECURITY.md).
+
 ## Метрики и логи
 
 - `GET /metrics` — Prometheus text-формат (`awg_http_requests_total`,
@@ -106,7 +122,7 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ```bash
 cargo test --workspace          # 28 тестов
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 566 тестов
+cd frontend && pnpm test        # 593 теста
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build

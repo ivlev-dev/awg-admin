@@ -21,15 +21,18 @@
 - Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 566 тестов.
+  статические SVG-иконки, 593 теста.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
+- Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
+  `X-Request-Id`, Prometheus `/metrics`, JSON-логи, `docs/OPERATIONS.md`.
+- UI: focus-trap и ARIA в модалках, ErrorBoundary, offline-баннер, страница 404.
 
 ## Проверено
 
-- `cargo test --workspace` — 239 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
+- `cargo test --workspace` — 249 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 566 тестов, зелёные.
+- `cd frontend && pnpm test` — 593 теста, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`

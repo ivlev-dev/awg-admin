@@ -65,6 +65,16 @@ domain <- application <- infrastructure
 - Контексты: `auth`, `users`, `tariffs`, `groups` (включая CIDR-пулы), `nodes`, `interfaces`, `devices` (устройства, профили, share-ссылки, статистика устройства), `stats`, `settings`, `import`.
 
 
+### Доступность модальных окон
+
+`components/Modal` — контролируемый диалог: при открытии фокус переходит на первый
+интерактивный элемент (или на контейнер с `tabindex="-1"`), `Tab`/`Shift+Tab`
+циклически остаются внутри, `Escape` и клик по backdrop закрывают окно при
+`closable !== false`, а при закрытии фокус возвращается на элемент-инициатор.
+Корень размечен `role="dialog"`, `aria-modal="true"` и `aria-labelledby`
+(или `aria-label` для пустого заголовка). Вложенные модалки образуют стек:
+обработчики клавиатуры срабатывают только у верхней.
+
 ### Проверка границ
 
 ```bash
@@ -99,7 +109,7 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
 
 - `HttpTransport` не знает про токены и интерсепторы. Принимает `ApiConfig` (`baseUrl`, `timeoutMs`), сериализует JSON, обрабатывает 204/пустой ответ, бросает `ApiError` (`status`, `code`, `message`).
 - `HttpClient` строит `RequestContext`, прогоняет его через request-цепочку, отправляет через транспорт, затем прогоняет `ResponseContext` через response-цепочку. Публичные методы: `get/delete<T>(path, options?)` и `post/patch/put<T>(path, body?, options?)`, где `options: { auth?: boolean; source?: "auth" | "api" }`; по умолчанию `auth: true`, `source: "api"`.
-- `InterceptorRegistry` принимает конкретные интерсепторы (`AuthRequestInterceptor`, `AuthResponseInterceptor`) через конструктор и отдаёт упорядоченные `request`/`response` списки. Массив в конструкторе не используется — silent-di не автовайрит массивы.
+- `InterceptorRegistry` принимает конкретные интерсепторы (`AuthRequestInterceptor`, `AuthResponseInterceptor`) через конструктор и отдаёт упорядоченные `request`/`response` списки. Массив в конструкторе не используется — silent-di не автовайрит массивы. Дополнительные response-интерсепторы подключаются через `addResponse`, чтобы не менять DI-конструктор.
 - `AuthRequestInterceptor` добавляет `Authorization: Bearer <access>` из `TokenStore` только при `auth === true`.
 - `AuthResponseInterceptor` обрабатывает `401`:
   - `source === "auth"` или путь `/auth/refresh` — очищает сессию (`AuthSessionState.clear()`), рефреш не выполняется;
@@ -107,6 +117,14 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
   - повторный `401` после ретрая (`attempt > 0`) второй рефреш не запускает.
 - `AuthRepository` использует `HttpTransport` напрямую (login/refresh/logout/me/changePassword), поэтому цепочка `HttpClient -> interceptors -> AuthRepository -> HttpTransport` не содержит обратного ребра на `HttpClient`. `AuthSessionState` реализует `Session`; `HttpClient` резолвится контейнером без `CircularDependencyError`.
 - Все методы `AuthRepository` помечают запросы `source: "auth"`; репозитории остальных контекстов используют `HttpClient` с `source: "api"`.
+
+### Отказоустойчивость интерфейса
+
+- `main.tsx` регистрирует `setErrorHandler` из silent-core: ошибки VM, рендера и эффектов вне `ErrorBoundary` логируются в консоль и показываются тостом «Произошла ошибка интерфейса».
+- Shell обёрнут в `ErrorBoundary` (`components/ErrorBoundary.tsx`) с fallback «Что-то пошло не так», кнопками «Обновить страницу» и «На главную». Ошибки загрузки lazy-страниц по-прежнему обрабатывает `onError` у `lazy`.
+- `ConnectionMonitor` (`app/connection.ts`) слушает `online`/`offline`. `ConnectionBanner` показывает sticky-баннер «Нет соединения» без блокировки UI и «Соединение восстановлено» на 3 секунды.
+- `NetworkErrorInterceptor` реагирует только на `code === "network_error"` и показывает тост «Нет связи с сервером» с троттлингом 5 секунд. Поведение `401` и `AuthResponseInterceptor` не меняется.
+- Неизвестный маршрут разрешается в `not-found`: для гостя страница «Раздел не найден» рендерится standalone, для авторизованного пользователя — внутри shell, со ссылкой на обзор.
 
 ### DI и автопоиск
 
@@ -403,6 +421,57 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 `tracing_subscriber` JSON-формат с полями `timestamp`, `level`, `target`,
 `fields` — удобно для Loki/ELK. Конфигурация вынесена в `admin::logging`.
 
+## Эксплуатация
+
+### Graceful shutdown
+
+`awg-admin` перехватывает `SIGTERM` (Docker/Compose) и `SIGINT` (`Ctrl+C`).
+После сигнала:
+
+1. `/ready` начинает отвечать `503` (`reason=shutting_down`), `/health`
+   продолжает отвечать `200`;
+2. HTTP-сервер (`axum`) и worker gRPC (`tonic`) перестают принимать новые
+   соединения и доигрывают in-flight запросы (`with_graceful_shutdown` /
+   `serve_with_shutdown`);
+3. фоновые задачи (prune refresh-токенов, аудита и traffic buckets, очистка
+   rate limiter) получают сигнал через `watch`-канал, выходят из цикла и не
+   мешают дренажу;
+4. процесс ждёт не дольше `AWG_SHUTDOWN_GRACE_SECS` (по умолчанию 10 с), затем
+   пишет warning и завершается с кодом 0.
+
+`docker stop` по умолчанию даёт 10 секунд до `SIGKILL`, поэтому
+`stop_grace_period` в compose должен быть не меньше grace (например `15s`).
+
+### Таймауты
+
+Запросы под `/api/v1` ограничены `tower_http::timeout::TimeoutLayer`
+(`AWG_HTTP_TIMEOUT_SECS`, по умолчанию 30 с). По истечении клиент получает
+`504 Gateway Timeout` с JSON-телом `{"error":"gateway_timeout", ...}`.
+Ограничение тела запроса — `DefaultBodyLimit` (16 МиБ), оно одно и не
+дублируется другими слоями.
+
+### Пробы
+
+| Путь | Назначение | Ответ |
+| --- | --- | --- |
+| `GET /api/v1/health` | liveness, не обращается к БД | `200` + `status=ok` |
+| `GET /ready`, `GET /api/v1/ready` | readiness | `200` + `status=ready` и `schema_version`; `503` при shutdown, отсутствии или несовпадении версии схемы |
+
+`/ready` открывает чтение метаданных redb и сравнивает версию схемы с
+`CURRENT_SCHEMA_VERSION`. Ошибка чтения даёт `503`
+(`reason=schema_unavailable`), другая версия — `503`
+(`reason=schema_not_migrated`). Миграции выполняются синхронно до старта HTTP,
+поэтому во время миграции сервер ещё не принимает трафик.
+
+### Request ID и логи
+
+Middleware `routes::request_id` берёт `X-Request-Id` клиента, если значение
+похоже на идентификатор (`[A-Za-z0-9._-]`, до 128 символов), иначе генерирует
+UUID v4. Заголовок возвращается в ответе и добавляется в span `http_request`
+(`request_id`, `method`, `path`). `TraceLayer` логирует метод, путь, статус и
+длительность; заголовки (`Authorization`, `Cookie`) и тела запросов не
+логируются, пароли в логи не попадают.
+
 ## Конфигурация и секреты
 
 `AWG_ENV=development|production` (по умолчанию `development`).
@@ -419,10 +488,40 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 `AWG_METRICS_TOKEN` включает Bearer-аутентификацию для `GET /metrics`
 (см. раздел Observability). `AWG_LOG_FORMAT=text|json` выбирает формат логов.
 
+`AWG_HTTP_TIMEOUT_SECS` (по умолчанию 30) задаёт таймаут запросов `/api`, а
+`AWG_SHUTDOWN_GRACE_SECS` (по умолчанию 10) — окно дренажа при остановке. Оба
+значения приводятся к минимуму 1 с.
+
 В `development` отсутствующие `AWG_MASTER_KEY`/`AWG_JWT_SECRET` генерируются
 эфемерно с предупреждением: после рестарта сохранённые секреты устройств
 становятся нечитаемыми. Валидация вынесена в чистую функцию
 `Config::from_input(ConfigInput)`, не зависящую от процесса.
+
+## Безопасность HTTP
+
+Заголовки задаются на периметре, приложение их не формирует: frontend —
+nginx (`docker/nginx.conf`), API — middleware Traefik (`docker-compose.yml`).
+Полная таблица значений и компромиссов — в [`SECURITY.md`](SECURITY.md).
+
+- `Strict-Transport-Security` (`max-age=31536000; includeSubDomains`) —
+  middleware `frontend-hsts` и `admin-api-sec`, только на роутерах
+  `websecure`; HTTP-entrypoint отвечает `308` и HSTS не отдаёт.
+- `Content-Security-Policy` у frontend: `default-src 'self'`, скрипты только
+  внешние из `/assets`, `style-src 'unsafe-inline'` из-за inline `style="..."`
+  в компонентах, `connect-src 'self' ws: wss:` для REST и WebSocket статистики.
+  У API CSP — `default-src 'none'; frame-ancestors 'none'; base-uri 'none'`.
+- `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
+  `Cross-Origin-Opener-Policy`, `Permissions-Policy` — на nginx; API получает
+  nosniff/frame-deny/referrer из Traefik.
+- nginx повторяет заголовки в `location ^~ /assets/`, потому что `add_header`
+  в location отменяет наследование; `Cache-Control: immutable` не вытесняет
+  CSP и остальные заголовки.
+
+Проксирование не менялось: Traefik по-прежнему передаёт `/api` на admin по
+HTTP/1.1 (backend принимает h2c на `:8080`), healthcheck `admin` идёт на
+`http://localhost:8080/api/v1/health` напрямую, HTTP/3 терминируется Traefik
+(`alt-svc: h3`). Middleware заголовков не трогают тела ответов и не мешают
+WebSocket upgrade.
 
 ## Обфускация AWG 3.1
 
