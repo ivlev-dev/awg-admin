@@ -8,9 +8,9 @@ import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { plural } from "@/domain/format";
 import type { Device, Group, User } from "@/domain/types";
 import { t } from "@/i18n";
+import { pluralI18n } from "@/i18n/format";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
@@ -123,7 +123,7 @@ export class ClientsPageVM {
       this.groups = groups;
       this.users = users;
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось загрузить клиентов"));
+      this.toasts.error(messageOf(error, t("clients.error.load")));
     } finally {
       this.loading = false;
     }
@@ -191,7 +191,7 @@ export class ClientsPageVM {
     if (!this.canCreate) return;
     const userId = this.isAdmin ? this.formUserId : this.session.user?.id ?? "";
     if (!userId) {
-      this.toasts.error("Не удалось определить пользователя устройства");
+      this.toasts.error(t("clients.error.user"));
       return;
     }
     this.submitting = true;
@@ -208,10 +208,10 @@ export class ClientsPageVM {
         },
       });
       this.createOpen = false;
-      this.toasts.success(`Устройство «${device.name}» создано`);
+      this.toasts.success(t("clients.toast.created", { name: device.name }));
       await this.load();
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось создать устройство"));
+      this.toasts.error(messageOf(error, t("clients.error.create")));
     } finally {
       this.submitting = false;
     }
@@ -229,12 +229,13 @@ export class ClientsPageVM {
   }
 
   groupName(id: string | null): string {
-    if (!id) return "Без группы";
+    if (!id) return t("clients.group.none");
     return this.groups.find((item) => item.id === id)?.name ?? id;
   }
 
   peersLabel(device: Device): string {
-    return `${device.peers.length} ${plural(device.peers.length, "пир", "пира", "пиров")}`;
+    const count = device.peers.length;
+    return `${count} ${pluralI18n(count, "common.peers.one", "common.peers.few", "common.peers.many")}`;
   }
 
   interfaceNames(device: Device): string {

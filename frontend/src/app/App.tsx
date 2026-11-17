@@ -2,10 +2,13 @@ import { For, Show, Suspense, createSignal, lazy } from "@ivlev-dev/silent-core"
 import type { LazyOptions } from "@ivlev-dev/silent-core";
 
 import type { AppVM } from "./App.vm";
+import { loadPage } from "./page-loaders";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/Icon";
 import { NotFound } from "@/components/NotFound";
+import { MAIN_CONTENT_ID, SkipLink } from "@/components/SkipLink";
+import { ToastStack } from "@/components/ToastStack";
 import { t } from "@/i18n";
 
 interface PageFailure {
@@ -29,74 +32,23 @@ function pageOptions(route: string): LazyOptions {
   };
 }
 
-const Login = lazy(
-  () => import("@/features/auth/Login").then((module) => ({ default: module.Login })),
-  pageOptions("login"),
-);
-const Register = lazy(
-  () => import("@/features/auth/Register").then((module) => ({ default: module.Register })),
-  pageOptions("register"),
-);
-const VerifyEmail = lazy(
-  () => import("@/features/auth/VerifyEmail").then((module) => ({ default: module.VerifyEmail })),
-  pageOptions("verify-email"),
-);
-const Overview = lazy(
-  () => import("@/features/overview/Overview").then((module) => ({ default: module.Overview })),
-  pageOptions("overview"),
-);
-const ClientsPage = lazy(
-  () => import("@/features/clients/ClientsPage").then((module) => ({ default: module.ClientsPage })),
-  pageOptions("clients"),
-);
-const ClientDetails = lazy(
-  () => import("@/features/clients/ClientDetails").then((module) => ({ default: module.ClientDetails })),
-  pageOptions("client"),
-);
-const GroupsPage = lazy(
-  () => import("@/features/groups/GroupsPage").then((module) => ({ default: module.GroupsPage })),
-  pageOptions("groups"),
-);
-const GroupDetails = lazy(
-  () => import("@/features/groups/GroupDetails").then((module) => ({ default: module.GroupDetails })),
-  pageOptions("group"),
-);
-const InterfacesPage = lazy(
-  () => import("@/features/interfaces/InterfacesPage").then((module) => ({ default: module.InterfacesPage })),
-  pageOptions("interfaces"),
-);
-const NodesPage = lazy(
-  () => import("@/features/nodes/NodesPage").then((module) => ({ default: module.NodesPage })),
-  pageOptions("nodes"),
-);
-const TariffsPage = lazy(
-  () => import("@/features/tariffs/TariffsPage").then((module) => ({ default: module.TariffsPage })),
-  pageOptions("tariffs"),
-);
-const UsersPage = lazy(
-  () => import("@/features/users/UsersPage").then((module) => ({ default: module.UsersPage })),
-  pageOptions("users"),
-);
-const AuditPage = lazy(
-  () => import("@/features/audit/AuditPage").then((module) => ({ default: module.AuditPage })),
-  pageOptions("audit"),
-);
-const ImportPage = lazy(
-  () => import("@/features/import/ImportPage").then((module) => ({ default: module.ImportPage })),
-  pageOptions("import"),
-);
-const StatsPage = lazy(
-  () => import("@/features/stats/StatsPage").then((module) => ({ default: module.StatsPage })),
-  pageOptions("stats"),
-);
-const ProfilePage = lazy(
-  () => import("@/features/profile/ProfilePage").then((module) => ({ default: module.ProfilePage })),
-  pageOptions("profile"),
-);
-const SettingsPage = lazy(
-  () => import("@/features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })),
-  pageOptions("settings"),
-);
+const Login = lazy(() => loadPage("login"), pageOptions("login"));
+const Register = lazy(() => loadPage("register"), pageOptions("register"));
+const VerifyEmail = lazy(() => loadPage("verify-email"), pageOptions("verify-email"));
+const Overview = lazy(() => loadPage("overview"), pageOptions("overview"));
+const ClientsPage = lazy(() => loadPage("clients"), pageOptions("clients"));
+const ClientDetails = lazy(() => loadPage("client"), pageOptions("client"));
+const GroupsPage = lazy(() => loadPage("groups"), pageOptions("groups"));
+const GroupDetails = lazy(() => loadPage("group"), pageOptions("group"));
+const InterfacesPage = lazy(() => loadPage("interfaces"), pageOptions("interfaces"));
+const NodesPage = lazy(() => loadPage("nodes"), pageOptions("nodes"));
+const TariffsPage = lazy(() => loadPage("tariffs"), pageOptions("tariffs"));
+const UsersPage = lazy(() => loadPage("users"), pageOptions("users"));
+const AuditPage = lazy(() => loadPage("audit"), pageOptions("audit"));
+const ImportPage = lazy(() => loadPage("import"), pageOptions("import"));
+const StatsPage = lazy(() => loadPage("stats"), pageOptions("stats"));
+const ProfilePage = lazy(() => loadPage("profile"), pageOptions("profile"));
+const SettingsPage = lazy(() => loadPage("settings"), pageOptions("settings"));
 
 function PageFallback() {
   return (
@@ -107,7 +59,14 @@ function PageFallback() {
   );
 }
 
-function PageSlot(props: { readonly children?: unknown }) {
+function PageSlot(props: { readonly children?: unknown; readonly main?: boolean }) {
+  if (props.main) {
+    return (
+      <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>
+        <Suspense fallback={<PageFallback />}>{props.children}</Suspense>
+      </main>
+    );
+  }
   return (
     <div class="page-slot">
       <Suspense fallback={<PageFallback />}>{props.children}</Suspense>
@@ -144,7 +103,13 @@ function sidebar(vm: AppVM) {
           <div class="nav-group__label">{t("nav.group.management")}</div>
           <For each={vm.nav}>
             {(item) => (
-              <button class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`} type="button" onClick={() => vm.go(item.path)}>
+              <button
+                class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`}
+                type="button"
+                onClick={() => vm.go(item.path)}
+                onMouseEnter={() => vm.prefetch(item.path)}
+                onFocus={() => vm.prefetch(item.path)}
+              >
                 <Icon name={item.icon} />
                 <span>{item.title}</span>
               </button>
@@ -155,7 +120,13 @@ function sidebar(vm: AppVM) {
           <div class="nav-group__label">{t("nav.group.account")}</div>
           <For each={vm.accountNav}>
             {(item) => (
-              <button class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`} type="button" onClick={() => vm.go(item.path)}>
+              <button
+                class={`nav-item ${vm.isActive(item.path) ? "is-active" : ""}`}
+                type="button"
+                onClick={() => vm.go(item.path)}
+                onMouseEnter={() => vm.prefetch(item.path)}
+                onFocus={() => vm.prefetch(item.path)}
+              >
                 <Icon name={item.icon} />
                 <span>{item.title}</span>
               </button>
@@ -290,7 +261,7 @@ function shell(vm: AppVM) {
             <div class="avatar avatar--sm">{vm.userInitial}</div>
           </button>
         </header>
-        <main class="content">{content(vm)}</main>
+        <main class="content" id={MAIN_CONTENT_ID} tabindex={-1}>{content(vm)}</main>
       </div>
       <nav class="mobile-nav">
         <For each={vm.mobileNav}>
@@ -299,6 +270,8 @@ function shell(vm: AppVM) {
               class={`mobile-nav__item ${vm.isActive(item.path) ? "is-active" : ""}`}
               type="button"
               onClick={() => vm.go(item.path)}
+              onMouseEnter={() => vm.prefetch(item.path)}
+              onFocus={() => vm.prefetch(item.path)}
             >
               <Icon name={item.icon} class="mobile-nav__icon" />
               <span>{item.title}</span>
@@ -328,6 +301,8 @@ function content(vm: AppVM) {
 export function App(this: { vm: AppVM }) {
   return (
     <>
+      <SkipLink />
+
       <ConnectionBanner notice={() => this.vm.connectionNotice} online={() => this.vm.online} />
 
       <Show when={this.vm.booting}>
@@ -339,25 +314,27 @@ export function App(this: { vm: AppVM }) {
       </Show>
 
       <Show when={!this.vm.booting && this.vm.routeName === "login"}>
-        <PageSlot>
+        <PageSlot main>
           <Login />
         </PageSlot>
       </Show>
 
       <Show when={!this.vm.booting && this.vm.routeName === "register"}>
-        <PageSlot>
+        <PageSlot main>
           <Register />
         </PageSlot>
       </Show>
 
       <Show when={!this.vm.booting && this.vm.routeName === "verify-email"}>
-        <PageSlot>
+        <PageSlot main>
           <VerifyEmail />
         </PageSlot>
       </Show>
 
       <Show when={!this.vm.booting && this.vm.routeName === "not-found" && !this.vm.showShell}>
-        <NotFound path={this.vm.path} onHome={() => this.vm.go("/")} standalone />
+        <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>
+          <NotFound path={this.vm.path} onHome={() => this.vm.go("/")} standalone />
+        </main>
       </Show>
 
       <Show when={this.vm.showShell}>
@@ -366,16 +343,10 @@ export function App(this: { vm: AppVM }) {
         </AppErrorBoundary>
       </Show>
 
-      <div class="toast-stack" aria-live="polite">
-        <For each={this.vm.toasts.items}>
-          {(item) => (
-            <div class={`toast toast--${item.kind}`} onClick={() => this.vm.toasts.dismiss(item.id)}>
-              <span class="grow">{item.message}</span>
-              <Icon name="close" size={14} class="" />
-            </div>
-          )}
-        </For>
-      </div>
+      <ToastStack
+        items={this.vm.toasts.items}
+        onDismiss={(id: number) => this.vm.toasts.dismiss(id)}
+      />
     </>
   );
 }

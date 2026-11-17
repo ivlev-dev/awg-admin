@@ -3,21 +3,22 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { AuditPageVM } from "./AuditPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
 export function AuditPage(this: { vm: AuditPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Безопасность</div>
+        <div class="page-head__eyebrow">{t("audit.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>Аудит</h1>
-            <p>Журнал действий администраторов и изменения конфигурации панели.</p>
+            <h1>{t("audit.title")}</h1>
+            <p>{t("audit.subtitle")}</p>
           </div>
           <div class="actions-bar">
             <button class="btn btn--sm" type="button" disabled={this.vm.loading} onClick={() => this.vm.refresh()}>
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
             <button
               class="btn btn--sm"
@@ -25,7 +26,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               disabled={!this.vm.canExport}
               onClick={() => this.vm.exportCsv()}
             >
-              <Icon name="download" size={14} class="" /> Экспорт CSV
+              <Icon name="download" size={14} class="" /> {t("audit.export")}
             </button>
           </div>
         </div>
@@ -39,27 +40,27 @@ export function AuditPage(this: { vm: AuditPageVM }) {
         <div class="card__body stack">
           <div class="grid grid--3">
             <div class="field">
-              <label for="audit-action">Действие</label>
+              <label for="audit-action">{t("audit.filter.action")}</label>
               <Select
                 id="audit-action"
                 value={this.vm.action}
                 options={this.vm.actionOptions}
                 onChange={(value) => this.vm.setAction(value)}
-                ariaLabel="Действие"
+                ariaLabel={t("audit.filter.action")}
               />
             </div>
             <div class="field">
-              <label for="audit-status">Статус</label>
+              <label for="audit-status">{t("audit.filter.status")}</label>
               <Select
                 id="audit-status"
                 value={this.vm.status}
                 options={this.vm.statusOptions}
                 onChange={(value) => this.vm.setStatus(value)}
-                ariaLabel="Статус"
+                ariaLabel={t("audit.filter.status")}
               />
             </div>
             <div class="field">
-              <label for="audit-entity">Объект</label>
+              <label for="audit-entity">{t("audit.filter.entity")}</label>
               <input
                 id="audit-entity"
                 class="input"
@@ -70,7 +71,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               />
             </div>
             <div class="field">
-              <label for="audit-actor">Актор</label>
+              <label for="audit-actor">{t("audit.filter.actor")}</label>
               <input
                 id="audit-actor"
                 class="input"
@@ -81,7 +82,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               />
             </div>
             <div class="field">
-              <label for="audit-from">С периода</label>
+              <label for="audit-from">{t("audit.filter.from")}</label>
               <input
                 id="audit-from"
                 class="input"
@@ -91,7 +92,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               />
             </div>
             <div class="field">
-              <label for="audit-to">По</label>
+              <label for="audit-to">{t("audit.filter.to")}</label>
               <input
                 id="audit-to"
                 class="input"
@@ -108,7 +109,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               disabled={this.vm.loading || this.vm.loadingMore}
               onClick={() => this.vm.apply()}
             >
-              Применить
+              {t("audit.action.apply")}
             </button>
             <button
               class="btn"
@@ -116,7 +117,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               disabled={this.vm.loading || this.vm.loadingMore}
               onClick={() => this.vm.reset()}
             >
-              Сбросить
+              {t("audit.action.reset")}
             </button>
           </div>
         </div>
@@ -125,64 +126,60 @@ export function AuditPage(this: { vm: AuditPageVM }) {
       <section class="card">
         <div class="card__head">
           <div>
-            <div class="card__title">Журнал</div>
-            <div class="card__sub">Загружено событий: {this.vm.total}</div>
+            <div class="card__title">{t("audit.log.title")}</div>
+            <div class="card__sub">{this.vm.loadedLabel}</div>
           </div>
         </div>
-        <div class="card__body">
-          <Show when={!this.vm.loading} fallback={<div class="skeleton" style="height:180px"></div>}>
-            <Show
-              when={!this.vm.isEmpty}
-              fallback={
-                <div class="empty">
-                  <div class="empty__title">Событий нет</div>
-                  <div class="small">Измените фильтры или выберите другой период.</div>
-                  <Show when={this.vm.hasActiveFilters}>
-                    <div style="margin-top:14px">
-                      <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
-                        <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                      </button>
-                    </div>
-                  </Show>
-                </div>
-              }
-            >
-              <div class="table-wrap">
-                <table class="table table--cards">
+        <div class="card__body" aria-busy={this.vm.loading || !this.vm.initialized ? "true" : "false"}>
+          <Show
+            when={!this.vm.loading && this.vm.initialized}
+            fallback={<SkeletonTable rows={6} columns={7} />}
+          >
+            <div class={this.vm.isEmpty ? "empty" : "hidden"}>
+              <div class="empty__title">{t("audit.empty.title")}</div>
+              <div class="small">{t("audit.empty.text")}</div>
+              <div class={this.vm.hasActiveFilters ? "" : "hidden"} style="margin-top:14px">
+                <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.reset()}>
+                  <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                </button>
+              </div>
+            </div>
+            <div class={`table-wrap table-wrap--cards${this.vm.isEmpty ? " hidden" : ""}`}>
+                <table class="table table--cards table--audit">
                   <thead>
                     <tr>
-                      <th>Время</th>
-                      <th>Актор</th>
-                      <th>Действие</th>
-                      <th>Объект</th>
-                      <th>Статус</th>
-                      <th>IP</th>
-                      <th>Детали</th>
+                      <th>{t("audit.column.time")}</th>
+                      <th>{t("audit.column.actor")}</th>
+                      <th>{t("audit.column.action")}</th>
+                      <th>{t("audit.column.entity")}</th>
+                      <th>{t("audit.column.status")}</th>
+                      <th>{t("audit.column.ip")}</th>
+                      <th>{t("audit.column.details")}</th>
                     </tr>
                   </thead>
                   <tbody>
                     <For each={this.vm.rows}>
                       {(row) => (
                         <tr>
-                          <td data-label="Время">
+                          <td data-label={t("audit.column.time")}>
                             <span class="small nowrap mono">{row.at}</span>
                           </td>
-                          <td data-label="Актор">
-                            <span class="strong" title={row.actorId ?? undefined}>{row.actor}</span>
+                          <td data-label={t("audit.column.actor")}>
+                            <span class="strong cell-entity" title={row.actorId ?? undefined}>{row.actor}</span>
                           </td>
-                          <td data-label="Действие">
+                          <td data-label={t("audit.column.action")}>
                             <span class="mono small">{row.action}</span>
                           </td>
-                          <td data-label="Объект">
-                            <span title={row.entityId ?? undefined}>{row.entityLabel}</span>
+                          <td data-label={t("audit.column.entity")}>
+                            <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
                           </td>
-                          <td data-label="Статус">
+                          <td data-label={t("audit.column.status")}>
                             <span class={`badge ${row.statusClass}`}>{row.status}</span>
                           </td>
                           <td data-label="IP">
                             <span class="small mono">{row.ip}</span>
                           </td>
-                          <td data-label="Детали">
+                          <td class="cell-details" data-label={t("audit.column.details")}>
                             <Show
                               when={row.hasDetails}
                               fallback={<span class="small muted">{row.detailsPreview}</span>}
@@ -190,7 +187,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                               <button
                                 class="audit-details"
                                 type="button"
-                                aria-expanded={this.vm.expandedId === row.id}
+                                aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
                                 title={row.details ?? undefined}
                                 onClick={() => this.vm.toggleDetails(row.id)}
                               >
@@ -210,7 +207,6 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                   </tbody>
                 </table>
               </div>
-            </Show>
           </Show>
 
           <Show when={this.vm.hasMore && !this.vm.loading}>
@@ -221,7 +217,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 disabled={this.vm.loadingMore}
                 onClick={() => this.vm.loadMore()}
               >
-                {this.vm.loadingMore ? "Загрузка…" : "Загрузить ещё"}
+                {this.vm.loadingMore ? t("common.loading") : t("audit.loadMore")}
               </button>
             </div>
           </Show>

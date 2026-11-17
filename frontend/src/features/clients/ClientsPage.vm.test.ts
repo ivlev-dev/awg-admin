@@ -1,3 +1,5 @@
+import { createComponent } from "@ivlev-dev/silent-core";
+
 import { DefaultDevicesService } from "@/application/devices/service";
 import { DefaultGroupsService } from "@/application/groups/service";
 import { DefaultUsersService } from "@/application/users/service";
@@ -11,6 +13,8 @@ import type { GroupsRepository } from "@/domain/groups/repository";
 import type { UsersRepository } from "@/domain/users/repository";
 import type { Device, Group, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
+import { setLocale } from "@/i18n";
+import { ClientsPage } from "./ClientsPage";
 import { ClientsPageVM, clientsFiltersStorage } from "./ClientsPage.vm";
 
 const ADMIN: User = {
@@ -276,6 +280,7 @@ describe("ClientsPageVM", () => {
   });
 
   afterEach(() => {
+    setLocale("ru");
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
@@ -520,6 +525,72 @@ describe("ClientsPageVM", () => {
     expect(vm.groupName("g9")).toBe("g9");
     expect(vm.peersLabel(DEVICE)).toBe("2 пира");
     expect(vm.interfaceNames(DEVICE)).toBe("wg0, wg1");
+  });
+
+  it("переключает язык заголовка и таблицы", async () => {
+    const devices = devicesHarness([DEVICE]);
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
+    container.bind(Session, () => makeSession(ADMIN));
+    container.bind(Router, () => new Router());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const result = createComponent(ClientsPage, {}, { container });
+    await result.ready;
+
+    await vi.waitFor(() => {
+      expect(result.node.textContent).toContain("Клиенты");
+      expect(result.node.textContent).toContain("Устройства AmneziaWG");
+      expect(result.node.textContent).toContain("Владелец");
+    });
+
+    setLocale("en");
+
+    await vi.waitFor(() => {
+      expect(result.node.textContent).toContain("Clients");
+      expect(result.node.textContent).toContain("AmneziaWG devices");
+      expect(result.node.textContent).toContain("Owner");
+    });
+    expect(result.node.textContent).not.toContain("Устройства AmneziaWG");
+
+    result.dispose();
+  });
+
+  it("помечает таблицу клиентов для мобильных карточек", async () => {
+    const devices = devicesHarness([DEVICE]);
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
+    container.bind(Session, () => makeSession(ADMIN));
+    container.bind(Router, () => new Router());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const result = createComponent(ClientsPage, {}, { container });
+    await result.ready;
+
+    const root = result.node as ParentNode;
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("table.table--clients")).not.toBeNull();
+    });
+
+    const table = root.querySelector("table.table--clients");
+    expect(table?.classList.contains("table--cards")).toBe(true);
+    expect(root.querySelector(".table-wrap--cards")).not.toBeNull();
+
+    const labels = Array.from(root.querySelectorAll("td[data-label]")).map((cell) =>
+      cell.getAttribute("data-label"),
+    );
+    expect(labels).toContain("Устройство");
+    expect(labels).toContain("Владелец");
+    expect(labels).toContain("Статус");
+    expect(root.querySelector("td[data-label='Владелец'] .cell-stack")).not.toBeNull();
+    expect(root.querySelector("tbody tr td.cell-actions button")).not.toBeNull();
+
+    result.dispose();
   });
 
   it("резолвится контейнером без ручных привязок", async () => {

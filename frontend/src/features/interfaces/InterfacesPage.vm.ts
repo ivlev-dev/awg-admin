@@ -5,9 +5,10 @@ import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "../../application/groups/service";
 import type { InterfacesService } from "../../application/interfaces/service";
 import type { NodesService } from "../../application/nodes/service";
-import { plural } from "@/domain/format";
 import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
+import { t } from "@/i18n";
+import { pluralI18n } from "@/i18n/format";
 
 const DEFAULT_ENDPOINT_PORT = "443";
 const DEFAULT_LISTEN_PORT = "51820";
@@ -131,7 +132,7 @@ export class InterfacesPageVM {
       this.nodes = nodes;
       this.syncFilters();
     } catch (error) {
-      this.error = messageOf(error, "Не удалось загрузить интерфейсы");
+      this.error = messageOf(error, t("interfaces.error.load"));
     } finally {
       this.loading = false;
     }
@@ -227,9 +228,9 @@ export class InterfacesPageVM {
       const created = await this.interfacesService.createInterface(input);
       this.interfaces = sortInterfaces([...this.interfaces, created]);
       this.createOpen = false;
-      this.toasts.success(`Интерфейс «${created.name}» создан`);
+      this.toasts.success(t("interfaces.toast.created", { name: created.name }));
     } catch (error) {
-      const message = messageOf(error, "Не удалось создать интерфейс");
+      const message = messageOf(error, t("interfaces.error.create"));
       this.formError = message;
       this.toasts.error(message);
     } finally {
@@ -295,9 +296,9 @@ export class InterfacesPageVM {
       });
       this.replace(updated);
       this.editing = null;
-      this.toasts.success(`Интерфейс «${updated.name}» обновлён`);
+      this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
     } catch (error) {
-      const message = messageOf(error, "Не удалось обновить интерфейс");
+      const message = messageOf(error, t("interfaces.error.update"));
       this.editError = message;
       this.toasts.error(message);
     } finally {
@@ -307,9 +308,7 @@ export class InterfacesPageVM {
 
   async rotate(item: InterfaceInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(
-      `Перевыпустить ключи интерфейса «${item.name}»?\n\nВсе клиентские конфиги нужно перевыпустить заново: старый публичный ключ перестанет работать.`,
-    );
+    const confirmed = window.confirm(t("interfaces.confirm.rotate", { name: item.name }));
     if (!confirmed) return;
     this.busy = true;
     try {
@@ -317,9 +316,9 @@ export class InterfacesPageVM {
       this.replace(updated);
       this.rotated = updated;
       this.rotatedCopied = false;
-      this.toasts.success("Ключи интерфейса перевыпущены");
+      this.toasts.success(t("interfaces.toast.rotated"));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось перевыпустить ключи"));
+      this.toasts.error(messageOf(error, t("interfaces.error.rotate")));
     } finally {
       this.busy = false;
     }
@@ -336,25 +335,23 @@ export class InterfacesPageVM {
     const copied = await copyText(key);
     this.rotatedCopied = copied;
     if (copied) {
-      this.toasts.success("Публичный ключ скопирован");
+      this.toasts.success(t("interfaces.copy.publicKeyCopied"));
     } else {
-      this.toasts.error("Не удалось скопировать ключ");
+      this.toasts.error(t("interfaces.copy.keyFailed"));
     }
   }
 
   async remove(item: InterfaceInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(
-      `Удалить интерфейс «${item.name}»?\n\nВсе пиры и клиентские конфиги этого интерфейса перестанут работать.`,
-    );
+    const confirmed = window.confirm(t("interfaces.confirm.delete", { name: item.name }));
     if (!confirmed) return;
     this.busy = true;
     try {
       await this.interfacesService.deleteInterface(item.id);
       this.interfaces = this.interfaces.filter((current) => current.id !== item.id);
-      this.toasts.success(`Интерфейс «${item.name}» удалён`);
+      this.toasts.success(t("interfaces.toast.deleted", { name: item.name }));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось удалить интерфейс"));
+      this.toasts.error(messageOf(error, t("interfaces.error.delete")));
     } finally {
       this.busy = false;
     }
@@ -363,18 +360,18 @@ export class InterfacesPageVM {
   async copyPublicKey(item: InterfaceInfo): Promise<void> {
     const copied = await copyText(item.public_key);
     if (copied) {
-      this.toasts.success("Публичный ключ скопирован");
+      this.toasts.success(t("interfaces.copy.publicKeyCopied"));
     } else {
-      this.toasts.error("Не удалось скопировать ключ");
+      this.toasts.error(t("interfaces.copy.keyFailed"));
     }
   }
 
   async copyEndpoint(item: InterfaceInfo): Promise<void> {
     const copied = await copyText(this.endpoint(item));
     if (copied) {
-      this.toasts.success("Endpoint скопирован");
+      this.toasts.success(t("interfaces.copy.endpointCopied"));
     } else {
-      this.toasts.error("Не удалось скопировать endpoint");
+      this.toasts.error(t("interfaces.copy.endpointFailed"));
     }
   }
 
@@ -384,7 +381,7 @@ export class InterfacesPageVM {
   }
 
   peersLabel(item: InterfaceInfo): string {
-    return `${item.peers} ${plural(item.peers, "пир", "пира", "пиров")}`;
+    return `${item.peers} ${pluralI18n(item.peers, "common.peers.one", "common.peers.few", "common.peers.many")}`;
   }
 
   obfHeaders(item: InterfaceInfo): string {

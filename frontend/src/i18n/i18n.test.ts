@@ -9,7 +9,7 @@ import {
   setLocale,
   t,
 } from "./index";
-import { formatBytesI18n, formatDateI18n } from "./format";
+import { formatBytesI18n, formatDateI18n, pluralI18n } from "./format";
 import { readStoredLocale } from "./store";
 
 class MemoryStorage {
@@ -120,6 +120,18 @@ describe("locale helpers", () => {
     expect(isLocale(null)).toBe(false);
     expect(LOCALES).toEqual(["ru", "en"]);
     expect(LANGUAGE_OPTIONS.map((option) => option.label)).toEqual(["Русский", "English"]);
+  });
+
+  it("склоняет подписи по правилам языка", () => {
+    expect(pluralI18n(1, "common.peers.one", "common.peers.few", "common.peers.many")).toBe("пир");
+    expect(pluralI18n(3, "common.peers.one", "common.peers.few", "common.peers.many")).toBe("пира");
+    expect(pluralI18n(11, "common.peers.one", "common.peers.few", "common.peers.many")).toBe("пиров");
+    expect(pluralI18n(21, "common.interfaces.one", "common.interfaces.few", "common.interfaces.many")).toBe("интерфейс");
+
+    setLocale("en");
+
+    expect(pluralI18n(1, "common.peers.one", "common.peers.few", "common.peers.many")).toBe("peer");
+    expect(pluralI18n(2, "common.peers.one", "common.peers.few", "common.peers.many")).toBe("peers");
   });
 
   it("форматирует байты и даты под текущую локаль", () => {

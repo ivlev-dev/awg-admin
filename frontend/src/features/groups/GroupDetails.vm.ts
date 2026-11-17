@@ -6,6 +6,7 @@ import type { GroupsService } from "../../application/groups/service";
 import type { InterfacesService } from "../../application/interfaces/service";
 import type { CidrPool, Group, InterfaceInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";
+import { t } from "@/i18n";
 
 const POOL_MODE_BADGE: Record<PoolMode, string> = {
   auto: "badge badge--blue",
@@ -67,13 +68,13 @@ export class GroupDetailsVM {
 
   @computed
   get title(): string {
-    return this.group?.name ?? "Группа";
+    return this.group?.name ?? t("groups.details.title");
   }
 
   @computed
   get subtitle(): string {
     const description = this.group?.description.trim() ?? "";
-    return description.length > 0 ? description : "Без описания";
+    return description.length > 0 ? description : t("groups.details.noDescription");
   }
 
   @computed
@@ -134,7 +135,7 @@ export class GroupDetailsVM {
       this.pools = pools;
       this.interfaces = interfaces.filter((item) => item.group_id === id);
     } catch (error) {
-      this.error = messageOf(error, "Не удалось загрузить группу");
+      this.error = messageOf(error, t("groups.details.error.load"));
       this.toasts.error(this.error);
     } finally {
       this.loading = false;
@@ -197,11 +198,11 @@ export class GroupDetailsVM {
     const name = this.formName.trim();
     const baseCidr = this.formBaseCidr.trim();
     if (!name) {
-      this.formError = "Укажите название группы";
+      this.formError = t("groups.details.error.name");
       return;
     }
     if (!isCidr(baseCidr)) {
-      this.formError = "Базовая сеть должна быть в формате CIDR, например 10.8.0.0/16";
+      this.formError = t("groups.details.error.baseCidr");
       return;
     }
 
@@ -219,9 +220,9 @@ export class GroupDetailsVM {
       });
       this.group = updated;
       this.formOpen = false;
-      this.toasts.success(`Группа «${name}» обновлена`);
+      this.toasts.success(t("groups.details.toast.updated", { name }));
     } catch (error) {
-      this.formError = messageOf(error, "Не удалось сохранить группу");
+      this.formError = messageOf(error, t("groups.details.error.save"));
       this.toasts.error(this.formError);
     } finally {
       this.formSaving = false;
@@ -282,20 +283,20 @@ export class GroupDetailsVM {
     const cidr = this.poolCidr.trim();
     const gateway = this.poolGateway.trim();
     if (!name) {
-      this.poolError = "Укажите название пула";
+      this.poolError = t("groups.details.pools.error.name");
       return;
     }
     if (!isCidr(cidr)) {
-      this.poolError = "CIDR должен быть в формате 10.8.0.0/24";
+      this.poolError = t("groups.details.pools.error.cidr");
       return;
     }
     const base = this.group?.base_cidr ?? "";
     if (!base) {
-      this.poolError = "Сначала задайте базовую сеть группы";
+      this.poolError = t("groups.details.pools.error.baseMissing");
       return;
     }
     if (!cidrContains(base, cidr)) {
-      this.poolError = `Диапазон должен находиться внутри базовой сети ${base}`;
+      this.poolError = t("groups.details.pools.error.outside", { cidr: base });
       return;
     }
 
@@ -312,7 +313,7 @@ export class GroupDetailsVM {
           gateway: gateway.length > 0 ? gateway : null,
           enabled: this.poolEnabled,
         });
-        this.toasts.success(`Пул «${name}» обновлён`);
+        this.toasts.success(t("groups.details.pools.toast.updated", { name }));
       } else {
         await this.groupsService.createPool(id, {
           name,
@@ -320,12 +321,12 @@ export class GroupDetailsVM {
           mode: this.poolMode,
           gateway: gateway.length > 0 ? gateway : null,
         });
-        this.toasts.success(`Пул «${name}» создан`);
+        this.toasts.success(t("groups.details.pools.toast.created", { name }));
       }
       this.poolOpen = false;
       await this.loadPools();
     } catch (error) {
-      this.poolError = messageOf(error, "Не удалось сохранить пул");
+      this.poolError = messageOf(error, t("groups.details.pools.error.save"));
       this.toasts.error(this.poolError);
     } finally {
       this.poolSaving = false;
@@ -333,13 +334,13 @@ export class GroupDetailsVM {
   }
 
   async removePool(pool: CidrPool): Promise<void> {
-    if (!window.confirm(`Удалить пул «${pool.name}»?`)) return;
+    if (!window.confirm(t("groups.details.pools.confirm.delete", { name: pool.name }))) return;
     try {
       await this.groupsService.deletePool(pool.id);
-      this.toasts.success(`Пул «${pool.name}» удалён`);
+      this.toasts.success(t("groups.details.pools.toast.deleted", { name: pool.name }));
       await this.loadPools();
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось удалить пул"));
+      this.toasts.error(messageOf(error, t("groups.details.pools.error.delete")));
     }
   }
 
@@ -347,7 +348,7 @@ export class GroupDetailsVM {
     try {
       this.pools = await this.groupsService.listPools(this.groupId);
     } catch (error) {
-      this.error = messageOf(error, "Не удалось обновить пулы");
+      this.error = messageOf(error, t("groups.details.pools.error.load"));
       this.toasts.error(this.error);
     }
   }

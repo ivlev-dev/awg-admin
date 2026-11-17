@@ -1,6 +1,7 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
+import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
@@ -83,6 +84,10 @@ export class AppVM {
 
   private readonly connection = new ConnectionMonitor();
 
+  private cancelIdlePrefetch: CancelIdlePrefetch | null = null;
+
+  private idlePrefetchPlanned = false;
+
   constructor(
     private readonly session: Session,
     private readonly router: Router,
@@ -96,9 +101,12 @@ export class AppVM {
     await this.session.init();
     this.booting = false;
     this.guard();
+    this.planIdlePrefetch();
   }
 
   dispose(): void {
+    this.cancelIdlePrefetch?.();
+    this.cancelIdlePrefetch = null;
     this.connection.dispose();
   }
 
@@ -207,6 +215,10 @@ export class AppVM {
     this.router.navigate(path);
   }
 
+  prefetch(path: string): void {
+    void prefetchPath(path);
+  }
+
   toggleDrawer(): void {
     this.drawer = !this.drawer;
   }
@@ -231,7 +243,21 @@ export class AppVM {
 
   @watch((vm: AppVM) => vm.authenticated)
   onAuthChange(): void {
+    this.cancelIdlePrefetch?.();
+    this.cancelIdlePrefetch = null;
+    this.idlePrefetchPlanned = false;
     this.guard();
+    this.planIdlePrefetch();
+  }
+
+  private planIdlePrefetch(): void {
+    if (this.idlePrefetchPlanned || this.booting) return;
+    if (!this.session.authenticated) return;
+    if (this.router.match.route.public) return;
+    const routes = IDLE_PREFETCH_PATHS.filter((path) => !this.isActive(path));
+    if (routes.length === 0) return;
+    this.idlePrefetchPlanned = true;
+    this.cancelIdlePrefetch = scheduleIdlePrefetch({ routes });
   }
 
   guard(): void {

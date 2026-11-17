@@ -4,6 +4,8 @@ import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { userMessage } from "@/application/errors";
 import type { AuditService } from "../../application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
+import { t } from "@/i18n";
+import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
 const PAGE_LIMIT = 50;
 const DETAILS_PREVIEW = 120;
@@ -12,8 +14,6 @@ const ID_PREVIEW = 8;
 const ACTIONS = ["POST", "PATCH", "PUT", "DELETE"] as const;
 
 const STATUSES = [200, 201, 204, 400, 401, 403, 404, 409, 429, 500] as const;
-
-const PERIOD_ERROR = "Начало периода не может быть позже конца";
 
 const QUERY_LIMIT = 200;
 const DATE_LIMIT = 32;
@@ -72,9 +72,7 @@ function toUnix(value: string): number | undefined {
 }
 
 function formatAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString("ru-RU");
+  return formatDateTimeI18n(value);
 }
 
 function statusClass(status: number): string {
@@ -134,6 +132,7 @@ export function formatAuditRow(entry: AuditEntry): AuditRowView {
 export class AuditPageVM {
   @reactive accessor entries: AuditEntry[] = [];
   @reactive accessor loading = false;
+  @reactive accessor initialized = false;
   @reactive accessor loadingMore = false;
   @reactive accessor error: string | null = null;
   @reactive accessor cursor: string | null = null;
@@ -163,7 +162,7 @@ export class AuditPageVM {
   @computed
   get actionOptions(): { value: string; label: string }[] {
     return [
-      { value: "", label: "Все действия" },
+      { value: "", label: t("audit.filter.allActions") },
       ...ACTIONS.map((action) => ({ value: action, label: action })),
     ];
   }
@@ -171,9 +170,15 @@ export class AuditPageVM {
   @computed
   get statusOptions(): { value: string; label: string }[] {
     return [
-      { value: "", label: "Все статусы" },
+      { value: "", label: t("audit.filter.allStatuses") },
       ...STATUSES.map((status) => ({ value: String(status), label: String(status) })),
     ];
+  }
+
+  @computed
+  get loadedLabel(): string {
+    const value = `${this.total} ${pluralI18n(this.total, "common.events.one", "common.events.few", "common.events.many")}`;
+    return t("audit.log.loaded", { value });
   }
 
   @computed
@@ -325,10 +330,11 @@ export class AuditPageVM {
       this.entries = before === null ? result.items : appendUnique(this.entries, result.items);
       this.cursor = result.next_cursor;
     } catch (error) {
-      this.error = userMessage(error, "Не удалось загрузить журнал аудита");
+      this.error = userMessage(error, t("audit.error.load"));
     } finally {
       this.loading = false;
       this.loadingMore = false;
+      if (before === null) this.initialized = true;
     }
   }
 
@@ -359,7 +365,7 @@ export class AuditPageVM {
   private periodError(): string | null {
     const from = toUnix(this.from);
     const to = toUnix(this.to);
-    if (from !== undefined && to !== undefined && from > to) return PERIOD_ERROR;
+    if (from !== undefined && to !== undefined && from > to) return t("audit.error.period");
     return null;
   }
 }

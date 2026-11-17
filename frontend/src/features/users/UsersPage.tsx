@@ -4,6 +4,7 @@ import type { UsersPageVM } from "./UsersPage.vm";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
 export function UsersPage(this: { vm: UsersPageVM }) {
@@ -51,7 +52,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         </div>
       </section>
 
-      <div class="tabs">
+      <div class="tabs tabs--fill">
         <button
           class={`tab ${this.vm.tab === "active" ? "is-active" : ""}`}
           type="button"
@@ -79,8 +80,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               <Icon name="refresh" size={14} class="" /> Обновить
             </button>
           </div>
-          <div class="card__body">
-            <Show when={!this.vm.loading} fallback={<div class="skeleton" style="height:140px"></div>}>
+          <div class="card__body" aria-busy={this.vm.loading ? "true" : "false"}>
+            <Show when={!this.vm.loading} fallback={<SkeletonTable rows={5} columns={8} />}>
               <Show
                 when={this.vm.filteredActiveUsers.length > 0}
                 fallback={
@@ -103,8 +104,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   </div>
                 }
               >
-                <div class="table-wrap">
-                  <table class="table table--cards">
+                <div class="table-wrap table-wrap--cards">
+                  <table class="table table--cards table--users">
                     <thead>
                       <tr>
                         <th>Логин</th>
@@ -140,7 +141,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                                 when={this.vm.quotaFor(user.id)}
                                 fallback={<span class="xs muted">—</span>}
                               >
-                                <div class="stack-sm" title={this.vm.quotaTitle(user.id)}>
+                                <div class="stack-sm user-quota" title={this.vm.quotaTitle(user.id)}>
                                   <span class="small mono strong">{this.vm.quotaPercentLabel(user.id)}</span>
                                   <span class={this.vm.quotaBadgeClass(user.id)}>
                                     {this.vm.quotaStatusLabel(user.id)}
@@ -153,27 +154,25 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                                 {this.vm.statusLabel(user)}
                               </span>
                             </td>
-                            <td>
-                              <div class="row" style="gap:4px;justify-content:flex-end">
-                                <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label="Редактировать">
-                                  <Icon name="edit" size={14} class="" />
-                                </button>
-                                <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label="Сбросить пароль">
-                                  <Icon name="shield" size={14} class="" />
-                                </button>
-                                <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleDisabled(user)} aria-label="Включить или отключить">
-                                  <Icon name={user.disabled ? "check" : "warning"} size={14} class="" />
-                                </button>
-                                <button
-                                  class="btn btn--sm btn--danger btn--icon"
-                                  type="button"
-                                  disabled={user.id === this.vm.selfId}
-                                  onClick={() => this.vm.remove(user)}
-                                  aria-label="Удалить"
-                                >
-                                  <Icon name="trash" size={14} class="" />
-                                </button>
-                              </div>
+                            <td class="cell-actions">
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label="Редактировать">
+                                <Icon name="edit" size={14} class="" />
+                              </button>
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label="Сбросить пароль">
+                                <Icon name="shield" size={14} class="" />
+                              </button>
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleDisabled(user)} aria-label="Включить или отключить">
+                                <Icon name={user.disabled ? "check" : "warning"} size={14} class="" />
+                              </button>
+                              <button
+                                class="btn btn--sm btn--danger btn--icon"
+                                type="button"
+                                disabled={user.id === this.vm.selfId}
+                                onClick={() => this.vm.remove(user)}
+                                aria-label="Удалить"
+                              >
+                                <Icon name="trash" size={14} class="" />
+                              </button>
                             </td>
                           </tr>
                         )}
@@ -198,8 +197,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
           </div>
-          <div class="card__body">
-            <Show when={!this.vm.pendingLoading} fallback={<div class="skeleton" style="height:120px"></div>}>
+          <div class="card__body" aria-busy={this.vm.pendingLoading ? "true" : "false"}>
+            <Show when={!this.vm.pendingLoading} fallback={<SkeletonTable rows={3} columns={4} />}>
               <Show when={this.vm.pendingError}>
                 <div class="alert alert--error">{this.vm.pendingError}</div>
               </Show>
@@ -227,8 +226,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   </div>
                 }
               >
-                <div class="table-wrap">
-                  <table class="table table--cards">
+                <div class="table-wrap table-wrap--cards">
+                  <table class="table table--cards table--users-pending">
                     <thead>
                       <tr>
                         <th>{t("users.column.email")}</th>
@@ -246,15 +245,13 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             </td>
                             <td data-label="Логин">{user.login}</td>
                             <td data-label={t("users.pending.createdAt")}>{this.vm.requestDateLabel(user)}</td>
-                            <td>
-                              <div class="row" style="gap:6px;justify-content:flex-end">
-                                <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openApprove(user)}>
-                                  <Icon name="check" size={14} class="" /> {t("users.pending.approve")}
-                                </button>
-                                <button class="btn btn--sm btn--danger" type="button" onClick={() => this.vm.reject(user)}>
-                                  <Icon name="close" size={14} class="" /> {t("users.pending.reject")}
-                                </button>
-                              </div>
+                            <td class="cell-actions">
+                              <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openApprove(user)}>
+                                <Icon name="check" size={14} class="" /> {t("users.pending.approve")}
+                              </button>
+                              <button class="btn btn--sm btn--danger" type="button" onClick={() => this.vm.reject(user)}>
+                                <Icon name="close" size={14} class="" /> {t("users.pending.reject")}
+                              </button>
                             </td>
                           </tr>
                         )}

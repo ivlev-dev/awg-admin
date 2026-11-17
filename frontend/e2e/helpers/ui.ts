@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 
 import type { AuthView } from "./api";
 
@@ -27,4 +27,19 @@ export async function seedSession(page: Page, auth: AuthView): Promise<void> {
 
 export function pathOf(page: Page): string {
   return new URL(page.url()).pathname;
+}
+
+export async function selectOption(
+  page: Page,
+  trigger: Locator,
+  option: string | RegExp,
+): Promise<void> {
+  await trigger.click();
+  await page.getByRole("option", { name: option }).click();
+}
+
+export function fieldByLabel(page: Page, label: string): Locator {
+  return page
+    .locator(".field")
+    .filter({ has: page.locator("label", { hasText: new RegExp(`^${label}$`) }) });
 }

@@ -4,25 +4,26 @@ import type { ClientsPageVM } from "./ClientsPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Modal } from "@/components/Modal";
-import { formatRate } from "@/domain/format";
+import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
+import { formatRateI18n } from "@/i18n/format";
 
 export function ClientsPage(this: { vm: ClientsPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Клиенты</div>
+        <div class="page-head__eyebrow">{t("clients.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>Клиенты</h1>
-            <p>Устройства AmneziaWG, их адреса, лимиты и доступ к пирам.</p>
+            <h1>{t("clients.title")}</h1>
+            <p>{t("clients.subtitle")}</p>
           </div>
           <div class="actions-bar">
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
             <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-              <Icon name="plus" size={16} class="" /> Новый клиент
+              <Icon name="plus" size={16} class="" /> {t("clients.new")}
             </button>
           </div>
         </div>
@@ -44,13 +45,13 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
             </div>
             <Show when={this.vm.isAdmin}>
               <div class="field">
-                <label for="clients-group">Группа</label>
+                <label for="clients-group">{t("clients.filter.group")}</label>
                 <Select
                   id="clients-group"
                   value={this.vm.groupFilter}
-                  options={[{ value: "", label: "Все группы" }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
+                  options={[{ value: "", label: t("clients.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
                   onChange={(value) => this.vm.setGroupFilter(value)}
-                  ariaLabel="Группа"
+                  ariaLabel={t("clients.filter.group")}
                 />
               </div>
             </Show>
@@ -68,28 +69,28 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
       <section class="card">
         <div class="card__head">
           <div>
-            <div class="card__title">Устройства</div>
+            <div class="card__title">{t("clients.card.title")}</div>
             <div class="card__sub">{this.vm.countLabel}</div>
           </div>
           <span class="badge badge--blue">
-            <Icon name="clients" size={12} class="" /> клиенты
+            <Icon name="clients" size={12} class="" /> {t("clients.badge")}
           </span>
         </div>
-        <div class="card__body">
+        <div class="card__body" aria-busy={this.vm.loading ? "true" : "false"}>
           <Show
             when={!this.vm.loading}
-            fallback={<div class="skeleton" style="height:160px"></div>}
+            fallback={<SkeletonTable rows={5} columns={this.vm.isAdmin ? 7 : 6} />}
           >
             <Show
               when={this.vm.filteredDevices.length > 0}
               fallback={
                 <div class="empty">
                   <div class="empty__title">
-                    {this.vm.devices.length === 0 ? "Пока нет клиентов" : t("filters.emptyTitle")}
+                    {this.vm.devices.length === 0 ? t("clients.empty.title") : t("filters.emptyTitle")}
                   </div>
                   <div class="small">
                     {this.vm.devices.length === 0
-                      ? "Создайте первое устройство, чтобы подключить его к интерфейсу."
+                      ? t("clients.empty.text")
                       : t("filters.emptyText")}
                   </div>
                   <div style="margin-top:14px">
@@ -97,7 +98,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                       when={this.vm.devices.length > 0}
                       fallback={
                         <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
-                          <Icon name="plus" size={14} class="" /> Создать устройство
+                          <Icon name="plus" size={14} class="" /> {t("clients.empty.action")}
                         </button>
                       }
                     >
@@ -109,18 +110,18 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 </div>
               }
             >
-              <div class="table-wrap">
-                <table class="table table--cards">
+              <div class="table-wrap table-wrap--cards">
+                <table class="table table--cards table--clients">
                   <thead>
                     <tr>
-                      <th>Устройство</th>
+                      <th>{t("clients.column.device")}</th>
                       <Show when={this.vm.isAdmin}>
-                        <th>Владелец</th>
+                        <th>{t("clients.column.owner")}</th>
                       </Show>
-                      <th>Адреса</th>
-                      <th>Лимиты</th>
-                      <th>Интерфейсы и пиры</th>
-                      <th>Статус</th>
+                      <th>{t("clients.column.addresses")}</th>
+                      <th>{t("clients.column.limits")}</th>
+                      <th>{t("clients.column.peers")}</th>
+                      <th>{t("clients.column.status")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -128,16 +129,18 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                     <For each={this.vm.filteredDevices}>
                       {(device) => (
                         <tr>
-                          <td data-label="Устройство">
+                          <td data-label={t("clients.column.device")}>
                             <span class="strong">{device.name}</span>
                           </td>
                           <Show when={this.vm.isAdmin}>
-                            <td data-label="Владелец">
-                              <div class="small strong">{this.vm.userLogin(device.user_id)}</div>
-                              <div class="xs muted">{this.vm.groupName(device.group_id)}</div>
+                            <td data-label={t("clients.column.owner")}>
+                              <div class="stack-sm cell-stack">
+                                <div class="small strong">{this.vm.userLogin(device.user_id)}</div>
+                                <div class="xs muted">{this.vm.groupName(device.group_id)}</div>
+                              </div>
                             </td>
                           </Show>
-                          <td data-label="Адреса">
+                          <td data-label={t("clients.column.addresses")}>
                             <Show
                               when={device.addresses.length > 0}
                               fallback={<span class="muted">—</span>}
@@ -145,35 +148,37 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                               <span class="mono xs">{device.addresses.join(", ")}</span>
                             </Show>
                           </td>
-                          <td data-label="Лимиты">
-                            <div class="xs"><span class="muted">↓</span> {formatRate(device.down_kbps)}</div>
-                            <div class="xs"><span class="muted">↑</span> {formatRate(device.up_kbps)}</div>
+                          <td data-label={t("clients.column.limits")}>
+                            <div class="stack-sm cell-stack">
+                              <div class="xs"><span class="muted">↓</span> {formatRateI18n(device.down_kbps)}</div>
+                              <div class="xs"><span class="muted">↑</span> {formatRateI18n(device.up_kbps)}</div>
+                            </div>
                           </td>
-                          <td data-label="Интерфейсы и пиры">
+                          <td data-label={t("clients.column.peers")}>
                             <Show
                               when={device.peers.length > 0}
                               fallback={<span class="muted">—</span>}
                             >
-                              <div class="small strong">{this.vm.peersLabel(device)}</div>
-                              <div class="xs muted">{this.vm.interfaceNames(device)}</div>
+                              <div class="stack-sm cell-stack">
+                                <div class="small strong">{this.vm.peersLabel(device)}</div>
+                                <div class="xs muted">{this.vm.interfaceNames(device)}</div>
+                              </div>
                             </Show>
                           </td>
-                          <td data-label="Статус">
+                          <td data-label={t("clients.column.status")}>
                             <span class={`badge ${device.revoked ? "badge--red" : "badge--green"}`}>
                               <span class={`dot ${device.revoked ? "dot--red" : "dot--green"}`}></span>
-                              {device.revoked ? "Отозвано" : "Активно"}
+                              {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
                             </span>
                           </td>
-                          <td>
-                            <div class="row" style="gap:6px;justify-content:flex-end">
-                              <button
-                                class="btn btn--sm btn--ghost"
-                                type="button"
-                                onClick={() => this.vm.openDevice(device.id)}
-                              >
-                                Открыть <Icon name="chevron" size={14} class="" />
-                              </button>
-                            </div>
+                          <td class="cell-actions">
+                            <button
+                              class="btn btn--sm btn--ghost"
+                              type="button"
+                              onClick={() => this.vm.openDevice(device.id)}
+                            >
+                              {t("common.open")} <Icon name="chevron" size={14} class="" />
+                            </button>
                           </td>
                         </tr>
                       )}
@@ -188,7 +193,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
 
       <Modal
         open={this.vm.createOpen}
-        title="Новый клиент"
+        title={t("clients.form.title")}
         onClose={() => this.vm.closeCreate()}
         footer={
           <div class="row" style="gap:8px">
@@ -198,7 +203,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               disabled={this.vm.submitting}
               onClick={() => this.vm.closeCreate()}
             >
-              Отмена
+              {t("common.cancelShort")}
             </button>
             <button
               class="btn btn--primary"
@@ -208,10 +213,10 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
             >
               <Show
                 when={this.vm.submitting}
-                fallback={<span>Создать</span>}
+                fallback={<span>{t("clients.form.create")}</span>}
               >
                 <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                <span>Создаём…</span>
+                <span>{t("clients.form.creating")}</span>
               </Show>
             </button>
           </div>
@@ -219,12 +224,12 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
       >
         <div class="stack">
           <div class="field">
-            <label for="client-name">Имя устройства</label>
+            <label for="client-name">{t("clients.form.name")}</label>
             <input
               id="client-name"
               class="input"
               type="text"
-              placeholder="Например, iPhone"
+              placeholder={t("clients.form.namePlaceholder")}
               value={this.vm.formName}
               onInput={(event: Event) => this.vm.setFormName(event)}
             />
@@ -233,23 +238,23 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
           <Show when={this.vm.isAdmin}>
             <div class="grid grid--2">
               <div class="field">
-                <label for="client-user">Пользователь</label>
+                <label for="client-user">{t("clients.form.user")}</label>
                 <Select
                   id="client-user"
                   value={this.vm.formUserId}
-                  options={[{ value: "", label: "Выберите пользователя" }, ...this.vm.users.map((user) => ({ value: user.id, label: user.login }))]}
+                  options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.login }))]}
                   onChange={(value) => this.vm.setFormUser(value)}
-                  ariaLabel="Пользователь"
+                  ariaLabel={t("clients.form.user")}
                 />
               </div>
               <div class="field">
-                <label for="client-group">Группа</label>
+                <label for="client-group">{t("clients.form.group")}</label>
                 <Select
                   id="client-group"
                   value={this.vm.formGroupId}
-                  options={[{ value: "", label: "Без группы" }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
+                  options={[{ value: "", label: t("clients.form.groupNone") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
                   onChange={(value) => this.vm.setFormGroup(value)}
-                  ariaLabel="Группа"
+                  ariaLabel={t("clients.form.group")}
                 />
               </div>
             </div>
@@ -257,13 +262,13 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
 
           <Show when={!this.vm.isAdmin}>
             <div class="alert alert--info">
-              Устройство будет создано для вашего аккаунта.
+              {t("clients.form.ownAccount")}
             </div>
           </Show>
 
           <div class="grid grid--2">
             <div class="field">
-              <label for="client-down">Скачивание, Кбит/с</label>
+              <label for="client-down">{t("clients.form.down")}</label>
               <input
                 id="client-down"
                 class="input"
@@ -272,10 +277,10 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 value={this.vm.formDown}
                 onInput={(event: Event) => this.vm.setFormDown(event)}
               />
-              <div class="hint">0 — без лимита</div>
+              <div class="hint">{t("clients.form.limitHint")}</div>
             </div>
             <div class="field">
-              <label for="client-up">Отдача, Кбит/с</label>
+              <label for="client-up">{t("clients.form.up")}</label>
               <input
                 id="client-up"
                 class="input"
@@ -284,7 +289,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 value={this.vm.formUp}
                 onInput={(event: Event) => this.vm.setFormUp(event)}
               />
-              <div class="hint">0 — без лимита</div>
+              <div class="hint">{t("clients.form.limitHint")}</div>
             </div>
           </div>
 
@@ -294,7 +299,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               checked={this.vm.formForwarding}
               onChange={(event: Event) => this.vm.setFormForwarding(event)}
             />
-            <span>Разрешить трафик между своими устройствами</span>
+            <span>{t("clients.form.forwarding")}</span>
           </label>
         </div>
       </Modal>

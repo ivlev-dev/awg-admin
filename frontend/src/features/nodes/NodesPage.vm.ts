@@ -3,9 +3,10 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { NodesService } from "../../application/nodes/service";
-import { plural, relativeTime } from "@/domain/format";
 import type { NodeCreated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
+import { t } from "@/i18n";
+import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
 export class NodesPageVM {
   @reactive accessor nodes: NodeInfo[] = [];
@@ -53,7 +54,7 @@ export class NodesPageVM {
         (left, right) => Number(right.online) - Number(left.online) || left.name.localeCompare(right.name),
       );
     } catch (error) {
-      this.error = messageOf(error, "Не удалось загрузить ноды");
+      this.error = messageOf(error, t("nodes.error.load"));
     } finally {
       this.loading = false;
     }
@@ -91,10 +92,10 @@ export class NodesPageVM {
       this.createdNode = result;
       this.createOpen = false;
       this.name = "";
-      this.toasts.success(`Нода «${result.node.name}» создана`);
+      this.toasts.success(t("nodes.toast.created", { name: result.node.name }));
       await this.load();
     } catch (error) {
-      const message = messageOf(error, "Не удалось создать ноду");
+      const message = messageOf(error, t("nodes.error.create"));
       this.formError = message;
       this.toasts.error(message);
     } finally {
@@ -108,36 +109,34 @@ export class NodesPageVM {
     const copied = await copyText(token);
     this.tokenCopied = copied;
     if (copied) {
-      this.toasts.success("Токен скопирован");
+      this.toasts.success(t("nodes.toast.tokenCopied"));
     } else {
-      this.toasts.error("Не удалось скопировать токен");
+      this.toasts.error(t("nodes.toast.tokenCopyFailed"));
     }
   }
 
   async remove(node: NodeInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(
-      `Удалить ноду «${node.name}»?\n\nСначала отвяжите от неё интерфейсы: без ноды они останутся без воркера.`,
-    );
+    const confirmed = window.confirm(t("nodes.confirm.delete", { name: node.name }));
     if (!confirmed) return;
     this.busy = true;
     try {
       await this.nodesService.deleteNode(node.id);
-      this.toasts.success(`Нода «${node.name}» удалена`);
+      this.toasts.success(t("nodes.toast.deleted", { name: node.name }));
       await this.load();
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось удалить ноду"));
+      this.toasts.error(messageOf(error, t("nodes.error.delete")));
     } finally {
       this.busy = false;
     }
   }
 
   lastSeen(value: string | null): string {
-    return relativeTime(value);
+    return value ? formatDateTimeI18n(value) : t("nodes.lastSeen.never");
   }
 
   interfacesLabel(node: NodeInfo): string {
-    return `${node.interfaces} ${plural(node.interfaces, "интерфейс", "интерфейса", "интерфейсов")}`;
+    return `${node.interfaces} ${pluralI18n(node.interfaces, "common.interfaces.one", "common.interfaces.few", "common.interfaces.many")}`;
   }
 }
 

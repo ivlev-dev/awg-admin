@@ -4,17 +4,19 @@ import type { StatsVM } from "./StatsPage.vm";
 import { AreaChart } from "@/components/Charts";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/Skeleton";
+import { t } from "@/i18n";
 
 export function StatsPage(this: { vm: StatsVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Аналитика</div>
+        <div class="page-head__eyebrow">{t("stats.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>Статистика</h1>
+            <h1>{t("stats.title")}</h1>
             <p>
-              Трафик по пользователям, группам, интерфейсам и устройствам за выбранный период.
+              {t("stats.subtitle")}
             </p>
           </div>
           <div class="actions-bar">
@@ -30,7 +32,7 @@ export function StatsPage(this: { vm: StatsVM }) {
               disabled={this.vm.seriesLoading}
               onClick={() => this.vm.refresh()}
             >
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
             <button class="btn btn--sm" type="button" onClick={() => this.vm.exportCsv()}>
               <Icon name="download" size={14} class="" /> CSV
@@ -50,13 +52,13 @@ export function StatsPage(this: { vm: StatsVM }) {
         <div class="card__body stack">
           <div class="grid grid--2">
             <div class="field">
-              <label for="stats-scope">Область статистики</label>
+              <label for="stats-scope">{t("stats.scope.label")}</label>
               <Select
                 id="stats-scope"
                 value={this.vm.scope}
                 options={this.vm.scopeOptions.map((option) => ({ value: option.value, label: option.label }))}
                 onChange={(value) => this.vm.setScope(value)}
-                ariaLabel="Область статистики"
+                ariaLabel={t("stats.scope.label")}
               />
             </div>
 
@@ -64,11 +66,11 @@ export function StatsPage(this: { vm: StatsVM }) {
               when={this.vm.requiresEntity}
               fallback={
                 <div class="field">
-                  <label>Детализация</label>
+                  <label>{t("stats.detail.label")}</label>
                   <div class="xs muted" style="padding-top:10px">
                     {this.vm.isAdmin
-                      ? "Сводка по всем устройствам"
-                      : "Статистика вашего аккаунта"}
+                      ? t("stats.detail.admin")
+                      : t("stats.detail.user")}
                   </div>
                 </div>
               }
@@ -81,7 +83,7 @@ export function StatsPage(this: { vm: StatsVM }) {
                   options={this.vm.entityOptions.map((option) => ({ value: option.id, label: option.label }))}
                   onChange={(value) => this.vm.setEntity(value)}
                   disabled={this.vm.entitiesLoading || this.vm.entityOptions.length === 0}
-                  placeholder="Нет доступных сущностей"
+                  placeholder={t("stats.entity.placeholder")}
                   ariaLabel={this.vm.entityLabel}
                 />
               </div>
@@ -95,21 +97,21 @@ export function StatsPage(this: { vm: StatsVM }) {
                 type="button"
                 onClick={() => this.vm.setRange("24h")}
               >
-                24 часа
+                {t("stats.range.24h")}
               </button>
               <button
                 class={`tab ${this.vm.rangeKey === "7d" ? "is-active" : ""}`}
                 type="button"
                 onClick={() => this.vm.setRange("7d")}
               >
-                7 дней
+                {t("stats.range.7d")}
               </button>
               <button
                 class={`tab ${this.vm.rangeKey === "30d" ? "is-active" : ""}`}
                 type="button"
                 onClick={() => this.vm.setRange("30d")}
               >
-                30 дней
+                {t("stats.range.30d")}
               </button>
             </div>
 
@@ -120,7 +122,7 @@ export function StatsPage(this: { vm: StatsVM }) {
                 onChange={() => this.vm.toggleLive()}
               />
               <span class="track"></span>
-              <span>Live</span>
+              <span>{t("stats.live.toggle")}</span>
             </label>
           </div>
 
@@ -130,61 +132,63 @@ export function StatsPage(this: { vm: StatsVM }) {
         </div>
       </section>
 
-      <div class="grid grid--4">
-        <div class="stat">
-          <div class="stat__label">
-            <span class="dot dot--green"></span>Принято
+      <Show when={this.vm.initialized} fallback={<SkeletonCards count={4} />}>
+        <div class="grid grid--4">
+          <div class="stat">
+            <div class="stat__label">
+              <span class="dot dot--green"></span>{t("stats.card.rx")}
+            </div>
+            <div class="stat__value">{this.vm.totalRxLabel}</div>
+            <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
           </div>
-          <div class="stat__value">{this.vm.totalRxLabel}</div>
-          <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
-        </div>
-        <div class="stat">
-          <div class="stat__label">
-            <span class="dot" style="background:var(--brand-3)"></span>Передано
+          <div class="stat">
+            <div class="stat__label">
+              <span class="dot" style="background:var(--brand-3)"></span>{t("stats.card.tx")}
+            </div>
+            <div class="stat__value">{this.vm.totalTxLabel}</div>
+            <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
           </div>
-          <div class="stat__value">{this.vm.totalTxLabel}</div>
-          <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
-        </div>
-        <div class="stat">
-          <div class="stat__label">Точек на графике</div>
-          <div class="stat__value">{this.vm.points}</div>
-          <div class="stat__hint">{this.vm.periodLabel}</div>
-        </div>
-        <div class="stat">
-          <div class="stat__label">Live сегодня</div>
-          <div class="stat__value">{this.vm.liveEnabled ? this.vm.liveTodayTotal : "—"}</div>
-          <div class="stat__hint">
-            {this.vm.liveEnabled
-              ? `rx ${this.vm.liveTodayRx} · tx ${this.vm.liveTodayTx}`
-              : "включите Live-режим"}
+          <div class="stat">
+            <div class="stat__label">{t("stats.card.points")}</div>
+            <div class="stat__value">{this.vm.points}</div>
+            <div class="stat__hint">{this.vm.periodLabel}</div>
+          </div>
+          <div class="stat">
+            <div class="stat__label">{t("stats.card.liveToday")}</div>
+            <div class="stat__value">{this.vm.liveEnabled ? this.vm.liveTodayTotal : "—"}</div>
+            <div class="stat__hint">
+              {this.vm.liveEnabled
+                ? t("stats.card.liveHint", { rx: this.vm.liveTodayRx, tx: this.vm.liveTodayTx })
+                : t("stats.card.liveHintOff")}
+            </div>
           </div>
         </div>
-      </div>
+      </Show>
 
       <section class="card">
         <div class="card__head">
           <div>
-            <div class="card__title">Трафик</div>
+            <div class="card__title">{t("stats.chart.title")}</div>
             <div class="card__sub">
               {this.vm.periodLabel} · {this.vm.selectedScopeLabel}
             </div>
           </div>
           <div class="chart__legend no-mobile">
-            <span><i style="background:var(--accent)"></i>Входящий</span>
-            <span><i style="background:var(--brand-3)"></i>Исходящий</span>
+            <span><i style="background:var(--accent)"></i>{t("stats.chart.rx")}</span>
+            <span><i style="background:var(--brand-3)"></i>{t("stats.chart.tx")}</span>
           </div>
         </div>
-        <div class="card__body">
+        <div class="card__body" aria-busy={this.vm.seriesLoading || !this.vm.initialized ? "true" : "false"}>
           <Show
-            when={this.vm.seriesLoading}
+            when={this.vm.seriesLoading || !this.vm.initialized}
             fallback={
               <Show
                 when={this.vm.series.length > 0}
                 fallback={
                   <div class="empty">
-                    <div class="empty__title">Нет данных за период</div>
+                    <div class="empty__title">{t("stats.chart.emptyTitle")}</div>
                     <div class="small">
-                      Выберите другую область или диапазон, либо обновите статистику.
+                      {t("stats.chart.emptyText")}
                     </div>
                   </div>
                 }
@@ -193,7 +197,7 @@ export function StatsPage(this: { vm: StatsVM }) {
               </Show>
             }
           >
-            <div class="skeleton" style="height:220px"></div>
+            <Skeleton height={220} />
           </Show>
         </div>
       </section>
@@ -202,30 +206,30 @@ export function StatsPage(this: { vm: StatsVM }) {
         <section class="card">
           <div class="card__body row-between wrap">
             <div>
-              <div class="xs muted">Сегодня (live)</div>
+              <div class="xs muted">{t("stats.livePanel.title")}</div>
               <div class="strong mono">{this.vm.liveTodayTotal}</div>
             </div>
             <div>
-              <div class="xs muted">Принято</div>
+              <div class="xs muted">{t("stats.livePanel.rx")}</div>
               <div class="strong mono">{this.vm.liveTodayRx}</div>
             </div>
             <div>
-              <div class="xs muted">Передано</div>
+              <div class="xs muted">{t("stats.livePanel.tx")}</div>
               <div class="strong mono">{this.vm.liveTodayTx}</div>
             </div>
             <div>
-              <div class="xs muted">Месяц</div>
+              <div class="xs muted">{t("stats.livePanel.month")}</div>
               <div class="strong mono">{this.vm.liveMonthTotal}</div>
             </div>
           </div>
         </section>
       </Show>
 
-      <section class="card card--flush">
+      <section class="card card--flush" aria-busy={this.vm.devicesLoading || !this.vm.initialized ? "true" : "false"}>
         <div class="card__head">
           <div>
-            <div class="card__title">Устройства</div>
-            <div class="card__sub">Сегодня и текущий месяц</div>
+            <div class="card__title">{t("stats.devices.title")}</div>
+            <div class="card__sub">{t("stats.devices.subtitle")}</div>
           </div>
           <button
             class="btn btn--sm"
@@ -233,18 +237,18 @@ export function StatsPage(this: { vm: StatsVM }) {
             disabled={this.vm.devicesLoading}
             onClick={() => this.vm.refresh()}
           >
-            <Icon name="refresh" size={14} class="" /> Обновить
+            <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
           </button>
         </div>
         <Show
-          when={this.vm.devicesLoading}
+          when={this.vm.devicesLoading || !this.vm.initialized}
           fallback={
             <Show
               when={this.vm.deviceRowsView.length > 0}
               fallback={
                 <div class="empty">
-                  <div class="empty__title">Устройств нет</div>
-                  <div class="small">Создайте клиента, и здесь появится его трафик.</div>
+                  <div class="empty__title">{t("stats.devices.emptyTitle")}</div>
+                  <div class="small">{t("stats.devices.emptyText")}</div>
                 </div>
               }
             >
@@ -252,11 +256,11 @@ export function StatsPage(this: { vm: StatsVM }) {
                 <table class="table table--cards">
                   <thead>
                     <tr>
-                      <th>Устройство</th>
-                      <th>Сегодня вход</th>
-                      <th>Сегодня исход</th>
-                      <th>Месяц вход</th>
-                      <th>Месяц исход</th>
+                      <th>{t("stats.devices.column.device")}</th>
+                      <th>{t("stats.devices.column.todayRx")}</th>
+                      <th>{t("stats.devices.column.todayTx")}</th>
+                      <th>{t("stats.devices.column.monthRx")}</th>
+                      <th>{t("stats.devices.column.monthTx")}</th>
                       <th></th>
                     </tr>
                   </thead>
@@ -264,16 +268,16 @@ export function StatsPage(this: { vm: StatsVM }) {
                     <For each={this.vm.deviceRowsView}>
                       {(row) => (
                         <tr>
-                          <td data-label="Устройство">
+                          <td data-label={t("stats.devices.column.device")}>
                             <div class="stack-sm">
                               <span class="strong">{row.name}</span>
                               <span class="xs muted truncate">{row.addresses || "—"}</span>
                             </div>
                           </td>
-                          <td data-label="Сегодня вход" class="mono">{row.todayRx}</td>
-                          <td data-label="Сегодня исход" class="mono">{row.todayTx}</td>
-                          <td data-label="Месяц вход" class="mono">{row.monthRx}</td>
-                          <td data-label="Месяц исход" class="mono">{row.monthTx}</td>
+                          <td data-label={t("stats.devices.column.todayRx")} class="mono">{row.todayRx}</td>
+                          <td data-label={t("stats.devices.column.todayTx")} class="mono">{row.todayTx}</td>
+                          <td data-label={t("stats.devices.column.monthRx")} class="mono">{row.monthRx}</td>
+                          <td data-label={t("stats.devices.column.monthTx")} class="mono">{row.monthTx}</td>
                           <td>
                             <Show
                               when={row.failed}
@@ -283,11 +287,11 @@ export function StatsPage(this: { vm: StatsVM }) {
                                   type="button"
                                   onClick={() => this.vm.openDevice(row.id)}
                                 >
-                                  Открыть
+                                  {t("stats.devices.open")}
                                 </button>
                               }
                             >
-                              <span class="badge badge--amber">нет данных</span>
+                              <span class="badge badge--amber">{t("stats.devices.noData")}</span>
                             </Show>
                           </td>
                         </tr>
@@ -300,7 +304,7 @@ export function StatsPage(this: { vm: StatsVM }) {
           }
         >
           <div class="card__body">
-            <div class="skeleton" style="height:120px"></div>
+            <SkeletonTable rows={4} columns={6} />
           </div>
         </Show>
       </section>

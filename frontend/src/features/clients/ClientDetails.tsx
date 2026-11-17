@@ -3,24 +3,25 @@ import { For, Match, Show, Switch } from "@ivlev-dev/silent-core";
 import type { ClientDetailsVM } from "./ClientDetails.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
-import { formatDate } from "@/domain/format";
+import { t } from "@/i18n";
+import { formatDateTimeI18n } from "@/i18n/format";
 
 export function ClientDetails(this: { vm: ClientDetailsVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Клиент</div>
+        <div class="page-head__eyebrow">{t("clients.details.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>{this.vm.device?.name ?? "Устройство"}</h1>
-            <p>Профили подключения, лимиты, forwarding и временные ссылки.</p>
+            <h1>{this.vm.device?.name ?? t("clients.details.title")}</h1>
+            <p>{t("clients.details.subtitle")}</p>
           </div>
           <div class="actions-bar">
             <button class="btn btn--sm btn--ghost" type="button" onClick={() => this.vm.back()}>
-              ← Назад
+              ← {t("common.back")}
             </button>
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
           </div>
         </div>
@@ -42,24 +43,24 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
         <div class="stack">
           <div class="grid grid--4">
             <div class="stat">
-              <div class="stat__label"><span class="dot dot--green"></span>Принято сегодня</div>
+              <div class="stat__label"><span class="dot dot--green"></span>{t("clients.details.stats.rxToday")}</div>
               <div class="stat__value">{this.vm.todayRx}</div>
-              <div class="stat__hint">за месяц {this.vm.monthRx}</div>
+              <div class="stat__hint">{t("clients.details.stats.monthHint", { value: this.vm.monthRx })}</div>
             </div>
             <div class="stat">
-              <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>Передано сегодня</div>
+              <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("clients.details.stats.txToday")}</div>
               <div class="stat__value">{this.vm.todayTx}</div>
-              <div class="stat__hint">за месяц {this.vm.monthTx}</div>
+              <div class="stat__hint">{t("clients.details.stats.monthHint", { value: this.vm.monthTx })}</div>
             </div>
             <div class="stat">
-              <div class="stat__label">Входящий за месяц</div>
+              <div class="stat__label">{t("clients.details.stats.rxMonth")}</div>
               <div class="stat__value">{this.vm.monthRx}</div>
-              <div class="stat__hint">сегодня {this.vm.todayRx}</div>
+              <div class="stat__hint">{t("clients.details.stats.todayHint", { value: this.vm.todayRx })}</div>
             </div>
             <div class="stat">
-              <div class="stat__label">Исходящий за месяц</div>
+              <div class="stat__label">{t("clients.details.stats.txMonth")}</div>
               <div class="stat__value">{this.vm.monthTx}</div>
-              <div class="stat__hint">сегодня {this.vm.todayTx}</div>
+              <div class="stat__hint">{t("clients.details.stats.todayHint", { value: this.vm.todayTx })}</div>
             </div>
           </div>
 
@@ -67,11 +68,11 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
             when={this.vm.device}
             fallback={
               <div class="empty">
-                <div class="empty__title">Устройство не найдено</div>
-                <div class="small">Возможно, оно было удалено или недоступно.</div>
+                <div class="empty__title">{t("clients.details.notFound.title")}</div>
+                <div class="small">{t("clients.details.notFound.text")}</div>
                 <div style="margin-top:14px">
                   <button class="btn btn--sm" type="button" onClick={() => this.vm.back()}>
-                    К списку клиентов
+                    {t("clients.details.notFound.action")}
                   </button>
                 </div>
               </div>
@@ -82,31 +83,31 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                 <section class="card">
                   <div class="card__head">
                     <div>
-                      <div class="card__title">Устройство</div>
-                      <div class="card__sub">Создано {formatDate(this.vm.device?.created_at ?? null)}</div>
+                      <div class="card__title">{t("clients.details.title")}</div>
+                      <div class="card__sub">{t("clients.details.created", { date: formatDateTimeI18n(this.vm.device?.created_at ?? null) })}</div>
                     </div>
                     <span class={`badge ${this.vm.revoked ? "badge--red" : "badge--green"}`}>
                       <span class={`dot ${this.vm.revoked ? "dot--red" : "dot--green"}`}></span>
-                      {this.vm.revoked ? "Отозвано" : "Активно"}
+                      {this.vm.revoked ? t("clients.status.revoked") : t("clients.status.active")}
                     </span>
                   </div>
                   <div class="card__body stack">
                     <Show when={this.vm.quotaExceeded}>
                       <div class="alert alert--error">
-                        Квота трафика исчерпана: скорость ограничена 1 Кбит/с
+                        {t("clients.details.quotaExceeded")}
                       </div>
                     </Show>
                     <dl class="kv">
-                      <dt>Имя</dt>
+                      <dt>{t("clients.details.field.name")}</dt>
                       <dd>{this.vm.device?.name ?? "—"}</dd>
-                      <dt>Группа</dt>
+                      <dt>{t("clients.details.field.group")}</dt>
                       <dd>{this.vm.groupLabel}</dd>
-                      <dt>Лимит ↓</dt>
+                      <dt>{t("clients.details.field.limitDown")}</dt>
                       <dd>{this.vm.downLabel}</dd>
-                      <dt>Лимит ↑</dt>
+                      <dt>{t("clients.details.field.limitUp")}</dt>
                       <dd>{this.vm.upLabel}</dd>
                       <Show when={this.vm.ownerQuota}>
-                        <dt>Квота</dt>
+                        <dt>{t("clients.details.field.quota")}</dt>
                         <dd>{this.vm.quotaUsageLabel}</dd>
                       </Show>
                       <dt>Forwarding</dt>
@@ -116,10 +117,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <hr class="divider" />
 
                     <div>
-                      <div class="xs muted" style="margin-bottom:6px">Адреса</div>
+                      <div class="xs muted" style="margin-bottom:6px">{t("clients.details.addresses")}</div>
                       <Show
                         when={this.vm.addresses.length > 0}
-                        fallback={<span class="small muted">Адреса ещё не выданы</span>}
+                        fallback={<span class="small muted">{t("clients.details.addressesEmpty")}</span>}
                       >
                         <div class="row wrap" style="gap:6px">
                           <For each={this.vm.addresses}>
@@ -132,10 +133,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <hr class="divider" />
 
                     <div>
-                      <div class="xs muted" style="margin-bottom:6px">Интерфейсы и пиры</div>
+                      <div class="xs muted" style="margin-bottom:6px">{t("clients.details.peers")}</div>
                       <Show
                         when={this.vm.peers.length > 0}
-                        fallback={<span class="small muted">Пиры ещё не созданы</span>}
+                        fallback={<span class="small muted">{t("clients.details.peersEmpty")}</span>}
                       >
                         <div class="stack-sm">
                           <For each={this.vm.peers}>
@@ -160,7 +161,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                           disabled={this.vm.actionBusy}
                           onClick={() => this.vm.revoke()}
                         >
-                          <Icon name="warning" size={14} class="" /> Отозвать
+                          <Icon name="warning" size={14} class="" /> {t("clients.details.revoke")}
                         </button>
                       </Show>
                       <button
@@ -169,7 +170,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         disabled={this.vm.actionBusy}
                         onClick={() => this.vm.remove()}
                       >
-                        <Icon name="trash" size={14} class="" /> Удалить
+                        <Icon name="trash" size={14} class="" /> {t("clients.details.delete")}
                       </button>
                     </div>
                   </div>
@@ -178,13 +179,13 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                 <section class="card">
                   <div class="card__head">
                     <div>
-                      <div class="card__title">Лимиты и forwarding</div>
-                      <div class="card__sub">Имя, скорость и доступ между устройствами</div>
+                      <div class="card__title">{t("clients.details.edit.title")}</div>
+                      <div class="card__sub">{t("clients.details.edit.subtitle")}</div>
                     </div>
                   </div>
                   <div class="card__body stack">
                     <div class="field">
-                      <label for="device-name">Имя</label>
+                      <label for="device-name">{t("clients.details.field.name")}</label>
                       <input
                         id="device-name"
                         class="input"
@@ -196,7 +197,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
 
                     <div class="grid grid--2">
                       <div class="field">
-                        <label for="device-down">Скачивание, Кбит/с</label>
+                        <label for="device-down">{t("clients.form.down")}</label>
                         <input
                           id="device-down"
                           class="input"
@@ -205,10 +206,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                           value={this.vm.editDown}
                           onInput={(event: Event) => this.vm.setEditDown(event)}
                         />
-                        <div class="hint">0 — без лимита</div>
+                        <div class="hint">{t("clients.form.limitHint")}</div>
                       </div>
                       <div class="field">
-                        <label for="device-up">Отдача, Кбит/с</label>
+                        <label for="device-up">{t("clients.form.up")}</label>
                         <input
                           id="device-up"
                           class="input"
@@ -217,7 +218,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                           value={this.vm.editUp}
                           onInput={(event: Event) => this.vm.setEditUp(event)}
                         />
-                        <div class="hint">0 — без лимита</div>
+                        <div class="hint">{t("clients.form.limitHint")}</div>
                       </div>
                     </div>
 
@@ -227,15 +228,15 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
 
                     <Show when={!this.vm.isAdmin}>
                       <div class="alert alert--info">
-                        Лимиты не могут превышать ограничения вашего тарифа.
+                        {t("clients.details.edit.tariffNotice")}
                       </div>
                     </Show>
 
                     <hr class="divider" />
 
                     <div class="stack-sm">
-                      <div class="xs muted">Forwarding с этого устройства</div>
-                      <div class="stack-sm" role="radiogroup" aria-label="Режим forwarding">
+                      <div class="xs muted">{t("clients.details.forwarding.section")}</div>
+                      <div class="stack-sm" role="radiogroup" aria-label={t("clients.details.forwarding.modeAria")}>
                         <For each={this.vm.forwardingModeOptions}>
                           {(option) => (
                             <label class="radio">
@@ -259,16 +260,16 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
 
                       <Show when={this.vm.forwardingMode === "all"}>
                         <div class="alert alert--info">
-                          Разрешает трафик на все ваши устройства — сразу все пары.
+                          {t("clients.details.forwarding.allNotice")}
                         </div>
                       </Show>
 
                       <Show when={this.vm.forwardingMode === "selected"}>
                         <div class="stack-sm">
-                          <div class="xs muted">С этого устройства → на выбранные</div>
+                          <div class="xs muted">{t("clients.details.forwarding.selectedTitle")}</div>
                           <Show
                             when={this.vm.otherDevices.length > 0}
-                            fallback={<div class="small muted">Других активных устройств у пользователя нет.</div>}
+                            fallback={<div class="small muted">{t("clients.details.forwarding.noOthers")}</div>}
                           >
                             <For each={this.vm.otherDevices}>
                               {(device) => (
@@ -301,9 +302,9 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       disabled={!this.vm.canSave}
                       onClick={() => this.vm.save()}
                     >
-                      <Show when={this.vm.saving} fallback={<span>Сохранить</span>}>
+                      <Show when={this.vm.saving} fallback={<span>{t("common.saveShort")}</span>}>
                         <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                        <span>Сохраняем…</span>
+                        <span>{t("common.saving")}</span>
                       </Show>
                     </button>
                   </div>
@@ -313,9 +314,9 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
               <section class="card">
                 <div class="card__head">
                   <div>
-                    <div class="card__title">Матрица forwarding</div>
+                    <div class="card__title">{t("clients.details.forwarding.matrix.title")}</div>
                     <div class="card__sub">
-                      Строка разрешает трафик на столбец. Каждая пара настраивается независимо.
+                      {t("clients.details.forwarding.matrix.subtitle")}
                     </div>
                   </div>
                   <label class="switch">
@@ -325,7 +326,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       onChange={(event: Event) => this.vm.setForwardingSymmetric(event)}
                     />
                     <span class="track"></span>
-                    <span>Симметрично</span>
+                    <span>{t("clients.details.forwarding.matrix.symmetric")}</span>
                   </label>
                 </div>
                 <div class="card__body stack">
@@ -333,21 +334,20 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     when={this.vm.forwardingMatrixReady}
                     fallback={
                       <div class="small muted">
-                        Нужно минимум два активных устройства у пользователя.
+                        {t("clients.details.forwarding.matrix.needTwo")}
                       </div>
                     }
                   >
                     <Show when={this.vm.forwardingBulk}>
                       <div class="alert alert--info">
-                        Строки в режиме «Все мои устройства» разрешают все пары сразу — точечные
-                        отметки для них недоступны.
+                        {t("clients.details.forwarding.matrix.bulk")}
                       </div>
                     </Show>
 
                     <Show when={this.vm.forwardingBusy}>
                       <div class="row xs muted" style="gap:8px;align-items:center">
                         <span class="spinner" style="width:14px;height:14px"></span>
-                        <span>Сохраняем forwarding…</span>
+                        <span>{t("clients.details.forwarding.matrix.saving")}</span>
                       </div>
                     </Show>
 
@@ -355,7 +355,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       <table class="table matrix-table">
                         <thead>
                           <tr>
-                            <th>Источник</th>
+                            <th>{t("clients.details.forwarding.matrix.source")}</th>
                             <For each={this.vm.forwardingRows}>
                               {(column) => (
                                 <th title={column.addresses.join(", ")}>{column.name}</th>
@@ -372,7 +372,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                     <span class="small strong">{row.name}</span>
                                     <select
                                       class="select matrix-mode"
-                                      aria-label={`Режим forwarding для ${row.name}`}
+                                      aria-label={t("clients.details.forwarding.matrix.rowMode", { name: row.name })}
                                       onChange={(event: Event) => {
                                         void this.vm.setForwardingRowMode(
                                           row.id,
@@ -417,7 +417,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     </div>
 
                     <div class="forwarding-pairs">
-                      <div class="xs muted">Пары устройств</div>
+                      <div class="xs muted">{t("clients.details.forwarding.matrix.pairs")}</div>
                       <For each={this.vm.forwardingPairs}>
                         {(pair) => (
                           <label class="checkbox">
@@ -443,8 +443,8 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
               <section class="card">
                 <div class="card__head">
                   <div>
-                    <div class="card__title">Профили</div>
-                    <div class="card__sub">Конфигурация AmneziaWG по интерфейсам</div>
+                    <div class="card__title">{t("clients.details.profiles.title")}</div>
+                    <div class="card__sub">{t("clients.details.profiles.subtitle")}</div>
                   </div>
                 </div>
                 <div class="card__body">
@@ -452,8 +452,8 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     when={this.vm.profiles.length > 0}
                     fallback={
                       <div class="empty">
-                        <div class="empty__title">Профилей пока нет</div>
-                        <div class="small">Пиры создаются вместе с устройством на интерфейсах группы.</div>
+                        <div class="empty__title">{t("clients.details.profiles.emptyTitle")}</div>
+                        <div class="small">{t("clients.details.profiles.emptyText")}</div>
                       </div>
                     }
                   >
@@ -472,7 +472,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         </For>
                       </div>
 
-                      <Switch fallback={<div class="small muted">Выберите интерфейс.</div>}>
+                      <Switch fallback={<div class="small muted">{t("clients.details.profiles.select")}</div>}>
                         <Match when={this.vm.activeProfile}>
                           <div class="stack-sm">
                             <div class="row-between wrap">
@@ -481,13 +481,13 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                               </div>
                               <div class="actions-bar">
                                 <button class="btn btn--sm" type="button" onClick={() => this.vm.copyProfile()}>
-                                  <Icon name="copy" size={14} class="" /> Копировать
+                                  <Icon name="copy" size={14} class="" /> {t("clients.details.profiles.copy")}
                                 </button>
                                 <button class="btn btn--sm" type="button" onClick={() => this.vm.downloadProfile()}>
-                                  <Icon name="download" size={14} class="" /> Скачать .conf
+                                  <Icon name="download" size={14} class="" /> {t("clients.details.profiles.download")}
                                 </button>
                                 <button class="btn btn--sm" type="button" onClick={() => this.vm.copyVpn()}>
-                                  <Icon name="link" size={14} class="" /> Копировать vpn://
+                                  <Icon name="link" size={14} class="" /> {t("clients.details.profiles.copyVpn")}
                                 </button>
                               </div>
                             </div>
@@ -503,44 +503,44 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
               <section class="card">
                 <div class="card__head">
                   <div>
-                    <div class="card__title">Временные ссылки</div>
-                    <div class="card__sub">Доступ по ссылке с автоматическим истечением</div>
+                    <div class="card__title">{t("clients.details.share.title")}</div>
+                    <div class="card__sub">{t("clients.details.share.subtitle")}</div>
                   </div>
                 </div>
                 <div class="card__body stack">
                   <Show
                     when={this.vm.profiles.length > 0}
-                    fallback={<div class="small muted">Сначала создайте пир на интерфейсе.</div>}
+                    fallback={<div class="small muted">{t("clients.details.share.noPeers")}</div>}
                   >
                     <div class="grid grid--3">
                       <div class="field">
-                        <label for="share-interface">Интерфейс</label>
+                        <label for="share-interface">{t("clients.details.share.interface")}</label>
                         <Select
                           id="share-interface"
                           value={this.vm.shareInterfaceId}
                           options={this.vm.profiles.map((profile) => ({ value: profile.interface_id, label: profile.interface_name }))}
                           onChange={(value) => this.vm.setShareInterface(value)}
-                          ariaLabel="Интерфейс"
+                          ariaLabel={t("clients.details.share.interface")}
                         />
                       </div>
                       <div class="field">
-                        <label for="share-format">Формат</label>
+                        <label for="share-format">{t("clients.details.share.format")}</label>
                         <Select
                           id="share-format"
                           value={this.vm.shareFormat}
                           options={this.vm.formatOptions.map((option) => ({ value: option.value, label: option.label }))}
                           onChange={(value) => this.vm.setShareFormat(value)}
-                          ariaLabel="Формат"
+                          ariaLabel={t("clients.details.share.format")}
                         />
                       </div>
                       <div class="field">
-                        <label for="share-ttl">Срок действия</label>
+                        <label for="share-ttl">{t("clients.details.share.ttl")}</label>
                         <Select
                           id="share-ttl"
                           value={String(this.vm.shareTtl)}
                           options={this.vm.ttlOptions.map((option) => ({ value: String(option.value), label: option.label }))}
                           onChange={(value) => this.vm.setShareTtl(value)}
-                          ariaLabel="Срок действия"
+                          ariaLabel={t("clients.details.share.ttl")}
                         />
                       </div>
                     </div>
@@ -555,12 +555,12 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         when={this.vm.shareBusy}
                         fallback={
                           <span class="row" style="gap:6px">
-                            <Icon name="link" size={14} class="" /> Создать ссылку
+                            <Icon name="link" size={14} class="" /> {t("clients.details.share.create")}
                           </span>
                         }
                       >
                         <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                        <span>Создаём…</span>
+                        <span>{t("clients.details.share.creating")}</span>
                       </Show>
                     </button>
                   </Show>
@@ -569,7 +569,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
 
                   <Show
                     when={this.vm.shares.length > 0}
-                    fallback={<div class="small muted">Активных ссылок нет.</div>}
+                    fallback={<div class="small muted">{t("clients.details.share.none")}</div>}
                   >
                     <div class="stack-sm">
                       <For each={this.vm.shares}>
@@ -584,7 +584,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                   <span class="xs muted">{this.vm.interfaceName(share.interface_id)}</span>
                                 </div>
                                 <span class="xs muted row" style="gap:4px">
-                                  <Icon name="clock" size={12} class="" /> до {formatDate(share.expires_at)}
+                                  <Icon name="clock" size={12} class="" /> {t("clients.details.share.expires", { date: formatDateTimeI18n(share.expires_at) })}
                                 </span>
                               </div>
                               <div class="copy-row">
@@ -592,8 +592,8 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button
                                   class="btn btn--sm"
                                   type="button"
-                                  aria-label="Скопировать ссылку"
-                                  onClick={() => { void this.vm.copyText(share.url, "Ссылка"); }}
+                                  aria-label={t("clients.details.share.copyAria")}
+                                  onClick={() => { void this.vm.copyText(share.url, t("clients.details.share.copyLabel")); }}
                                 >
                                   <Icon name="copy" size={14} class="" />
                                 </button>
@@ -601,7 +601,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                   class="btn btn--sm btn--danger"
                                   type="button"
                                   disabled={this.vm.shareBusy}
-                                  aria-label="Отозвать ссылку"
+                                  aria-label={t("clients.details.share.revokeAria")}
                                   onClick={() => { void this.vm.revokeShare(share.token); }}
                                 >
                                   <Icon name="trash" size={14} class="" />

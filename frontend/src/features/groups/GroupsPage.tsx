@@ -3,33 +3,34 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { GroupsPageVM } from "./GroupsPage.vm";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
+import { t } from "@/i18n";
 
 export function GroupsPage(this: { vm: GroupsPageVM }) {
   const form = (
     <form id="group-form" class="stack" onSubmit={(event: Event) => this.vm.save(event)}>
       <div class="field">
-        <label for="group-name">Название</label>
+        <label for="group-name">{t("groups.form.name")}</label>
         <input
           id="group-name"
           class="input"
           type="text"
-          placeholder="Офис Москва"
+          placeholder={t("groups.form.namePlaceholder")}
           value={this.vm.formName}
           onInput={(event: Event) => this.vm.setName(event)}
         />
       </div>
       <div class="field">
-        <label for="group-description">Описание</label>
+        <label for="group-description">{t("groups.form.description")}</label>
         <textarea
           id="group-description"
           class="textarea"
-          placeholder="Назначение группы и состав интерфейсов"
+          placeholder={t("groups.form.descriptionPlaceholder")}
           value={this.vm.formDescription}
           onInput={(event: Event) => this.vm.setDescription(event)}
         ></textarea>
       </div>
       <div class="field">
-        <label for="group-cidr">Базовая сеть</label>
+        <label for="group-cidr">{t("groups.form.baseCidr")}</label>
         <input
           id="group-cidr"
           class="input mono"
@@ -38,7 +39,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
           value={this.vm.formBaseCidr}
           onInput={(event: Event) => this.vm.setBaseCidr(event)}
         />
-        <span class="hint">Все CIDR-пулы и адреса устройств должны находиться внутри этой сети.</span>
+        <span class="hint">{t("groups.form.baseCidrHint")}</span>
       </div>
       <label class="checkbox">
         <input
@@ -46,7 +47,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
           checked={this.vm.formForwarding}
           onChange={(event: Event) => this.vm.setForwarding(event)}
         />
-        <span>Forwarding по умолчанию</span>
+        <span>{t("groups.forwardingDefault")}</span>
       </label>
       <Show when={this.vm.formError}>
         <div class="alert alert--error">{this.vm.formError}</div>
@@ -57,10 +58,10 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
   const footer = (
     <div class="actions-bar">
       <button class="btn" type="button" onClick={() => this.vm.closeModal()} disabled={this.vm.saving}>
-        Отмена
+        {t("common.cancelShort")}
       </button>
       <button class="btn btn--primary" type="submit" form="group-form" disabled={!this.vm.canSave}>
-        {this.vm.saving ? "Сохраняем…" : "Сохранить"}
+        {this.vm.saving ? t("common.saving") : t("common.saveShort")}
       </button>
     </div>
   );
@@ -68,18 +69,18 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Управление</div>
+        <div class="page-head__eyebrow">{t("groups.eyebrow")}</div>
         <div class="row-between wrap">
           <div>
-            <h1>Группы</h1>
-            <p>Общая базовая сеть, CIDR-пулы и параметры forwarding для интерфейсов на всех нодах.</p>
+            <h1>{t("groups.title")}</h1>
+            <p>{t("groups.subtitle")}</p>
           </div>
           <div class="actions-bar">
             <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> Обновить
+              <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
             </button>
             <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-              <Icon name="plus" size={14} class="" /> Создать группу
+              <Icon name="plus" size={14} class="" /> {t("groups.create")}
             </button>
           </div>
         </div>
@@ -104,11 +105,11 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
           fallback={
             <div class="empty">
               <Icon name="groups" size={40} class="empty__icon" />
-              <div class="empty__title">Групп пока нет</div>
-              <div class="small">Создайте первую группу, чтобы задать общую сеть и пулы адресов.</div>
+              <div class="empty__title">{t("groups.empty.title")}</div>
+              <div class="small">{t("groups.empty.text")}</div>
               <div style="margin-top:16px">
                 <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                  <Icon name="plus" size={16} class="" /> Создать группу
+                  <Icon name="plus" size={16} class="" /> {t("groups.create")}
                 </button>
               </div>
             </div>
@@ -125,26 +126,26 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                         <span class="badge badge--blue">forwarding_default</span>
                       </Show>
                     </div>
-                    <div class="small muted">{group.description || "Без описания"}</div>
+                    <div class="small muted">{group.description || t("groups.noDescription")}</div>
                     <hr class="divider" />
                     <dl class="kv">
-                      <dt>Базовая сеть</dt>
+                      <dt>{t("groups.baseCidr")}</dt>
                       <dd class="mono">{group.base_cidr}</dd>
-                      <dt>Интерфейсы</dt>
+                      <dt>{t("groups.interfaces")}</dt>
                       <dd>{group.interfaces}</dd>
-                      <dt>Устройства</dt>
+                      <dt>{t("groups.devices")}</dt>
                       <dd>{group.devices}</dd>
                     </dl>
                   </div>
                   <div class="card__foot row-between">
                     <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.open(group)}>
-                      Открыть
+                      {t("groups.action.open")}
                     </button>
                     <div class="actions-bar">
                       <button
                         class="btn btn--sm btn--ghost btn--icon"
                         type="button"
-                        aria-label="Редактировать группу"
+                        aria-label={t("groups.action.editAria")}
                         onClick={() => this.vm.openEdit(group)}
                       >
                         <Icon name="edit" size={14} class="" />
@@ -152,7 +153,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                       <button
                         class="btn btn--sm btn--ghost btn--icon"
                         type="button"
-                        aria-label="Удалить группу"
+                        aria-label={t("groups.action.deleteAria")}
                         onClick={() => this.vm.remove(group)}
                       >
                         <Icon name="trash" size={14} class="" />

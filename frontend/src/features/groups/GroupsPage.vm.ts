@@ -5,6 +5,7 @@ import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "../../application/groups/service";
 import type { Group } from "@/domain/types";
 import { isCidr } from "@/domain/validation";
+import { t } from "@/i18n";
 
 export class GroupsPageVM {
   @reactive accessor groups: Group[] = [];
@@ -32,7 +33,7 @@ export class GroupsPageVM {
 
   @computed
   get modalTitle(): string {
-    return this.editing ? "Редактирование группы" : "Новая группа";
+    return this.editing ? t("groups.form.title.edit") : t("groups.form.title.new");
   }
 
   @computed
@@ -54,7 +55,7 @@ export class GroupsPageVM {
     try {
       this.groups = await this.groupsService.listGroups();
     } catch (error) {
-      this.error = messageOf(error, "Не удалось загрузить группы");
+      this.error = messageOf(error, t("groups.error.load"));
       this.toasts.error(this.error);
     }
   }
@@ -112,11 +113,11 @@ export class GroupsPageVM {
     const name = this.formName.trim();
     const baseCidr = this.formBaseCidr.trim();
     if (!name) {
-      this.formError = "Укажите название группы";
+      this.formError = t("groups.error.name");
       return;
     }
     if (!isCidr(baseCidr)) {
-      this.formError = "Базовая сеть должна быть в формате CIDR, например 10.8.0.0/16";
+      this.formError = t("groups.error.baseCidr");
       return;
     }
 
@@ -132,7 +133,7 @@ export class GroupsPageVM {
           base_cidr: baseCidr,
           forwarding_default: forwarding,
         });
-        this.toasts.success(`Группа «${name}» обновлена`);
+        this.toasts.success(t("groups.toast.updated", { name }));
       } else {
         await this.groupsService.createGroup({
           name,
@@ -140,12 +141,12 @@ export class GroupsPageVM {
           base_cidr: baseCidr,
           forwarding_default: forwarding,
         });
-        this.toasts.success(`Группа «${name}» создана`);
+        this.toasts.success(t("groups.toast.created", { name }));
       }
       this.modalOpen = false;
       await this.reload();
     } catch (error) {
-      this.formError = messageOf(error, "Не удалось сохранить группу");
+      this.formError = messageOf(error, t("groups.error.save"));
       this.toasts.error(this.formError);
     } finally {
       this.saving = false;
@@ -153,15 +154,15 @@ export class GroupsPageVM {
   }
 
   async remove(group: Group): Promise<void> {
-    if (!window.confirm(`Удалить группу «${group.name}»?`)) return;
+    if (!window.confirm(t("groups.confirm.delete", { name: group.name }))) return;
     try {
       await this.groupsService.deleteGroup(group.id);
-      this.toasts.success(`Группа «${group.name}» удалена`);
+      this.toasts.success(t("groups.toast.deleted", { name: group.name }));
       await this.reload();
     } catch (error) {
-      const message = messageOf(error, "Не удалось удалить группу");
+      const message = messageOf(error, t("groups.error.delete"));
       this.error = message.toLowerCase().includes("still has interfaces")
-        ? `Группа «${group.name}» содержит интерфейсы — сначала отвяжите их от группы.`
+        ? t("groups.error.inUse", { name: group.name })
         : message;
       this.toasts.error(this.error);
     }

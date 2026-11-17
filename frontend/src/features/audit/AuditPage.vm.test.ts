@@ -1,6 +1,7 @@
 import { DefaultAuditService } from "@/application/audit/service";
 import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
+import { formatDateTimeI18n } from "@/i18n/format";
 import { formatAuditRow, AuditPageVM, auditFiltersStorage } from "./AuditPage.vm";
 
 function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
@@ -340,7 +341,7 @@ describe("AuditPageVM", () => {
       }),
     );
 
-    expect(row.at).toBe(new Date("2024-05-06T12:34:56Z").toLocaleString("ru-RU"));
+    expect(row.at).toBe(formatDateTimeI18n("2024-05-06T12:34:56Z"));
     expect(row.entityLabel).toBe("devices · abcdefgh…");
     expect(row.statusClass).toBe("badge--green");
     expect(row.hasDetails).toBe(true);

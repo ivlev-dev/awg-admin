@@ -1,3 +1,5 @@
+import { createComponent } from "@ivlev-dev/silent-core";
+
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -17,6 +19,8 @@ import type { Device, Group, InterfaceInfo, Role, StatsPoint, User } from "@/dom
 import type { UsersRepository } from "@/domain/users/repository";
 import { LiveStats } from "@/infrastructure/stats";
 import { LocalTokenStore, type TokenStore } from "@/infrastructure/storage";
+import { setLocale } from "@/i18n";
+import { StatsPage } from "./StatsPage";
 import { StatsVM } from "./StatsPage.vm";
 
 const ADMIN: User = {
@@ -349,6 +353,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  setLocale("ru");
   vi.unstubAllGlobals();
 });
 
@@ -646,6 +651,42 @@ describe("StatsPageVM", () => {
       kind: "error",
       message: "Нет данных для экспорта",
     });
+  });
+
+  it("переключает язык пустого состояния и диапазонов", async () => {
+    const { stats, devices, groups, interfaces, users, liveStats, session, router, toasts } = setup("admin");
+    vi.mocked(stats.series).mockResolvedValue([]);
+    vi.mocked(devices.repository.listDevices).mockResolvedValue([]);
+
+    const container = createAppContainer();
+    container.bind(DefaultStatsService, () => new DefaultStatsService(stats.repository));
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groups));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfaces));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(users));
+    container.bind(LiveStats, () => liveStats);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(StatsPage, {}, { container });
+    await result.ready;
+
+    await vi.waitFor(() => {
+      expect(result.node.textContent).toContain("Нет данных за период");
+      expect(result.node.textContent).toContain("24 часа");
+    });
+
+    setLocale("en");
+
+    await vi.waitFor(() => {
+      expect(result.node.textContent).toContain("No data for the period");
+      expect(result.node.textContent).toContain("24 hours");
+      expect(result.node.textContent).toContain("Statistics scope");
+    });
+    expect(result.node.textContent).not.toContain("Нет данных за период");
+
+    result.dispose();
   });
 
   it("резолвится контейнером вместе с LiveStats", async () => {

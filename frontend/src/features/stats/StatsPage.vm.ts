@@ -8,9 +8,10 @@ import type { GroupsService } from "../../application/groups/service";
 import type { InterfacesService } from "../../application/interfaces/service";
 import type { StatsService } from "../../application/stats/service";
 import type { UsersService } from "../../application/users/service";
-import { formatBytes } from "@/domain/format";
 import type { Device, Group, InterfaceInfo, StatsPoint, TrafficTotals, User } from "@/domain/types";
 import type { LiveStats } from "@/infrastructure/stats";
+import { t, type TranslationKey } from "@/i18n";
+import { formatBytesI18n } from "@/i18n/format";
 
 type Scope = "global" | "user" | "group" | "interface" | "device";
 type RangeKey = "24h" | "7d" | "30d";
@@ -49,10 +50,10 @@ const RANGE_SECONDS: Record<RangeKey, number> = {
   "30d": 30 * 24 * 3600,
 };
 
-const RANGE_LABELS: Record<RangeKey, string> = {
-  "24h": "24 часа",
-  "7d": "7 дней",
-  "30d": "30 дней",
+const RANGE_LABELS: Record<RangeKey, TranslationKey> = {
+  "24h": "stats.range.24h",
+  "7d": "stats.range.7d",
+  "30d": "stats.range.30d",
 };
 
 function csvCell(value: string): string {
@@ -95,6 +96,7 @@ export class StatsVM {
   @reactive accessor entitiesError: string | null = null;
   @reactive accessor deviceRows: DeviceRow[] = [];
   @reactive accessor devicesLoading = false;
+  @reactive accessor initialized = false;
   @reactive accessor liveEnabled = false;
 
   private seriesRequest = 0;
@@ -115,11 +117,18 @@ export class StatsVM {
   }
 
   async created(): Promise<void> {
-    if (!this.session.authenticated) return;
-    this.scope = this.session.isAdmin ? "global" : "user";
-    await this.loadEntities();
-    this.ensureEntityId();
-    await Promise.all([this.loadSeries(), this.loadDeviceStats()]);
+    if (!this.session.authenticated) {
+      this.initialized = true;
+      return;
+    }
+    try {
+      this.scope = this.session.isAdmin ? "global" : "user";
+      await this.loadEntities();
+      this.ensureEntityId();
+      await Promise.all([this.loadSeries(), this.loadDeviceStats()]);
+    } finally {
+      this.initialized = true;
+    }
   }
 
   unmounted(): void {
@@ -137,16 +146,16 @@ export class StatsVM {
   get scopeOptions(): ScopeOption[] {
     if (this.isAdmin) {
       return [
-        { value: "global", label: "Все устройства" },
-        { value: "user", label: "Пользователь" },
-        { value: "group", label: "Группа" },
-        { value: "interface", label: "Интерфейс" },
-        { value: "device", label: "Устройство" },
+        { value: "global", label: t("stats.scope.global") },
+        { value: "user", label: t("stats.scope.user") },
+        { value: "group", label: t("stats.scope.group") },
+        { value: "interface", label: t("stats.scope.interface") },
+        { value: "device", label: t("stats.scope.device") },
       ];
     }
     return [
-      { value: "user", label: "Мой аккаунт" },
-      { value: "device", label: "Моё устройство" },
+      { value: "user", label: t("stats.scope.myAccount") },
+      { value: "device", label: t("stats.scope.myDevice") },
     ];
   }
 
@@ -179,11 +188,11 @@ export class StatsVM {
 
   @computed
   get entityLabel(): string {
-    if (this.scope === "user") return "Пользователь";
-    if (this.scope === "group") return "Группа";
-    if (this.scope === "interface") return "Интерфейс";
-    if (this.scope === "device") return "Устройство";
-    return "Сущность";
+    if (this.scope === "user") return t("stats.entity.user");
+    if (this.scope === "group") return t("stats.entity.group");
+    if (this.scope === "interface") return t("stats.entity.interface");
+    if (this.scope === "device") return t("stats.entity.device");
+    return t("stats.entity.fallback");
   }
 
   @computed
@@ -198,7 +207,7 @@ export class StatsVM {
 
   @computed
   get periodLabel(): string {
-    return RANGE_LABELS[this.rangeKey];
+    return t(RANGE_LABELS[this.rangeKey]);
   }
 
   @computed
@@ -222,12 +231,12 @@ export class StatsVM {
 
   @computed
   get totalRxLabel(): string {
-    return formatBytes(this.totalRx);
+    return formatBytesI18n(this.totalRx);
   }
 
   @computed
   get totalTxLabel(): string {
-    return formatBytes(this.totalTx);
+    return formatBytesI18n(this.totalTx);
   }
 
   @computed
@@ -247,8 +256,8 @@ export class StatsVM {
 
   @computed
   get liveBadgeLabel(): string {
-    if (!this.liveEnabled) return "офлайн";
-    return this.liveStats.connected ? "LIVE" : "подключение…";
+    if (!this.liveEnabled) return t("stats.live.offline");
+    return this.liveStats.connected ? t("stats.live.live") : t("stats.live.connecting");
   }
 
   @computed
@@ -258,22 +267,22 @@ export class StatsVM {
 
   @computed
   get liveTodayRx(): string {
-    return formatBytes(this.liveStats.today.rx);
+    return formatBytesI18n(this.liveStats.today.rx);
   }
 
   @computed
   get liveTodayTx(): string {
-    return formatBytes(this.liveStats.today.tx);
+    return formatBytesI18n(this.liveStats.today.tx);
   }
 
   @computed
   get liveTodayTotal(): string {
-    return formatBytes(this.liveStats.today.rx + this.liveStats.today.tx);
+    return formatBytesI18n(this.liveStats.today.rx + this.liveStats.today.tx);
   }
 
   @computed
   get liveMonthTotal(): string {
-    return formatBytes(this.liveStats.month.rx + this.liveStats.month.tx);
+    return formatBytesI18n(this.liveStats.month.rx + this.liveStats.month.tx);
   }
 
   @computed
@@ -282,10 +291,10 @@ export class StatsVM {
       id: row.device.id,
       name: row.device.name,
       addresses: row.device.addresses.join(", "),
-      todayRx: formatBytes(row.today.rx),
-      todayTx: formatBytes(row.today.tx),
-      monthRx: formatBytes(row.month.rx),
-      monthTx: formatBytes(row.month.tx),
+      todayRx: formatBytesI18n(row.today.rx),
+      todayTx: formatBytesI18n(row.today.tx),
+      monthRx: formatBytesI18n(row.month.rx),
+      monthTx: formatBytesI18n(row.month.tx),
       failed: row.failed,
     }));
   }
@@ -319,7 +328,7 @@ export class StatsVM {
       return;
     }
     if (this.requiresEntity && !this.scopeId) {
-      this.toasts.error("Выберите сущность для Live-режима");
+      this.toasts.error(t("stats.toast.selectEntity"));
       return;
     }
     this.liveEnabled = true;
@@ -346,7 +355,7 @@ export class StatsVM {
         this.devices = await this.devicesService.listDevices();
       }
     } catch (error) {
-      this.entitiesError = error instanceof Error ? error.message : "Не удалось загрузить списки";
+      this.entitiesError = error instanceof Error ? error.message : t("stats.error.entities");
       this.toasts.error(this.entitiesError);
     } finally {
       this.entitiesLoading = false;
@@ -370,7 +379,7 @@ export class StatsVM {
       this.series = points;
     } catch (error) {
       if (request !== this.seriesRequest) return;
-      this.error = error instanceof Error ? error.message : "Не удалось загрузить статистику";
+      this.error = error instanceof Error ? error.message : t("stats.error.series");
       this.toasts.error(this.error);
     } finally {
       if (request === this.seriesRequest) this.seriesLoading = false;
@@ -402,13 +411,13 @@ export class StatsVM {
       if (request !== this.statsRequest) return;
       this.deviceRows = rows;
       if (rows.length > 0 && rows.every((row) => row.failed)) {
-        this.toasts.error("Не удалось загрузить статистику устройств");
+        this.toasts.error(t("stats.error.deviceStats"));
       }
     } catch (error) {
       if (request === this.statsRequest) {
         this.deviceRows = [];
         this.toasts.error(
-          error instanceof Error ? error.message : "Не удалось загрузить статистику устройств",
+          error instanceof Error ? error.message : t("stats.error.deviceStats"),
         );
       }
     } finally {
@@ -422,7 +431,7 @@ export class StatsVM {
 
   exportCsv(): void {
     if (this.series.length === 0) {
-      this.toasts.error("Нет данных для экспорта");
+      this.toasts.error(t("stats.toast.noExport"));
       return;
     }
     const lines = ["at,rx,tx"];

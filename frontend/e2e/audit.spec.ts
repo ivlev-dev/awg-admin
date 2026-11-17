@@ -58,7 +58,7 @@ test.describe("Журнал аудита", () => {
     await expect(page.locator(".empty__title")).toHaveText("Событий нет");
 
     const reset = auditResponse(page);
-    await page.getByRole("button", { name: "Сбросить" }).click();
+    await page.getByRole("button", { name: "Сбросить", exact: true }).click();
     const resetResponse = await reset;
     expect(new URL(resetResponse.url()).searchParams.get("actor")).toBeNull();
 

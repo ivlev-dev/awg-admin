@@ -32,6 +32,7 @@ import type {
 import type { UsersRepository } from "@/domain/users/repository";
 import type { CreateUserInput, UpdateUserInput, ApproveUserInput } from "@/domain/users/types";
 import type { TokenStore } from "@/infrastructure/storage";
+import { UsersPage } from "./UsersPage";
 import { UsersPageVM } from "./UsersPage.vm";
 
 const ADMIN: User = {
@@ -342,6 +343,34 @@ describe("UsersPageVM constructor DI", () => {
     expect(vm.tariffs).toEqual([TARIFF]);
     expect(vm.groups).toEqual([GROUP]);
     expect(vm.quotaPercentLabel(ADMIN.id)).toBe("50.0 %");
+    result.dispose();
+  });
+
+  it("рендерит список как мобильные карточки с подписями и действиями", async () => {
+    stubApi();
+    const container = createAppContainer();
+
+    const result = createComponent(UsersPage, {}, { container });
+    await result.ready;
+
+    const root = result.node as ParentNode;
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("table.table--users")).not.toBeNull();
+    });
+
+    const table = root.querySelector("table.table--users");
+    expect(table?.classList.contains("table--cards")).toBe(true);
+    expect(root.querySelector(".table-wrap--cards")).not.toBeNull();
+    expect(root.querySelector(".tabs--fill")).not.toBeNull();
+
+    const quotaCell = root.querySelector("td[data-label='Квота']");
+    expect(quotaCell?.querySelector(".user-quota")).not.toBeNull();
+    expect(quotaCell?.textContent).toContain("%");
+
+    const actions = root.querySelector("td.cell-actions");
+    expect(actions?.querySelectorAll("button")).toHaveLength(4);
+
     result.dispose();
   });
 });

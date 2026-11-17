@@ -62,6 +62,27 @@ export interface DeviceView {
   forwarding: { to_own_devices: boolean; allowed_devices: string[] };
 }
 
+export interface DevMail {
+  to: string;
+  subject: string;
+  link: string;
+  body: string;
+  created_at: string;
+}
+
+export interface PendingUser {
+  id: string;
+  login: string;
+  email: string | null;
+  status: "pending_email" | "pending_approval" | "active" | "rejected";
+}
+
+export interface LoginAttempt {
+  ok: boolean;
+  status: number;
+  code: string | null;
+}
+
 export interface WorkspaceOptions {
   quotaBytes?: number | null;
   maxDevices?: number;
@@ -232,6 +253,90 @@ export class E2EApi {
   async findDeviceByName(name: string): Promise<DeviceView | undefined> {
     const devices = await this.get<DeviceView[]>("/devices");
     return devices.find((device) => device.name === name);
+  }
+
+  async listDevices(): Promise<DeviceView[]> {
+    return this.get<DeviceView[]>("/devices");
+  }
+
+  async listInterfaces(): Promise<InterfaceView[]> {
+    return this.get<InterfaceView[]>("/interfaces");
+  }
+
+  async listGroups(): Promise<GroupView[]> {
+    return this.get<GroupView[]>("/groups");
+  }
+
+  async listPendingUsers(): Promise<PendingUser[]> {
+    return this.get<PendingUser[]>("/users/pending");
+  }
+
+  async approveUser(input: {
+    userId: string;
+    tariffId: string;
+    groupId?: string | null;
+  }): Promise<PendingUser> {
+    return this.post<PendingUser>(`/users/${input.userId}/approve`, {
+      tariff_id: input.tariffId,
+      group_id: input.groupId ?? null,
+    });
+  }
+
+  async attemptLogin(login: string, password: string): Promise<LoginAttempt> {
+    const response = await this.context.post(`${API_PREFIX}/auth/login`, {
+      data: { login, password },
+      headers: { Accept: "application/json" },
+    });
+    if (response.ok()) return { ok: true, status: response.status(), code: null };
+    const payload = (await response.json().catch(() => null)) as
+      | { error?: { code?: string } }
+      | null;
+    return {
+      ok: false,
+      status: response.status(),
+      code: payload?.error?.code ?? null,
+    };
+  }
+
+  async register(input: { email: string; password: string; login?: string }): Promise<void> {
+    const response = await this.context.post(`${API_PREFIX}/auth/register`, {
+      data: input,
+      headers: { Accept: "application/json" },
+    });
+    await readJson<unknown>(response, "POST", "/auth/register");
+  }
+
+  async verifyEmail(token: string): Promise<void> {
+    const response = await this.context.post(`${API_PREFIX}/auth/verify-email`, {
+      data: { token },
+      headers: { Accept: "application/json" },
+    });
+    await readJson<unknown>(response, "POST", "/auth/verify-email");
+  }
+
+  async devMail(): Promise<DevMail[]> {
+    return this.get<DevMail[]>("/dev/mail");
+  }
+
+  async clearDevMail(): Promise<void> {
+    const response = await this.context.delete(`${API_PREFIX}/dev/mail`);
+    if (!response.ok() && response.status() !== 404) {
+      const body = await response.text().catch(() => "");
+      throw new Error(`DELETE /dev/mail -> ${response.status()}: ${body}`);
+    }
+  }
+
+  async waitForMail(to: string, timeoutMs = 10_000): Promise<DevMail> {
+    const deadline = Date.now() + timeoutMs;
+    let lastCount = 0;
+    while (Date.now() < deadline) {
+      const messages = await this.devMail();
+      lastCount = messages.length;
+      const match = messages.filter((message) => message.to === to).at(-1);
+      if (match) return match;
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    throw new Error(`no dev mail for ${to} (mailbox size: ${lastCount})`);
   }
 
   private async get<T>(path: string): Promise<T> {

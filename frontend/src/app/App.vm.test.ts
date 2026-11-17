@@ -1,5 +1,13 @@
 import { createComponent, getRuntimeOptions, whenIdle } from "@ivlev-dev/silent-core";
 
+const prefetchModule = vi.hoisted(() => ({
+  prefetchPath: vi.fn((_path: string): Promise<void> => Promise.resolve()),
+  scheduleIdlePrefetch: vi.fn((_options: { readonly routes?: readonly string[] } = {}): (() => void) => () => undefined),
+  IDLE_PREFETCH_PATHS: ["/clients", "/stats"] as readonly string[],
+}));
+
+vi.mock("@/app/prefetch", () => prefetchModule);
+
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
@@ -582,5 +590,75 @@ describe("AppVM constructor DI", () => {
     expect(await scope.resolve<LiveStats>(LiveStats)).toBe(liveStats);
     expect(await scope.resolve<DefaultUsersService>(DefaultUsersService)).toBe(users);
     expect(await container.resolve<Session>(Session)).toBe(session);
+  });
+});
+
+describe("AppVM prefetch", () => {
+  beforeEach(() => {
+    prefetchModule.prefetchPath.mockClear();
+    prefetchModule.scheduleIdlePrefetch.mockReset();
+    prefetchModule.scheduleIdlePrefetch.mockImplementation(() => () => undefined);
+  });
+
+  it("plans idle prefetch for likely routes after boot", async () => {
+    const harness = makeHarness({ user: ADMIN, path: "/" });
+    harness.vm.booting = true;
+
+    await harness.vm.created();
+
+    expect(prefetchModule.scheduleIdlePrefetch).toHaveBeenCalledTimes(1);
+    expect(prefetchModule.scheduleIdlePrefetch).toHaveBeenCalledWith({ routes: ["/clients", "/stats"] });
+    harness.vm.dispose();
+  });
+
+  it("excludes the current route from idle prefetch", async () => {
+    const harness = makeHarness({ user: ADMIN, path: "/clients" });
+    harness.vm.booting = true;
+
+    await harness.vm.created();
+
+    expect(prefetchModule.scheduleIdlePrefetch).toHaveBeenCalledWith({ routes: ["/stats"] });
+    harness.vm.dispose();
+  });
+
+  it("does not plan idle prefetch for guests on public pages", async () => {
+    const harness = makeHarness({ user: null, path: "/login" });
+    harness.vm.booting = true;
+
+    await harness.vm.created();
+
+    expect(prefetchModule.scheduleIdlePrefetch).not.toHaveBeenCalled();
+  });
+
+  it("does not plan idle prefetch on authenticated public pages", async () => {
+    const harness = makeHarness({ user: ADMIN, path: "/register" });
+    harness.vm.booting = true;
+
+    await harness.vm.created();
+
+    expect(prefetchModule.scheduleIdlePrefetch).not.toHaveBeenCalled();
+    harness.vm.dispose();
+  });
+
+  it("cancels the planned idle prefetch on dispose", async () => {
+    const cancel = vi.fn();
+    prefetchModule.scheduleIdlePrefetch.mockReturnValue(cancel);
+    const harness = makeHarness({ user: ADMIN, path: "/" });
+    harness.vm.booting = true;
+
+    await harness.vm.created();
+    harness.vm.dispose();
+
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("forwards navigation hover and focus to the prefetch module", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/" });
+
+    harness.vm.prefetch("/stats");
+    harness.vm.prefetch("/stats");
+
+    expect(prefetchModule.prefetchPath).toHaveBeenCalledTimes(2);
+    expect(prefetchModule.prefetchPath).toHaveBeenCalledWith("/stats");
   });
 });

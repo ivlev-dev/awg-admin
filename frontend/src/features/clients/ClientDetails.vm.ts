@@ -8,7 +8,6 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { DeviceStats } from "@/domain/devices/types";
-import { formatBytes, formatRate } from "@/domain/format";
 import type {
   Device,
   Forwarding,
@@ -18,6 +17,8 @@ import type {
   ShareFormat,
   ShareLink,
 } from "@/domain/types";
+import { t, type TranslationKey } from "@/i18n";
+import { formatBytesI18n, formatRateI18n } from "@/i18n/format";
 
 export type ForwardingMode = "off" | "all" | "selected";
 
@@ -40,10 +41,10 @@ export interface ForwardingPair {
 
 const FORWARDING_MODES: ForwardingMode[] = ["off", "all", "selected"];
 
-const FORWARDING_MODE_LABELS: Record<ForwardingMode, string> = {
-  off: "Выключено",
-  all: "Все мои устройства",
-  selected: "Только выбранные",
+const FORWARDING_MODE_KEYS: Record<ForwardingMode, TranslationKey> = {
+  off: "clients.details.forwarding.mode.off",
+  all: "clients.details.forwarding.mode.all",
+  selected: "clients.details.forwarding.mode.selected",
 };
 
 export class ClientDetailsVM {
@@ -122,30 +123,36 @@ export class ClientDetailsVM {
   @computed
   get groupLabel(): string {
     const device = this.device;
-    if (!device || !device.group_id) return "Без группы";
+    if (!device || !device.group_id) return t("clients.group.none");
     if (!this.isAdmin) {
-      return device.group_id === this.session.user?.group_id ? "Ваша группа" : device.group_id;
+      return device.group_id === this.session.user?.group_id
+        ? t("clients.details.group.own")
+        : device.group_id;
     }
     return this.groups.find((group) => group.id === device.group_id)?.name ?? device.group_id;
   }
 
   @computed
   get downLabel(): string {
-    return formatRate(this.device?.down_kbps ?? 0);
+    return formatRateI18n(this.device?.down_kbps ?? 0);
   }
 
   @computed
   get upLabel(): string {
-    return formatRate(this.device?.up_kbps ?? 0);
+    return formatRateI18n(this.device?.up_kbps ?? 0);
   }
 
   @computed
   get forwardingLabel(): string {
     const forwarding = this.device?.forwarding;
     const mode = modeOfForwarding(forwarding);
-    if (mode === "all") return "Все свои устройства";
-    if (mode === "selected") return `Выбрано ${forwarding?.allowed_devices.length ?? 0}`;
-    return "Выключено";
+    if (mode === "all") return t("clients.details.forwarding.all");
+    if (mode === "selected") {
+      return t("clients.details.forwarding.selected", {
+        count: forwarding?.allowed_devices.length ?? 0,
+      });
+    }
+    return t("clients.details.forwarding.none");
   }
 
   @computed
@@ -155,22 +162,22 @@ export class ClientDetailsVM {
 
   @computed
   get todayRx(): string {
-    return formatBytes(this.stats?.today.rx ?? 0);
+    return formatBytesI18n(this.stats?.today.rx ?? 0);
   }
 
   @computed
   get todayTx(): string {
-    return formatBytes(this.stats?.today.tx ?? 0);
+    return formatBytesI18n(this.stats?.today.tx ?? 0);
   }
 
   @computed
   get monthRx(): string {
-    return formatBytes(this.stats?.month.rx ?? 0);
+    return formatBytesI18n(this.stats?.month.rx ?? 0);
   }
 
   @computed
   get monthTx(): string {
-    return formatBytes(this.stats?.month.tx ?? 0);
+    return formatBytesI18n(this.stats?.month.tx ?? 0);
   }
 
   @computed
@@ -186,14 +193,15 @@ export class ClientDetailsVM {
   @computed
   get quotaUsageLabel(): string {
     if (!this.ownerQuota) return "";
-    return `Использовано ${this.quotaView.usedLabel} из ${this.quotaView.limitLabel}`;
+    return t("clients.details.quotaUsage", {
+      used: this.quotaView.usedLabel,
+      limit: this.quotaView.limitLabel,
+    });
   }
 
   @computed
   get rateLimitHint(): string {
-    return this.quotaExceeded
-      ? "Фактическая скорость ограничена 1 Кбит/с: квота трафика исчерпана."
-      : "";
+    return this.quotaExceeded ? t("clients.details.rateLimit") : "";
   }
 
   @computed
@@ -209,8 +217,8 @@ export class ClientDetailsVM {
   get forwardingModeOptions(): Array<{ value: ForwardingMode; label: string; hint?: string }> {
     return FORWARDING_MODES.map((value) => ({
       value,
-      label: FORWARDING_MODE_LABELS[value],
-      ...(value === "all" ? { hint: "Разрешает все пары сразу" } : {}),
+      label: t(FORWARDING_MODE_KEYS[value]),
+      ...(value === "all" ? { hint: t("clients.details.forwarding.mode.allHint") } : {}),
     }));
   }
 
@@ -219,10 +227,10 @@ export class ClientDetailsVM {
     if (this.forwardingMode !== "selected") return null;
     const device = this.device;
     if (device && this.forwardingSelected.includes(device.id)) {
-      return "Нельзя выбрать само устройство";
+      return t("clients.details.forwarding.errorSelf");
     }
     if (this.forwardingSelected.length === 0) {
-      return "Выберите хотя бы одно устройство или другой режим";
+      return t("clients.details.forwarding.errorEmpty");
     }
     return null;
   }
@@ -251,12 +259,12 @@ export class ClientDetailsVM {
         const backward = this.rowAllows(b, a.id);
         const label = `${a.name} ↔ ${b.name}`;
         const detail = forward && backward
-          ? "разрешено"
+          ? t("clients.details.forwarding.pairAllowed")
           : forward
-            ? `только ${a.name} → ${b.name}`
+            ? t("clients.details.forwarding.pairOnly", { from: a.name, to: b.name })
             : backward
-              ? `только ${b.name} → ${a.name}`
-              : "запрещено";
+              ? t("clients.details.forwarding.pairOnly", { from: b.name, to: a.name })
+              : t("clients.details.forwarding.pairDenied");
         pairs.push({
           aId: a.id,
           bId: b.id,
@@ -288,17 +296,17 @@ export class ClientDetailsVM {
   @computed
   get ttlOptions(): Array<{ value: number; label: string }> {
     return [
-      { value: 3600, label: "1 час" },
-      { value: 86400, label: "1 день" },
-      { value: 604800, label: "7 дней" },
+      { value: 3600, label: t("clients.details.share.ttl.1h") },
+      { value: 86400, label: t("clients.details.share.ttl.1d") },
+      { value: 604800, label: t("clients.details.share.ttl.7d") },
     ];
   }
 
   @computed
   get formatOptions(): Array<{ value: ShareFormat; label: string }> {
     return [
-      { value: "conf", label: "AmneziaWG .conf" },
-      { value: "vpn", label: "vpn:// ссылка" },
+      { value: "conf", label: t("clients.details.share.format.conf") },
+      { value: "vpn", label: t("clients.details.share.format.vpn") },
     ];
   }
 
@@ -353,7 +361,7 @@ export class ClientDetailsVM {
         this.shareInterfaceId = profiles[0]?.interface_id ?? "";
       }
     } catch (error) {
-      const message = messageOf(error, "Не удалось загрузить устройство");
+      const message = messageOf(error, t("clients.details.error.load"));
       this.error = message;
       this.toasts.error(message);
     } finally {
@@ -410,7 +418,10 @@ export class ClientDetailsVM {
     const pair = this.forwardingSymmetric
       ? `${row.name} ↔ ${target.name}`
       : `${row.name} → ${target.name}`;
-    return `${pair}: ${this.rowAllows(row, target.id) ? "разрешено" : "запрещено"}`;
+    const state = this.rowAllows(row, target.id)
+      ? t("clients.details.forwarding.pairAllowed")
+      : t("clients.details.forwarding.pairDenied");
+    return `${pair}: ${state}`;
   }
 
   async setForwardingRowMode(rowId: string, value: string): Promise<void> {
@@ -465,7 +476,7 @@ export class ClientDetailsVM {
     const b = this.findRow(bId);
     if (!a || !b) return;
     if (a.mode === "all" || b.mode === "all") {
-      this.toasts.error("Отключите режим «Все мои устройства», чтобы настроить пару точечно");
+      this.toasts.error(t("clients.details.forwarding.bulkError"));
       return;
     }
     const snapshot = this.snapshotRows();
@@ -511,7 +522,7 @@ export class ClientDetailsVM {
     if (!device || !this.canSave) return;
     const name = this.editName.trim();
     if (!name) {
-      this.toasts.error("Имя устройства не может быть пустым");
+      this.toasts.error(t("clients.details.error.name"));
       return;
     }
     this.saving = true;
@@ -528,9 +539,9 @@ export class ClientDetailsVM {
       this.device = updated;
       this.applyRowFromDevice(updated);
       this.hydrateForm(updated);
-      this.toasts.success("Настройки сохранены");
+      this.toasts.success(t("clients.details.toast.saved"));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось сохранить настройки"));
+      this.toasts.error(messageOf(error, t("clients.details.error.save")));
     } finally {
       this.saving = false;
     }
@@ -539,14 +550,14 @@ export class ClientDetailsVM {
   async revoke(): Promise<void> {
     const device = this.device;
     if (!device || this.actionBusy) return;
-    if (!window.confirm(`Отозвать устройство «${device.name}»?`)) return;
+    if (!window.confirm(t("clients.details.confirm.revoke", { name: device.name }))) return;
     this.actionBusy = true;
     try {
       await this.devicesService.updateDevice(device.id, { revoked: true });
-      this.toasts.success("Устройство отозвано");
+      this.toasts.success(t("clients.details.toast.revoked"));
       this.back();
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось отозвать устройство"));
+      this.toasts.error(messageOf(error, t("clients.details.error.revoke")));
     } finally {
       this.actionBusy = false;
     }
@@ -555,14 +566,14 @@ export class ClientDetailsVM {
   async remove(): Promise<void> {
     const device = this.device;
     if (!device || this.actionBusy) return;
-    if (!window.confirm(`Удалить устройство «${device.name}»? Действие необратимо.`)) return;
+    if (!window.confirm(t("clients.details.confirm.delete", { name: device.name }))) return;
     this.actionBusy = true;
     try {
       await this.devicesService.deleteDevice(device.id);
-      this.toasts.success("Устройство удалено");
+      this.toasts.success(t("clients.details.toast.deleted"));
       this.back();
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось удалить устройство"));
+      this.toasts.error(messageOf(error, t("clients.details.error.delete")));
     } finally {
       this.actionBusy = false;
     }
@@ -579,9 +590,9 @@ export class ClientDetailsVM {
         ttlSecs: this.shareTtl,
       });
       this.shares = [share, ...this.shares];
-      this.toasts.success("Временная ссылка создана");
+      this.toasts.success(t("clients.details.toast.shareCreated"));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось создать ссылку"));
+      this.toasts.error(messageOf(error, t("clients.details.error.shareCreate")));
     } finally {
       this.shareBusy = false;
     }
@@ -593,9 +604,9 @@ export class ClientDetailsVM {
     try {
       await this.devicesService.revokeShare(token);
       this.shares = this.shares.filter((share) => share.token !== token);
-      this.toasts.success("Ссылка отозвана");
+      this.toasts.success(t("clients.details.toast.shareRevoked"));
     } catch (error) {
-      this.toasts.error(messageOf(error, "Не удалось отозвать ссылку"));
+      this.toasts.error(messageOf(error, t("clients.details.error.shareRevoke")));
     } finally {
       this.shareBusy = false;
     }
@@ -603,27 +614,27 @@ export class ClientDetailsVM {
 
   async copyText(value: string, label: string): Promise<void> {
     if (!value) {
-      this.toasts.error("Нечего копировать");
+      this.toasts.error(t("clients.copy.empty"));
       return;
     }
     try {
       await navigator.clipboard.writeText(value);
-      this.toasts.success(`Скопировано: ${label.toLowerCase()}`);
+      this.toasts.success(t("clients.copy.done", { label }));
     } catch {
-      this.toasts.error("Не удалось скопировать в буфер обмена");
+      this.toasts.error(t("clients.copy.failed"));
     }
   }
 
   copyProfile(): void {
     const profile = this.activeProfile;
     if (!profile) return;
-    void this.copyText(profile.conf, "Конфигурация");
+    void this.copyText(profile.conf, t("clients.copy.configLabel"));
   }
 
   copyVpn(): void {
     const profile = this.activeProfile;
     if (!profile) return;
-    void this.copyText(profile.vpn_link, "vpn-ссылка");
+    void this.copyText(profile.vpn_link, t("clients.copy.vpnLabel"));
   }
 
   downloadProfile(): void {
@@ -639,7 +650,7 @@ export class ClientDetailsVM {
     link.click();
     link.remove();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-    this.toasts.success("Файл профиля скачан");
+    this.toasts.success(t("clients.details.toast.downloaded"));
   }
 
   interfaceName(interfaceId: string): string {
@@ -763,7 +774,7 @@ export class ClientDetailsVM {
         } catch (error) {
           const failed = changes.slice(index).map((item) => item.rowId);
           this.restoreRows(snapshot, failed);
-          this.toasts.error(messageOf(error, "Не удалось сохранить forwarding"));
+          this.toasts.error(messageOf(error, t("clients.details.error.forwarding")));
           return;
         }
       }
