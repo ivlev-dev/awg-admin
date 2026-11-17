@@ -13,6 +13,13 @@ function statusTone(status: number): string {
   return "info";
 }
 
+function splitAt(value: string): { date: string; time: string } {
+  const index = value.indexOf(",");
+  return index === -1
+    ? { date: value, time: "" }
+    : { date: value.slice(0, index), time: value.slice(index + 1).trim() };
+}
+
 function actorInitial(actor: string): string {
   const trimmed = actor.trim();
   return trimmed.length > 0 ? trimmed.slice(0, 1).toUpperCase() : "?";
@@ -151,15 +158,15 @@ export function AuditPage(this: { vm: AuditPageVM }) {
             when={this.vm.isEmpty}
             fallback={
               <div class="data-scroll">
-                <table class="table table--cards table--audit">
+                <table class="table table--cards table--audit table--fixed">
                   <thead>
                     <tr>
-                      <th>{t("audit.column.time")}</th>
-                      <th>{t("audit.column.actor")}</th>
-                      <th>{t("audit.column.action")}</th>
-                      <th>{t("audit.column.entity")}</th>
-                      <th>{t("audit.column.status")}</th>
-                      <th>{t("audit.column.ip")}</th>
+                      <th class="col-time">{t("audit.column.time")}</th>
+                      <th class="col-actor">{t("audit.column.actor")}</th>
+                      <th class="col-action">{t("audit.column.action")}</th>
+                      <th class="col-entity">{t("audit.column.entity")}</th>
+                      <th class="col-status">{t("audit.column.status")}</th>
+                      <th class="col-ip">{t("audit.column.ip")}</th>
                       <th>{t("audit.column.details")}</th>
                     </tr>
                   </thead>
@@ -170,7 +177,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                           <td data-label={t("audit.column.time")}>
                             <span class="small nowrap mono">{row.at}</span>
                           </td>
-                          <td data-label={t("audit.column.actor")}>
+                          <td class="col-actor" data-label={t("audit.column.actor")}>
                             <div class="cell-name">
                               <span class="cell-avatar">{actorInitial(row.actor)}</span>
                               <span class="cell-name__text">
@@ -180,22 +187,22 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                               </span>
                             </div>
                           </td>
-                          <td data-label={t("audit.column.action")}>
+                          <td class="col-action" data-label={t("audit.column.action")}>
                             <span class="mono small">{row.action}</span>
                           </td>
-                          <td data-label={t("audit.column.entity")}>
+                          <td class="col-entity" data-label={t("audit.column.entity")}>
                             <span class="cell-entity" title={row.entityId ?? undefined}>{row.entityLabel}</span>
                           </td>
-                          <td data-label={t("audit.column.status")}>
+                          <td class="col-status" data-label={t("audit.column.status")}>
                             <span class={`status-chip status-chip--${statusTone(row.status)}`}>
                               <span class="status-chip__dot"></span>
                               {row.status}
                             </span>
                           </td>
-                          <td data-label="IP">
+                          <td class="col-ip" data-label="IP">
                             <span class="small mono">{row.ip}</span>
                           </td>
-                          <td class="cell-details" data-label={t("audit.column.details")}>
+                          <td class="cell-details col-details" data-label={t("audit.column.details")}>
                             <Show
                               when={row.hasDetails}
                               fallback={<span class="small muted">{row.detailsPreview}</span>}

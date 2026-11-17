@@ -64,6 +64,10 @@ function memoryMeterClass(percent: string | null): string {
   return "meter";
 }
 
+function kernelShort(value: string): string {
+  return value.split("-")[0] ?? value;
+}
+
 function ariaSort(vm: NodesPageVM, key: "name" | "status"): "ascending" | "descending" | undefined {
   const sort = vm.sort;
   if (sort === null || sort.key !== key) return undefined;
@@ -268,17 +272,14 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                         </td>
                         <td data-label={t("nodes.column.metrics")}>
                           <div class="cell-name__text">
-                            <span class="xs strong mono">{this.vm.metricsLabel(node)}</span>
+                            <span class="xs strong mono">CPU {this.vm.cpuValue(node)} · RAM {this.vm.memoryPercent(node) ?? "—"}</span>
                             <Show when={this.vm.memoryPercent(node)}>
                               <div class={memoryMeterClass(this.vm.memoryPercent(node))}>
                                 <span style={`width:${memoryMeterWidth(this.vm.memoryPercent(node))}`}></span>
                               </div>
                             </Show>
                             <span class="cell-sub xs muted">
-                              <Show when={this.vm.memoryPercent(node)}>
-                                <span>{this.vm.memoryPercent(node)} · </span>
-                              </Show>
-                              {this.vm.metricsUpdatedLabel(node)}
+                              {this.vm.memoryValue(node)} · {this.vm.metricsUpdatedLabel(node)}
                             </span>
                           </div>
                         </td>
@@ -288,8 +289,8 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                               <span class="muted">{t("nodes.versions.worker")}: </span>
                               <span class="mono strong">{this.vm.workerVersionLabel(node)}</span>
                             </span>
-                            <span class="cell-sub xs muted mono">
-                              {t("nodes.versions.kernel")}: {this.vm.kernelVersionLabel(node)}
+                            <span class="cell-sub xs muted mono" title={this.vm.kernelVersionLabel(node)}>
+                              {t("nodes.versions.kernel")}: {kernelShort(this.vm.kernelVersionLabel(node))}
                             </span>
                           </div>
                         </td>

@@ -118,7 +118,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 </div>
               }
             >
-              <table class="table table--cards table--clients">
+              <table class="table table--cards table--clients table--fixed">
                 <thead>
                   <tr>
                     <th class="cell-select">
@@ -135,17 +135,17 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                       </button>
                     </th>
                     <Show when={this.vm.isAdmin}>
-                      <th>{t("clients.column.owner")}</th>
+                      <th class="col-owner">{t("clients.column.owner")}</th>
                     </Show>
-                    <th>{t("clients.column.addresses")}</th>
-                    <th>{t("clients.column.limits")}</th>
-                    <th>{t("clients.column.peers")}</th>
+                    <th class="col-address">{t("clients.column.addresses")}</th>
+                    <th class="col-limits">{t("clients.column.limits")}</th>
+                    <th class="col-peers">{t("clients.column.peers")}</th>
                     <th class="is-sortable">
                       <button type="button" onClick={() => this.vm.sortBy("status")}>
                         {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
                       </button>
                     </th>
-                    <th></th>
+                    <th class="col-actions"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -160,11 +160,11 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             onChange={() => this.vm.toggleSelected(device.id)}
                           />
                         </td>
-                        <td data-label={t("clients.column.device")}>
+                        <td class="col-device" data-label={t("clients.column.device")}>
                           <div class="cell-name">
                             <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
                             <span class="cell-name__text">
-                              <span class="strong">{device.name}</span>
+                              <span class="strong" title={device.name}>{device.name}</span>
                               <Show when={!this.vm.isAdmin}>
                                 <span class="cell-sub">{this.vm.groupName(device.group_id)}</span>
                               </Show>
@@ -172,14 +172,14 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           </div>
                         </td>
                         <Show when={this.vm.isAdmin}>
-                          <td data-label={t("clients.column.owner")}>
+                          <td class="col-owner" data-label={t("clients.column.owner")}>
                             <div class="cell-name__text cell-stack">
                               <span class="small strong">{this.vm.userLogin(device.user_id)}</span>
                               <span class="xs muted">{this.vm.groupName(device.group_id)}</span>
                             </div>
                           </td>
                         </Show>
-                        <td data-label={t("clients.column.addresses")}>
+                        <td class="col-address" data-label={t("clients.column.addresses")}>
                           <Show
                             when={device.addresses.length > 0}
                             fallback={<span class="muted">—</span>}
@@ -187,13 +187,13 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             <span class="mono xs">{device.addresses.join(", ")}</span>
                           </Show>
                         </td>
-                        <td data-label={t("clients.column.limits")}>
+                        <td class="col-limits" data-label={t("clients.column.limits")}>
                           <div class="cell-name__text">
                             <span class="xs"><span class="muted">↓</span> {formatRateI18n(device.down_kbps)}</span>
                             <span class="xs"><span class="muted">↑</span> {formatRateI18n(device.up_kbps)}</span>
                           </div>
                         </td>
-                        <td data-label={t("clients.column.peers")}>
+                        <td class="col-peers" data-label={t("clients.column.peers")}>
                           <Show
                             when={device.peers.length > 0}
                             fallback={<span class="muted">—</span>}
@@ -204,13 +204,13 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             </div>
                           </Show>
                         </td>
-                        <td data-label={t("clients.column.status")}>
+                        <td class="col-status" data-label={t("clients.column.status")}>
                           <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
                             <span class="status-chip__dot"></span>
                             {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
                           </span>
                         </td>
-                        <td class="cell-actions">
+                        <td class="cell-actions col-actions">
                           <button
                             class="btn btn--text btn--sm"
                             type="button"

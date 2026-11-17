@@ -268,6 +268,14 @@ export class NodesPageVM {
     return `${node.interfaces} ${pluralI18n(node.interfaces, "common.interfaces.one", "common.interfaces.few", "common.interfaces.many")}`;
   }
 
+  cpuValue(node: NodeInfo): string {
+    return formatCpuLoad(node.cpu_load);
+  }
+
+  memoryValue(node: NodeInfo): string {
+    return formatNodeMemory(node.mem_used_bytes, node.mem_total_bytes);
+  }
+
   metricsLabel(node: NodeInfo): string {
     const cpu = formatCpuLoad(node.cpu_load);
     const memory = formatNodeMemory(node.mem_used_bytes, node.mem_total_bytes);
