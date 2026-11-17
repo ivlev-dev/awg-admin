@@ -6,7 +6,8 @@ use awg_shared::{CoreError, CoreResult};
 use awg_storage::{Store, Table};
 
 use crate::domain::{
-    Invoice, InvoiceRepository, Plan, PlanRepository, Subscription, SubscriptionRepository,
+    Invoice, InvoiceRepository, PaymentEventRecord, PaymentEventRepository, PaymentMethod,
+    PaymentMethodRepository, Plan, PlanRepository, Subscription, SubscriptionRepository,
 };
 
 pub struct RedbPlanRepository {
@@ -95,6 +96,83 @@ impl InvoiceRepository for RedbInvoiceRepository {
     fn save(&self, invoice: &Invoice) -> CoreResult<()> {
         self.store
             .put(Table::BillingInvoices, &invoice.id.to_string(), invoice)
+            .map_err(map_err)
+    }
+}
+
+pub struct RedbPaymentMethodRepository {
+    store: Arc<Store>,
+}
+
+impl RedbPaymentMethodRepository {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self { store }
+    }
+}
+
+impl PaymentMethodRepository for RedbPaymentMethodRepository {
+    fn find(&self, id: Uuid) -> CoreResult<Option<PaymentMethod>> {
+        self.store
+            .get(Table::BillingPaymentMethods, &id.to_string())
+            .map_err(map_err)
+    }
+
+    fn list_for_user(&self, user_id: Uuid) -> CoreResult<Vec<PaymentMethod>> {
+        let mut methods = self
+            .store
+            .list::<PaymentMethod>(Table::BillingPaymentMethods)
+            .map_err(map_err)?
+            .into_iter()
+            .filter(|method| method.user_id == user_id)
+            .collect::<Vec<_>>();
+        methods.sort_by(|left, right| {
+            right
+                .created_at
+                .cmp(&left.created_at)
+                .then_with(|| right.id.cmp(&left.id))
+        });
+        Ok(methods)
+    }
+
+    fn save(&self, method: &PaymentMethod) -> CoreResult<()> {
+        self.store
+            .put(Table::BillingPaymentMethods, &method.id.to_string(), method)
+            .map_err(map_err)
+    }
+}
+
+pub struct RedbPaymentEventRepository {
+    store: Arc<Store>,
+}
+
+impl RedbPaymentEventRepository {
+    pub fn new(store: Arc<Store>) -> Self {
+        Self { store }
+    }
+}
+
+fn event_key(gateway: &str, event_id: &str) -> String {
+    format!("{gateway}:{event_id}")
+}
+
+impl PaymentEventRepository for RedbPaymentEventRepository {
+    fn find(&self, gateway: &str, event_id: &str) -> CoreResult<Option<PaymentEventRecord>> {
+        self.store
+            .get(Table::BillingEvents, &event_key(gateway, event_id))
+            .map_err(map_err)
+    }
+
+    fn list(&self) -> CoreResult<Vec<PaymentEventRecord>> {
+        self.store.list(Table::BillingEvents).map_err(map_err)
+    }
+
+    fn save(&self, event: &PaymentEventRecord) -> CoreResult<()> {
+        self.store
+            .put(
+                Table::BillingEvents,
+                &event_key(&event.gateway, &event.event_id),
+                event,
+            )
             .map_err(map_err)
     }
 }
@@ -190,6 +268,9 @@ mod tests {
             due_at: now + Duration::days(3),
             paid_at: None,
             attempts: 0,
+            gateway: None,
+            gateway_ref: None,
+            checkout_url: None,
         };
         repo.save(&invoice).unwrap();
 
@@ -200,8 +281,80 @@ mod tests {
         paid.status = InvoiceStatus::Paid;
         paid.paid_at = Some(now);
         paid.attempts = 1;
+        paid.gateway = Some("mock".into());
+        paid.gateway_ref = Some("gw-1".into());
+        paid.checkout_url = Some("http://localhost/pay/mock/x".into());
         repo.save(&paid).unwrap();
         assert_eq!(repo.find(invoice.id).unwrap(), Some(paid));
+    }
+
+    #[test]
+    fn invoice_without_gateway_fields_is_deserialized() {
+        let store = store();
+        let now = Utc::now();
+        let id = Uuid::new_v4();
+        let legacy = serde_json::json!({
+            "id": id,
+            "user_id": Uuid::new_v4(),
+            "subscription_id": Uuid::new_v4(),
+            "amount_cents": 1000,
+            "currency": "RUB",
+            "status": "open",
+            "period_start": now,
+            "period_end": now + Duration::days(30),
+            "due_at": now,
+            "paid_at": null,
+            "attempts": 0
+        });
+        store
+            .put(Table::BillingInvoices, &id.to_string(), &legacy)
+            .unwrap();
+        let repo = RedbInvoiceRepository::new(store);
+        let invoice = repo.find(id).unwrap().unwrap();
+        assert_eq!(invoice.gateway, None);
+        assert_eq!(invoice.gateway_ref, None);
+        assert_eq!(invoice.checkout_url, None);
+    }
+
+    #[test]
+    fn payment_method_repository_filters_by_user() {
+        let repo = RedbPaymentMethodRepository::new(store());
+        let owner = Uuid::new_v4();
+        let now = Utc::now();
+        for (user_id, suffix) in [(owner, "a"), (owner, "b"), (Uuid::new_v4(), "c")] {
+            repo.save(&PaymentMethod {
+                id: Uuid::new_v4(),
+                user_id,
+                gateway: "mock".into(),
+                gateway_ref: format!("pm-{suffix}"),
+                brand: "visa".into(),
+                last4: "4242".into(),
+                is_default: suffix == "a",
+                created_at: now,
+            })
+            .unwrap();
+        }
+        assert_eq!(repo.list_for_user(owner).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn payment_event_is_unique_per_gateway_and_event_id() {
+        let repo = RedbPaymentEventRepository::new(store());
+        let now = Utc::now();
+        let event = PaymentEventRecord {
+            event_id: "evt-1".into(),
+            gateway: "mock".into(),
+            kind: "payment.succeeded".into(),
+            invoice_id: Some(Uuid::new_v4()),
+            received_at: now,
+            payload_hash: "hash".into(),
+        };
+        repo.save(&event).unwrap();
+
+        let found = repo.find("mock", "evt-1").unwrap().unwrap();
+        assert_eq!(found, event);
+        assert!(repo.find("other", "evt-1").unwrap().is_none());
+        assert_eq!(repo.list().unwrap().len(), 1);
     }
 
     #[test]
@@ -235,6 +388,9 @@ mod tests {
             due_at: now,
             paid_at: None,
             attempts: 0,
+            gateway: None,
+            gateway_ref: None,
+            checkout_url: None,
         };
         invoices.save(&invoice).unwrap();
 

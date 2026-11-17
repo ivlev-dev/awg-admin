@@ -1,23 +1,29 @@
 use std::sync::Arc;
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, Query, Request, State};
+use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use uuid::Uuid;
 
 use awg_billing::{
     BillingService, Invoice, NewPlan, Plan, PlanChanges, Subscription, SubscriptionStatus,
-    TariffCatalog,
+    TariffCatalog, WebhookError,
 };
 use awg_shared::CoreResult;
 use awg_tariffs::TariffService;
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
-use crate::models::{AdminSubscriptionQuery, CreatePlanRequest, InvoiceQuery, UpdatePlanRequest};
+use crate::models::{
+    AdminSubscriptionQuery, CreatePlanRequest, InvoiceQuery, StartCheckoutRequest,
+    UpdatePlanRequest,
+};
 use crate::state::AppState;
-use crate::views::SubscriptionPageView;
+use crate::views::{CheckoutView, PaymentMethodView, SubscriptionPageView, WebhookView};
 
 const DEFAULT_INVOICE_LIMIT: usize = 50;
 const MAX_PAGE_SIZE: usize = 200;
@@ -112,6 +118,69 @@ pub async fn invoices(
         query.user_id,
         query.limit,
     )?))
+}
+
+pub async fn checkout(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Json(request): Json<StartCheckoutRequest>,
+) -> ApiResult<Json<CheckoutView>> {
+    let outcome = state
+        .billing
+        .start_checkout(user.id(), request.plan_id, Utc::now())
+        .map_err(ApiError::from)?;
+    Ok(Json(CheckoutView {
+        invoice: outcome.invoice,
+        checkout_url: outcome.checkout_url,
+    }))
+}
+
+pub async fn payment_methods(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<PaymentMethodView>>> {
+    let methods = state
+        .billing
+        .payment_methods_for_user(user.id())
+        .map_err(ApiError::from)?;
+    Ok(Json(
+        methods.into_iter().map(PaymentMethodView::from).collect(),
+    ))
+}
+
+pub async fn webhook(
+    State(state): State<Arc<AppState>>,
+    Path(provider): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> ApiResult<Json<WebhookView>> {
+    let headers: Vec<(String, String)> = headers
+        .iter()
+        .filter_map(|(name, value)| {
+            value
+                .to_str()
+                .ok()
+                .map(|value| (name.as_str().to_string(), value.to_string()))
+        })
+        .collect();
+    let outcome = state
+        .billing
+        .handle_webhook(&provider, &headers, body.as_ref(), Utc::now())
+        .map_err(webhook_error)?;
+    Ok(Json(WebhookView {
+        status: outcome.status().to_string(),
+        event_id: Some(outcome.event_id().to_string()),
+    }))
+}
+
+fn webhook_error(error: WebhookError) -> ApiError {
+    match error {
+        WebhookError::UnknownProvider(message) => {
+            ApiError::NotFound(format!("unknown payment provider {message:?}"))
+        }
+        WebhookError::Invalid(message) => ApiError::BadRequest(message),
+        WebhookError::Internal(message) => ApiError::Internal(message),
+    }
 }
 
 pub async fn admin_subscriptions(
@@ -271,9 +340,10 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use awg_billing::{
-        BillingPeriod, BillingSettings, InvoiceRepository, InvoiceStatus, PlanRepository,
-        RedbInvoiceRepository, RedbPlanRepository, RedbSubscriptionRepository, Subscription,
-        SubscriptionRepository,
+        BillingPeriod, BillingSettings, InvoiceRepository, InvoiceStatus, MockGateway,
+        PaymentEventRepository, PaymentMethodRepository, PlanRepository, RedbInvoiceRepository,
+        RedbPaymentEventRepository, RedbPaymentMethodRepository, RedbPlanRepository,
+        RedbSubscriptionRepository, Subscription, SubscriptionRepository,
     };
     use awg_identity::{AuthPrincipal, Role};
     use awg_storage::Store;
@@ -290,19 +360,30 @@ mod tests {
         }
     }
 
+    fn test_gateway() -> Arc<dyn awg_billing::PaymentGateway> {
+        Arc::new(
+            MockGateway::from_config(
+                "test-secret-with-at-least-32-characters",
+                "http://localhost",
+                300,
+            )
+            .unwrap(),
+        )
+    }
+
     fn service(tariff_id: Uuid) -> BillingService {
         let store = Arc::new(Store::open_in_memory().unwrap());
         BillingService::new(
             Arc::new(RedbPlanRepository::new(store.clone())),
             Arc::new(RedbSubscriptionRepository::new(store.clone())),
-            Arc::new(RedbInvoiceRepository::new(store)),
+            Arc::new(RedbInvoiceRepository::new(store.clone())),
+            Arc::new(RedbPaymentMethodRepository::new(store.clone())),
+            Arc::new(RedbPaymentEventRepository::new(store)),
             Arc::new(StubTariffs {
                 known: vec![tariff_id],
             }),
-            BillingSettings {
-                currency: "RUB".into(),
-                trial_days: 0,
-            },
+            test_gateway(),
+            BillingSettings::new("RUB", 0, "http://localhost"),
         )
     }
 
@@ -318,18 +399,23 @@ mod tests {
         let plans: Arc<dyn PlanRepository> = Arc::new(RedbPlanRepository::new(store.clone()));
         let subscriptions: Arc<dyn SubscriptionRepository> =
             Arc::new(RedbSubscriptionRepository::new(store.clone()));
-        let invoices: Arc<dyn InvoiceRepository> = Arc::new(RedbInvoiceRepository::new(store));
+        let invoices: Arc<dyn InvoiceRepository> =
+            Arc::new(RedbInvoiceRepository::new(store.clone()));
+        let payment_methods: Arc<dyn PaymentMethodRepository> =
+            Arc::new(RedbPaymentMethodRepository::new(store.clone()));
+        let payment_events: Arc<dyn PaymentEventRepository> =
+            Arc::new(RedbPaymentEventRepository::new(store));
         let service = BillingService::new(
             plans.clone(),
             subscriptions.clone(),
             invoices.clone(),
+            payment_methods,
+            payment_events,
             Arc::new(StubTariffs {
                 known: vec![tariff_id],
             }),
-            BillingSettings {
-                currency: "RUB".into(),
-                trial_days: 0,
-            },
+            test_gateway(),
+            BillingSettings::new("RUB", 0, "http://localhost"),
         );
         TestBilling {
             service,
@@ -475,6 +561,9 @@ mod tests {
                     due_at: now,
                     paid_at: None,
                     attempts: 0,
+                    gateway: None,
+                    gateway_ref: None,
+                    checkout_url: None,
                 })
                 .unwrap();
         }

@@ -5,10 +5,16 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 mod gateway;
+mod mock;
 
 pub use gateway::{
     ChargeRequest, ChargeResult, CheckoutRequest, CheckoutSession, GatewayError, NoopGateway,
-    PaymentEvent, PaymentGateway, RefundRequest, RefundResult, WebhookRequest,
+    PaymentEvent, PaymentEventKind, PaymentGateway, PaymentMethodInfo, RefundRequest, RefundResult,
+    WebhookRequest,
+};
+pub use mock::{
+    DEFAULT_MOCK_TOLERANCE_SECS, MOCK_SIGNATURE_HEADER, MOCK_TIMESTAMP_HEADER, MockGateway,
+    payload_sha256, sign_webhook, webhook_signature,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,11 +41,19 @@ impl BillingPeriod {
             ))),
         }
     }
+
+    pub fn months(self) -> u32 {
+        match self {
+            Self::Month => 1,
+            Self::Year => 12,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SubscriptionStatus {
+    Incomplete,
     Trialing,
     Active,
     PastDue,
@@ -50,6 +64,7 @@ pub enum SubscriptionStatus {
 impl SubscriptionStatus {
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Incomplete => "incomplete",
             Self::Trialing => "trialing",
             Self::Active => "active",
             Self::PastDue => "past_due",
@@ -60,6 +75,7 @@ impl SubscriptionStatus {
 
     pub fn parse(raw: &str) -> CoreResult<Self> {
         match raw.trim().to_ascii_lowercase().as_str() {
+            "incomplete" => Ok(Self::Incomplete),
             "trialing" => Ok(Self::Trialing),
             "active" => Ok(Self::Active),
             "past_due" => Ok(Self::PastDue),
@@ -112,6 +128,10 @@ impl InvoiceStatus {
                 "unknown invoice status {other:?}"
             ))),
         }
+    }
+
+    pub fn is_settled(self) -> bool {
+        matches!(self, Self::Paid | Self::Void | Self::Uncollectible)
     }
 }
 
@@ -183,6 +203,46 @@ pub struct Invoice {
     pub due_at: DateTime<Utc>,
     pub paid_at: Option<DateTime<Utc>>,
     pub attempts: u32,
+    #[serde(default)]
+    pub gateway: Option<String>,
+    #[serde(default)]
+    pub gateway_ref: Option<String>,
+    #[serde(default)]
+    pub checkout_url: Option<String>,
+}
+
+impl Invoice {
+    pub fn is_reusable_open(&self, now: DateTime<Utc>) -> bool {
+        self.status == InvoiceStatus::Open && now < self.period_end
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaymentMethod {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub gateway: String,
+    pub gateway_ref: String,
+    pub brand: String,
+    pub last4: String,
+    pub is_default: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+impl PaymentMethod {
+    pub fn masked(&self) -> String {
+        format!("**** {}", self.last4)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PaymentEventRecord {
+    pub event_id: String,
+    pub gateway: String,
+    pub kind: String,
+    pub invoice_id: Option<Uuid>,
+    pub received_at: DateTime<Utc>,
+    pub payload_hash: String,
 }
 
 pub trait PlanRepository: Send + Sync {
@@ -201,6 +261,18 @@ pub trait InvoiceRepository: Send + Sync {
     fn find(&self, id: Uuid) -> CoreResult<Option<Invoice>>;
     fn list(&self) -> CoreResult<Vec<Invoice>>;
     fn save(&self, invoice: &Invoice) -> CoreResult<()>;
+}
+
+pub trait PaymentMethodRepository: Send + Sync {
+    fn find(&self, id: Uuid) -> CoreResult<Option<PaymentMethod>>;
+    fn list_for_user(&self, user_id: Uuid) -> CoreResult<Vec<PaymentMethod>>;
+    fn save(&self, method: &PaymentMethod) -> CoreResult<()>;
+}
+
+pub trait PaymentEventRepository: Send + Sync {
+    fn find(&self, gateway: &str, event_id: &str) -> CoreResult<Option<PaymentEventRecord>>;
+    fn list(&self) -> CoreResult<Vec<PaymentEventRecord>>;
+    fn save(&self, event: &PaymentEventRecord) -> CoreResult<()>;
 }
 
 pub fn normalize_currency(raw: &str) -> CoreResult<String> {
@@ -242,6 +314,8 @@ mod tests {
         );
         assert!(BillingPeriod::parse("week").is_err());
         assert_eq!(BillingPeriod::Year.as_str(), "year");
+        assert_eq!(BillingPeriod::Month.months(), 1);
+        assert_eq!(BillingPeriod::Year.months(), 12);
     }
 
     #[test]
@@ -250,12 +324,19 @@ mod tests {
             SubscriptionStatus::parse("past_due").unwrap(),
             SubscriptionStatus::PastDue
         );
-        assert!(SubscriptionStatus::parse("incomplete").is_err());
+        assert_eq!(
+            SubscriptionStatus::parse("incomplete").unwrap(),
+            SubscriptionStatus::Incomplete
+        );
+        assert_eq!(SubscriptionStatus::Incomplete.as_str(), "incomplete");
+        assert!(SubscriptionStatus::parse("unknown").is_err());
         assert!(SubscriptionStatus::Trialing.grants_access());
         assert!(SubscriptionStatus::Active.grants_access());
+        assert!(!SubscriptionStatus::Incomplete.grants_access());
         assert!(!SubscriptionStatus::PastDue.grants_access());
         assert!(!SubscriptionStatus::Suspended.grants_access());
         assert!(!SubscriptionStatus::Canceled.grants_access());
+        assert!(SubscriptionStatus::Incomplete.is_current());
         assert!(SubscriptionStatus::Suspended.is_current());
         assert!(!SubscriptionStatus::Canceled.is_current());
     }
@@ -265,6 +346,11 @@ mod tests {
         assert_eq!(InvoiceStatus::parse("OPEN").unwrap(), InvoiceStatus::Open);
         assert_eq!(InvoiceStatus::Paid.as_str(), "paid");
         assert!(InvoiceStatus::parse("unknown").is_err());
+        assert!(InvoiceStatus::Paid.is_settled());
+        assert!(InvoiceStatus::Void.is_settled());
+        assert!(InvoiceStatus::Uncollectible.is_settled());
+        assert!(!InvoiceStatus::Open.is_settled());
+        assert!(!InvoiceStatus::Draft.is_settled());
     }
 
     #[test]
@@ -291,5 +377,50 @@ mod tests {
         assert!(value.validate().is_err());
         value.name = "x".repeat(121);
         assert!(value.validate().is_err());
+    }
+
+    #[test]
+    fn invoice_reuse_requires_open_and_unexpired_period() {
+        let now = Utc::now();
+        let invoice = Invoice {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            subscription_id: Uuid::new_v4(),
+            amount_cents: 1000,
+            currency: "RUB".into(),
+            status: InvoiceStatus::Open,
+            period_start: now,
+            period_end: now + chrono::Duration::days(30),
+            due_at: now,
+            paid_at: None,
+            attempts: 0,
+            gateway: None,
+            gateway_ref: None,
+            checkout_url: None,
+        };
+        assert!(invoice.is_reusable_open(now));
+
+        let mut expired = invoice.clone();
+        expired.period_end = now - chrono::Duration::seconds(1);
+        assert!(!expired.is_reusable_open(now));
+
+        let mut paid = invoice;
+        paid.status = InvoiceStatus::Paid;
+        assert!(!paid.is_reusable_open(now));
+    }
+
+    #[test]
+    fn payment_method_is_masked() {
+        let method = PaymentMethod {
+            id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+            gateway: "mock".into(),
+            gateway_ref: "pm-1".into(),
+            brand: "visa".into(),
+            last4: "4242".into(),
+            is_default: true,
+            created_at: Utc::now(),
+        };
+        assert_eq!(method.masked(), "**** 4242");
     }
 }
