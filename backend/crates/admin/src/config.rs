@@ -142,6 +142,8 @@ pub struct ConfigInput {
     pub register_rate_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
+    pub http_timeout_secs: u64,
+    pub shutdown_grace_secs: u64,
     pub mail_mode: String,
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
@@ -178,6 +180,8 @@ pub struct Config {
     pub register_rate_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
+    pub http_timeout_secs: u64,
+    pub shutdown_grace_secs: u64,
     pub mail_mode: MailMode,
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
@@ -313,6 +317,8 @@ impl Config {
             register_rate_window_secs: input.register_rate_window_secs.max(1),
             resend_rate_limit: input.resend_rate_limit,
             resend_rate_window_secs: input.resend_rate_window_secs.max(1),
+            http_timeout_secs: input.http_timeout_secs.max(1),
+            shutdown_grace_secs: input.shutdown_grace_secs.max(1),
             mail_mode,
             smtp_url,
             smtp_from,
@@ -419,6 +425,8 @@ fn input_from_env() -> Result<ConfigInput> {
         register_rate_window_secs: env_u64("AWG_REGISTER_RATE_WINDOW_SECS", 300),
         resend_rate_limit: env_u32("AWG_RESEND_RATE_LIMIT", 5),
         resend_rate_window_secs: env_u64("AWG_RESEND_RATE_WINDOW_SECS", 300),
+        http_timeout_secs: env_u64("AWG_HTTP_TIMEOUT_SECS", 30),
+        shutdown_grace_secs: env_u64("AWG_SHUTDOWN_GRACE_SECS", 10),
         mail_mode: env("AWG_MAIL_MODE", "log"),
         smtp_url: env_optional("AWG_SMTP_URL"),
         smtp_from: env_optional("AWG_SMTP_FROM"),
@@ -488,6 +496,8 @@ mod tests {
             register_rate_window_secs: 300,
             resend_rate_limit: 5,
             resend_rate_window_secs: 300,
+            http_timeout_secs: 30,
+            shutdown_grace_secs: 10,
             mail_mode: "log".into(),
             smtp_url: None,
             smtp_from: None,
@@ -611,6 +621,26 @@ mod tests {
         assert_eq!(config.refresh_rate_window_secs, 1);
         assert_eq!(config.register_rate_window_secs, 1);
         assert_eq!(config.resend_rate_window_secs, 1);
+    }
+
+    #[test]
+    fn http_timeout_and_shutdown_grace_are_configurable() {
+        let mut input = base_input(Environment::Development);
+        input.http_timeout_secs = 45;
+        input.shutdown_grace_secs = 20;
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.http_timeout_secs, 45);
+        assert_eq!(config.shutdown_grace_secs, 20);
+    }
+
+    #[test]
+    fn http_timeout_and_shutdown_grace_have_a_floor() {
+        let mut input = base_input(Environment::Development);
+        input.http_timeout_secs = 0;
+        input.shutdown_grace_secs = 0;
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.http_timeout_secs, 1);
+        assert_eq!(config.shutdown_grace_secs, 1);
     }
 
     #[test]

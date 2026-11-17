@@ -45,11 +45,13 @@ use awg_statistics::{RedbStatsRepository, StatsHub, StatsService};
 use awg_storage::Store;
 use awg_tariffs::{RedbTariffRepository, TariffService};
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 
 use crate::config::Config;
 use crate::directory::{DevicesAdapter, NodesAdapter};
 use crate::grpc::WorkerGrpc;
 use crate::rate_limit::SlidingWindowLimiter;
+use crate::routes::Readiness;
 use crate::settings::SettingsStore;
 use crate::snapshot::SnapshotBuilder;
 use crate::state::AppState;
@@ -66,6 +68,9 @@ async fn main() -> Result<()> {
     }
 
     let store = Arc::new(Store::open(&config.db_path)?);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let readiness = Readiness::new(store.clone());
+    let mut background = Vec::new();
     let sealer = Arc::new(Sealer::from_master_key(&config.master_key)?);
     let mailer = mailer::build_mailer(&config)?;
 
@@ -83,11 +88,15 @@ async fn main() -> Result<()> {
         let verifications = Arc::new(RedbEmailVerificationRepository::new(store.clone()));
         {
             let tokens = tokens.clone();
-            tokio::spawn(async move {
+            let mut shutdown = shutdown_rx.clone();
+            background.push(tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(Duration::from_secs(3600));
                 ticker.tick().await;
                 loop {
-                    ticker.tick().await;
+                    tokio::select! {
+                        _ = ticker.tick() => {}
+                        _ = wait_for_shutdown(&mut shutdown) => break,
+                    }
                     match tokens.prune_expired() {
                         Ok(removed) => {
                             tracing::info!(removed, "pruned expired refresh tokens")
@@ -97,7 +106,7 @@ async fn main() -> Result<()> {
                         }
                     }
                 }
-            });
+            }));
         }
         Arc::new(IdentityService::new(
             users,
@@ -207,18 +216,22 @@ async fn main() -> Result<()> {
         .unwrap_or(90);
     if audit_retention_days > 0 {
         let audit_task = audit.clone();
-        tokio::spawn(async move {
+        let mut shutdown = shutdown_rx.clone();
+        background.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(86_400));
             ticker.tick().await;
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
                 let cutoff = chrono::Utc::now() - chrono::Duration::days(audit_retention_days);
                 match audit_task.prune(cutoff) {
                     Ok(removed) => tracing::info!(removed, "pruned old audit entries"),
                     Err(error) => tracing::warn!(%error, "failed to prune audit entries"),
                 }
             }
-        });
+        }));
     }
 
     let login_limiter = Arc::new(SlidingWindowLimiter::new(
@@ -243,23 +256,27 @@ async fn main() -> Result<()> {
         let refresh_limiter = refresh_limiter.clone();
         let register_limiter = register_limiter.clone();
         let resend_limiter = resend_limiter.clone();
+        let mut shutdown = shutdown_rx.clone();
         let period = config
             .login_rate_window_secs
             .max(config.refresh_rate_window_secs)
             .max(config.register_rate_window_secs)
             .max(config.resend_rate_window_secs)
             .max(60);
-        tokio::spawn(async move {
+        background.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(period));
             ticker.tick().await;
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
                 login_limiter.cleanup();
                 refresh_limiter.cleanup();
                 register_limiter.cleanup();
                 resend_limiter.cleanup();
             }
-        });
+        }));
     }
 
     if let Some(admin) = identity
@@ -293,11 +310,15 @@ async fn main() -> Result<()> {
     {
         let stats = stats.clone();
         let settings = state.settings.clone();
-        tokio::spawn(async move {
+        let mut shutdown = shutdown_rx.clone();
+        background.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
             ticker.tick().await;
             loop {
-                ticker.tick().await;
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
                 let keep_days = match settings.get() {
                     Ok(settings) => settings.effective_stats_retention_days(),
                     Err(error) => {
@@ -312,24 +333,27 @@ async fn main() -> Result<()> {
                     Err(error) => tracing::warn!(%error, "failed to prune traffic buckets"),
                 }
             }
-        });
+        }));
     }
 
     let grpc_state = state.clone();
     let grpc_bind = config.grpc_bind;
-    tokio::spawn(async move {
+    let mut grpc_shutdown = shutdown_rx.clone();
+    let grpc_handle = tokio::spawn(async move {
         let service = WorkerGrpc::new(grpc_state);
         tracing::info!(%grpc_bind, "worker gRPC listening");
-        if let Err(error) = tonic::transport::Server::builder()
+        let result = tonic::transport::Server::builder()
             .add_service(WorkerGatewayServer::new(service))
-            .serve(grpc_bind)
-            .await
-        {
+            .serve_with_shutdown(grpc_bind, async move {
+                wait_for_shutdown(&mut grpc_shutdown).await;
+            })
+            .await;
+        if let Err(error) = result {
             tracing::error!(%error, "gRPC server stopped");
         }
     });
 
-    let app = routes::router(state);
+    let app = routes::router(state, readiness.clone());
     let listener = TcpListener::bind(config.bind)
         .await
         .with_context(|| format!("failed to bind {}", config.bind))?;
@@ -341,13 +365,89 @@ async fn main() -> Result<()> {
         mail_mode = config.mail_mode.as_str(),
         billing_enabled = config.billing.enabled,
         billing_provider = config.billing.provider.as_str(),
+        http_timeout_secs = config.http_timeout_secs,
+        shutdown_grace_secs = config.shutdown_grace_secs,
         "admin API listening (h2c + http/1.1)"
     );
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .await
-    .context("HTTP server failed")?;
-    Ok(())
+    let mut http_shutdown = shutdown_rx.clone();
+    let http_handle = tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            wait_for_shutdown(&mut http_shutdown).await;
+        })
+        .await
+        .context("HTTP server failed")
+    });
+
+    shutdown_signal().await;
+    tracing::info!("shutdown signal received; draining in-flight requests");
+    readiness.mark_shutting_down();
+    let _ = shutdown_tx.send(true);
+
+    let drain = async {
+        if let Err(error) = http_handle.await {
+            tracing::warn!(%error, "HTTP server task failed");
+        }
+        if let Err(error) = grpc_handle.await {
+            tracing::warn!(%error, "gRPC server task failed");
+        }
+        for handle in background {
+            let _ = handle.await;
+        }
+    };
+    let grace = Duration::from_secs(config.shutdown_grace_secs);
+    if tokio::time::timeout(grace, drain).await.is_err() {
+        tracing::warn!(
+            grace_secs = config.shutdown_grace_secs,
+            "graceful shutdown timed out; exiting anyway"
+        );
+    } else {
+        tracing::info!("graceful shutdown complete");
+    }
+    std::process::exit(0);
+}
+
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+        let mut terminate = match signal(SignalKind::terminate()) {
+            Ok(terminate) => terminate,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "failed to install the SIGTERM handler; only SIGINT is handled"
+                );
+                if let Err(error) = tokio::signal::ctrl_c().await {
+                    tracing::warn!(%error, "failed to listen for SIGINT");
+                }
+                return;
+            }
+        };
+        tokio::select! {
+            result = tokio::signal::ctrl_c() => {
+                if let Err(error) = result {
+                    tracing::warn!(%error, "failed to listen for SIGINT");
+                }
+            }
+            _ = terminate.recv() => {}
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        if let Err(error) = tokio::signal::ctrl_c().await {
+            tracing::warn!(%error, "failed to listen for SIGINT");
+        }
+    }
+}
+
+async fn wait_for_shutdown(shutdown: &mut watch::Receiver<bool>) {
+    while !*shutdown.borrow_and_update() {
+        if shutdown.changed().await.is_err() {
+            return;
+        }
+    }
 }

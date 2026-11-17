@@ -51,8 +51,8 @@ usage() {
 --local требует docker и образ traefik; поднимает контейнер с --network host на
 портах 8088/tcp, 8443/tcp, 8443/udp, проверяет редирект, HTTP/2, TLS, HTTP/3.
 Backend http://127.0.0.1:8080 (admin) опционален: без него health пропускается.
-HSTS в текущей конфигурации Traefik не настроен, поэтому проверка HSTS падает;
-для проверки остального используйте --no-hsts-check.
+HSTS задаётся в labels compose (middleware frontend-hsts и admin-api-sec); при
+проверке контейнера без этих labels используйте --no-hsts-check.
 EOF
 }
 
@@ -226,7 +226,7 @@ static_checks() {
     warn "labels: serversTransport h2c не найден (backend пойдёт по HTTP/1.1; на TLS не влияет)"
   fi
 
-  if grep -qi 'strict-transport-security' "$traefik" "$compose"; then
+  if grep -qiE 'strict-transport-security|stsSeconds|stsIncludeSubdomains' "$traefik" "$compose"; then
     ok "HSTS задан в конфигурации"
   else
     warn "HSTS (Strict-Transport-Security) не задан ни в traefik.yml, ни в labels"

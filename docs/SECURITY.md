@@ -1,5 +1,79 @@
 # Безопасность
 
+## HTTP-заголовки безопасности
+
+Frontend отдаёт nginx (`docker/nginx.conf`), API — Traefik через middleware
+`admin-api-sec` (`docker-compose.yml`). Заголовки nginx заданы на уровне
+`server` и повторены в `location ^~ /assets/`: в nginx `add_header` в location
+заменяет набор родителя, поэтому без повтора `Cache-Control` вытеснил бы
+security-заголовки.
+
+| Заголовок | Значение | Где задаётся |
+| --- | --- | --- |
+| `Content-Security-Policy` (frontend) | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self' ws: wss:; media-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'` | nginx: `server`, `location ^~ /assets/` |
+| `Content-Security-Policy` (API) | `default-src 'none'; frame-ancestors 'none'; base-uri 'none'` | Traefik: `admin-api-sec` |
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Traefik: `frontend-hsts`, `admin-api-sec` (только роутеры `websecure`) |
+| `X-Content-Type-Options` | `nosniff` | nginx + Traefik `admin-api-sec` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | nginx + Traefik `admin-api-sec` |
+| `Permissions-Policy` | `geolocation=(), microphone=(), camera=(), payment=()` | nginx |
+| `X-Frame-Options` | `DENY` | nginx + Traefik `admin-api-sec` |
+| `Cross-Origin-Opener-Policy` | `same-origin` | nginx |
+| `Cache-Control` | `public, max-age=31536000, immutable` (только `/assets/*`) | nginx |
+
+HSTS не отдаётся на HTTP: порт 80 отвечает `308` на HTTPS, middleware висит
+только на HTTPS-роутерах. `includeSubDomains` требует, чтобы все поддомены
+зоны тоже работали по HTTPS.
+
+CSP API ограничивает только документы/встраивание: ответы JSON, `default-src`
+там не влияет на работу SPA.
+
+## Компромиссы CSP
+
+- `style-src 'unsafe-inline'` обязателен: компоненты используют inline
+  `style="..."` (silent JSX), включая вычисляемые значения (прогресс квоты,
+  цвета статусов). Убрать атрибуты или перейти на CSS-переменные/классы, затем
+  заменить на nonce/хэш — отдельная задача.
+- `script-src 'self'` без `'unsafe-inline'` и `'unsafe-eval'`: собранный
+  `index.html` содержит только внешние `<script type="module" src="/assets/...">`,
+  inline-скриптов и eval нет. При добавлении инлайн-бутстрапа потребуется
+  nonce.
+- `connect-src 'self' ws: wss:` — HTTP API и WebSocket `/api/v1/ws/stats`
+  (живая статистика) на том же origin. Схемы `ws:`/`wss:` оставлены для
+  работы за прокси, который может менять схему; ужесточение до `'self'`
+  возможно после проверки HTTP/3-пути.
+- `img-src 'self' data:` и `font-src 'self' data:` — только локальные ресурсы;
+  внешних CDN, шрифтов и картинок приложение не использует.
+- `frame-ancestors 'none'` + `X-Frame-Options: DENY` — двойная защита от
+  clickjacking (XFO для старых браузеров).
+
+Остаточные риски: inline-style не защищён nonce; нет `Trusted Types`
+(`require-trusted-types-for 'script'`); нет `Cross-Origin-Embedder-Policy` /
+`Cross-Origin-Resource-Policy`; production-сборка содержит sourcemaps.
+
+## Проверка заголовков
+
+```bash
+curl -sSI http://127.0.0.1:8081/ | grep -Ei 'content-security|x-content|referrer|permissions|x-frame|cross-origin'
+curl -sSI http://127.0.0.1:8081/assets/<asset>.js | grep -Ei 'cache-control|content-security'
+curl -sSI -k https://127.0.0.1/ | grep -i strict-transport-security
+curl -sSI -k https://127.0.0.1/api/v1/health | grep -Ei 'content-security|strict-transport|x-content'
+```
+
+Проверка на дубли (nginx не должен отдавать заголовок дважды):
+
+```bash
+curl -sSI http://127.0.0.1:8081/ | awk -F': ' 'NF>1{print tolower($1)}' | sort | uniq -d
+```
+
+Ожидаемо: пустой вывод. CSP на frontend и API намеренно разные, поэтому при
+проверке через Traefik у `/` и `/api` значения `content-security-policy`
+отличаются.
+
+Проверка CSP в браузере: DevTools → Console не должен содержать
+`Refused to apply inline style` / `Refused to load`, логин и переходы по
+разделам работают, WebSocket статистики подключается (`101 Switching
+Protocols`).
+
 ## Роли
 
 - `Admin` — полный доступ к пользователям, тарифам, группам, нодам, интерфейсам, импорту, настройкам.
@@ -44,7 +118,3 @@
 
 - HTTP-запросы логируются `TraceLayer`; изменения состояния worker логируются на уровне info/error.
 - При неуспешном применении state worker возвращает `ApplyResult.ok=false` с текстом ошибки.
-```
-
-Now write WORKER.md.<|end|><|start|>advisor to=write_file<|channel|>analysis <|constrain|>xml<|message|><rfl:parameter name="path">
-awg-admin/docs/WORKER.md
