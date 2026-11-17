@@ -51,6 +51,7 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
     let api = Router::new()
         .route("/health", get(health))
         .route("/ready", get(ready))
+        .route("/dev/mail", get(dev_mail).delete(dev_mail_clear))
         .route("/auth/login", post(controllers::auth::login))
         .route("/auth/register", post(controllers::auth::register))
         .route("/auth/verify-email", post(controllers::auth::verify_email))
@@ -240,6 +241,38 @@ async fn health(State(_): State<Arc<AppState>>) -> axum::Json<serde_json::Value>
 
 async fn ready(Extension(readiness): Extension<Readiness>) -> Response {
     readiness_response(&readiness)
+}
+
+async fn dev_mail(State(state): State<Arc<AppState>>) -> Response {
+    if dev_mail_disabled(&state) {
+        return dev_mail_not_found();
+    }
+    axum::Json(crate::mailer::dev_mailbox().list()).into_response()
+}
+
+async fn dev_mail_clear(State(state): State<Arc<AppState>>) -> Response {
+    if dev_mail_disabled(&state) {
+        return dev_mail_not_found();
+    }
+    crate::mailer::dev_mailbox().clear();
+    StatusCode::NO_CONTENT.into_response()
+}
+
+fn dev_mail_disabled(state: &AppState) -> bool {
+    state.config.environment.is_production()
+}
+
+fn dev_mail_not_found() -> Response {
+    (
+        StatusCode::NOT_FOUND,
+        axum::Json(serde_json::json!({
+            "error": {
+                "code": "not_found",
+                "message": "dev mail sink is disabled",
+            },
+        })),
+    )
+        .into_response()
 }
 
 fn readiness_response(readiness: &Readiness) -> Response {

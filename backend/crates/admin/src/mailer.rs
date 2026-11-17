@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use anyhow::{Context, Result, bail};
 use lettre::message::Mailbox;
@@ -11,12 +12,109 @@ use awg_shared::CoreError;
 
 use crate::config::{Config, MailMode};
 
-pub struct LogMailer;
+pub const DEV_MAILBOX_CAPACITY: usize = 50;
+pub const VERIFICATION_SUBJECT: &str = "Подтверждение email";
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DevMail {
+    pub to: String,
+    pub subject: String,
+    pub link: String,
+    pub body: String,
+    pub created_at: String,
+}
+
+#[derive(Debug)]
+pub struct DevMailbox {
+    messages: Mutex<VecDeque<DevMail>>,
+}
+
+impl Default for DevMailbox {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DevMailbox {
+    pub fn new() -> Self {
+        Self {
+            messages: Mutex::new(VecDeque::with_capacity(DEV_MAILBOX_CAPACITY)),
+        }
+    }
+
+    pub fn push(&self, mail: DevMail) {
+        let mut messages = self.messages.lock().unwrap_or_else(|e| e.into_inner());
+        while messages.len() >= DEV_MAILBOX_CAPACITY {
+            messages.pop_front();
+        }
+        messages.push_back(mail);
+    }
+
+    pub fn list(&self) -> Vec<DevMail> {
+        let messages = self.messages.lock().unwrap_or_else(|e| e.into_inner());
+        messages.iter().cloned().collect()
+    }
+
+    #[cfg(test)]
+    pub fn len(&self) -> usize {
+        let messages = self.messages.lock().unwrap_or_else(|e| e.into_inner());
+        messages.len()
+    }
+
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    pub fn clear(&self) {
+        let mut messages = self.messages.lock().unwrap_or_else(|e| e.into_inner());
+        messages.clear();
+    }
+}
+
+static DEV_MAILBOX: OnceLock<Arc<DevMailbox>> = OnceLock::new();
+
+pub fn dev_mailbox() -> Arc<DevMailbox> {
+    DEV_MAILBOX
+        .get_or_init(|| Arc::new(DevMailbox::new()))
+        .clone()
+}
+
+pub struct LogMailer {
+    dev_mailbox: Option<Arc<DevMailbox>>,
+    log_links: bool,
+}
+
+impl LogMailer {
+    pub fn new(development: bool) -> Self {
+        Self {
+            dev_mailbox: development.then(dev_mailbox),
+            log_links: development,
+        }
+    }
+
+    fn verification_body(link: &str) -> String {
+        format!("Для подтверждения email перейдите по ссылке: {link}")
+    }
+}
 
 impl Mailer for LogMailer {
     fn send_verification<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a> {
         Box::pin(async move {
-            tracing::info!(%email, %link, "verification email (log mailer)");
+            if self.log_links {
+                tracing::info!(%email, %link, "verification email (log mailer)");
+            } else {
+                tracing::info!(%email, "verification email (log mailer)");
+            }
+            if let Some(mailbox) = &self.dev_mailbox {
+                mailbox.push(DevMail {
+                    to: email.to_string(),
+                    subject: VERIFICATION_SUBJECT.to_string(),
+                    link: link.to_string(),
+                    body: Self::verification_body(link),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                });
+            }
             Ok(())
         })
     }
@@ -88,7 +186,7 @@ impl Mailer for SmtpMailer {
             let message = Message::builder()
                 .from(self.from.clone())
                 .to(to)
-                .subject("Подтверждение email")
+                .subject(VERIFICATION_SUBJECT)
                 .body(format!(
                     "Для подтверждения email перейдите по ссылке: {link}"
                 ))
@@ -104,7 +202,9 @@ impl Mailer for SmtpMailer {
 
 pub fn build_mailer(config: &Config) -> Result<Arc<dyn Mailer>> {
     match config.mail_mode {
-        MailMode::Log => Ok(Arc::new(LogMailer)),
+        MailMode::Log => Ok(Arc::new(LogMailer::new(
+            !config.environment.is_production(),
+        ))),
         MailMode::Smtp => {
             let url = config
                 .smtp_url
@@ -116,5 +216,78 @@ pub fn build_mailer(config: &Config) -> Result<Arc<dyn Mailer>> {
                 .context("AWG_SMTP_FROM is required when AWG_MAIL_MODE=smtp")?;
             Ok(Arc::new(SmtpMailer::from_url(url, from)?))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn mail(index: usize) -> DevMail {
+        DevMail {
+            to: format!("user{index}@example.com"),
+            subject: VERIFICATION_SUBJECT.to_string(),
+            link: format!("http://localhost/verify-email?token=token-{index}"),
+            body: LogMailer::verification_body("http://localhost/verify-email"),
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+        }
+    }
+
+    #[test]
+    fn dev_mailbox_is_bounded_and_keeps_latest() {
+        let mailbox = DevMailbox::new();
+        for index in 0..DEV_MAILBOX_CAPACITY + 7 {
+            mailbox.push(mail(index));
+        }
+        assert_eq!(mailbox.len(), DEV_MAILBOX_CAPACITY);
+        let messages = mailbox.list();
+        assert_eq!(messages.first().unwrap().to, "user7@example.com");
+        assert_eq!(
+            messages.last().unwrap().to,
+            format!("user{}@example.com", DEV_MAILBOX_CAPACITY + 6)
+        );
+    }
+
+    #[test]
+    fn dev_mailbox_clear_removes_messages() {
+        let mailbox = DevMailbox::new();
+        mailbox.push(mail(1));
+        mailbox.clear();
+        assert!(mailbox.is_empty());
+    }
+
+    #[tokio::test]
+    async fn log_mailer_stores_messages_in_development() {
+        let mailbox = Arc::new(DevMailbox::new());
+        let mailer = LogMailer {
+            dev_mailbox: Some(mailbox.clone()),
+            log_links: true,
+        };
+        mailer
+            .send_verification("dev@example.com", "http://localhost/verify-email?token=abc")
+            .await
+            .unwrap();
+        let messages = mailbox.list();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].to, "dev@example.com");
+        assert_eq!(messages[0].subject, VERIFICATION_SUBJECT);
+        assert!(messages[0].link.ends_with("token=abc"));
+    }
+
+    #[tokio::test]
+    async fn log_mailer_does_not_store_messages_in_production() {
+        let mailbox = Arc::new(DevMailbox::new());
+        let mailer = LogMailer {
+            dev_mailbox: None,
+            log_links: false,
+        };
+        mailer
+            .send_verification(
+                "prod@example.com",
+                "http://localhost/verify-email?token=abc",
+            )
+            .await
+            .unwrap();
+        assert!(mailbox.is_empty());
     }
 }

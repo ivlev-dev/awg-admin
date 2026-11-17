@@ -1,7 +1,10 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition, backends::InMemoryBackend};
+use redb::{
+    ConcurrencyMode, Database, ReadableDatabase, ReadableTable, TableDefinition,
+    backends::InMemoryBackend,
+};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
@@ -94,6 +97,7 @@ tables! {
     BillingInvoices => "billing_invoices",
     BillingPaymentMethods => "billing_payment_methods",
     BillingEvents => "billing_events",
+    RateLimits => "rate_limits",
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +110,19 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref();
         let db = Database::create(path)?;
+        let store = Self {
+            db: Arc::new(db),
+            path: Some(path.to_path_buf()),
+        };
+        schema::initialize(store.database())?;
+        Ok(store)
+    }
+
+    pub fn open_multi_writer(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let db = Database::builder()
+            .set_concurrency_mode(ConcurrencyMode::MultiWriter)
+            .create(path)?;
         let store = Self {
             db: Arc::new(db),
             path: Some(path.to_path_buf()),
@@ -182,6 +199,64 @@ impl Store {
         Ok(())
     }
 
+    pub fn update<T, R>(
+        &self,
+        table: Table,
+        key: &str,
+        apply: impl FnOnce(Option<T>) -> (Option<T>, R),
+    ) -> Result<R>
+    where
+        T: Serialize + DeserializeOwned,
+    {
+        let txn = self.db.begin_write()?;
+        let output = {
+            let mut t = txn.open_table(table.definition())?;
+            let current = match t.get(key)? {
+                Some(value) => Some(serde_json::from_slice(value.value())?),
+                None => None,
+            };
+            let (next, output) = apply(current);
+            match next {
+                Some(value) => {
+                    let bytes = serde_json::to_vec(&value)?;
+                    t.insert(key, bytes.as_slice())?;
+                }
+                None => {
+                    t.remove(key)?;
+                }
+            }
+            output
+        };
+        txn.commit()?;
+        Ok(output)
+    }
+
+    pub fn retain<T>(&self, table: Table, mut keep: impl FnMut(&str, &T) -> bool) -> Result<usize>
+    where
+        T: DeserializeOwned,
+    {
+        let txn = self.db.begin_write()?;
+        let mut removed = 0;
+        {
+            let mut t = txn.open_table(table.definition())?;
+            let mut stale = Vec::new();
+            for entry in t.iter()? {
+                let (key, value) = entry?;
+                let key = key.value().to_string();
+                let value: T = serde_json::from_slice(value.value())?;
+                if !keep(&key, &value) {
+                    stale.push(key);
+                }
+            }
+            for key in stale {
+                t.remove(key.as_str())?;
+                removed += 1;
+            }
+        }
+        txn.commit()?;
+        Ok(removed)
+    }
+
     pub fn delete(&self, table: Table, key: &str) -> Result<()> {
         let txn = self.db.begin_write()?;
         {
@@ -253,5 +328,103 @@ impl Store {
 
     pub fn count(&self, table: Table) -> Result<usize> {
         Ok(self.keys(table)?.len())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde::{Deserialize, Serialize};
+
+    use super::*;
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct Counter {
+        value: u64,
+    }
+
+    #[test]
+    fn update_creates_mutates_and_removes_entries() {
+        let store = Store::open_in_memory().unwrap();
+
+        let created = store
+            .update::<Counter, _>(Table::RateLimits, "key", |current| {
+                assert!(current.is_none());
+                (Some(Counter { value: 1 }), 1u64)
+            })
+            .unwrap();
+        assert_eq!(created, 1);
+        assert_eq!(
+            store.get::<Counter>(Table::RateLimits, "key").unwrap(),
+            Some(Counter { value: 1 })
+        );
+
+        let updated = store
+            .update::<Counter, _>(Table::RateLimits, "key", |current| {
+                let mut counter = current.unwrap();
+                counter.value += 1;
+                (Some(counter), 2u64)
+            })
+            .unwrap();
+        assert_eq!(updated, 2);
+        assert_eq!(
+            store.get::<Counter>(Table::RateLimits, "key").unwrap(),
+            Some(Counter { value: 2 })
+        );
+
+        store
+            .update::<Counter, _>(Table::RateLimits, "key", |_| (None, ()))
+            .unwrap();
+        assert_eq!(
+            store.get::<Counter>(Table::RateLimits, "key").unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn retain_removes_only_rejected_entries() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .put(Table::RateLimits, "keep", &Counter { value: 1 })
+            .unwrap();
+        store
+            .put(Table::RateLimits, "drop", &Counter { value: 2 })
+            .unwrap();
+
+        let removed = store
+            .retain::<Counter>(Table::RateLimits, |_, counter| counter.value == 1)
+            .unwrap();
+
+        assert_eq!(removed, 1);
+        assert_eq!(store.keys(Table::RateLimits).unwrap(), vec!["keep"]);
+    }
+
+    #[test]
+    fn multi_writer_handles_share_one_file() {
+        let path = std::env::temp_dir().join(format!(
+            "awg-storage-multi-writer-{}.redb",
+            uuid::Uuid::new_v4()
+        ));
+        let first = Store::open_multi_writer(&path).unwrap();
+        let second = Store::open_multi_writer(&path).unwrap();
+
+        first
+            .put(Table::RateLimits, "shared", &Counter { value: 1 })
+            .unwrap();
+        assert_eq!(
+            second.get::<Counter>(Table::RateLimits, "shared").unwrap(),
+            Some(Counter { value: 1 })
+        );
+
+        second
+            .put(Table::RateLimits, "shared", &Counter { value: 2 })
+            .unwrap();
+        assert_eq!(
+            first.get::<Counter>(Table::RateLimits, "shared").unwrap(),
+            Some(Counter { value: 2 })
+        );
+
+        drop(first);
+        drop(second);
+        let _ = std::fs::remove_file(&path);
     }
 }

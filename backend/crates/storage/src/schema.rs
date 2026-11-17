@@ -2,7 +2,7 @@ use redb::{Database, ReadableDatabase, WriteTransaction};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 
 pub type MigrationFn = fn(&WriteTransaction) -> Result<()>;
@@ -14,11 +14,18 @@ pub struct MigrationStep {
     pub apply: MigrationFn,
 }
 
-pub const MIGRATIONS: &[MigrationStep] = &[MigrationStep {
-    from: 1,
-    to: 2,
-    apply: v2_billing,
-}];
+pub const MIGRATIONS: &[MigrationStep] = &[
+    MigrationStep {
+        from: 1,
+        to: 2,
+        apply: v2_billing,
+    },
+    MigrationStep {
+        from: 2,
+        to: 3,
+        apply: v3_rate_limits,
+    },
+];
 
 const BILLING_TABLES: &[Table] = &[
     Table::BillingPlans,
@@ -28,8 +35,17 @@ const BILLING_TABLES: &[Table] = &[
     Table::BillingEvents,
 ];
 
+const RATE_LIMIT_TABLES: &[Table] = &[Table::RateLimits];
+
 fn v2_billing(txn: &WriteTransaction) -> Result<()> {
     for table in BILLING_TABLES {
+        txn.open_table(table.definition())?;
+    }
+    Ok(())
+}
+
+fn v3_rate_limits(txn: &WriteTransaction) -> Result<()> {
+    for table in RATE_LIMIT_TABLES {
         txn.open_table(table.definition())?;
     }
     Ok(())
@@ -308,7 +324,7 @@ mod tests {
             txn.commit().unwrap();
         }
 
-        migrate(&db, 1, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 1, 2).unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(2));
         let txn = db.begin_read().unwrap();
@@ -339,6 +355,72 @@ mod tests {
     }
 
     #[test]
+    fn migration_v3_creates_rate_limits_and_keeps_data() {
+        let db = in_memory();
+        seed_legacy(&db, Some(2));
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut users = txn.open_table(Table::Users.definition()).unwrap();
+                users
+                    .insert("user-1", b"{\"login\":\"alice\"}".as_slice())
+                    .unwrap();
+                let mut plans = txn.open_table(Table::BillingPlans.definition()).unwrap();
+                plans
+                    .insert("plan-1", b"{\"name\":\"basic\"}".as_slice())
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 2, CURRENT_SCHEMA_VERSION).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(3));
+        let txn = db.begin_read().unwrap();
+        for table in RATE_LIMIT_TABLES {
+            assert!(txn.open_table(table.definition()).is_ok());
+        }
+        {
+            let users = txn.open_table(Table::Users.definition()).unwrap();
+            assert_eq!(
+                users.get("user-1").unwrap().unwrap().value(),
+                b"{\"login\":\"alice\"}".as_slice()
+            );
+        }
+        {
+            let plans = txn.open_table(Table::BillingPlans.definition()).unwrap();
+            assert_eq!(
+                plans.get("plan-1").unwrap().unwrap().value(),
+                b"{\"name\":\"basic\"}".as_slice()
+            );
+        }
+        {
+            let meta = txn.open_table(Table::Meta.definition()).unwrap();
+            assert_eq!(
+                meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
+                b"3".as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn migration_v3_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(2));
+
+        migrate(&db, 2, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 2, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION).unwrap();
+
+        let txn = db.begin_write().unwrap();
+        v3_rate_limits(&txn).unwrap();
+        v3_rate_limits(&txn).unwrap();
+        txn.commit().unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+    }
+
+    #[test]
     fn migration_v2_is_idempotent() {
         let db = in_memory();
         seed_legacy(&db, Some(1));
@@ -350,6 +432,8 @@ mod tests {
         let txn = db.begin_write().unwrap();
         v2_billing(&txn).unwrap();
         v2_billing(&txn).unwrap();
+        v3_rate_limits(&txn).unwrap();
+        v3_rate_limits(&txn).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
@@ -383,6 +467,9 @@ mod tests {
         );
         drop(legacy);
         for table in BILLING_TABLES {
+            assert!(txn.open_table(table.definition()).is_ok());
+        }
+        for table in RATE_LIMIT_TABLES {
             assert!(txn.open_table(table.definition()).is_ok());
         }
     }

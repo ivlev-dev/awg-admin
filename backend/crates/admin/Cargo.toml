@@ -8,6 +8,10 @@ license.workspace = true
 name = "awg-admin"
 path = "src/main.rs"
 
+[[bin]]
+name = "awg-backup"
+path = "src/bin/awg-backup.rs"
+
 [dependencies]
 awg-shared = { path = "../shared" }
 awg-storage = { path = "../storage" }
@@ -29,6 +33,7 @@ ipnet.workspace = true
 lettre.workspace = true
 prometheus.workspace = true
 rand.workspace = true
+redb.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

@@ -116,6 +116,33 @@ impl MailMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RateLimitStore {
+    Memory,
+    Redb,
+}
+
+impl RateLimitStore {
+    pub fn parse(raw: &str) -> Result<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "" | "memory" => Ok(Self::Memory),
+            "redb" => Ok(Self::Redb),
+            other => bail!("AWG_RATE_LIMIT_STORE must be memory or redb, got {other:?}"),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Memory => "memory",
+            Self::Redb => "redb",
+        }
+    }
+
+    pub fn is_shared(self) -> bool {
+        matches!(self, Self::Redb)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct ConfigInput {
     pub environment: Environment,
@@ -134,6 +161,7 @@ pub struct ConfigInput {
     pub cors_origins: String,
     pub share_ttl_secs: u64,
     pub public_url: String,
+    pub rate_limit_store: String,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
@@ -172,6 +200,7 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub share_ttl_secs: u64,
     pub public_url: String,
+    pub rate_limit_store: RateLimitStore,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
@@ -282,6 +311,13 @@ impl Config {
             bail!("AWG_SMTP_URL and AWG_SMTP_FROM are required when AWG_MAIL_MODE=smtp");
         }
 
+        let rate_limit_store = RateLimitStore::parse(&input.rate_limit_store)?;
+        if production && !rate_limit_store.is_shared() {
+            tracing::warn!(
+                "AWG_RATE_LIMIT_STORE=memory keeps login/refresh limits per process; set AWG_RATE_LIMIT_STORE=redb when running more than one admin replica"
+            );
+        }
+
         let billing_enabled = parse_bool("AWG_BILLING_ENABLED", &input.billing_enabled, false)?;
         let billing_currency = parse_currency(&input.billing_currency)?;
         let billing_trial_days = parse_trial_days(&input.billing_trial_days)?;
@@ -309,6 +345,7 @@ impl Config {
             cors_origins,
             share_ttl_secs: input.share_ttl_secs,
             public_url: input.public_url,
+            rate_limit_store,
             login_rate_limit: input.login_rate_limit,
             login_rate_window_secs: input.login_rate_window_secs.max(1),
             refresh_rate_limit: input.refresh_rate_limit,
@@ -417,6 +454,7 @@ fn input_from_env() -> Result<ConfigInput> {
         cors_origins: env("AWG_CORS_ORIGINS", ""),
         share_ttl_secs: env_u64("AWG_SHARE_TTL_SECS", 86_400),
         public_url: env("AWG_PUBLIC_URL", ""),
+        rate_limit_store: env("AWG_RATE_LIMIT_STORE", "memory"),
         login_rate_limit: env_u32("AWG_LOGIN_RATE_LIMIT", 10),
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
         refresh_rate_limit: env_u32("AWG_REFRESH_RATE_LIMIT", 60),
@@ -488,6 +526,7 @@ mod tests {
             cors_origins: String::new(),
             share_ttl_secs: 3600,
             public_url: String::new(),
+            rate_limit_store: "memory".into(),
             login_rate_limit: 10,
             login_rate_window_secs: 300,
             refresh_rate_limit: 60,
@@ -607,6 +646,28 @@ mod tests {
         let mut input = base_input(Environment::Development);
         input.master_key = Some("garbage".into());
         assert!(Config::from_input(input).is_err());
+    }
+
+    #[test]
+    fn rate_limit_store_defaults_to_memory_and_accepts_redb() {
+        let config = Config::from_input(base_input(Environment::Development)).unwrap();
+        assert_eq!(config.rate_limit_store, RateLimitStore::Memory);
+        assert!(!config.rate_limit_store.is_shared());
+
+        let mut input = base_input(Environment::Development);
+        input.rate_limit_store = " redb ".into();
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.rate_limit_store, RateLimitStore::Redb);
+        assert!(config.rate_limit_store.is_shared());
+        assert_eq!(config.rate_limit_store.as_str(), "redb");
+    }
+
+    #[test]
+    fn rate_limit_store_rejects_unknown_values() {
+        let mut input = base_input(Environment::Development);
+        input.rate_limit_store = "redis".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_RATE_LIMIT_STORE must be memory or redb"));
     }
 
     #[test]

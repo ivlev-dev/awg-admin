@@ -49,10 +49,10 @@ use awg_tariffs::{RedbTariffRepository, TariffService};
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 
-use crate::config::Config;
+use crate::config::{Config, RateLimitStore};
 use crate::directory::{DevicesAdapter, NodesAdapter};
 use crate::grpc::WorkerGrpc;
-use crate::rate_limit::SlidingWindowLimiter;
+use crate::rate_limit::{MemoryRateLimiter, RateLimitScope, RateLimiter, StoreRateLimiter};
 use crate::routes::Readiness;
 use crate::settings::SettingsStore;
 use crate::snapshot::SnapshotBuilder;
@@ -69,7 +69,10 @@ async fn main() -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
-    let store = Arc::new(Store::open(&config.db_path)?);
+    let store = Arc::new(match config.rate_limit_store {
+        RateLimitStore::Redb => Store::open_multi_writer(&config.db_path)?,
+        RateLimitStore::Memory => Store::open(&config.db_path)?,
+    });
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let readiness = Readiness::new(store.clone());
     let mut background = Vec::new();
@@ -236,48 +239,49 @@ async fn main() -> Result<()> {
         }));
     }
 
-    let login_limiter = Arc::new(SlidingWindowLimiter::new(
+    let limiter_backend: Arc<dyn RateLimiter> = match config.rate_limit_store {
+        RateLimitStore::Memory => Arc::new(MemoryRateLimiter::new()),
+        RateLimitStore::Redb => Arc::new(StoreRateLimiter::new(store.clone())),
+    };
+    let login_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "login",
         config.login_rate_limit,
         Duration::from_secs(config.login_rate_window_secs),
-    ));
-    let refresh_limiter = Arc::new(SlidingWindowLimiter::new(
+    );
+    let refresh_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "refresh",
         config.refresh_rate_limit,
         Duration::from_secs(config.refresh_rate_window_secs),
-    ));
-    let register_limiter = Arc::new(SlidingWindowLimiter::new(
+    );
+    let register_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "register",
         config.register_rate_limit,
         Duration::from_secs(config.register_rate_window_secs),
-    ));
-    let resend_limiter = Arc::new(SlidingWindowLimiter::new(
+    );
+    let resend_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "resend",
         config.resend_rate_limit,
         Duration::from_secs(config.resend_rate_window_secs),
-    ));
+    );
 
     {
-        let login_limiter = login_limiter.clone();
-        let refresh_limiter = refresh_limiter.clone();
-        let register_limiter = register_limiter.clone();
-        let resend_limiter = resend_limiter.clone();
+        let limiter = limiter_backend.clone();
         let mut shutdown = shutdown_rx.clone();
-        let period = config
-            .login_rate_window_secs
-            .max(config.refresh_rate_window_secs)
-            .max(config.register_rate_window_secs)
-            .max(config.resend_rate_window_secs)
-            .max(60);
         background.push(tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(Duration::from_secs(period));
+            let mut ticker = tokio::time::interval(Duration::from_secs(3600));
             ticker.tick().await;
             loop {
                 tokio::select! {
                     _ = ticker.tick() => {}
                     _ = wait_for_shutdown(&mut shutdown) => break,
                 }
-                login_limiter.cleanup();
-                refresh_limiter.cleanup();
-                register_limiter.cleanup();
-                resend_limiter.cleanup();
+                limiter.cleanup();
             }
+            limiter.cleanup();
         }));
     }
 
@@ -365,6 +369,7 @@ async fn main() -> Result<()> {
         production = config.is_production(),
         log_format = log_format.as_str(),
         mail_mode = config.mail_mode.as_str(),
+        rate_limit_store = config.rate_limit_store.as_str(),
         billing_enabled = config.billing.enabled,
         billing_provider = config.billing.provider.as_str(),
         http_timeout_secs = config.http_timeout_secs,
