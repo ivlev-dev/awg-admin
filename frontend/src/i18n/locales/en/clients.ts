@@ -1,4 +1,7 @@
 export const enClients = {
+  "clients.filter.allStatuses": "All statuses",
+  "clients.selectAll": "Select all clients",
+  "clients.bulk.revokeShares": "Revoke links",
   "clients.eyebrow": "Clients",
   "clients.title": "Clients",
   "clients.subtitle": "AmneziaWG devices, their addresses, limits and peer access.",

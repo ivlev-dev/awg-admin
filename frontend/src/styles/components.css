@@ -498,3 +498,15 @@
 
 .wizard-steps__hint { margin-left: auto; padding: 0 var(--sp-2); }
 
+
+.card { transition: box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease); }
+.card:hover { border-color: color-mix(in oklab, var(--border) 70%, var(--accent) 30%); }
+.stat { transition: border-color var(--dur-2) var(--ease), transform var(--dur-2) var(--ease); }
+.stat:hover { border-color: color-mix(in oklab, var(--border) 70%, var(--accent) 30%); }
+.page-head { padding-bottom: var(--sp-2); }
+.page-head h1 { letter-spacing: -0.03em; }
+.page-head p { line-height: 1.55; }
+.btn:active:not(:disabled) { transform: translateY(1px); }
+.btn:focus-visible, .input:focus-visible, .select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.card__head { gap: var(--sp-3); }
+.card__sub { line-height: 1.45; }

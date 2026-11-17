@@ -327,3 +327,11 @@
 @media (min-width: 1024px) {
   .no-desktop { display: none; }
 }
+
+.mobile-nav {
+  box-shadow: 0 -8px 24px rgba(8, 23, 43, 0.12);
+}
+[data-theme="dark"] .mobile-nav {
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.5);
+}
+.topbar__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -221,3 +221,15 @@
   .bulk-bar__actions { justify-content: flex-start; }
   .bulk-bar__count { padding-top: 8px; }
 }
+
+.table thead th {
+  background: var(--surface-2);
+  font-size: var(--t-2xs);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.table tbody td { padding-top: 12px; padding-bottom: 12px; }
+.table tbody tr { transition: background var(--dur-1) var(--ease); }
+.table-wrap { border-radius: var(--r-3); }

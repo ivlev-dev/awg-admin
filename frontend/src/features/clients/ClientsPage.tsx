@@ -3,6 +3,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { ClientsPageVM } from "./ClientsPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
+import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
@@ -55,6 +56,20 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 />
               </div>
             </Show>
+            <div class="field field--compact" style="flex:0 1 180px">
+              <label for="clients-status">{t("clients.column.status")}</label>
+              <Select
+                id="clients-status"
+                value={this.vm.statusFilter}
+                options={[
+                  { value: "all", label: t("clients.filter.allStatuses") },
+                  { value: "active", label: t("clients.status.active") },
+                  { value: "revoked", label: t("clients.status.revoked") },
+                ]}
+                onChange={(value) => { this.vm.statusFilter = value as "all" | "active" | "revoked"; }}
+                ariaLabel={t("clients.column.status")}
+              />
+            </div>
           </div>
           <Show when={this.vm.hasActiveFilters}>
             <div class="row" style="justify-content:flex-end;padding-top:var(--sp-3)">
@@ -114,6 +129,14 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 <table class="table table--cards table--clients">
                   <thead>
                     <tr>
+                      <th class="cell-select">
+                        <input
+                          type="checkbox"
+                          aria-label={t("clients.selectAll")}
+                          checked={this.vm.allFilteredSelected}
+                          onChange={() => this.vm.toggleSelectAll()}
+                        />
+                      </th>
                       <th>{t("clients.column.device")}</th>
                       <Show when={this.vm.isAdmin}>
                         <th>{t("clients.column.owner")}</th>
@@ -128,7 +151,15 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   <tbody>
                     <For each={this.vm.filteredDevices}>
                       {(device) => (
-                        <tr>
+                        <tr class={this.vm.isSelected(device.id) ? "is-selected" : ""}>
+                          <td class="cell-select">
+                            <input
+                              type="checkbox"
+                              aria-label={device.name}
+                              checked={this.vm.isSelected(device.id)}
+                              onChange={() => this.vm.toggleSelected(device.id)}
+                            />
+                          </td>
                           <td data-label={t("clients.column.device")}>
                             <span class="strong">{device.name}</span>
                           </td>
@@ -190,6 +221,18 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
           </Show>
         </div>
       </section>
+
+      <Show when={this.vm.selectedCount > 0}>
+        <BulkBar
+          count={this.vm.selectedCount}
+          busy={this.vm.bulkBusy}
+          onClear={() => this.vm.clearSelection()}
+          actions={[
+            { label: t("clients.bulk.revokeShares"), onClick: () => { void this.vm.bulkRevokeShares(); } },
+            { label: t("bulk.delete"), variant: "danger", onClick: () => { void this.vm.bulkDelete(); } },
+          ]}
+        />
+      </Show>
 
       <Modal
         open={this.vm.createOpen}

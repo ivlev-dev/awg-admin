@@ -1,4 +1,7 @@
 export const ruClients = {
+  "clients.filter.allStatuses": "Все статусы",
+  "clients.selectAll": "Выбрать всех клиентов",
+  "clients.bulk.revokeShares": "Отозвать ссылки",
   "clients.eyebrow": "Клиенты",
   "clients.title": "Клиенты",
   "clients.subtitle": "Устройства AmneziaWG, их адреса, лимиты и доступ к пирам.",

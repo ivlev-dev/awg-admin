@@ -51,6 +51,9 @@ export class ClientsPageVM {
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
   @reactive accessor groupFilter = "";
+  @reactive accessor statusFilter: "all" | "active" | "revoked" = "all";
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -85,6 +88,8 @@ export class ClientsPageVM {
     const group = this.isAdmin ? this.groupFilter : "";
     return this.devices.filter((device) => {
       if (group && device.group_id !== group) return false;
+      if (this.statusFilter === "active" && device.revoked) return false;
+      if (this.statusFilter === "revoked" && !device.revoked) return false;
       if (!query) return true;
       return [device.name, ...device.addresses].some((value) => value.toLowerCase().includes(query));
     });
@@ -92,7 +97,65 @@ export class ClientsPageVM {
 
   @computed
   get hasActiveFilters(): boolean {
-    return this.appliedQuery.trim().length > 0 || (this.isAdmin && this.groupFilter.length > 0);
+    return this.appliedQuery.trim().length > 0
+      || (this.isAdmin && this.groupFilter.length > 0)
+      || this.statusFilter !== "all";
+  }
+
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  get allFilteredSelected(): boolean {
+    return this.filteredDevices.length > 0 && this.selectedIds.length === this.filteredDevices.length;
+  }
+
+  toggleSelectAll(): void {
+    this.selectedIds = this.allFilteredSelected ? [] : this.filteredDevices.map((device) => device.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
+  async bulkDelete(): Promise<void> {
+    if (this.selectedIds.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: this.selectedIds.length }))) return;
+    await this.runBulk((id) => this.devicesService.deleteDevice(id));
+  }
+
+  async bulkRevokeShares(): Promise<void> {
+    if (this.selectedIds.length === 0) return;
+    await this.runBulk((id) => this.devicesService.revokeAllShares(id).then(() => undefined));
+  }
+
+  private async runBulk(action: (id: string) => Promise<void>): Promise<void> {
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const id of this.selectedIds) {
+      try {
+        await action(id);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
   }
 
   @computed
