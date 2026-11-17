@@ -122,7 +122,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 </div>
               }
             >
-              <table class="table table--cards table--clients table--fixed">
+              <table class="table table--cards table--clients table--fixed table--desktop">
                 <thead>
                   <tr>
                     <th class="cell-select">
@@ -233,6 +233,62 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   </For>
                 </tbody>
               </table>
+              <div class="entity-list">
+                <For each={this.vm.filteredDevices}>
+                  {(device) => (
+                    <article class={`entity-card${this.vm.isSelected(device.id) ? " is-selected" : ""}`}>
+                      <div class="entity-card__head">
+                        <label class="check">
+                          <input
+                            type="checkbox"
+                            aria-label={device.name}
+                            checked={this.vm.isSelected(device.id)}
+                            onChange={() => this.vm.toggleSelected(device.id)}
+                          />
+                          <span><Icon name="check" size={12} class="" /></span>
+                        </label>
+                        <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
+                        <div class="entity-card__title">
+                          <span class="entity-card__name">{device.name}</span>
+                          <span class="entity-card__sub">{this.vm.groupName(device.group_id)} · {this.vm.userLogin(device.user_id)}</span>
+                        </div>
+                        <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
+                          <span class="status-chip__dot"></span>
+                          {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
+                        </span>
+                      </div>
+                      <dl class="entity-card__meta">
+                        <div>
+                          <dt>{t("clients.column.addresses")}</dt>
+                          <dd class="mono">{device.addresses.length > 0 ? device.addresses.join(", ") : "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>{t("clients.column.limits")}</dt>
+                          <dd>↓ {rateLabel(device.down_kbps)} · ↑ {rateLabel(device.up_kbps)}</dd>
+                        </div>
+                        <div>
+                          <dt>{t("clients.column.peers")}</dt>
+                          <dd>{this.vm.peersLabel(device)} · {this.vm.interfaceNames(device)}</dd>
+                        </div>
+                        <div>
+                          <dt>{t("clients.column.owner")}</dt>
+                          <dd>{this.vm.userLogin(device.user_id)}</dd>
+                        </div>
+                      </dl>
+                      <div class="entity-card__foot">
+                        <button
+                          class="btn btn--text btn--sm"
+                          type="button"
+                          aria-label={t("common.open")}
+                          onClick={() => this.vm.openDevice(device.id)}
+                        >
+                          {t("common.open")} <Icon name="chevron" size={14} class="" />
+                        </button>
+                      </div>
+                    </article>
+                  )}
+                </For>
+              </div>
             </Show>
           </Show>
         </div>

@@ -484,3 +484,43 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 @media (max-width: 767px) {
   .table--cards tr:has(td.cell-select) td:nth-child(2) { padding-right: 0; }
 }
+
+.entity-list { display: none; }
+.table--desktop { display: table; }
+
+.entity-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-lg);
+  background: var(--md-surface-lowest);
+}
+[data-theme="dark"] .entity-card { background: var(--md-surface-low); }
+.entity-card.is-selected { background: var(--md-primary-container); border-color: transparent; color: var(--md-on-primary-container); }
+.entity-card.is-selected .entity-card__sub,
+.entity-card.is-selected dt { color: color-mix(in oklab, var(--md-on-primary-container) 72%, transparent); }
+.entity-card.is-selected .entity-card__foot { border-color: color-mix(in oklab, var(--md-on-primary-container) 20%, transparent); }
+
+.entity-card__head { display: flex; align-items: center; gap: 10px; min-height: 32px; }
+.entity-card__head .check { flex: none; }
+.entity-card__title { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.entity-card__name { font-size: var(--t-title); line-height: 24px; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-card__sub { margin-top: 1px; color: var(--md-on-surface-variant); font-size: var(--t-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.entity-card__head > .status-chip { margin-left: auto; flex: none; }
+
+.entity-card__meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 0; }
+.entity-card__meta dt { color: var(--md-on-surface-variant); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
+.entity-card__meta dd { margin: 2px 0 0; font-size: var(--t-xs); line-height: 18px; overflow-wrap: anywhere; }
+.entity-card__wide { grid-column: 1 / -1; }
+.entity-card__metric { display: flex; flex-direction: column; gap: 5px; }
+.entity-card__metric .meter { width: 100%; margin: 0; }
+.entity-card__foot { display: flex; align-items: center; gap: 6px; padding-top: 10px; border-top: 1px solid var(--md-outline-variant); }
+.entity-card__foot .btn:first-child { margin-right: auto; }
+.entity-card__actions { display: flex; align-items: center; gap: 4px; }
+
+@media (max-width: 767px) {
+  .table--desktop { display: none; }
+  .entity-list { display: flex; flex-direction: column; gap: 10px; padding: 0 12px 12px; }
+}
