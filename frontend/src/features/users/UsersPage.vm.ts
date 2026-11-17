@@ -374,6 +374,11 @@ export class UsersPageVM {
     return quota.quotaBytes === null ? "badge badge--blue" : "badge badge--green";
   }
 
+  quotaHasPercent(userId: string): boolean {
+    const quota = this.quotaFor(userId);
+    return quota !== null && quota.percent !== null;
+  }
+
   quotaTitle(userId: string): string {
     const quota = this.quotaFor(userId);
     if (!quota) return "Квота не задана";

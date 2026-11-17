@@ -254,9 +254,11 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                               fallback={<span class="xs muted">—</span>}
                             >
                               <div class="stack-sm user-quota" title={this.vm.quotaTitle(user.id)}>
-                                <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
-                                  <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
-                                </div>
+                                <Show when={this.vm.quotaHasPercent(user.id)}>
+                                  <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
+                                    <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
+                                  </div>
+                                </Show>
                                 <span class="cell-quota">
                                   {this.vm.quotaPercentLabel(user.id)} · {this.vm.quotaStatusLabel(user.id)}
                                 </span>

@@ -63,10 +63,8 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                   <tr>
                     <th>Название</th>
                     <th>Устройств</th>
-                    <th>Устр. ↓</th>
-                    <th>Устр. ↑</th>
-                    <th>Группа ↓</th>
-                    <th>Группа ↑</th>
+                    <th>Скорость устройств</th>
+                    <th>Скорость группы</th>
                     <th>Квота</th>
                     <th></th>
                   </tr>
@@ -86,10 +84,14 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                           </div>
                         </td>
                         <td data-label="Устройств" class="mono">{tariff.max_devices}</td>
-                        <td data-label="Устр. ↓" class="mono">{formatRate(tariff.device_down_kbps)}</td>
-                        <td data-label="Устр. ↑" class="mono">{formatRate(tariff.device_up_kbps)}</td>
-                        <td data-label="Группа ↓" class="mono">{formatRate(tariff.group_down_kbps)}</td>
-                        <td data-label="Группа ↑" class="mono">{formatRate(tariff.group_up_kbps)}</td>
+                        <td data-label="Скорость устройств" class="mono">
+                          <span class="nowrap">↓ {formatRate(tariff.device_down_kbps)}</span>
+                          <span class="cell-sub nowrap">↑ {formatRate(tariff.device_up_kbps)}</span>
+                        </td>
+                        <td data-label="Скорость группы" class="mono">
+                          <span class="nowrap">↓ {formatRate(tariff.group_down_kbps)}</span>
+                          <span class="cell-sub nowrap">↑ {formatRate(tariff.group_up_kbps)}</span>
+                        </td>
                         <td data-label="Квота" class="mono">
                           {tariff.traffic_quota_bytes === null ? "Безлимит" : formatBytes(tariff.traffic_quota_bytes)}
                         </td>

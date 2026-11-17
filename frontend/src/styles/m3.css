@@ -409,3 +409,12 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   .table--cards .mono, .table--cards .cell-quota { white-space: nowrap; }
   .table--cards td[data-label="Адрес"], .table--cards td[data-label="Адреса"] { white-space: nowrap; }
 }
+
+.actions-bar { column-gap: 16px; row-gap: 8px; }
+.actions-bar .small.muted {
+  padding-right: 14px;
+  border-right: 1px solid var(--md-outline-variant);
+}
+@media (max-width: 767px) {
+  .actions-bar .small.muted { padding-right: 0; border-right: 0; }
+}
