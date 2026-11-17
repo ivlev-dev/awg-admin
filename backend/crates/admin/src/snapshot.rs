@@ -116,14 +116,16 @@ impl SnapshotSource for SnapshotBuilder {
                 {
                     continue;
                 }
-                let Some(tariff) = user_tariffs.get(&user.id) else {
-                    continue;
-                };
-                let used = used_bytes_cached(&self.stats, &mut used_cache, user.id);
-                let (down, up) = if tariff.period_usage_exceeded(used) {
-                    (1, 1)
-                } else {
-                    (tariff.group_down_kbps, tariff.group_up_kbps)
+                let (down, up) = match user_tariffs.get(&user.id) {
+                    Some(tariff) => {
+                        let used = used_bytes_cached(&self.stats, &mut used_cache, user.id);
+                        if tariff.period_usage_exceeded(used) {
+                            (1, 1)
+                        } else {
+                            (tariff.group_down_kbps, tariff.group_up_kbps)
+                        }
+                    }
+                    None => (0, 0),
                 };
                 user_limits.push(UserLimit {
                     user_id: user.id,
@@ -909,17 +911,19 @@ mod tests {
                 if owned.is_empty() {
                     continue;
                 }
-                let Some(tariff) = user_tariffs.get(&user.id) else {
-                    continue;
-                };
-                let used = builder
-                    .stats
-                    .used_bytes(StatsScope::User(user.id))
-                    .unwrap_or(0);
-                let (down, up) = if tariff.period_usage_exceeded(used) {
-                    (1, 1)
-                } else {
-                    (tariff.group_down_kbps, tariff.group_up_kbps)
+                let (down, up) = match user_tariffs.get(&user.id) {
+                    Some(tariff) => {
+                        let used = builder
+                            .stats
+                            .used_bytes(StatsScope::User(user.id))
+                            .unwrap_or(0);
+                        if tariff.period_usage_exceeded(used) {
+                            (1, 1)
+                        } else {
+                            (tariff.group_down_kbps, tariff.group_up_kbps)
+                        }
+                    }
+                    None => (0, 0),
                 };
                 user_limits.push(UserLimit {
                     user_id: user.id,

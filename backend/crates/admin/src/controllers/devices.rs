@@ -16,6 +16,7 @@ use awg_tariffs::Tariff;
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{CreateDeviceRequest, CreateShareRequest, UpdateDeviceRequest};
+use crate::publish::publish_group;
 use crate::state::AppState;
 use crate::views::{DeviceView, ProfileView, ShareLinkView};
 
@@ -322,17 +323,6 @@ fn assemble_view(
         })
         .collect();
     DeviceView::build(device, peers, &names)
-}
-
-fn publish_group(state: &AppState, group_id: Uuid) {
-    if let Ok(interfaces) = state.network.interfaces_by_group(group_id) {
-        let mut nodes: Vec<Uuid> = interfaces.iter().map(|i| i.node_id).collect();
-        nodes.sort();
-        nodes.dedup();
-        for node in nodes {
-            let _ = state.orchestration.publish(node);
-        }
-    }
 }
 
 fn unlimited_tariff() -> Tariff {

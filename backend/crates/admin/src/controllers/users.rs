@@ -11,6 +11,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest,
 };
+use crate::publish::publish_user_groups;
 use crate::state::AppState;
 use crate::views::UserView;
 
@@ -71,6 +72,7 @@ pub async fn update(
             },
         )
         .map_err(ApiError::from)?;
+    publish_user_groups(&state, updated.id);
     Ok(Json(UserView::from(&updated)))
 }
 

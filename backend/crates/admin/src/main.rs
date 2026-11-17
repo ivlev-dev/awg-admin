@@ -10,6 +10,7 @@ mod logging;
 mod mailer;
 mod metrics;
 mod models;
+mod publish;
 mod rate_limit;
 mod routes;
 mod settings;

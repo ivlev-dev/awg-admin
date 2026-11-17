@@ -9,6 +9,7 @@ use awg_tariffs::{NewTariff, TariffChanges};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{CreateTariffRequest, UpdateTariffRequest};
+use crate::publish::publish_user_groups;
 use crate::state::AppState;
 use crate::views::TariffView;
 
@@ -66,6 +67,14 @@ pub async fn update(
             },
         )
         .map_err(ApiError::from)?;
+    if let Ok(users) = state.identity.list() {
+        for user in users
+            .into_iter()
+            .filter(|user| user.tariff_id == Some(tariff.id))
+        {
+            publish_user_groups(&state, user.id);
+        }
+    }
     Ok(Json(TariffView::from(tariff)))
 }
 

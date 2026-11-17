@@ -28,7 +28,7 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 |---|---|---|
 | 1. Ядро/SetDevice/REPLACE_PEERS/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns | e2e с реальными клиентами и замер полосы |
 | 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | статистика в API/UI: netlink `GetDevice` падает с `EOPNOTSUPP` (см. «Фактический прогон» и п. 13 сводки) |
-| 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; на реальном AWG htb/ingress/IFB применяются | повторный `tc qdisc replace` падает на этом ядре — worker не может обновить tc после первого reconcile; живая полоса |
+| 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; живая полоса iperf3: 5/2 Mbit → 4.79/1.89, группа 6/3 → 5.62/2.73, снятие лимитов очищает tc | hairpin на одном интерфейсе; живая пара клиентов |
 | 3. nftables forwarding | да: таблица/цепь/правила, ICMP разрешённой пары, изоляция; live worker создаёт `fwd_<ifname>` | hairpin `iifname == oifname` на реальном интерфейсе и трафик между устройствами |
 | 4. Docker build | да: образы `awg-admin`/`awg-worker`/`awg-frontend` есть, стек запущен, admin/frontend healthy | чистая пересборка на CI-хосте |
 | 5. TLS/ACME | частично: `verify-tls.sh --local` — redirect, h2, h3, health; живой стенд отдаёт h2/h3, но с TRAEFIK DEFAULT CERT | ACME на реальном домене; `Host(...)` (через `AWG_DOMAIN`) и HSTS настроены, выпуск сертификата остаётся за стендом |
