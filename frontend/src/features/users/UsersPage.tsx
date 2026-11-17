@@ -63,12 +63,11 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         </div>
       </Show>
 
-      <div class="tabs tabs--fill" role="tablist" aria-label="Пользователи">
+      <div class="tabs tabs--fill" role="group" aria-label="Пользователи">
         <button
           class={`tab ${this.vm.tab === "active" ? "is-active" : ""}`}
           type="button"
-          role="tab"
-          aria-selected={this.vm.tab === "active" ? "true" : "false"}
+          aria-pressed={this.vm.tab === "active" ? "true" : "false"}
           onClick={() => this.vm.setTab("active")}
         >
           {t("users.tab.active")} ({this.vm.activeUsers.length})
@@ -76,8 +75,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         <button
           class={`tab ${this.vm.tab === "pending" ? "is-active" : ""}`}
           type="button"
-          role="tab"
-          aria-selected={this.vm.tab === "pending" ? "true" : "false"}
+          aria-pressed={this.vm.tab === "pending" ? "true" : "false"}
           onClick={() => this.vm.setTab("pending")}
         >
           {t("users.tab.pending")} ({this.vm.pendingCount})
