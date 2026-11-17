@@ -20,12 +20,6 @@ export function StatsPage(this: { vm: StatsVM }) {
             </p>
           </div>
           <div class="actions-bar">
-            <span class={`badge ${this.vm.liveBadgeClass}`}>
-              <span
-                class={`dot ${this.vm.liveEnabled && this.vm.liveConnected ? "dot--green" : ""}`}
-              ></span>
-              {this.vm.liveBadgeLabel}
-            </span>
             <button
               class="btn btn--sm"
               type="button"
@@ -90,50 +84,34 @@ export function StatsPage(this: { vm: StatsVM }) {
             </Show>
           </div>
 
-          <div class="row-between wrap">
-            <div class="tabs">
-              <button
-                class={`tab ${this.vm.rangeKey === "24h" ? "is-active" : ""}`}
-                type="button"
-                onClick={() => this.vm.setRange("24h")}
-              >
-                {t("stats.range.24h")}
-              </button>
-              <button
-                class={`tab ${this.vm.rangeKey === "7d" ? "is-active" : ""}`}
-                type="button"
-                onClick={() => this.vm.setRange("7d")}
-              >
-                {t("stats.range.7d")}
-              </button>
-              <button
-                class={`tab ${this.vm.rangeKey === "30d" ? "is-active" : ""}`}
-                type="button"
-                onClick={() => this.vm.setRange("30d")}
-              >
-                {t("stats.range.30d")}
-              </button>
-            </div>
-
-            <label class="switch">
-              <input
-                type="checkbox"
-                checked={this.vm.liveEnabled}
-                onChange={() => this.vm.toggleLive()}
-              />
-              <span class="track"></span>
-              <span>{t("stats.live.toggle")}</span>
-            </label>
+          <div class="tabs">
+            <button
+              class={`tab ${this.vm.rangeKey === "24h" ? "is-active" : ""}`}
+              type="button"
+              onClick={() => this.vm.setRange("24h")}
+            >
+              {t("stats.range.24h")}
+            </button>
+            <button
+              class={`tab ${this.vm.rangeKey === "7d" ? "is-active" : ""}`}
+              type="button"
+              onClick={() => this.vm.setRange("7d")}
+            >
+              {t("stats.range.7d")}
+            </button>
+            <button
+              class={`tab ${this.vm.rangeKey === "30d" ? "is-active" : ""}`}
+              type="button"
+              onClick={() => this.vm.setRange("30d")}
+            >
+              {t("stats.range.30d")}
+            </button>
           </div>
-
-          <Show when={this.vm.liveError}>
-            <div class="alert alert--warn">{this.vm.liveError}</div>
-          </Show>
         </div>
       </section>
 
-      <Show when={this.vm.initialized} fallback={<SkeletonCards count={4} />}>
-        <div class="grid grid--4">
+      <Show when={this.vm.initialized} fallback={<SkeletonCards count={3} />}>
+        <div class="grid grid--3">
           <div class="stat">
             <div class="stat__label">
               <span class="dot dot--green"></span>{t("stats.card.rx")}
@@ -149,27 +127,10 @@ export function StatsPage(this: { vm: StatsVM }) {
             <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
           </div>
           <div class="stat">
-            <div class="stat__label">{t("stats.card.points")}</div>
-            <div class="stat__value">{this.vm.points}</div>
-            <div class="stat__hint">{this.vm.periodLabel}</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label"><span class="dot dot--green"></span>{t("stats.card.rateRx")}</div>
-            <div class="stat__value">{this.vm.currentRxRate}</div>
-            <div class="stat__hint">{t("stats.card.rateHint")}</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label"><span class="dot" style="background:var(--brand-3)"></span>{t("stats.card.rateTx")}</div>
-            <div class="stat__value">{this.vm.currentTxRate}</div>
-            <div class="stat__hint">{t("stats.card.rateHint")}</div>
-          </div>
-          <div class="stat">
-            <div class="stat__label">{t("stats.card.liveToday")}</div>
-            <div class="stat__value">{this.vm.liveEnabled ? this.vm.liveTodayTotal : "—"}</div>
+            <div class="stat__label">{t("stats.card.average")}</div>
+            <div class="stat__value">{this.vm.averageRxLabel}</div>
             <div class="stat__hint">
-              {this.vm.liveEnabled
-                ? t("stats.card.liveHint", { rx: this.vm.liveTodayRx, tx: this.vm.liveTodayTx })
-                : t("stats.card.liveHintOff")}
+              {t("stats.card.averageHint", { tx: this.vm.averageTxLabel })}
             </div>
           </div>
         </div>
@@ -212,33 +173,10 @@ export function StatsPage(this: { vm: StatsVM }) {
         </div>
       </section>
 
-      <Show when={this.vm.liveEnabled}>
-        <section class="card">
-          <div class="card__body row-between wrap">
-            <div>
-              <div class="xs muted">{t("stats.livePanel.title")}</div>
-              <div class="strong mono">{this.vm.liveTodayTotal}</div>
-            </div>
-            <div>
-              <div class="xs muted">{t("stats.livePanel.rx")}</div>
-              <div class="strong mono">{this.vm.liveTodayRx}</div>
-            </div>
-            <div>
-              <div class="xs muted">{t("stats.livePanel.tx")}</div>
-              <div class="strong mono">{this.vm.liveTodayTx}</div>
-            </div>
-            <div>
-              <div class="xs muted">{t("stats.livePanel.month")}</div>
-              <div class="strong mono">{this.vm.liveMonthTotal}</div>
-            </div>
-          </div>
-        </section>
-      </Show>
-
       <section class="card card--flush" aria-busy={this.vm.devicesLoading || !this.vm.initialized ? "true" : "false"}>
         <div class="card__head">
           <div>
-            <div class="card__title">{t("stats.devices.title")}</div>
+            <div class="card__title">{t("stats.devices.breakdown")}</div>
             <div class="card__sub">{t("stats.devices.subtitle")}</div>
           </div>
           <button

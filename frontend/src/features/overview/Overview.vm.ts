@@ -222,6 +222,10 @@ export class OverviewVM {
     this.router.navigate("/interfaces");
   }
 
+  openNodes(): void {
+    this.router.navigate("/nodes");
+  }
+
   openStats(): void {
     this.router.navigate("/stats");
   }

@@ -1,8 +1,10 @@
 export const enOverview = {
   "overview.eyebrow": "Control panel",
   "overview.title": "Overview",
-  "overview.subtitle": "Node health, traffic and client activity over the last 24 hours.",
+  "overview.subtitle": "Live control room: nodes, quota, speed and client activity.",
   "overview.live": "LIVE",
+  "overview.attention.nodes": "Nodes offline: {offline} of {total}",
+  "overview.attention.open": "Check nodes",
   "overview.offline": "offline",
   "overview.error.load": "Failed to load the overview",
   "overview.stats.rxToday": "Received today",

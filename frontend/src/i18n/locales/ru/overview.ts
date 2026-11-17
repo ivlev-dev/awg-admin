@@ -1,8 +1,10 @@
 export const ruOverview = {
   "overview.eyebrow": "Панель управления",
   "overview.title": "Обзор",
-  "overview.subtitle": "Состояние нод, трафик и активность клиентов за последние сутки.",
+  "overview.subtitle": "Пульт сейчас: ноды, квота, скорость и активность клиентов.",
   "overview.live": "LIVE",
+  "overview.attention.nodes": "Нод офлайн: {offline} из {total}",
+  "overview.attention.open": "Проверить ноды",
   "overview.offline": "офлайн",
   "overview.error.load": "Не удалось загрузить обзор",
   "overview.stats.rxToday": "Принято сегодня",

@@ -246,6 +246,16 @@ export class StatsVM {
   }
 
   @computed
+  get averageRxLabel(): string {
+    return formatRateBps(this.totalRx / this.rangeSeconds);
+  }
+
+  @computed
+  get averageTxLabel(): string {
+    return formatRateBps(this.totalTx / this.rangeSeconds);
+  }
+
+  @computed
   get currentRxRate(): string {
     return formatRateBps(this.series.at(-1)?.rx_bps);
   }
