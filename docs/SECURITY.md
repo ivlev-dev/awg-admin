@@ -48,7 +48,8 @@ CSP API ограничивает только документы/встраив�
 
 Остаточные риски: inline-style не защищён nonce; нет `Trusted Types`
 (`require-trusted-types-for 'script'`); нет `Cross-Origin-Embedder-Policy` /
-`Cross-Origin-Resource-Policy`; production-сборка содержит sourcemaps.
+`Cross-Origin-Resource-Policy`. Карты исходников в production-образ не попадают
+(`VITE_SOURCEMAP=false`), а nginx отвечает `404` на `*.map`.
 
 ## Проверка заголовков
 
@@ -107,6 +108,64 @@ Protocols`).
 - Не публиковать порт `9090` наружу.
 - Worker-контейнеру нужны `NET_ADMIN`, `SYS_MODULE` для netlink/tc/nft.
 - Использовать сильные `AWG_MASTER_KEY`, `AWG_JWT_SECRET`, пароль admin; менять дефолтный `admin/admin12345`.
+
+## Аудит зависимостей
+
+CI job `security` проверяет зависимости параллельно сборке (`docker`/`e2e`
+его не ждут). `continue-on-error` не используется: найденная уязвимость
+делает job красным.
+
+- Rust: `cargo audit --deny warnings` — падение на уязвимостях, а также на
+  `unmaintained`/`unsound`/`yanked`-advisory.
+- Frontend: `pnpm audit --audit-level high --prod` — только production-зависимости
+  уровня `high` и `critical`.
+
+Игнорируемые advisory перечислены в `.cargo/audit.toml` с обоснованием. Текущий
+список: `RUSTSEC-2024-0436` (`paste` 1.0.15, unmaintained, транзитивно через
+`netlink-packet-core`; фикса и замены нет, в рантайме не эксплуатируется).
+
+Локальный прогон:
+
+```bash
+cargo install --locked cargo-audit --version 0.23.0   # один раз
+cargo audit --deny warnings
+
+cd frontend
+pnpm install --frozen-lockfile
+pnpm audit --audit-level high --prod
+```
+
+Проверка только конкретного advisory: `cargo audit --json | jq '.warnings'`,
+`pnpm audit --json`. Обновление базы RustSec — `cargo audit update-db`
+(в CI база скачивается при каждом запуске).
+
+### Реакция на advisory
+
+1. Определите достижимость: `cargo tree -i <crate>` для Rust,
+   `pnpm why <package>` для frontend. Если уязвимый код не используется —
+   это всё равно фиксируется, но приоритет ниже.
+2. Проверьте наличие исправленной версии (`cargo audit` печатает `Solution`,
+   `pnpm audit --fix` предлагает `override`/`update`).
+3. Обновите зависимость точечно (`cargo update -p <crate> --precise <ver>`,
+   `pnpm update <package>` или override в `package.json`), прогоните
+   `cargo test --workspace`, `pnpm typecheck`, `pnpm test`, `pnpm build`.
+4. Если фикса нет: добавьте advisory в `.cargo/audit.toml` (Rust) или
+   зафиксируйте принятый риск в `docs/TODO.md` (frontend), с причиной,
+   оценкой эксплуатируемости и сроком пересмотра (не более 90 дней).
+5. Не подавляйте advisory «на время» без записи: игнор без обоснования
+   не проходит review.
+
+### Политика обновлений
+
+- Dependabot (`.github/dependabot.yml`) еженедельно открывает PR: cargo,
+  npm (`frontend`), github-actions, docker (`docker/`) и docker-compose.
+  Patch/minor группируются, major приходят отдельными PR с лимитом 5.
+- Security-обновления приходят отдельными PR вне групп и мержатся первыми.
+- Автомержа нет: обязательны зелёные `rust`, `frontend`, `security`
+  (и `docker`/`e2e` для изменений, влияющих на образы и рантайм).
+- Перед мержем major-обновления проверяются changelog и обратная совместимость;
+  для Rust — `cargo test --workspace`, для frontend — typecheck, unit, build,
+  для docker/compose — `docker compose build`.
 
 ## Ограничения
 

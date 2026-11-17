@@ -1,0 +1,6 @@
+[advisories]
+ignore = [
+  # paste 1.0.15 (RUSTSEC-2024-0436, unmaintained) приходит транзитивно через
+  # netlink-packet-core -> genetlink/netlink-proto; замены и фикса нет.
+  "RUSTSEC-2024-0436",
+]

@@ -55,6 +55,35 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  security:
+    name: Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.90"
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit@0.23.0
+      - name: Audit Rust dependencies
+        run: cargo audit --deny warnings
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+      - name: Audit frontend dependencies
+        working-directory: frontend
+        run: pnpm audit --audit-level high --prod
+
   docker:
     name: Docker
     needs: [rust, frontend]

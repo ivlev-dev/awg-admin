@@ -12,6 +12,28 @@ const proxy = {
   },
 };
 
+type SourcemapMode = boolean | "hidden";
+
+function resolveSourcemap(raw: string | undefined): SourcemapMode {
+  const value = (raw ?? "false").trim().toLowerCase();
+
+  if (value === "" || value === "false" || value === "0" || value === "off") {
+    return false;
+  }
+
+  if (value === "true" || value === "1" || value === "on") {
+    return true;
+  }
+
+  if (value === "hidden") {
+    return "hidden";
+  }
+
+  throw new Error(`VITE_SOURCEMAP must be one of true|false|hidden, got "${raw}"`);
+}
+
+const sourcemap = resolveSourcemap(process.env.VITE_SOURCEMAP);
+
 export default defineConfig({
   plugins: [silent()],
   resolve: {
@@ -31,6 +53,6 @@ export default defineConfig({
   },
   build: {
     target: "es2024",
-    sourcemap: true,
+    sourcemap,
   },
 });
