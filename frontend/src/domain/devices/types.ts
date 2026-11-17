@@ -27,4 +27,6 @@ export interface CreateShareInput {
   interfaceId: string;
   format: ShareFormat;
   ttlSecs?: number;
+  maxUses?: number;
+  oneTime?: boolean;
 }

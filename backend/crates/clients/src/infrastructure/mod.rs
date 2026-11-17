@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
 use awg_storage::{StorageError, Store, Table};
 
 use crate::domain::{
-    Device, DevicePeer, DevicePeerRepository, DeviceRepository, ShareLink, ShareLinkRepository,
+    Device, DevicePeer, DevicePeerRepository, DeviceRepository, ShareConsume, ShareLink,
+    ShareLinkRepository, ShareLinkState,
 };
 
 fn map_err(e: StorageError) -> CoreError {
@@ -100,6 +102,25 @@ impl ShareLinkRepository for RedbShareLinkRepository {
 
     fn delete(&self, token: &str) -> CoreResult<()> {
         self.store.delete(Table::ShareLinks, token).map_err(map_err)
+    }
+
+    fn consume(&self, token: &str, now: DateTime<Utc>) -> CoreResult<ShareConsume> {
+        self.store
+            .update::<ShareLink, _>(Table::ShareLinks, token, |current| match current {
+                None => (None, ShareConsume::NotFound),
+                Some(link) => match link.state(now) {
+                    ShareLinkState::Active => {
+                        let mut link = link;
+                        link.uses = link.uses.saturating_add(1);
+                        link.used_at = Some(now);
+                        (Some(link.clone()), ShareConsume::Consumed(link))
+                    }
+                    ShareLinkState::Revoked => (Some(link), ShareConsume::Revoked),
+                    ShareLinkState::Expired => (Some(link), ShareConsume::Expired),
+                    ShareLinkState::Exhausted => (Some(link), ShareConsume::Exhausted),
+                },
+            })
+            .map_err(map_err)
     }
 }
 

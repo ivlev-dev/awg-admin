@@ -126,8 +126,8 @@ const STATS_A: DeviceStats = {
 };
 
 const POINTS: StatsPoint[] = [
-  { at: "2020-01-01T00:00:00Z", rx: 1024, tx: 2048 },
-  { at: "2020-01-01T01:00:00Z", rx: 3072, tx: 0 },
+  { at: "2020-01-01T00:00:00Z", rx: 1024, tx: 2048, rx_bps: 0, tx_bps: 0 },
+  { at: "2020-01-01T01:00:00Z", rx: 3072, tx: 0, rx_bps: 2048, tx_bps: 0 },
 ];
 
 class MemoryTokenStore {
@@ -268,6 +268,7 @@ function devicesHarness(): {
         throw new Error("createShare is not used in this test");
       }),
       revokeShare: vi.fn(async () => undefined),
+      revokeAllShares: vi.fn(async () => 0),
     },
   };
 }
@@ -381,6 +382,8 @@ describe("StatsPageVM", () => {
     expect(vm.points).toBe(2);
     expect(vm.totalRxLabel).toBe("4.0 КБ");
     expect(vm.totalTxLabel).toBe("2.0 КБ");
+    expect(vm.currentRxRate).toBe("2.0 КБ/с");
+    expect(vm.currentTxRate).toBe("0 B/с");
     expect(vm.seriesLoading).toBe(false);
     expect(vm.entitiesLoading).toBe(false);
     expect(vm.error).toBeNull();

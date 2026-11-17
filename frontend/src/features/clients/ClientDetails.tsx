@@ -517,6 +517,15 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <div class="card__title">{t("clients.details.share.title")}</div>
                     <div class="card__sub">{t("clients.details.share.subtitle")}</div>
                   </div>
+                  <button
+                    class="btn btn--sm btn--danger"
+                    type="button"
+                    disabled={!this.vm.hasActiveShares || this.vm.shareBusy}
+                    aria-label={t("clients.details.share.revokeAllAria")}
+                    onClick={() => { void this.vm.revokeAllShares(); }}
+                  >
+                    <Icon name="trash" size={14} class="" /> {t("clients.details.share.revokeAll")}
+                  </button>
                 </div>
                 <div class="card__body stack">
                   <Show
@@ -553,6 +562,44 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                           onChange={(value) => this.vm.setShareTtl(value)}
                           ariaLabel={t("clients.details.share.ttl")}
                         />
+                      </div>
+                    </div>
+
+                    <div class="grid grid--2">
+                      <label class="switch">
+                        <input
+                          type="checkbox"
+                          checked={this.vm.shareOneTime}
+                          onChange={(event: Event) => this.vm.setShareOneTime(event)}
+                        />
+                        <span class="track"></span>
+                        <span>
+                          {t("clients.details.share.oneTime")}
+                          <span class="xs muted" style="margin-left:8px">
+                            {t("clients.details.share.oneTimeHint")}
+                          </span>
+                        </span>
+                      </label>
+                      <div class="field">
+                        <label for="share-max-uses">{t("clients.details.share.maxUses")}</label>
+                        <input
+                          id="share-max-uses"
+                          class="input"
+                          type="number"
+                          min="1"
+                          max="1000"
+                          step="1"
+                          value={this.vm.shareMaxUses}
+                          disabled={this.vm.shareOneTime}
+                          aria-invalid={this.vm.shareMaxUsesInvalid}
+                          placeholder={t("clients.details.share.maxUsesHint")}
+                          onInput={(event: Event) =>
+                            this.vm.setShareMaxUses((event.target as HTMLInputElement).value)
+                          }
+                        />
+                        <div class={this.vm.shareMaxUsesInvalid ? "hint hint--error" : "hint"}>
+                          {t("clients.details.share.maxUsesHint")}
+                        </div>
                       </div>
                     </div>
 

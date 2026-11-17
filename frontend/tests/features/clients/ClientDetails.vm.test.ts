@@ -162,6 +162,12 @@ const SHARE: ShareLink = {
   format: "conf",
   expires_at: "2021-01-01T00:00:00Z",
   created_at: "2020-12-31T00:00:00Z",
+  used_at: null,
+  max_uses: null,
+  uses: 0,
+  remaining_uses: null,
+  revoked_at: null,
+  state: "active",
   url: "https://example.com/share-1",
 };
 
@@ -305,11 +311,18 @@ function devicesHarness(): {
         format: input.format,
         expires_at: "2021-02-01T00:00:00Z",
         created_at: "2021-01-01T00:00:00Z",
+        used_at: null,
+        max_uses: input.maxUses ?? null,
+        uses: 0,
+        remaining_uses: input.maxUses ?? null,
+        revoked_at: null,
+        state: "active",
         url: `https://example.com/share-${state.shares.length + 1}`,
       };
       state.shares = [share, ...state.shares];
       return { ...share };
     }),
+    revokeAllShares: vi.fn(async () => 0),
     revokeShare: vi.fn(async (token: string) => {
       state.shares = state.shares.filter((share) => share.token !== token);
     }),

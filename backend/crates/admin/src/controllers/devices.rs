@@ -181,9 +181,17 @@ pub async fn create_share(
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
     let ttl = request.ttl_secs.unwrap_or(state.config.share_ttl_secs);
+    let max_uses = request.resolved_max_uses().map_err(ApiError::BadRequest)?;
     let link = state
         .share
-        .create(id, request.interface_id, user.id(), request.format, ttl)
+        .create(
+            id,
+            request.interface_id,
+            user.id(),
+            request.format,
+            ttl,
+            max_uses,
+        )
         .map_err(ApiError::from)?;
     Ok(Json(ShareLinkView::build(&link, &public_base(&state))))
 }
@@ -196,12 +204,27 @@ pub async fn list_shares(
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
     let links = state.share.list_for_device(id).map_err(ApiError::from)?;
+    let now = Utc::now();
     Ok(Json(
         links
             .iter()
-            .map(|link| ShareLinkView::build(link, &public_base(&state)))
+            .map(|link| ShareLinkView::build_at(link, &public_base(&state), now))
             .collect(),
     ))
+}
+
+pub async fn revoke_all_shares(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    let revoked = state
+        .share
+        .revoke_all_for_device(id)
+        .map_err(ApiError::from)?;
+    Ok(Json(serde_json::json!({ "revoked": revoked })))
 }
 
 pub async fn revoke_share(
@@ -209,8 +232,7 @@ pub async fn revoke_share(
     user: AuthUser,
     Path(token): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let link = state.share.resolve(&token);
-    if link.is_err() {
+    if state.share.find(&token).map_err(ApiError::from)?.is_none() {
         user.require_admin()?;
     }
     state.share.revoke(&token).map_err(ApiError::from)?;

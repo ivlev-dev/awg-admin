@@ -16,6 +16,7 @@ import type {
   Profile,
   ShareFormat,
   ShareLink,
+  ShareLinkState,
 } from "@/domain/types";
 import { t, type TranslationKey } from "@/i18n";
 import { formatBytesI18n, formatRateI18n } from "@/i18n/format";
@@ -47,6 +48,15 @@ const FORWARDING_MODE_KEYS: Record<ForwardingMode, TranslationKey> = {
   selected: "clients.details.forwarding.mode.selected",
 };
 
+export const SHARE_STATE_KEYS: Record<ShareLinkState, TranslationKey> = {
+  active: "clients.details.share.state.active",
+  expired: "clients.details.share.state.expired",
+  exhausted: "clients.details.share.state.exhausted",
+  revoked: "clients.details.share.state.revoked",
+};
+
+export const SHARE_MAX_USES_LIMIT = 1000;
+
 export class ClientDetailsVM {
   constructor(
     private readonly devicesService: DevicesService,
@@ -73,6 +83,8 @@ export class ClientDetailsVM {
   @reactive accessor shareInterfaceId = "";
   @reactive accessor shareFormat: ShareFormat = "conf";
   @reactive accessor shareTtl = 86400;
+  @reactive accessor shareOneTime = false;
+  @reactive accessor shareMaxUses = "";
   @reactive accessor shareBusy = false;
 
   @reactive accessor qrOpen = false;
@@ -295,7 +307,36 @@ export class ClientDetailsVM {
 
   @computed
   get canCreateShare(): boolean {
-    return this.device !== null && this.shareInterfaceId.length > 0 && !this.shareBusy;
+    return (
+      this.device !== null &&
+      this.shareInterfaceId.length > 0 &&
+      !this.shareBusy &&
+      !this.shareMaxUsesInvalid
+    );
+  }
+
+  @computed
+  get shareMaxUsesInvalid(): boolean {
+    if (this.shareOneTime) return false;
+    const raw = this.shareMaxUses.trim();
+    if (raw.length === 0) return false;
+    const parsed = Number(raw);
+    return (
+      !Number.isInteger(parsed) || parsed < 1 || parsed > SHARE_MAX_USES_LIMIT
+    );
+  }
+
+  @computed
+  get shareMaxUsesValue(): number | undefined {
+    if (this.shareOneTime || this.shareMaxUsesInvalid) return undefined;
+    const raw = this.shareMaxUses.trim();
+    if (raw.length === 0) return undefined;
+    return Number(raw);
+  }
+
+  @computed
+  get hasActiveShares(): boolean {
+    return this.shares.some((share) => share.state === "active");
   }
 
   @computed
@@ -338,6 +379,8 @@ export class ClientDetailsVM {
     this.ownerQuota = null;
     this.activeProfileId = "";
     this.shareInterfaceId = "";
+    this.shareOneTime = false;
+    this.shareMaxUses = "";
     this.qrOpen = false;
     this.qrValue = "";
     this.qrTitle = "";
@@ -531,6 +574,14 @@ export class ClientDetailsVM {
     this.shareTtl = Number.isFinite(parsed) && parsed > 0 ? parsed : 3600;
   }
 
+  setShareOneTime(event: Event): void {
+    this.shareOneTime = (event.target as HTMLInputElement).checked;
+  }
+
+  setShareMaxUses(value: string): void {
+    this.shareMaxUses = value;
+  }
+
   async save(): Promise<void> {
     const device = this.device;
     if (!device || !this.canSave) return;
@@ -598,10 +649,13 @@ export class ClientDetailsVM {
     if (!device || !this.canCreateShare) return;
     this.shareBusy = true;
     try {
+      const maxUses = this.shareMaxUsesValue;
       const share = await this.devicesService.createShare(device.id, {
         interfaceId: this.shareInterfaceId,
         format: this.shareFormat,
         ttlSecs: this.shareTtl,
+        ...(this.shareOneTime ? { oneTime: true } : {}),
+        ...(!this.shareOneTime && maxUses !== undefined ? { maxUses } : {}),
       });
       this.shares = [share, ...this.shares];
       this.toasts.success(t("clients.details.toast.shareCreated"));
@@ -624,6 +678,55 @@ export class ClientDetailsVM {
     } finally {
       this.shareBusy = false;
     }
+  }
+
+  async revokeAllShares(): Promise<void> {
+    const device = this.device;
+    if (!device || this.shareBusy) return;
+    if (!window.confirm(t("clients.details.confirm.shareRevokeAll", { name: device.name }))) return;
+    this.shareBusy = true;
+    try {
+      const revoked = await this.devicesService.revokeAllShares(device.id);
+      const revokedAt = new Date().toISOString();
+      this.shares = this.shares.map((share) =>
+        share.state === "active"
+          ? {
+              ...share,
+              state: "revoked" as const,
+              revoked_at: revokedAt,
+              remaining_uses: share.max_uses === null ? null : 0,
+            }
+          : share,
+      );
+      this.toasts.success(
+        t("clients.details.toast.sharesRevoked", { count: revoked }),
+      );
+    } catch (error) {
+      this.toasts.error(messageOf(error, t("clients.details.error.sharesRevoke")));
+    } finally {
+      this.shareBusy = false;
+    }
+  }
+
+  shareStateLabel(state: ShareLinkState): string {
+    return t(SHARE_STATE_KEYS[state]);
+  }
+
+  shareStateClass(state: ShareLinkState): string {
+    if (state === "active") return "badge badge--green";
+    if (state === "exhausted") return "badge badge--amber";
+    if (state === "revoked") return "badge badge--red";
+    return "badge badge--gray";
+  }
+
+  shareUsesLabel(share: ShareLink): string {
+    if (share.max_uses === null) {
+      return t("clients.details.share.usesUnlimited", { uses: share.uses });
+    }
+    return t("clients.details.share.usesLimited", {
+      uses: share.uses,
+      max: share.max_uses,
+    });
   }
 
   async copyText(value: string, label: string): Promise<void> {

@@ -18,4 +18,5 @@ export interface DevicesRepository {
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;
+  revokeAllShares(id: string): Promise<number>;
 }

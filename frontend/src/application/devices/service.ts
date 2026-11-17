@@ -21,6 +21,7 @@ export interface DevicesService {
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;
+  revokeAllShares(id: string): Promise<number>;
 }
 
 export class DefaultDevicesService implements DevicesService {
@@ -84,14 +85,31 @@ export class DefaultDevicesService implements DevicesService {
     if (input.ttlSecs !== undefined && (!Number.isInteger(input.ttlSecs) || input.ttlSecs <= 0)) {
       throw new ValidationError("Срок жизни ссылки должен быть положительным числом секунд");
     }
+    if (input.oneTime && input.maxUses !== undefined) {
+      throw new ValidationError("Одноразовая ссылка не может иметь отдельный лимит использований");
+    }
+    const maxUses = input.maxUses;
+    if (
+      !input.oneTime &&
+      maxUses !== undefined &&
+      (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 1000)
+    ) {
+      throw new ValidationError("Лимит использований должен быть от 1 до 1000");
+    }
     return this.repository.createShare(requireId(id, "Устройство"), {
       interfaceId: requireId(input.interfaceId, "Интерфейс"),
       format: input.format,
       ...(input.ttlSecs !== undefined ? { ttlSecs: input.ttlSecs } : {}),
+      ...(input.oneTime === true ? { oneTime: true } : {}),
+      ...(input.oneTime !== true && maxUses !== undefined ? { maxUses } : {}),
     });
   }
 
   async revokeShare(token: string): Promise<void> {
     await this.repository.revokeShare(requireId(token, "Ссылка"));
+  }
+
+  async revokeAllShares(id: string): Promise<number> {
+    return this.repository.revokeAllShares(requireId(id, "Устройство"));
   }
 }

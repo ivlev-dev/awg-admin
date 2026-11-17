@@ -150,6 +150,15 @@ pub enum ShareFormat {
     Vpn,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ShareLinkState {
+    Active,
+    Expired,
+    Exhausted,
+    Revoked,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareLink {
     pub token: String,
@@ -159,7 +168,40 @@ pub struct ShareLink {
     pub format: ShareFormat,
     pub expires_at: DateTime<Utc>,
     pub used_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub max_uses: Option<u32>,
+    #[serde(default)]
+    pub uses: u32,
+    #[serde(default)]
+    pub revoked_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
+}
+
+impl ShareLink {
+    pub fn state(&self, now: DateTime<Utc>) -> ShareLinkState {
+        if self.revoked_at.is_some() {
+            ShareLinkState::Revoked
+        } else if self.expires_at <= now {
+            ShareLinkState::Expired
+        } else if self.max_uses.is_some_and(|max| self.uses >= max) {
+            ShareLinkState::Exhausted
+        } else {
+            ShareLinkState::Active
+        }
+    }
+
+    pub fn remaining_uses(&self) -> Option<u32> {
+        self.max_uses.map(|max| max.saturating_sub(self.uses))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ShareConsume {
+    Consumed(ShareLink),
+    NotFound,
+    Revoked,
+    Expired,
+    Exhausted,
 }
 
 pub trait ShareLinkRepository: Send + Sync {
@@ -167,6 +209,20 @@ pub trait ShareLinkRepository: Send + Sync {
     fn list(&self) -> CoreResult<Vec<ShareLink>>;
     fn save(&self, link: &ShareLink) -> CoreResult<()>;
     fn delete(&self, token: &str) -> CoreResult<()>;
+    fn consume(&self, token: &str, now: DateTime<Utc>) -> CoreResult<ShareConsume>;
+
+    fn revoke_all_for_device(&self, device_id: Uuid, now: DateTime<Utc>) -> CoreResult<usize> {
+        let mut revoked = 0;
+        for mut link in self.list()? {
+            if link.device_id != device_id || link.state(now) != ShareLinkState::Active {
+                continue;
+            }
+            link.revoked_at = Some(now);
+            self.save(&link)?;
+            revoked += 1;
+        }
+        Ok(revoked)
+    }
 }
 
 pub fn validate_device_name(name: &str) -> CoreResult<()> {
@@ -272,5 +328,64 @@ mod tests {
         a2.forwarding.allowed_devices = vec![b.id];
         let err = ForwardingPolicy::validate(&a2, &[b]).unwrap_err();
         assert!(matches!(err, CoreError::Invalid(_)));
+    }
+
+    fn share_link(max_uses: Option<u32>, uses: u32) -> ShareLink {
+        let now = Utc::now();
+        ShareLink {
+            token: "token".into(),
+            device_id: Uuid::new_v4(),
+            interface_id: Uuid::new_v4(),
+            created_by: Uuid::new_v4(),
+            format: ShareFormat::Conf,
+            expires_at: now + chrono::Duration::hours(1),
+            used_at: None,
+            max_uses,
+            uses,
+            revoked_at: None,
+            created_at: now,
+        }
+    }
+
+    #[test]
+    fn share_link_state_prefers_revoked() {
+        let now = Utc::now();
+        let mut link = share_link(Some(1), 1);
+        assert_eq!(link.state(now), ShareLinkState::Exhausted);
+        link.revoked_at = Some(now);
+        assert_eq!(link.state(now), ShareLinkState::Revoked);
+
+        let mut expired = share_link(None, 0);
+        expired.expires_at = now - chrono::Duration::seconds(1);
+        assert_eq!(expired.state(now), ShareLinkState::Expired);
+
+        assert_eq!(share_link(None, 10).state(now), ShareLinkState::Active);
+    }
+
+    #[test]
+    fn share_link_remaining_uses_saturates() {
+        assert_eq!(share_link(None, 3).remaining_uses(), None);
+        assert_eq!(share_link(Some(5), 2).remaining_uses(), Some(3));
+        assert_eq!(share_link(Some(2), 7).remaining_uses(), Some(0));
+    }
+
+    #[test]
+    fn legacy_share_json_without_new_fields_deserializes() {
+        let now = Utc::now();
+        let json = serde_json::json!({
+            "token": "legacy",
+            "device_id": Uuid::new_v4(),
+            "interface_id": Uuid::new_v4(),
+            "created_by": Uuid::new_v4(),
+            "format": "conf",
+            "expires_at": now,
+            "used_at": null,
+            "created_at": now,
+        });
+        let link: ShareLink = serde_json::from_value(json).unwrap();
+        assert_eq!(link.max_uses, None);
+        assert_eq!(link.uses, 0);
+        assert_eq!(link.revoked_at, None);
+        assert_eq!(link.remaining_uses(), None);
     }
 }

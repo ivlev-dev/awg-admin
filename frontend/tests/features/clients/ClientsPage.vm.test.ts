@@ -205,6 +205,7 @@ function devicesHarness(initial: Device[]): {
       throw new Error("share is not used in this test");
     }),
     revokeShare: vi.fn(async () => undefined),
+    revokeAllShares: vi.fn(async () => 0),
   };
   return { repository, devices };
 }

@@ -52,10 +52,17 @@ export class HttpDevicesRepository implements DevicesRepository {
       interface_id: input.interfaceId,
       format: input.format,
       ttl_secs: input.ttlSecs ?? null,
+      max_uses: input.oneTime === true ? null : (input.maxUses ?? null),
+      one_time: input.oneTime === true,
     });
   }
 
   async revokeShare(token: string): Promise<void> {
     await this.client.delete(`/shares/${token}`);
+  }
+
+  async revokeAllShares(id: string): Promise<number> {
+    const result = await this.client.delete<{ revoked: number }>(`/devices/${id}/shares`);
+    return result.revoked;
   }
 }
