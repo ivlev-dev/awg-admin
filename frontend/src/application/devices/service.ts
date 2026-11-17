@@ -1,4 +1,4 @@
-import type { DevicesRepository } from "../../domain/devices/repository";
+import type { DevicesRepository } from "@/domain/devices/repository";
 import type {
   CreateShareInput,
   DeviceInput,

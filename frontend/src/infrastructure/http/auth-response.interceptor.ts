@@ -1,5 +1,5 @@
-import type { AuthRepository } from "../../domain/auth/repository";
-import type { AuthSessionState } from "../../application/auth/session-state";
+import type { AuthRepository } from "@/domain/auth/repository";
+import type { AuthSessionState } from "@/application/auth/session-state";
 import type { TokenStore } from "../storage";
 import type { ResponseContext, ResponseInterceptor } from "./types";
 

@@ -1,4 +1,4 @@
-import type { AuthRepository } from "../../domain/auth/repository";
+import type { AuthRepository } from "@/domain/auth/repository";
 import type {
   AuthSessionInfo,
   ForgotPasswordResult,
@@ -10,7 +10,7 @@ import type {
   TotpSetup,
   TotpToggleResult,
   VerifyEmailResult,
-} from "../../domain/auth/types";
+} from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
 import type { TokenStore } from "../storage";
 import { ApiError } from "./errors";

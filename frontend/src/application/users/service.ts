@@ -1,4 +1,4 @@
-import type { UsersRepository } from "../../domain/users/repository";
+import type { UsersRepository } from "@/domain/users/repository";
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { ValidationError } from "../errors";

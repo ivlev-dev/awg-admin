@@ -1,7 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { ToastStore } from "@/app/toast";
-import type { SettingsService } from "../../application/settings/service";
+import type { SettingsService } from "@/application/settings/service";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
 import {
   LANGUAGE_OPTIONS,

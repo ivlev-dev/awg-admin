@@ -1,9 +1,9 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
-import type { QuotaService, QuotaUsageView } from "../../application/quota/service";
-import type { DevicesService } from "../../application/devices/service";
-import type { GroupsService } from "../../application/groups/service";
+import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
+import type { DevicesService } from "@/application/devices/service";
+import type { GroupsService } from "@/application/groups/service";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";

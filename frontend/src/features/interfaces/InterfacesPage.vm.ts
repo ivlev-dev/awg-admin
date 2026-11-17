@@ -2,9 +2,9 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import type { GroupsService } from "../../application/groups/service";
-import type { InterfacesService } from "../../application/interfaces/service";
-import type { NodesService } from "../../application/nodes/service";
+import type { GroupsService } from "@/application/groups/service";
+import type { InterfacesService } from "@/application/interfaces/service";
+import type { NodesService } from "@/application/nodes/service";
 import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
 import { t } from "@/i18n";

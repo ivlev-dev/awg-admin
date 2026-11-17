@@ -1,4 +1,4 @@
-import type { QuotaRepository } from "../../domain/quota/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, QuotaUsage, UserQuota } from "@/domain/quota/types";
 
 export interface QuotaUsageView {

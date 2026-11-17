@@ -1,4 +1,4 @@
-import type { QuotaRepository } from "../../domain/quota/repository";
+import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { HttpClient } from "./client";
 

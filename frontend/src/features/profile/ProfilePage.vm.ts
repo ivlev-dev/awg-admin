@@ -6,8 +6,8 @@ import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
-import type { QuotaService, QuotaSnapshot } from "../../application/quota/service";
-import type { AuthService } from "../../application/auth/service";
+import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
+import type { AuthService } from "@/application/auth/service";
 import type { AuthSessionInfo, TotpSetup } from "@/domain/auth/types";
 import { initials, userAgentLabel } from "@/domain/format";
 import {

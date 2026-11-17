@@ -1,4 +1,4 @@
-import type { TariffsRepository } from "../../domain/tariffs/repository";
+import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
 import type { HttpClient } from "./client";

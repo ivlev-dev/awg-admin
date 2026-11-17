@@ -1,4 +1,4 @@
-import type { AuthRepository } from "../../domain/auth/repository";
+import type { AuthRepository } from "@/domain/auth/repository";
 import type {
   AuthSessionInfo,
   ForgotPasswordResult,

@@ -1,4 +1,4 @@
-import { ViewModel, computed, createEffect, createRoot, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import {
   QR_MARGIN_MODULES,
@@ -25,20 +25,18 @@ export class QrCodeVm extends ViewModel<QrCodeProps> {
   @reactive accessor matrix: QrMatrix = [];
 
   private requestId = 0;
-  private stopEffect: (() => void) | null = null;
+  private lastValue: string | null = null;
 
   override mounted(): void {
-    this.stopEffect = createRoot((dispose) => {
-      createEffect(() => {
-        void this.generate(this.props.value);
-      });
-      return dispose;
-    });
+    this.lastValue = this.props.value;
+    void this.generate(this.props.value);
   }
 
-  override unmounted(): void {
-    this.stopEffect?.();
-    this.stopEffect = null;
+  @watch((vm: QrCodeVm) => vm.props?.value ?? "")
+  onValueChange(value: string): void {
+    if (value === this.lastValue) return;
+    this.lastValue = value;
+    void this.generate(value);
   }
 
   @computed

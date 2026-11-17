@@ -1,4 +1,4 @@
-import type { StatsRepository } from "../../domain/stats/repository";
+import type { StatsRepository } from "@/domain/stats/repository";
 import type { Overview, StatsPoint } from "@/domain/types";
 import type { HttpClient } from "./client";
 

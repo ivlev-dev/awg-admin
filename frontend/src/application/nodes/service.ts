@@ -1,4 +1,4 @@
-import type { NodesRepository } from "../../domain/nodes/repository";
+import type { NodesRepository } from "@/domain/nodes/repository";
 import type { NodeCreated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { requireId, requireText } from "../guards";

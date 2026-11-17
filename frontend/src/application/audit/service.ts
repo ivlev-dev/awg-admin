@@ -1,4 +1,4 @@
-import type { AuditRepository } from "../../domain/audit/repository";
+import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditFilters, AuditPageResult } from "@/domain/audit/types";
 import { ValidationError } from "../errors";
 

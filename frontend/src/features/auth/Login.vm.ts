@@ -2,7 +2,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
-import type { AuthService } from "../../application/auth/service";
+import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { t } from "@/i18n";
 

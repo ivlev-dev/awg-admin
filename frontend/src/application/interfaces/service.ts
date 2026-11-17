@@ -1,4 +1,4 @@
-import type { InterfacesRepository } from "../../domain/interfaces/repository";
+import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { InterfaceInfo } from "@/domain/types";
 import { requireId, requireMtu, requirePort, requireText } from "../guards";

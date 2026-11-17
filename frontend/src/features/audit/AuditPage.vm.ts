@@ -2,7 +2,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { userMessage } from "@/application/errors";
-import type { AuditService } from "../../application/audit/service";
+import type { AuditService } from "@/application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";

@@ -1,4 +1,4 @@
-import type { ImportRepository } from "../../domain/import/repository";
+import type { ImportRepository } from "@/domain/import/repository";
 import type {
   ClientsApplyResult,
   ClientsImportInput,

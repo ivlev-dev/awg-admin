@@ -1,10 +1,10 @@
 import { reactive } from "@ivlev-dev/silent-core";
 
-import type { AuthSessionState } from "../application/auth/session-state";
-import type { AuthRepository } from "../domain/auth/repository";
+import type { AuthSessionState } from "@/application/auth/session-state";
+import type { AuthRepository } from "@/domain/auth/repository";
 import type { User } from "@/domain/types";
-import { ApiError } from "../infrastructure/http/errors";
-import type { TokenStore } from "../infrastructure/storage";
+import { ApiError } from "@/infrastructure/http/errors";
+import type { TokenStore } from "@/infrastructure/storage";
 
 export class Session implements AuthSessionState {
   @reactive accessor user: User | null = null;

@@ -1,4 +1,4 @@
-import type { SettingsRepository } from "../../domain/settings/repository";
+import type { SettingsRepository } from "@/domain/settings/repository";
 import type { Settings } from "@/domain/types";
 import type { HttpClient } from "./client";
 

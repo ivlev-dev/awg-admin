@@ -2,10 +2,10 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
-import type { ImportService } from "../../application/import/service";
-import type { InterfacesService } from "../../application/interfaces/service";
-import type { NodesService } from "../../application/nodes/service";
-import type { UsersService } from "../../application/users/service";
+import type { ImportService } from "@/application/import/service";
+import type { InterfacesService } from "@/application/interfaces/service";
+import type { NodesService } from "@/application/nodes/service";
+import type { UsersService } from "@/application/users/service";
 import type {
   ClientsApplyResult,
   ClientsImportInput,

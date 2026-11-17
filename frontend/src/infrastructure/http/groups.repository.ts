@@ -1,4 +1,4 @@
-import type { GroupsRepository } from "../../domain/groups/repository";
+import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
 import type { HttpClient } from "./client";

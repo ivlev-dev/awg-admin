@@ -1,8 +1,8 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
-import type { DevicesService } from "../../application/devices/service";
-import type { GroupsService } from "../../application/groups/service";
-import type { UsersService } from "../../application/users/service";
+import type { DevicesService } from "@/application/devices/service";
+import type { GroupsService } from "@/application/groups/service";
+import type { UsersService } from "@/application/users/service";
 import { debounce } from "@/app/debounce";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";

@@ -10,7 +10,7 @@ import type { SettingsRepository } from "@/domain/settings/repository";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { UsersRepository } from "@/domain/users/repository";
-import type { AuthSessionState } from "../../application/auth/session-state";
+import type { AuthSessionState } from "@/application/auth/session-state";
 import type { TokenStore } from "../storage";
 import { AuthRequestInterceptor } from "./auth-request.interceptor";
 import { AuthResponseInterceptor } from "./auth-response.interceptor";
