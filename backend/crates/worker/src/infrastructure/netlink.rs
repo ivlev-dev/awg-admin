@@ -1,5 +1,7 @@
-use std::net::IpAddr;
+use std::collections::{HashMap, HashSet};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::process::Command;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result, anyhow};
 use async_trait::async_trait;
@@ -7,6 +9,9 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use futures_util::StreamExt;
 use genetlink::new_connection;
+use netlink_packet_amnezia_wireguard::constants::{
+    WGPEER_F_REMOVE_ME, WGPEER_F_REPLACE_ALLOWEDIPS,
+};
 use netlink_packet_amnezia_wireguard::{
     AmneziaWireguardAddressFamily, AmneziaWireguardAllowedIp, AmneziaWireguardAllowedIpAttr,
     AmneziaWireguardAttribute, AmneziaWireguardCmd, AmneziaWireguardMessage, AmneziaWireguardPeer,
@@ -18,15 +23,28 @@ use netlink_packet_generic::GenlMessage;
 use crate::application::AwgControl;
 use crate::domain::{DesiredInterface, DesiredPeer, InterfaceRuntime, PeerRuntime};
 
-const REPLACE_PEERS: u32 = 1;
-
 pub struct NetlinkAwg {
     dry_run: bool,
+    applied_psk: Mutex<HashMap<String, HashMap<String, String>>>,
+}
+
+struct PeerDelta<'a> {
+    upserts: Vec<&'a DesiredPeer>,
+    removes: Vec<String>,
+}
+
+impl PeerDelta<'_> {
+    fn is_empty(&self) -> bool {
+        self.upserts.is_empty() && self.removes.is_empty()
+    }
 }
 
 impl NetlinkAwg {
     pub fn new(dry_run: bool) -> Self {
-        Self { dry_run }
+        Self {
+            dry_run,
+            applied_psk: Mutex::new(HashMap::new()),
+        }
     }
 
     fn run(&self, program: &str, args: &[&str]) -> Result<()> {
@@ -101,6 +119,44 @@ impl AwgControl for NetlinkAwg {
             return Ok(());
         }
         let private_key = decode_key(&interface.private_key)?;
+        let applied_psk = self
+            .applied_psk
+            .lock()
+            .expect("applied psk lock")
+            .get(&interface.name)
+            .cloned();
+
+        let (delta, existing, replace_all_allowed_ips) = match dump(&interface.name).await {
+            Ok(messages) => {
+                let runtime = interface_runtime(&messages, &interface.name).unwrap_or_default();
+                let existing: HashSet<String> = runtime
+                    .peers
+                    .iter()
+                    .map(|peer| peer.public_key.clone())
+                    .collect();
+                (
+                    peer_delta(&interface.peers, &runtime.peers, applied_psk.as_ref()),
+                    existing,
+                    false,
+                )
+            }
+            Err(error) => {
+                tracing::warn!(
+                    interface = %interface.name,
+                    %error,
+                    "netlink dump failed, upserting every desired peer"
+                );
+                (
+                    PeerDelta {
+                        upserts: interface.peers.iter().collect(),
+                        removes: Vec::new(),
+                    },
+                    HashSet::new(),
+                    true,
+                )
+            }
+        };
+
         let mut attributes = vec![
             AmneziaWireguardAttribute::IfName(interface.name.clone()),
             AmneziaWireguardAttribute::PrivateKey(private_key),
@@ -115,18 +171,17 @@ impl AwgControl for NetlinkAwg {
             AmneziaWireguardAttribute::H3Range(pack_range(&interface.obf.h3)?),
             AmneziaWireguardAttribute::H4Range(pack_range(&interface.obf.h4)?),
             AmneziaWireguardAttribute::RandomTrailers(interface.obf.random_trailers),
-            AmneziaWireguardAttribute::Flags(REPLACE_PEERS),
-            AmneziaWireguardAttribute::Peers(
-                interface
-                    .peers
-                    .iter()
-                    .map(peer_attributes)
-                    .collect::<Result<Vec<_>>>()?,
-            ),
         ];
         if !interface.obf.header_protection_key.is_empty() {
             attributes.push(AmneziaWireguardAttribute::HeaderProtectionKey(decode_key(
                 &interface.obf.header_protection_key,
+            )?));
+        }
+        if !delta.is_empty() {
+            attributes.push(AmneziaWireguardAttribute::Peers(peer_updates(
+                &delta,
+                &existing,
+                replace_all_allowed_ips,
             )?));
         }
 
@@ -134,7 +189,18 @@ impl AwgControl for NetlinkAwg {
             cmd: AmneziaWireguardCmd::SetDevice,
             attributes,
         };
-        send(msg).await.map(|_| ())
+        send(msg).await?;
+
+        let snapshot = interface
+            .peers
+            .iter()
+            .map(|peer| (peer.public_key.clone(), peer.preshared_key.clone()))
+            .collect();
+        self.applied_psk
+            .lock()
+            .expect("applied psk lock")
+            .insert(interface.name.clone(), snapshot);
+        Ok(())
     }
 
     async fn teardown(&self, name: &str) -> Result<()> {
@@ -143,6 +209,10 @@ impl AwgControl for NetlinkAwg {
             return Ok(());
         }
         let _ = self.run("ip", &["link", "del", "dev", name]);
+        self.applied_psk
+            .lock()
+            .expect("applied psk lock")
+            .remove(name);
         Ok(())
     }
 
@@ -246,6 +316,9 @@ fn peer_runtime(peer: &AmneziaWireguardPeer) -> Option<PeerRuntime> {
             AmneziaWireguardPeerAttribute::PublicKey(key) => {
                 runtime.public_key = STANDARD.encode(key);
             }
+            AmneziaWireguardPeerAttribute::AllowedIps(list) => {
+                runtime.allowed_ips = list.iter().filter_map(allowed_ip_cidr).collect();
+            }
             AmneziaWireguardPeerAttribute::RxBytes(value) => runtime.rx_bytes = *value,
             AmneziaWireguardPeerAttribute::TxBytes(value) => runtime.tx_bytes = *value,
             AmneziaWireguardPeerAttribute::LastHandshake(time) => {
@@ -257,7 +330,122 @@ fn peer_runtime(peer: &AmneziaWireguardPeer) -> Option<PeerRuntime> {
     (!runtime.public_key.is_empty()).then_some(runtime)
 }
 
-fn peer_attributes(peer: &DesiredPeer) -> Result<AmneziaWireguardPeer> {
+fn allowed_ip_cidr(allowed: &AmneziaWireguardAllowedIp) -> Option<String> {
+    let mut address = None;
+    let mut cidr = None;
+    for attribute in &allowed.0 {
+        match attribute {
+            AmneziaWireguardAllowedIpAttr::IpAddr(value) => address = Some(*value),
+            AmneziaWireguardAllowedIpAttr::Cidr(value) => cidr = Some(*value),
+            _ => {}
+        }
+    }
+    Some(format!("{}/{}", address?, cidr?))
+}
+
+fn peer_delta<'a>(
+    desired: &'a [DesiredPeer],
+    runtime: &[PeerRuntime],
+    applied_psk: Option<&HashMap<String, String>>,
+) -> PeerDelta<'a> {
+    let mut current: HashMap<&str, &PeerRuntime> = HashMap::new();
+    for peer in runtime {
+        current.entry(peer.public_key.as_str()).or_insert(peer);
+    }
+    let desired_keys: HashSet<&str> = desired
+        .iter()
+        .map(|peer| peer.public_key.as_str())
+        .collect();
+
+    let mut upserts = Vec::new();
+    for peer in desired {
+        let needs_upsert = match current.get(peer.public_key.as_str()) {
+            None => true,
+            Some(runtime_peer) => {
+                !same_allowed_ips(&peer.allowed_ips, &runtime_peer.allowed_ips)
+                    || applied_psk
+                        .and_then(|map| map.get(&peer.public_key))
+                        .is_some_and(|known| known != &peer.preshared_key)
+            }
+        };
+        if needs_upsert {
+            upserts.push(peer);
+        }
+    }
+
+    let mut seen = HashSet::new();
+    let mut removes = Vec::new();
+    for peer in runtime {
+        if desired_keys.contains(peer.public_key.as_str()) {
+            continue;
+        }
+        if seen.insert(peer.public_key.as_str()) {
+            removes.push(peer.public_key.clone());
+        }
+    }
+
+    PeerDelta { upserts, removes }
+}
+
+fn same_allowed_ips(left: &[String], right: &[String]) -> bool {
+    let left: HashSet<String> = left.iter().map(|cidr| normalize_cidr(cidr)).collect();
+    let right: HashSet<String> = right.iter().map(|cidr| normalize_cidr(cidr)).collect();
+    left == right
+}
+
+fn normalize_cidr(cidr: &str) -> String {
+    let value = cidr.trim();
+    let Some((address, prefix)) = value.split_once('/') else {
+        return value.to_string();
+    };
+    let (Ok(address), Ok(prefix)) = (address.parse::<IpAddr>(), prefix.parse::<u8>()) else {
+        return value.to_string();
+    };
+    let masked = match address {
+        IpAddr::V4(v4) => IpAddr::V4(Ipv4Addr::from(u32::from(v4) & prefix_mask_v4(prefix))),
+        IpAddr::V6(v6) => IpAddr::V6(Ipv6Addr::from(u128::from(v6) & prefix_mask_v6(prefix))),
+    };
+    format!("{masked}/{prefix}")
+}
+
+fn prefix_mask_v4(prefix: u8) -> u32 {
+    let prefix = prefix.min(32);
+    if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (32 - prefix as u32)
+    }
+}
+
+fn prefix_mask_v6(prefix: u8) -> u128 {
+    let prefix = prefix.min(128);
+    if prefix == 0 {
+        0
+    } else {
+        u128::MAX << (128 - prefix as u32)
+    }
+}
+
+fn peer_updates(
+    delta: &PeerDelta<'_>,
+    existing: &HashSet<String>,
+    replace_all_allowed_ips: bool,
+) -> Result<Vec<AmneziaWireguardPeer>> {
+    let mut peers = Vec::with_capacity(delta.upserts.len() + delta.removes.len());
+    for peer in &delta.upserts {
+        let replace_allowed_ips = replace_all_allowed_ips || existing.contains(&peer.public_key);
+        peers.push(peer_attributes(peer, replace_allowed_ips)?);
+    }
+    for public_key in &delta.removes {
+        peers.push(AmneziaWireguardPeer(vec![
+            AmneziaWireguardPeerAttribute::PublicKey(decode_key(public_key)?),
+            AmneziaWireguardPeerAttribute::Flags(WGPEER_F_REMOVE_ME),
+        ]));
+    }
+    Ok(peers)
+}
+
+fn peer_attributes(peer: &DesiredPeer, replace_allowed_ips: bool) -> Result<AmneziaWireguardPeer> {
     let public_key = decode_key(&peer.public_key)?;
     let mut attributes = vec![
         AmneziaWireguardPeerAttribute::PublicKey(public_key),
@@ -269,6 +457,11 @@ fn peer_attributes(peer: &DesiredPeer) -> Result<AmneziaWireguardPeer> {
         ),
         AmneziaWireguardPeerAttribute::PersistentKeepaliveRange(25 | (25 << 16)),
     ];
+    if replace_allowed_ips {
+        attributes.push(AmneziaWireguardPeerAttribute::Flags(
+            WGPEER_F_REPLACE_ALLOWEDIPS,
+        ));
+    }
     if !peer.preshared_key.is_empty() {
         attributes.push(AmneziaWireguardPeerAttribute::PresharedKey(decode_key(
             &peer.preshared_key,
@@ -322,6 +515,7 @@ fn pack_range(spec: &str) -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use netlink_packet_amnezia_wireguard::AmneziaWireguardTimeSpec;
+    use uuid::Uuid;
 
     use super::*;
 
@@ -412,5 +606,227 @@ mod tests {
         let runtime = interface_runtime(&messages, "awg0").expect("device found");
         assert_eq!(runtime.peers.len(), 1);
         assert_eq!(runtime.peers[0].public_key, STANDARD.encode([4u8; 32]));
+    }
+
+    fn desired(key: &str, allowed: &[&str], psk: &str) -> DesiredPeer {
+        DesiredPeer {
+            device_id: Uuid::nil(),
+            user_id: Uuid::nil(),
+            public_key: key.to_string(),
+            preshared_key: psk.to_string(),
+            allowed_ips: allowed.iter().map(|value| value.to_string()).collect(),
+            addresses: Vec::new(),
+            down_kbps: 0,
+            up_kbps: 0,
+        }
+    }
+
+    fn runtime_peer(key: &str, allowed: &[&str]) -> PeerRuntime {
+        PeerRuntime {
+            public_key: key.to_string(),
+            allowed_ips: allowed.iter().map(|value| value.to_string()).collect(),
+            ..PeerRuntime::default()
+        }
+    }
+
+    fn flags_of(peer: &AmneziaWireguardPeer) -> Option<u32> {
+        peer.0.iter().find_map(|attribute| match attribute {
+            AmneziaWireguardPeerAttribute::Flags(value) => Some(*value),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn delta_is_empty_for_identical_peers() {
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32"], "psk")];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32"])];
+        let psk = HashMap::from([("alice".to_string(), "psk".to_string())]);
+
+        let delta = peer_delta(&desired_peers, &runtime, Some(&psk));
+        assert!(delta.is_empty());
+        assert!(delta.upserts.is_empty());
+        assert!(delta.removes.is_empty());
+    }
+
+    #[test]
+    fn delta_upserts_new_peer() {
+        let desired_peers = vec![
+            desired("alice", &["10.0.0.2/32"], ""),
+            desired("bob", &["10.0.0.3/32"], ""),
+        ];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert_eq!(delta.upserts.len(), 1);
+        assert_eq!(delta.upserts[0].public_key, "bob");
+        assert!(delta.removes.is_empty());
+    }
+
+    #[test]
+    fn delta_removes_peer_missing_in_desired() {
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32"], "")];
+        let runtime = vec![
+            runtime_peer("alice", &["10.0.0.2/32"]),
+            runtime_peer("bob", &["10.0.0.3/32"]),
+        ];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert!(delta.upserts.is_empty());
+        assert_eq!(delta.removes, vec!["bob".to_string()]);
+    }
+
+    #[test]
+    fn delta_removes_every_peer_for_empty_desired() {
+        let runtime = vec![
+            runtime_peer("alice", &["10.0.0.2/32"]),
+            runtime_peer("bob", &["10.0.0.3/32"]),
+        ];
+
+        let delta = peer_delta(&[], &runtime, None);
+        assert!(delta.upserts.is_empty());
+        assert_eq!(delta.removes, vec!["alice".to_string(), "bob".to_string()]);
+    }
+
+    #[test]
+    fn delta_upserts_when_allowed_ips_change() {
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32", "10.10.0.0/24"], "")];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert_eq!(delta.upserts.len(), 1);
+        assert_eq!(delta.upserts[0].public_key, "alice");
+        assert!(delta.removes.is_empty());
+    }
+
+    #[test]
+    fn delta_ignores_allowed_ips_order_and_duplicates() {
+        let desired_peers = vec![desired(
+            "alice",
+            &["10.10.0.0/24", "10.0.0.2/32", "10.10.0.0/24"],
+            "",
+        )];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32", "10.10.0.0/24"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn delta_ignores_host_bits_in_allowed_ips() {
+        let desired_peers = vec![desired("alice", &["10.10.0.42/24"], "")];
+        let runtime = vec![runtime_peer("alice", &["10.10.0.0/24"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn delta_upserts_when_preshared_key_changes_after_first_apply() {
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32"], "new")];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32"])];
+        let psk = HashMap::from([("alice".to_string(), "old".to_string())]);
+
+        let delta = peer_delta(&desired_peers, &runtime, Some(&psk));
+        assert_eq!(delta.upserts.len(), 1);
+        assert_eq!(delta.upserts[0].public_key, "alice");
+    }
+
+    #[test]
+    fn delta_keeps_preshared_key_unknown_on_first_apply() {
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32"], "new")];
+        let runtime = vec![runtime_peer("alice", &["10.0.0.2/32"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn delta_deduplicates_duplicate_runtime_peers() {
+        let runtime = vec![
+            runtime_peer("alice", &["10.0.0.2/32"]),
+            runtime_peer("alice", &["10.0.0.2/32"]),
+        ];
+
+        let delta = peer_delta(&[], &runtime, None);
+        assert_eq!(delta.removes, vec!["alice".to_string()]);
+
+        let desired_peers = vec![desired("alice", &["10.0.0.2/32"], "")];
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        assert!(delta.is_empty());
+    }
+
+    #[test]
+    fn peer_updates_flag_existing_upserts_for_allowed_ips_replacement() {
+        let existing_key = STANDARD.encode([1u8; 32]);
+        let desired_peers = vec![desired(&existing_key, &["10.0.0.2/32"], "")];
+        let runtime = vec![runtime_peer(&existing_key, &["10.0.0.9/32"])];
+
+        let delta = peer_delta(&desired_peers, &runtime, None);
+        let existing = HashSet::from([existing_key]);
+        let peers = peer_updates(&delta, &existing, false).expect("peer attributes");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(flags_of(&peers[0]), Some(WGPEER_F_REPLACE_ALLOWEDIPS));
+    }
+
+    #[test]
+    fn peer_updates_do_not_flag_new_peers() {
+        let key = STANDARD.encode([2u8; 32]);
+        let desired_peers = vec![desired(&key, &["10.0.0.2/32"], "")];
+
+        let delta = peer_delta(&desired_peers, &[], None);
+        let peers = peer_updates(&delta, &HashSet::new(), false).expect("peer attributes");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(flags_of(&peers[0]), None);
+    }
+
+    #[test]
+    fn peer_updates_mark_removed_peers_with_remove_flag_only() {
+        let key = STANDARD.encode([3u8; 32]);
+        let runtime = vec![runtime_peer(&key, &["10.0.0.2/32"])];
+
+        let delta = peer_delta(&[], &runtime, None);
+        let peers = peer_updates(&delta, &HashSet::new(), false).expect("peer attributes");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(flags_of(&peers[0]), Some(WGPEER_F_REMOVE_ME));
+        assert_eq!(
+            peers[0].0,
+            vec![
+                AmneziaWireguardPeerAttribute::PublicKey([3u8; 32]),
+                AmneziaWireguardPeerAttribute::Flags(WGPEER_F_REMOVE_ME),
+            ]
+        );
+    }
+
+    #[test]
+    fn peer_updates_force_allowed_ips_replacement_on_dump_failure() {
+        let key = STANDARD.encode([4u8; 32]);
+        let desired_peers = vec![desired(&key, &["10.0.0.2/32"], "")];
+
+        let delta = peer_delta(&desired_peers, &[], None);
+        let peers = peer_updates(&delta, &HashSet::new(), true).expect("peer attributes");
+        assert_eq!(peers.len(), 1);
+        assert_eq!(flags_of(&peers[0]), Some(WGPEER_F_REPLACE_ALLOWEDIPS));
+    }
+
+    #[test]
+    fn runtime_parses_allowed_ips() {
+        let peer = AmneziaWireguardPeer(vec![
+            AmneziaWireguardPeerAttribute::PublicKey([5u8; 32]),
+            AmneziaWireguardPeerAttribute::AllowedIps(vec![
+                AmneziaWireguardAllowedIp(vec![
+                    AmneziaWireguardAllowedIpAttr::Family(AmneziaWireguardAddressFamily::Ipv4),
+                    AmneziaWireguardAllowedIpAttr::IpAddr("10.0.0.5".parse().expect("ip")),
+                    AmneziaWireguardAllowedIpAttr::Cidr(32),
+                ]),
+                AmneziaWireguardAllowedIp(vec![
+                    AmneziaWireguardAllowedIpAttr::Family(AmneziaWireguardAddressFamily::Ipv6),
+                    AmneziaWireguardAllowedIpAttr::IpAddr("fd00::1".parse().expect("ip")),
+                    AmneziaWireguardAllowedIpAttr::Cidr(128),
+                ]),
+            ]),
+        ]);
+
+        let runtime = peer_runtime(&peer).expect("peer runtime");
+        assert_eq!(runtime.allowed_ips, vec!["10.0.0.5/32", "fd00::1/128"]);
     }
 }

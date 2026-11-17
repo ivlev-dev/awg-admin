@@ -253,13 +253,25 @@ impl TcShaper {
         Ok(())
     }
 
+    fn clear_ingress(&self, dev: &str) -> Result<()> {
+        for command in ingress_cleanup_commands(dev) {
+            let refs: Vec<&str> = command.iter().map(String::as_str).collect();
+            if refs.first() == Some(&"link") {
+                let _ = self.run_ip(&refs);
+            } else {
+                self.run_owned_optional(&command)?;
+            }
+        }
+        Ok(())
+    }
+
     fn apply_ingress(&self, interface: &DesiredInterface) -> Result<()> {
         let dev = &interface.name;
-        let ifb = ifb_name(dev);
         let plans = Self::plan(interface, Direction::Up);
-        if plans.is_empty() && interface.user_limits.is_empty() {
-            return Ok(());
+        if plans.is_empty() {
+            return self.clear_ingress(dev);
         }
+        let ifb = ifb_name(dev);
 
         if !self.dry_run {
             let _ = Command::new("modprobe").arg("ifb").output();
@@ -414,7 +426,7 @@ fn peer_index(interface: &DesiredInterface, peer: &DesiredPeer) -> usize {
         .unwrap_or(0)
 }
 
-fn ifb_name(name: &str) -> String {
+pub(crate) fn ifb_name(name: &str) -> String {
     let mut out = String::from("ifb-");
     for ch in name.chars() {
         if out.len() >= 15 {
@@ -442,6 +454,16 @@ fn ingress_reset_commands(dev: &str) -> [Vec<String>; 2] {
     [
         strings(&["qdisc", "del", "dev", dev, "ingress"]),
         strings(&["qdisc", "add", "dev", dev, "handle", "ffff:", "ingress"]),
+    ]
+}
+
+fn ingress_cleanup_commands(dev: &str) -> Vec<Vec<String>> {
+    let ifb = ifb_name(dev);
+    vec![
+        strings(&["filter", "del", "dev", dev, "parent", "ffff:"]),
+        strings(&["qdisc", "del", "dev", dev, "ingress"]),
+        strings(&["qdisc", "del", "dev", &ifb, "root"]),
+        strings(&["link", "del", &ifb]),
     ]
 }
 
@@ -477,6 +499,37 @@ mod tests {
         assert_eq!(
             add,
             strings(&["qdisc", "add", "dev", "awg0", "handle", "ffff:", "ingress"])
+        );
+    }
+
+    #[test]
+    fn ingress_cleanup_removes_filter_qdisc_and_ifb() {
+        assert_eq!(
+            ingress_cleanup_commands("awg0"),
+            vec![
+                strings(&["filter", "del", "dev", "awg0", "parent", "ffff:"]),
+                strings(&["qdisc", "del", "dev", "awg0", "ingress"]),
+                strings(&["qdisc", "del", "dev", "ifb-awg0", "root"]),
+                strings(&["link", "del", "ifb-awg0"]),
+            ]
+        );
+    }
+
+    #[test]
+    fn ingress_cleanup_uses_short_ifb_name() {
+        let commands = ingress_cleanup_commands("verylongifacename");
+        assert_eq!(ifb_name("verylongifacename"), "ifb-verylongifa");
+        assert_eq!(
+            commands[2],
+            strings(&["qdisc", "del", "dev", "ifb-verylongifa", "root"])
+        );
+        assert_eq!(commands[3], strings(&["link", "del", "ifb-verylongifa"]));
+        assert!(
+            commands
+                .iter()
+                .flatten()
+                .filter(|arg| arg.starts_with("ifb-"))
+                .all(|arg| arg.len() <= 15)
         );
     }
 

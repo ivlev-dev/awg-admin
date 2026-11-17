@@ -76,6 +76,7 @@ pub struct InterfaceRuntime {
 #[derive(Debug, Clone, Default)]
 pub struct PeerRuntime {
     pub public_key: String,
+    pub allowed_ips: Vec<String>,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub last_handshake: i64,
