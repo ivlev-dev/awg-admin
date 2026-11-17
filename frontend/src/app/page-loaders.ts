@@ -1,6 +1,6 @@
 import type { AnyComponent } from "@ivlev-dev/silent-core";
 
-import { matchRoute, ROUTES } from "@/app/router";
+import { matchRoute, ROUTES } from "./routes-def";
 
 export const PAGE_NAMES = [
   "overview",

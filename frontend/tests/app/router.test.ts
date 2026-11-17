@@ -1,4 +1,5 @@
 import { matchRoute, normalize, Router } from "@/app/router";
+import { setPageLoader } from "@/app/router-records";
 
 describe("matchRoute", () => {
   it("root", () => {
@@ -85,18 +86,26 @@ describe("normalize", () => {
 });
 
 describe("Router", () => {
-  it("navigate uses pushState and updates path", () => {
+  beforeAll(() => {
+    setPageLoader(async () => ({ default: () => undefined }));
+  });
+
+  it("navigate updates the path and browser history", async () => {
     const router = new Router();
     router.navigate("/clients/7");
     expect(router.path).toBe("/clients/7");
-    expect(window.location.pathname).toBe("/clients/7");
+    await vi.waitFor(() => {
+      expect(window.location.pathname).toBe("/clients/7");
+    });
   });
 
-  it("navigate with replace", () => {
+  it("navigate with replace", async () => {
     const router = new Router();
     router.navigate("/groups/x", { replace: true });
     expect(router.path).toBe("/groups/x");
-    expect(window.location.pathname).toBe("/groups/x");
+    await vi.waitFor(() => {
+      expect(window.location.pathname).toBe("/groups/x");
+    });
   });
 
   it("same path is no-op", () => {

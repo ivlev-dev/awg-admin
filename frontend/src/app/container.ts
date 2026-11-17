@@ -31,23 +31,23 @@ const services = createAppServices({
 const liveStats = new LiveStats(services.tokens);
 
 export function bindAppServices(container: Container): void {
-  container.bind(LocalTokenStore, () => services.tokens);
-  container.bind(DefaultApiConfig, () => services.config);
-  container.bind(Session, () => services.session);
-  container.bind(Router, () => router);
-  container.bind(ThemeStore, () => theme);
-  container.bind(ToastStore, () => toasts);
-  container.bind(LiveStats, () => liveStats);
-  container.bind(DefaultAuthService, () => services.auth);
-  container.bind(DefaultAuditService, () => services.audit);
-  container.bind(DefaultUsersService, () => services.users);
-  container.bind(DefaultTariffsService, () => services.tariffs);
-  container.bind(DefaultGroupsService, () => services.groups);
-  container.bind(DefaultNodesService, () => services.nodes);
-  container.bind(DefaultInterfacesService, () => services.interfaces);
-  container.bind(DefaultDevicesService, () => services.devices);
-  container.bind(DefaultStatsService, () => services.stats);
-  container.bind(DefaultQuotaService, () => services.quota);
-  container.bind(DefaultSettingsService, () => services.settings);
-  container.bind(DefaultImportService, () => services.import);
+  container.bindValue(LocalTokenStore, services.tokens);
+  container.bindValue(DefaultApiConfig, services.config);
+  container.bindValue(Session, services.session);
+  container.bindValue(Router, router);
+  container.bindValue(ThemeStore, theme);
+  container.bindValue(ToastStore, toasts);
+  container.bindValue(LiveStats, liveStats);
+  container.bindValue(DefaultAuthService, services.auth);
+  container.bindValue(DefaultAuditService, services.audit);
+  container.bindValue(DefaultUsersService, services.users);
+  container.bindValue(DefaultTariffsService, services.tariffs);
+  container.bindValue(DefaultGroupsService, services.groups);
+  container.bindValue(DefaultNodesService, services.nodes);
+  container.bindValue(DefaultInterfacesService, services.interfaces);
+  container.bindValue(DefaultDevicesService, services.devices);
+  container.bindValue(DefaultStatsService, services.stats);
+  container.bindValue(DefaultQuotaService, services.quota);
+  container.bindValue(DefaultSettingsService, services.settings);
+  container.bindValue(DefaultImportService, services.import);
 }
