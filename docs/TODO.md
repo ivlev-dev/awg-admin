@@ -18,10 +18,10 @@
   `vpn://` кодек, временные share-ссылки.
 - Worker: gRPC-сессия, dry-run, netlink SetDevice, tc (HTB + IFB), nftables
   forwarding, персистентные монотонные счётчики (переживают reload интерфейса).
-- Frontend: silent 0.7.3 + Vite + vitest, MVVM, DDD-слои (domain/application/
+- Frontend: silent 0.11.13 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, кастомный роутер, Select, темы, графики,
-  статические SVG-иконки, 725 тестов.
+  статические SVG-иконки, 722 теста.
 - Docker: multi-stage образы admin/worker/frontend, Traefik (TLS/HTTP3), nginx,
   compose + dev-compose, `.env.example`, Makefile.
 - Эксплуатация: security-заголовки CSP/HSTS, graceful shutdown, `/ready`,
@@ -35,7 +35,7 @@
 
 - `cargo test --workspace` — 307 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 725 тестов, зелёные.
+- `cd frontend && pnpm test` — 722 теста, зелёные.
 - `cd frontend && pnpm build` — успешно.
 - `docker compose build` — admin/worker/frontend собираются; `up -d` поднимает
   admin (healthy), frontend (healthy), traefik; worker в `AWG_DRY_RUN=true`
