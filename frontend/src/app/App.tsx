@@ -6,6 +6,7 @@ import { loadPage } from "./page-loaders";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/Icon";
+import { Modal } from "@/components/Modal";
 import { NotFound } from "@/components/NotFound";
 import { MAIN_CONTENT_ID, SkipLink } from "@/components/SkipLink";
 import { ToastStack } from "@/components/ToastStack";
@@ -247,16 +248,13 @@ function shell(vm: AppVM) {
       <aside class="sidebar">{sidebar(vm)}</aside>
       <div class="main">
         <header class="topbar">
-          <button class="btn btn--ghost btn--icon no-desktop" type="button" onClick={() => vm.toggleDrawer()} aria-label={t("shell.menu")}>
-            <Icon name="menu" size={20} class="" />
-          </button>
           <div class="topbar__title">{vm.title}</div>
           <div class="topbar__spacer"></div>
           <span class={`status-pill no-mobile ${vm.online ? "" : "status-pill--offline"}`}>
             <span class={`dot ${vm.online ? "dot--green" : "dot--red"}`}></span>
             {vm.online ? t("common.online") : t("app.network.offline")}
           </span>
-          <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.toggleTheme()} aria-label={t("shell.theme")}>
+          <button class="btn btn--ghost btn--icon no-mobile" type="button" onClick={() => vm.toggleTheme()} aria-label={t("shell.theme")}>
             <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={18} class="" />
           </button>
           <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.go("/profile")} aria-label={t("shell.profile")}>
@@ -265,12 +263,13 @@ function shell(vm: AppVM) {
         </header>
         <main class="content" id={MAIN_CONTENT_ID} tabindex={-1}>{content(vm)}</main>
       </div>
-      <nav class="mobile-nav">
+      <nav class="mobile-nav" aria-label={t("shell.menu")}>
         <For each={vm.mobileNav}>
           {(item) => (
             <button
               class={`mobile-nav__item ${vm.isActive(item.path) ? "is-active" : ""}`}
               type="button"
+              aria-current={vm.isActive(item.path) ? "page" : undefined}
               onClick={() => vm.go(item.path)}
               onMouseEnter={() => vm.prefetch(item.path)}
               onFocus={() => vm.prefetch(item.path)}
@@ -280,14 +279,74 @@ function shell(vm: AppVM) {
             </button>
           )}
         </For>
+        <button
+          class={`mobile-nav__item ${vm.moreOpen ? "is-active" : ""}`}
+          type="button"
+          aria-haspopup="dialog"
+          aria-expanded={vm.moreOpen ? "true" : "false"}
+          onClick={() => vm.openMore()}
+        >
+          <Icon name="menu" class="mobile-nav__icon" />
+          <span>{t("shell.more")}</span>
+        </button>
       </nav>
-      <Show when={vm.drawer}>
-        <div class="drawer-backdrop" onClick={(event: Event) => {
-          if (event.target === event.currentTarget) vm.drawer = false;
-        }}>
-          <div class="drawer">{sidebar(vm)}</div>
+      <Modal
+        open={vm.moreOpen}
+        title={t("shell.menu")}
+        ariaLabel={t("shell.menu")}
+        onClose={() => vm.closeMore()}
+      >
+        <div class="sheet-nav">
+          <Show when={vm.moreManagementNav.length > 0}>
+            <div class="sheet-nav__label">{t("nav.group.management")}</div>
+            <For each={vm.moreManagementNav}>
+              {(item) => (
+                <button
+                  class="sheet-nav__item"
+                  type="button"
+                  onClick={() => vm.go(item.path)}
+                  onMouseEnter={() => vm.prefetch(item.path)}
+                  onFocus={() => vm.prefetch(item.path)}
+                >
+                  <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
+                  <span class="sheet-nav__title">{item.title}</span>
+                  <span class="sheet-nav__chevron" aria-hidden="true">›</span>
+                </button>
+              )}
+            </For>
+          </Show>
+          <Show when={vm.moreAccountNav.length > 0}>
+            <div class="sheet-nav__label">{t("nav.group.account")}</div>
+            <For each={vm.moreAccountNav}>
+              {(item) => (
+                <button
+                  class="sheet-nav__item"
+                  type="button"
+                  onClick={() => vm.go(item.path)}
+                  onMouseEnter={() => vm.prefetch(item.path)}
+                  onFocus={() => vm.prefetch(item.path)}
+                >
+                  <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
+                  <span class="sheet-nav__title">{item.title}</span>
+                  <span class="sheet-nav__chevron" aria-hidden="true">›</span>
+                </button>
+              )}
+            </For>
+          </Show>
+          <div class="sheet-nav__label">{t("shell.appearance")}</div>
+          <button class="sheet-nav__item" type="button" onClick={() => vm.toggleTheme()}>
+            <span class="sheet-nav__icon">
+              <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={20} />
+            </span>
+            <span class="sheet-nav__title">{t("shell.theme")}</span>
+            <span class="sheet-nav__meta">{vm.themeEffective === "dark" ? t("profile.theme.dark") : t("profile.theme.light")}</span>
+          </button>
+          <button class="sheet-nav__item sheet-nav__item--danger" type="button" onClick={() => vm.logout()}>
+            <span class="sheet-nav__icon"><Icon name="logout" size={20} /></span>
+            <span class="sheet-nav__title">{t("shell.logout")}</span>
+          </button>
         </div>
-      </Show>
+      </Modal>
     </div>
   );
 }

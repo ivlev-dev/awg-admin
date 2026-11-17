@@ -40,7 +40,7 @@ export class ThemeStore {
     }
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) {
-      meta.setAttribute("content", this.effective === "dark" ? "#060910" : "#0b1020");
+      meta.setAttribute("content", this.effective === "dark" ? "#060c15" : "#f2f5f9");
     }
   }
 }

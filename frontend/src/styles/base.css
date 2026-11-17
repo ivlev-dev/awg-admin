@@ -138,7 +138,7 @@ button { cursor: pointer; }
   background: linear-gradient(135deg, var(--brand-1), var(--brand-2));
   border-color: transparent;
   color: var(--on-accent);
-  box-shadow: 0 6px 18px rgba(91, 91, 214, 0.28);
+  box-shadow: 0 6px 18px rgba(23, 51, 95, 0.28);
 }
 .btn--primary:hover { filter: brightness(1.05); background: linear-gradient(135deg, var(--brand-1), var(--brand-2)); }
 
@@ -245,4 +245,22 @@ button { cursor: pointer; }
 @media print {
   .no-print { display: none !important; }
   body { background: #fff; }
+}
+
+@media (pointer: coarse) {
+  .btn { min-height: 44px; }
+  .btn--sm { min-height: 40px; }
+  .btn--icon { width: 44px; min-width: 44px; height: 44px; }
+  .input,
+  .select,
+  .textarea { min-height: 44px; font-size: 16px; }
+  .checkbox input { width: 20px; height: 20px; }
+  .mobile-nav__item { min-height: 48px; }
+  .sheet-nav__item { min-height: 52px; }
+}
+
+@media (max-width: 767px) {
+  .page-head__actions { width: 100%; }
+  .page-head__actions > .btn { flex: 1; }
+  .table--cards .actions-row > .btn { flex: 1; }
 }

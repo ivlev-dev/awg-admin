@@ -423,25 +423,41 @@ describe("AppVM connection state", () => {
 });
 
 describe("AppVM actions", () => {
-  it("navigates and closes the drawer", () => {
+  it("navigates and closes the more sheet", () => {
     const harness = makeHarness({ user: ADMIN });
-    harness.vm.drawer = true;
+    harness.vm.openMore();
 
     harness.vm.go("/interfaces");
 
     expect(harness.router.path).toBe("/interfaces");
-    expect(harness.vm.drawer).toBe(false);
+    expect(harness.vm.moreOpen).toBe(false);
   });
 
-  it("toggles the drawer and menu", () => {
+  it("opens and closes the more sheet", () => {
     const harness = makeHarness({ user: ADMIN });
 
-    expect(harness.vm.drawer).toBe(false);
-    harness.vm.toggleDrawer();
-    expect(harness.vm.drawer).toBe(true);
-    harness.vm.toggleDrawer();
-    expect(harness.vm.drawer).toBe(false);
-    expect(harness.vm.menuOpen).toBe(false);
+    expect(harness.vm.moreOpen).toBe(false);
+    harness.vm.openMore();
+    expect(harness.vm.moreOpen).toBe(true);
+    harness.vm.closeMore();
+    expect(harness.vm.moreOpen).toBe(false);
+  });
+
+  it("keeps extra sections in the more sheet", () => {
+    const harness = makeHarness({ user: ADMIN });
+
+    expect(harness.vm.mobileNav.map((item) => item.path)).toEqual([
+      "/",
+      "/clients",
+      "/interfaces",
+      "/stats",
+    ]);
+    expect(harness.vm.moreManagementNav.map((item) => item.path)).toEqual([
+      "/nodes",
+      "/groups",
+      "/import",
+    ]);
+    expect(harness.vm.moreAccountNav.map((item) => item.path)).toContain("/settings");
   });
 
   it("logs out, clears tokens and returns to the login page", async () => {

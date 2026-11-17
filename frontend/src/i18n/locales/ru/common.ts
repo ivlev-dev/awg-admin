@@ -77,6 +77,8 @@ export const ruCommon = {
   "shell.quickStart.link": "Перейти к интерфейсам →",
   "shell.logout": "Выйти",
   "shell.menu": "Меню",
+  "shell.more": "Ещё",
+  "shell.appearance": "Оформление",
   "shell.theme": "Сменить тему",
   "shell.profile": "Профиль",
   "app.loading.page": "Загрузка…",

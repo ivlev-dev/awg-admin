@@ -45,8 +45,9 @@ const MOBILE_NAV: NavDefinition[] = [
   { path: "/clients", titleKey: "nav.clients", icon: "clients" },
   { path: "/interfaces", titleKey: "nav.interfaces", icon: "interfaces" },
   { path: "/stats", titleKey: "nav.stats", icon: "stats" },
-  { path: "/profile", titleKey: "nav.profile", icon: "profile" },
 ];
+
+const MOBILE_PATHS: ReadonlySet<string> = new Set(MOBILE_NAV.map((item) => item.path));
 
 const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
   overview: "route.overview",
@@ -81,8 +82,7 @@ function localize(definitions: NavDefinition[]): NavItem[] {
 
 export class AppVM {
   @reactive accessor booting = true;
-  @reactive accessor drawer = false;
-  @reactive accessor menuOpen = false;
+  @reactive accessor moreOpen = false;
 
   private readonly connection = new ConnectionMonitor();
 
@@ -176,7 +176,17 @@ export class AppVM {
 
   @computed
   get mobileNav(): NavItem[] {
-    return localize(MOBILE_NAV.filter((item) => this.isAdmin || !["/nodes"].includes(item.path)));
+    return localize(MOBILE_NAV);
+  }
+
+  @computed
+  get moreManagementNav(): NavItem[] {
+    return this.nav.filter((item) => !MOBILE_PATHS.has(item.path));
+  }
+
+  @computed
+  get moreAccountNav(): NavItem[] {
+    return this.accountNav.filter((item) => !MOBILE_PATHS.has(item.path));
   }
 
   @computed
@@ -213,7 +223,7 @@ export class AppVM {
   }
 
   go(path: string): void {
-    this.drawer = false;
+    this.moreOpen = false;
     this.router.navigate(path);
   }
 
@@ -221,9 +231,14 @@ export class AppVM {
     void prefetchPath(path);
   }
 
-  toggleDrawer(): void {
-    this.drawer = !this.drawer;
+  openMore(): void {
+    this.moreOpen = true;
   }
+
+  closeMore(): void {
+    this.moreOpen = false;
+  }
+
 
   toggleTheme(): void {
     this.theme.toggle();

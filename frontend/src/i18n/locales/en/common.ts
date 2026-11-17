@@ -77,6 +77,8 @@ export const enCommon = {
   "shell.quickStart.link": "Go to interfaces →",
   "shell.logout": "Sign out",
   "shell.menu": "Menu",
+  "shell.more": "More",
+  "shell.appearance": "Appearance",
   "shell.theme": "Toggle theme",
   "shell.profile": "Profile",
   "app.loading.page": "Loading…",

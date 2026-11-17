@@ -73,7 +73,7 @@
   overflow: hidden;
 }
 .panel--accent {
-  background: linear-gradient(135deg, rgba(91, 91, 214, 0.08), transparent 60%), var(--surface);
+  background: linear-gradient(135deg, rgba(29, 79, 145, 0.08), transparent 60%), var(--surface);
 }
 
 .tabs { display: flex; gap: 4px; overflow-x: auto; padding: 4px; background: var(--surface-2); border-radius: var(--r-2); }
