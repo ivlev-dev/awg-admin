@@ -179,7 +179,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   </div>
                 }
               >
-                <table class="table table--cards table--users table--fixed">
+                <table class="table table--cards table--users table--fixed table--desktop">
                   <thead>
                     <tr>
                       <th class="cell-select">
@@ -296,6 +296,90 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     </For>
                   </tbody>
                 </table>
+                <div class="entity-list">
+                  <For each={this.vm.filteredActiveUsers}>
+                    {(user) => (
+                      <article class={`entity-card${this.vm.isSelected(user.id) ? " is-selected" : ""}`}>
+                        <div class="entity-card__head">
+                          <label class="check">
+                            <input
+                              type="checkbox"
+                              aria-label={user.login}
+                              checked={this.vm.isSelected(user.id)}
+                              onChange={() => this.vm.toggleSelected(user.id)}
+                            />
+                            <span><Icon name="check" size={12} class="" /></span>
+                          </label>
+                          <span class="cell-avatar">{user.login.slice(0, 1).toUpperCase()}</span>
+                          <div class="entity-card__title">
+                            <span class="entity-card__name">{user.login}</span>
+                            <span class="entity-card__sub">{this.vm.emailLabel(user)}</span>
+                          </div>
+                          <span class={statusChipClass(user)}>
+                            <span class="status-chip__dot"></span>
+                            {this.vm.statusLabel(user)}
+                          </span>
+                        </div>
+                        <dl class="entity-card__meta">
+                          <div>
+                            <dt>Роль</dt>
+                            <dd>
+                              <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
+                                {user.role === "admin" ? "Администратор" : "Пользователь"}
+                              </span>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Тариф</dt>
+                            <dd>{this.vm.tariffName(user.tariff_id)}</dd>
+                          </div>
+                          <div>
+                            <dt>Группа</dt>
+                            <dd>{this.vm.groupName(user.group_id)}</dd>
+                          </div>
+                          <div>
+                            <dt>Квота</dt>
+                            <dd>
+                              <Show
+                                when={this.vm.quotaFor(user.id)}
+                                fallback={<span class="xs muted">—</span>}
+                              >
+                                <div class="entity-card__metric">
+                                  <Show when={this.vm.quotaHasPercent(user.id)}>
+                                    <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
+                                      <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
+                                    </div>
+                                  </Show>
+                                  <span class="cell-quota">
+                                    {this.vm.quotaPercentLabel(user.id)} · {this.vm.quotaStatusLabel(user.id)}
+                                  </span>
+                                </div>
+                              </Show>
+                            </dd>
+                          </div>
+                        </dl>
+                        <div class="entity-card__foot">
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            aria-label="Редактировать"
+                            onClick={() => this.vm.openEdit(user)}
+                          >
+                            Редактировать
+                          </button>
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            aria-label="Включить или отключить"
+                            onClick={() => this.vm.toggleDisabled(user)}
+                          >
+                            {user.disabled ? "Разблокировать" : "Блокировать"}
+                          </button>
+                        </div>
+                      </article>
+                    )}
+                  </For>
+                </div>
               </Show>
             </Show>
           </div>
@@ -385,7 +469,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   </div>
                 }
               >
-                <table class="table table--cards table--users-pending table--fixed">
+                <table class="table table--cards table--users-pending table--fixed table--desktop">
                   <thead>
                     <tr>
                       <th>{t("users.column.email")}</th>
@@ -430,6 +514,81 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     </For>
                   </tbody>
                 </table>
+                <div class="entity-list">
+                  <For each={this.vm.filteredPending}>
+                    {(user) => (
+                      <article class="entity-card">
+                        <div class="entity-card__head">
+                          <span class="cell-avatar">{(user.email ?? user.login).slice(0, 1).toUpperCase()}</span>
+                          <div class="entity-card__title">
+                            <span class="entity-card__name">{this.vm.emailLabel(user)}</span>
+                            <span class="entity-card__sub">{user.login}</span>
+                          </div>
+                          <span class={statusChipClass(user)}>
+                            <span class="status-chip__dot"></span>
+                            {this.vm.statusLabel(user)}
+                          </span>
+                        </div>
+                        <dl class="entity-card__meta">
+                          <div>
+                            <dt>Роль</dt>
+                            <dd>
+                              <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
+                                {user.role === "admin" ? "Администратор" : "Пользователь"}
+                              </span>
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>Тариф</dt>
+                            <dd>{this.vm.tariffName(user.tariff_id)}</dd>
+                          </div>
+                          <div>
+                            <dt>Группа</dt>
+                            <dd>{this.vm.groupName(user.group_id)}</dd>
+                          </div>
+                          <div>
+                            <dt>Квота</dt>
+                            <dd>
+                              <Show
+                                when={this.vm.quotaFor(user.id)}
+                                fallback={<span class="xs muted">—</span>}
+                              >
+                                <div class="entity-card__metric">
+                                  <Show when={this.vm.quotaHasPercent(user.id)}>
+                                    <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
+                                      <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
+                                    </div>
+                                  </Show>
+                                  <span class="cell-quota">
+                                    {this.vm.quotaPercentLabel(user.id)} · {this.vm.quotaStatusLabel(user.id)}
+                                  </span>
+                                </div>
+                              </Show>
+                            </dd>
+                          </div>
+                        </dl>
+                        <div class="entity-card__foot">
+                          <button
+                            class="btn btn--sm btn--primary"
+                            type="button"
+                            aria-label={t("users.pending.approve")}
+                            onClick={() => this.vm.openApprove(user)}
+                          >
+                            {t("users.pending.approve")}
+                          </button>
+                          <button
+                            class="btn btn--sm btn--danger"
+                            type="button"
+                            aria-label={t("users.pending.reject")}
+                            onClick={() => this.vm.reject(user)}
+                          >
+                            {t("users.pending.reject")}
+                          </button>
+                        </div>
+                      </article>
+                    )}
+                  </For>
+                </div>
               </Show>
             </Show>
           </div>

@@ -121,7 +121,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 </div>
               }
             >
-              <table class="table table--cards table--interfaces table--fixed">
+              <table class="table table--cards table--interfaces table--fixed table--desktop">
                 <thead>
                   <tr>
                     <th class="col-interface">{t("interfaces.column.interface")}</th>
@@ -246,6 +246,114 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                   </For>
                 </tbody>
               </table>
+              <div class="entity-list">
+                <For each={this.vm.visible}>
+                  {(item) => (
+                    <article class="entity-card">
+                      <div class="entity-card__head">
+                        <span class="cell-avatar" aria-hidden="true">{avatarLetter(item.name)}</span>
+                        <div class="entity-card__title">
+                          <span class="entity-card__name">
+                            {item.name}
+                            <Show when={item.label}>
+                              <span class="xs muted"> · {item.label}</span>
+                            </Show>
+                          </span>
+                          <span class="entity-card__sub xs muted" title={`${item.group_name} · ${item.node_name}`}>
+                            {item.group_name} · {item.node_name}
+                          </span>
+                        </div>
+                        <span class={`status-chip ${item.enabled ? "status-chip--ok" : "status-chip--warn"}`}>
+                          <span class="status-chip__dot"></span>
+                          {item.enabled ? t("interfaces.status.enabled") : t("interfaces.status.disabled")}
+                        </span>
+                      </div>
+                      <dl class="entity-card__meta">
+                        <div>
+                          <dt>{t("interfaces.column.address")}</dt>
+                          <dd>
+                            <span class="mono xs" title={this.vm.endpoint(item)}>{this.vm.endpoint(item)}</span>
+                            <button
+                              class="btn btn--icon"
+                              type="button"
+                              aria-label={t("interfaces.endpoint.copyAria")}
+                              title={t("interfaces.endpoint.copyAria")}
+                              onClick={() => this.vm.copyEndpoint(item)}
+                            >
+                              <Icon name="copy" size={16} class="" />
+                            </button>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t("interfaces.column.peers")}</dt>
+                          <dd>{this.vm.peersLabel(item)}</dd>
+                        </div>
+                        <div>
+                          <dt>{t("interfaces.column.limits")}</dt>
+                          <dd>
+                            <span class="xs nowrap">
+                              <span class="muted">{t("interfaces.form.listenPort")}</span>{" "}
+                              <span class="mono strong">{item.listen_port}</span>
+                            </span>
+                            <br />
+                            <span class="cell-sub xs muted nowrap">
+                              <span>{t("interfaces.form.mtu")}</span>{" "}
+                              <span class="mono strong">{item.mtu}</span>
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t("interfaces.filter.group")} / {t("interfaces.filter.node")}</dt>
+                          <dd>{item.group_name} · {item.node_name}</dd>
+                        </div>
+                      </dl>
+                      <div class="entity-card__foot">
+                        <button
+                          class="btn btn--text btn--sm"
+                          type="button"
+                          aria-label={t("interfaces.publicKey.copyAria")}
+                          title={`${t("interfaces.publicKey")}: ${item.public_key}`}
+                          onClick={() => this.vm.copyPublicKey(item)}
+                        >
+                          <Icon name="copy" size={14} class="" /> {t("common.copy")}
+                        </button>
+                        <Show when={this.vm.isAdmin}>
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            disabled={this.vm.busy}
+                            aria-label={t("interfaces.action.edit")}
+                            title={t("interfaces.action.edit")}
+                            onClick={() => this.vm.openEdit(item)}
+                          >
+                            <Icon name="edit" size={14} class="" /> {t("interfaces.action.edit")}
+                          </button>
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            disabled={this.vm.busy}
+                            aria-label={t("interfaces.action.rotate")}
+                            title={t("interfaces.action.rotate")}
+                            onClick={() => this.vm.rotate(item)}
+                          >
+                            <Icon name="refresh" size={14} class="" /> {t("interfaces.action.rotate")}
+                          </button>
+                          <button
+                            class="btn btn--danger btn--sm"
+                            type="button"
+                            disabled={this.vm.busy}
+                            aria-label={t("interfaces.action.delete")}
+                            title={t("interfaces.action.delete")}
+                            onClick={() => this.vm.remove(item)}
+                          >
+                            <Icon name="trash" size={14} class="" /> {t("interfaces.action.delete")}
+                          </button>
+                        </Show>
+                      </div>
+                    </article>
+                  )}
+                </For>
+              </div>
             </Show>
           </Show>
         </div>

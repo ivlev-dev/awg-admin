@@ -264,7 +264,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         </div>
                         <div>
                           <dt>{t("clients.column.limits")}</dt>
-                          <dd>↓ {rateLabel(device.down_kbps)} · ↑ {rateLabel(device.up_kbps)}</dd>
+                          <dd><span class="nowrap">↓ {rateLabel(device.down_kbps)}</span><br /><span class="nowrap">↑ {rateLabel(device.up_kbps)}</span></dd>
                         </div>
                         <div>
                           <dt>{t("clients.column.peers")}</dt>

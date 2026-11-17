@@ -214,7 +214,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
             </div>
 
             <div class="data-scroll">
-              <table class="table table--cards">
+              <table class="table table--cards table--desktop">
                 <thead>
                   <tr>
                     <th class="cell-select">
@@ -333,6 +333,95 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                   </For>
                 </tbody>
               </table>
+              <div class="entity-list">
+                <For each={this.vm.filteredNodes}>
+                  {(node) => (
+                    <article class={`entity-card${this.vm.isSelected(node.id) ? " is-selected" : ""}`}>
+                      <div class="entity-card__head">
+                        <label class="check">
+                          <input
+                            type="checkbox"
+                            aria-label={node.name}
+                            checked={this.vm.isSelected(node.id)}
+                            onChange={() => this.vm.toggleSelected(node.id)}
+                          />
+                          <span><Icon name="check" size={12} class="" /></span>
+                        </label>
+                        <span class="cell-avatar" aria-hidden="true">{avatarLetter(node.name)}</span>
+                        <div class="entity-card__title">
+                          <span class="entity-card__name">{node.name}</span>
+                          <span class="entity-card__sub mono" title={node.id}>{shortId(node.id)}</span>
+                        </div>
+                        <span class={`status-chip ${node.online ? "status-chip--ok" : "status-chip--neutral"}`}>
+                          <span class="status-chip__dot"></span>
+                          {node.online ? t("nodes.status.online") : t("nodes.status.offline")}
+                        </span>
+                      </div>
+                      <dl class="entity-card__meta">
+                        <div>
+                          <dt>{t("nodes.column.metrics")}</dt>
+                          <dd class="entity-card__metric">
+                            <span class="mono strong">CPU {this.vm.cpuValue(node)} · RAM {this.vm.memoryPercent(node) ?? "—"}</span>
+                            <Show when={this.vm.memoryPercent(node)}>
+                              <div class={memoryMeterClass(this.vm.memoryPercent(node))}>
+                                <span style={`width:${memoryMeterWidth(this.vm.memoryPercent(node))}`}></span>
+                              </div>
+                            </Show>
+                            <span class="xs muted">{this.vm.memoryValue(node)} · {this.vm.metricsUpdatedLabel(node)}</span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t("nodes.column.versions")}</dt>
+                          <dd>
+                            <span class="muted">{t("nodes.versions.worker")}: </span>
+                            <span class="mono strong">{this.vm.workerVersionLabel(node)}</span>
+                            <br />
+                            <span class="muted mono" title={this.vm.kernelVersionLabel(node)}>
+                              {t("nodes.versions.kernel")}: {kernelShort(this.vm.kernelVersionLabel(node))}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t("nodes.column.lastSeen")}</dt>
+                          <dd>
+                            <span class="nowrap" title={node.last_seen ?? undefined}>{this.vm.lastSeen(node.last_seen)}</span>
+                            <br />
+                            <span class="muted nowrap" title={node.token_issued_at ?? undefined}>
+                              {t("nodes.column.tokenIssued")}: {this.vm.tokenIssuedLabel(node)}
+                            </span>
+                          </dd>
+                        </div>
+                        <div>
+                          <dt>{t("nodes.column.interfaces")}</dt>
+                          <dd>{this.vm.interfacesLabel(node)}</dd>
+                        </div>
+                      </dl>
+                      <div class="entity-card__foot">
+                        <Show when={this.vm.isAdmin}>
+                          <button
+                            class="btn btn--text btn--sm"
+                            type="button"
+                            disabled={this.vm.busy}
+                            aria-label={t("nodes.rotate.aria", { name: node.name })}
+                            onClick={() => this.vm.rotate(node)}
+                          >
+                            <Icon name="shield" size={14} class="" /> {t("nodes.rotate")}
+                          </button>
+                          <button
+                            class="btn btn--danger btn--sm"
+                            type="button"
+                            disabled={this.vm.busy}
+                            aria-label={t("common.delete")}
+                            onClick={() => this.vm.remove(node)}
+                          >
+                            <Icon name="trash" size={14} class="" /> {t("common.delete")}
+                          </button>
+                        </Show>
+                      </div>
+                    </article>
+                  )}
+                </For>
+              </div>
             </div>
           </Show>
         </Show>

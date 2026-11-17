@@ -158,7 +158,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
             when={this.vm.isEmpty}
             fallback={
               <div class="data-scroll">
-                <table class="table table--cards table--audit table--fixed">
+                <table class="table table--cards table--audit table--fixed table--desktop">
                   <thead>
                     <tr>
                       <th class="col-time">{t("audit.column.time")}</th>
@@ -229,6 +229,70 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                     </For>
                   </tbody>
                 </table>
+                <div class="entity-list">
+                  <For each={this.vm.rows}>
+                    {(row) => (
+                      <article class="entity-card">
+                        <div class="entity-card__head">
+                          <span class="cell-avatar">{actorInitial(row.actor)}</span>
+                          <div class="entity-card__title">
+                            <span class="entity-card__name">{row.actor} · {row.action}</span>
+                            <span class="entity-card__sub" title={row.entityId ?? undefined}>
+                              {row.entityLabel}
+                            </span>
+                          </div>
+                          <span class={`status-chip status-chip--${statusTone(row.status)}`}>
+                            <span class="status-chip__dot"></span>
+                            {row.status}
+                          </span>
+                        </div>
+                        <dl class="entity-card__meta">
+                          <div>
+                            <dt>{t("audit.column.time")}</dt>
+                            <dd><span class="mono">{splitAt(row.at).date}</span>{" "}<span class="muted">{splitAt(row.at).time}</span></dd>
+                          </div>
+                          <div>
+                            <dt>{t("audit.column.ip")}</dt>
+                            <dd class="mono">{row.ip}</dd>
+                          </div>
+                          <div>
+                            <dt>{t("audit.column.entity")}</dt>
+                            <dd title={row.entityId ?? undefined}>{row.entityLabel}</dd>
+                          </div>
+                          <div>
+                            <dt>{t("audit.column.status")}</dt>
+                            <dd>{row.status}</dd>
+                          </div>
+                          <div class="entity-card__wide">
+                            <dt>{t("audit.column.details")}</dt>
+                            <dd>
+                              <Show
+                                when={row.hasDetails}
+                                fallback={<span class="small muted">{row.detailsPreview}</span>}
+                              >
+                                <button
+                                  class="audit-details"
+                                  type="button"
+                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
+                                  title={row.details ?? undefined}
+                                  onClick={() => this.vm.toggleDetails(row.id)}
+                                >
+                                  <span
+                                    class={`audit-details__text ${
+                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
+                                    }`}
+                                  >
+                                    {row.details ?? row.detailsPreview}
+                                  </span>
+                                </button>
+                              </Show>
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    )}
+                  </For>
+                </div>
               </div>
             }
           >
