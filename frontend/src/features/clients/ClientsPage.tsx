@@ -9,6 +9,10 @@ import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 import { formatRateI18n } from "@/i18n/format";
 
+function rateLabel(value: number): string {
+  return value > 0 ? formatRateI18n(value) : "∞";
+}
+
 export function ClientsPage(this: { vm: ClientsPageVM }) {
   return (
     <div class="stack">
@@ -189,8 +193,12 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         </td>
                         <td class="col-limits" data-label={t("clients.column.limits")}>
                           <div class="cell-name__text">
-                            <span class="xs"><span class="muted">↓</span> {formatRateI18n(device.down_kbps)}</span>
-                            <span class="xs"><span class="muted">↑</span> {formatRateI18n(device.up_kbps)}</span>
+                            <span class="xs nowrap" title={formatRateI18n(device.down_kbps)}>
+                              <span class="muted">↓</span> {rateLabel(device.down_kbps)}
+                            </span>
+                            <span class="xs nowrap" title={formatRateI18n(device.up_kbps)}>
+                              <span class="muted">↑</span> {rateLabel(device.up_kbps)}
+                            </span>
                           </div>
                         </td>
                         <td class="col-peers" data-label={t("clients.column.peers")}>
