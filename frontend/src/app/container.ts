@@ -19,12 +19,15 @@ import { ToastStore } from "@/app/toast";
 import { DefaultApiConfig } from "@/infrastructure/http/config";
 import { LiveStats } from "@/infrastructure/stats";
 import { LocalTokenStore } from "@/infrastructure/storage";
+import { t } from "@/i18n";
 import { createAppServices } from "./di";
 
-const services = createAppServices();
 const router = new Router();
 const theme = new ThemeStore();
 const toasts = new ToastStore();
+const services = createAppServices({
+  onNetworkError: () => toasts.error(t("app.error.network")),
+});
 const liveStats = new LiveStats(services.tokens);
 
 export function bindAppServices(container: Container): void {

@@ -345,6 +345,44 @@ describe("AppVM route state", () => {
     expect(harness.vm.isActive("/nodes")).toBe(false);
     expect(harness.vm.isActive("/")).toBe(false);
   });
+
+  it("renders the not-found route standalone for a guest", () => {
+    const harness = makeHarness({ user: null, path: "/missing/page" });
+
+    expect(harness.vm.routeName).toBe("not-found");
+    expect(harness.vm.title).toBe("Раздел не найден");
+    expect(harness.vm.path).toBe("/missing/page");
+    expect(harness.vm.showShell).toBe(false);
+
+    harness.vm.dispose();
+  });
+
+  it("renders the not-found route inside the shell for an authenticated user", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/missing/page" });
+
+    expect(harness.vm.routeName).toBe("not-found");
+    expect(harness.vm.showShell).toBe(true);
+
+    harness.vm.dispose();
+  });
+});
+
+describe("AppVM connection state", () => {
+  it("switches the banner between offline and restored", () => {
+    const harness = makeHarness({ user: ADMIN });
+
+    expect(harness.vm.connectionNotice).toBeNull();
+
+    window.dispatchEvent(new Event("offline"));
+    expect(harness.vm.online).toBe(false);
+    expect(harness.vm.connectionNotice).toBe("offline");
+
+    window.dispatchEvent(new Event("online"));
+    expect(harness.vm.online).toBe(true);
+    expect(harness.vm.connectionNotice).toBe("restored");
+
+    harness.vm.dispose();
+  });
 });
 
 describe("AppVM actions", () => {

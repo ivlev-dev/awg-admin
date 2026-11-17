@@ -3,7 +3,11 @@ import { mount } from "@ivlev-dev/silent-core";
 import "./styles/index.css";
 import { App } from "./app/App";
 import { bindAppServices } from "./app/container";
+import { installGlobalErrorHandler } from "./app/errors";
+import { ToastStore } from "./app/toast";
 
 bindAppServices(rootContainer);
 
-void mount("#app", App, { container: rootContainer });
+installGlobalErrorHandler(await rootContainer.resolve<ToastStore>(ToastStore));
+
+await mount("#app", App, { container: rootContainer });

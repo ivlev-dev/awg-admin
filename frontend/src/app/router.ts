@@ -28,6 +28,13 @@ export const ROUTES: RouteDef[] = [
   { name: "verify-email", path: "/verify-email", title: "Подтверждение почты", public: true },
 ];
 
+export const NOT_FOUND_ROUTE: RouteDef = {
+  name: "not-found",
+  path: "*",
+  title: "Раздел не найден",
+  public: true,
+};
+
 export interface Match {
   route: RouteDef;
   params: Record<string, string>;
@@ -39,7 +46,7 @@ export function matchRoute(path: string): Match {
     const params = matchPath(route.path, clean);
     if (params) return { route, params };
   }
-  return { route: ROUTES[0]!, params: {} };
+  return { route: NOT_FOUND_ROUTE, params: {} };
 }
 
 function matchPath(pattern: string, path: string): Record<string, string> | null {

@@ -21,4 +21,8 @@ export class InterceptorRegistry {
   get response(): readonly ResponseInterceptor[] {
     return this.responses;
   }
+
+  addResponse(interceptor: ResponseInterceptor): void {
+    this.responses.push(interceptor);
+  }
 }

@@ -2,7 +2,10 @@ import { For, Show, Suspense, createSignal, lazy } from "@ivlev-dev/silent-core"
 import type { LazyOptions } from "@ivlev-dev/silent-core";
 
 import type { AppVM } from "./App.vm";
+import { ConnectionBanner } from "@/components/ConnectionBanner";
+import { AppErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/Icon";
+import { NotFound } from "@/components/NotFound";
 import { t } from "@/i18n";
 
 interface PageFailure {
@@ -258,7 +261,59 @@ function page(vm: AppVM) {
           <SettingsPage />
         </PageSlot>
       </Show>
+      <Show when={vm.routeName === "not-found"}>
+        <NotFound path={vm.path} onHome={() => vm.go("/")} />
+      </Show>
     </>
+  );
+}
+
+function shell(vm: AppVM) {
+  return (
+    <div class="shell">
+      <aside class="sidebar">{sidebar(vm)}</aside>
+      <div class="main">
+        <header class="topbar">
+          <button class="btn btn--ghost btn--icon no-desktop" type="button" onClick={() => vm.toggleDrawer()} aria-label={t("shell.menu")}>
+            <Icon name="menu" size={20} class="" />
+          </button>
+          <div class="topbar__title">{vm.title}</div>
+          <div class="topbar__spacer"></div>
+          <span class={`status-pill no-mobile ${vm.online ? "" : "status-pill--offline"}`}>
+            <span class={`dot ${vm.online ? "dot--green" : "dot--red"}`}></span>
+            {vm.online ? t("common.online") : t("app.network.offline")}
+          </span>
+          <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.toggleTheme()} aria-label={t("shell.theme")}>
+            <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={18} class="" />
+          </button>
+          <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.go("/profile")} aria-label={t("shell.profile")}>
+            <div class="avatar avatar--sm">{vm.userInitial}</div>
+          </button>
+        </header>
+        <main class="content">{content(vm)}</main>
+      </div>
+      <nav class="mobile-nav">
+        <For each={vm.mobileNav}>
+          {(item) => (
+            <button
+              class={`mobile-nav__item ${vm.isActive(item.path) ? "is-active" : ""}`}
+              type="button"
+              onClick={() => vm.go(item.path)}
+            >
+              <Icon name={item.icon} class="mobile-nav__icon" />
+              <span>{item.title}</span>
+            </button>
+          )}
+        </For>
+      </nav>
+      <Show when={vm.drawer}>
+        <div class="drawer-backdrop" onClick={(event: Event) => {
+          if (event.target === event.currentTarget) vm.drawer = false;
+        }}>
+          <div class="drawer">{sidebar(vm)}</div>
+        </div>
+      </Show>
+    </div>
   );
 }
 
@@ -273,6 +328,8 @@ function content(vm: AppVM) {
 export function App(this: { vm: AppVM }) {
   return (
     <>
+      <ConnectionBanner notice={() => this.vm.connectionNotice} online={() => this.vm.online} />
+
       <Show when={this.vm.booting}>
         <div class="boot-screen">
           <div class="sidebar__logo" style="width:56px;height:56px"></div>
@@ -299,50 +356,14 @@ export function App(this: { vm: AppVM }) {
         </PageSlot>
       </Show>
 
+      <Show when={!this.vm.booting && this.vm.routeName === "not-found" && !this.vm.showShell}>
+        <NotFound path={this.vm.path} onHome={() => this.vm.go("/")} standalone />
+      </Show>
+
       <Show when={this.vm.showShell}>
-        <div class="shell">
-          <aside class="sidebar">{sidebar(this.vm)}</aside>
-          <div class="main">
-            <header class="topbar">
-              <button class="btn btn--ghost btn--icon no-desktop" type="button" onClick={() => this.vm.toggleDrawer()} aria-label={t("shell.menu")}>
-                <Icon name="menu" size={20} class="" />
-              </button>
-              <div class="topbar__title">{this.vm.title}</div>
-              <div class="topbar__spacer"></div>
-              <span class="status-pill no-mobile">
-                <span class="dot dot--green"></span> {t("common.online")}
-              </span>
-              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleTheme()} aria-label={t("shell.theme")}>
-                <Icon name={this.vm.themeEffective === "dark" ? "sun" : "moon"} size={18} class="" />
-              </button>
-              <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.go("/profile")} aria-label={t("shell.profile")}>
-                <div class="avatar avatar--sm">{this.vm.userInitial}</div>
-              </button>
-            </header>
-            <main class="content">{content(this.vm)}</main>
-          </div>
-          <nav class="mobile-nav">
-            <For each={this.vm.mobileNav}>
-              {(item) => (
-                <button
-                  class={`mobile-nav__item ${this.vm.isActive(item.path) ? "is-active" : ""}`}
-                  type="button"
-                  onClick={() => this.vm.go(item.path)}
-                >
-                  <Icon name={item.icon} class="mobile-nav__icon" />
-                  <span>{item.title}</span>
-                </button>
-              )}
-            </For>
-          </nav>
-          <Show when={this.vm.drawer}>
-            <div class="drawer-backdrop" onClick={(event: Event) => {
-              if (event.target === event.currentTarget) this.vm.drawer = false;
-            }}>
-              <div class="drawer">{sidebar(this.vm)}</div>
-            </div>
-          </Show>
-        </div>
+        <AppErrorBoundary onHome={() => this.vm.go("/")}>
+          {() => shell(this.vm)}
+        </AppErrorBoundary>
       </Show>
 
       <div class="toast-stack" aria-live="polite">

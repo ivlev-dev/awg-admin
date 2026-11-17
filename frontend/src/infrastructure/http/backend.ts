@@ -18,11 +18,13 @@ import { HttpAuditRepository } from "./audit.repository";
 import { HttpAuthRepository } from "./auth.repository";
 import { HttpClient } from "./client";
 import type { ApiConfig } from "./config";
+import type { ApiError } from "./errors";
 import { HttpDevicesRepository } from "./devices.repository";
 import { HttpGroupsRepository } from "./groups.repository";
 import { HttpImportRepository } from "./import.repository";
 import { InterceptorRegistry } from "./interceptor-registry";
 import { HttpInterfacesRepository } from "./interfaces.repository";
+import { NetworkErrorInterceptor } from "./network-error.interceptor";
 import { HttpNodesRepository } from "./nodes.repository";
 import { HttpQuotaRepository } from "./quota.repository";
 import { HttpSettingsRepository } from "./settings.repository";
@@ -57,6 +59,7 @@ export interface HttpBackendOptions {
   session: AuthSessionState;
   transport?: HttpTransport;
   auth?: AuthRepository;
+  onNetworkError?: (error: ApiError) => void;
 }
 
 export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
@@ -66,6 +69,9 @@ export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
     new AuthRequestInterceptor(options.tokens),
     new AuthResponseInterceptor(auth, options.tokens, options.session),
   );
+  if (options.onNetworkError) {
+    registry.addResponse(new NetworkErrorInterceptor(options.onNetworkError));
+  }
   const client = new HttpClient(transport, registry);
   return {
     client,

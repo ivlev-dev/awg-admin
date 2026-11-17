@@ -1,5 +1,6 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
+import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
@@ -64,6 +65,7 @@ const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
   login: "route.login",
   register: "route.register",
   "verify-email": "route.verifyEmail",
+  "not-found": "route.notFound",
 };
 
 function localize(definitions: NavDefinition[]): NavItem[] {
@@ -79,17 +81,25 @@ export class AppVM {
   @reactive accessor drawer = false;
   @reactive accessor menuOpen = false;
 
+  private readonly connection = new ConnectionMonitor();
+
   constructor(
     private readonly session: Session,
     private readonly router: Router,
     private readonly theme: ThemeStore,
     private readonly toastStore: ToastStore,
-  ) {}
+  ) {
+    this.connection.listen();
+  }
 
   async created(): Promise<void> {
     await this.session.init();
     this.booting = false;
     this.guard();
+  }
+
+  dispose(): void {
+    this.connection.dispose();
   }
 
   @computed
@@ -113,8 +123,23 @@ export class AppVM {
   }
 
   @computed
+  get path(): string {
+    return this.router.path;
+  }
+
+  @computed
   get params(): Record<string, string> {
     return this.router.params;
+  }
+
+  @computed
+  get online(): boolean {
+    return this.connection.online;
+  }
+
+  @computed
+  get connectionNotice(): ConnectionNotice {
+    return this.connection.notice;
   }
 
   @computed
@@ -125,7 +150,8 @@ export class AppVM {
 
   @computed
   get showShell(): boolean {
-    return this.authenticated && !this.router.match.route.public;
+    const route = this.router.match.route;
+    return this.authenticated && (!route.public || route.name === "not-found");
   }
 
   @computed

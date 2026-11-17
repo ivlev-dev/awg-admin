@@ -21,6 +21,7 @@ import { HttpAuditRepository } from "@/infrastructure/http/audit.repository";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { HttpClient } from "@/infrastructure/http/client";
 import { DefaultApiConfig, type ApiConfig } from "@/infrastructure/http/config";
+import type { ApiError } from "@/infrastructure/http/errors";
 import { HttpDevicesRepository } from "@/infrastructure/http/devices.repository";
 import { HttpGroupsRepository } from "@/infrastructure/http/groups.repository";
 import { HttpImportRepository } from "@/infrastructure/http/import.repository";
@@ -58,6 +59,7 @@ export interface AppServices {
 export interface AppOptions {
   tokens?: TokenStore;
   config?: ApiConfig;
+  onNetworkError?: (error: ApiError) => void;
 }
 
 export interface AppContainerOptions extends AppOptions {}
@@ -79,6 +81,7 @@ export function createAppServices(options: AppOptions = {}): AppServices {
     session,
     transport,
     auth: authRepository,
+    ...(options.onNetworkError ? { onNetworkError: options.onNetworkError } : {}),
   });
   const repositories = backend.repositories;
   return {

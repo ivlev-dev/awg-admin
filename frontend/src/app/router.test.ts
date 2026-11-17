@@ -26,9 +26,11 @@ describe("matchRoute", () => {
     expect(match.route.adminOnly).toBe(true);
   });
 
-  it("unknown path falls back to overview", () => {
+  it("unknown path resolves to the not-found route", () => {
     const match = matchRoute("/does-not-exist");
-    expect(match.route.name).toBe("overview");
+    expect(match.route.name).toBe("not-found");
+    expect(match.route.title).toBe("Раздел не найден");
+    expect(match.route.public).toBe(true);
     expect(match.params).toEqual({});
   });
 
