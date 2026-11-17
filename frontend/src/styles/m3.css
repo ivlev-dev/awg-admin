@@ -418,3 +418,20 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 @media (max-width: 767px) {
   .actions-bar .small.muted { padding-right: 0; border-right: 0; }
 }
+
+.btn__label { display: none; }
+
+@media (max-width: 767px) {
+  .card .table--cards tr { border: 0; background: var(--md-surface-container); }
+  .card .table--cards tr.is-selected { background: var(--md-primary-container); }
+  .card .table--cards tr:has(td.cell-select) { background: var(--md-surface-container); }
+  .card .card { border: 0; box-shadow: none; background: var(--md-surface-container); }
+  .table--cards td.cell-actions { flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+  .table--cards td.cell-actions .btn { width: auto; min-width: 0; padding: 0 10px; gap: 6px; }
+  .table--cards .btn__label { display: inline; font-size: 11px; }
+}
+
+@media (max-width: 767px) {
+  .data-scroll:has(.table--cards) { padding: 0 12px 12px; }
+  .data-scroll:has(.table--cards) .table--cards tbody { gap: 8px; }
+}

@@ -203,6 +203,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                             onClick={() => this.vm.copyPublicKey(item)}
                           >
                             <Icon name="copy" size={16} class="" />
+                            <span class="btn__label">{t("common.copy")}</span>
                           </button>
                           <Show when={this.vm.isAdmin}>
                             <button
@@ -214,6 +215,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                               onClick={() => this.vm.openEdit(item)}
                             >
                               <Icon name="edit" size={16} class="" />
+                              <span class="btn__label">{t("interfaces.action.edit")}</span>
                             </button>
                             <button
                               class="btn btn--icon"
@@ -224,6 +226,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                               onClick={() => this.vm.rotate(item)}
                             >
                               <Icon name="refresh" size={16} class="" />
+                              <span class="btn__label">{t("interfaces.action.rotate")}</span>
                             </button>
                             <button
                               class="btn btn--icon btn--danger"
@@ -234,6 +237,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                               onClick={() => this.vm.remove(item)}
                             >
                               <Icon name="trash" size={16} class="" />
+                              <span class="btn__label">{t("interfaces.action.delete")}</span>
                             </button>
                           </Show>
                         </td>

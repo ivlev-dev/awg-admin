@@ -313,6 +313,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                               onClick={() => this.vm.rotate(node)}
                             >
                               <Icon name="shield" size={16} class="" />
+                              <span class="btn__label">{t("nodes.rotate")}</span>
                             </button>
                             <button
                               class="btn btn--icon btn--danger"
@@ -323,6 +324,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                               onClick={() => this.vm.remove(node)}
                             >
                               <Icon name="trash" size={16} class="" />
+                              <span class="btn__label">{t("common.delete")}</span>
                             </button>
                           </Show>
                         </td>
