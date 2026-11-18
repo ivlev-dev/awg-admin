@@ -653,12 +653,267 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(setOf("Pixel", "Pixel · awg1"), env.tunnels.tunnels.map { it.name }.toSet())
     }
 
+    @Test
+    fun twoPeersOnSameInterfaceCreateTwoTunnels() = runTest {
+        val primaryConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820", address = "10.8.0.3/32")
+        val env = syncEnvironment {
+            deviceConfigsResults["device-1"] =
+                AccountResult.Success(
+                    listOf(
+                        deviceConfig(
+                            conf = primaryConf,
+                            revision = "rev-1",
+                            peerId = "peer-1",
+                            label = "primary",
+                        ),
+                        deviceConfig(
+                            conf = secondConf,
+                            revision = "rev-2",
+                            endpoint = "second.example.com:51820",
+                            peerId = "peer-2",
+                            label = "secondary",
+                        ),
+                    ),
+                )
+        }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(created = 2), result)
+        val bindings = env.managed.getByDevice("device-1")
+        assertEquals(setOf("peer-1", "peer-2"), bindings.map { it.peerId }.toSet())
+        assertEquals(setOf("iface-1"), bindings.map { it.interfaceId }.toSet())
+        assertEquals(setOf("primary", "secondary"), bindings.map { it.label }.toSet())
+        assertEquals(
+            setOf("Pixel", "Pixel · secondary"),
+            env.tunnels.tunnels.map { it.name }.toSet(),
+        )
+        val primary = bindings.single { it.peerId == "peer-1" }
+        val secondary = bindings.single { it.peerId == "peer-2" }
+        assertEquals("Pixel", env.tunnels.getById(primary.tunnelId)?.name)
+        assertEquals("Pixel · secondary", env.tunnels.getById(secondary.tunnelId)?.name)
+        assertEquals("rev-1", primary.revision)
+        assertEquals("rev-2", secondary.revision)
+    }
+
+    @Test
+    fun duplicatePeerLabelsGetUniqueNames() = runTest {
+        val secondConf = quickConfig(endpoint = "second.example.com:51820")
+        val thirdConf = quickConfig(endpoint = "third.example.com:51820")
+        val env = syncEnvironment {
+            deviceConfigsResults["device-1"] =
+                AccountResult.Success(
+                    listOf(
+                        deviceConfig(peerId = "peer-1", label = "awg0"),
+                        deviceConfig(
+                            conf = secondConf,
+                            revision = "rev-2",
+                            endpoint = "second.example.com:51820",
+                            peerId = "peer-2",
+                            label = "awg0",
+                        ),
+                        deviceConfig(
+                            conf = thirdConf,
+                            revision = "rev-3",
+                            endpoint = "third.example.com:51820",
+                            peerId = "peer-3",
+                            label = "awg0",
+                        ),
+                    ),
+                )
+        }
+
+        env.service.sync()
+
+        assertEquals(3, env.tunnels.tunnels.size)
+        assertEquals(
+            setOf("Pixel", "Pixel · awg0", "Pixel · awg0 (2)"),
+            env.tunnels.tunnels.map { it.name }.toSet(),
+        )
+    }
+
+    @Test
+    fun revisionChangeUpdatesOnlyAffectedPeer() = runTest {
+        val firstConf = quickConfig()
+        val oldSecondConf = quickConfig(endpoint = "old.example.com:51820")
+        val newSecondConf = quickConfig(endpoint = "new.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                            position = 0,
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · second",
+                            quickConfig = normalizeQuickConfig(oldSecondConf),
+                            position = 1,
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(
+                            tunnelId = 7,
+                            interfaceId = "iface-1",
+                            peerId = "peer-1",
+                            revision = "rev-1",
+                        ),
+                        managedBinding(
+                            tunnelId = 8,
+                            interfaceId = "iface-1",
+                            peerId = "peer-2",
+                            revision = "rev-2",
+                            label = "second",
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    conf = firstConf,
+                                    revision = "rev-1",
+                                    peerId = "peer-1",
+                                ),
+                                deviceConfig(
+                                    conf = newSecondConf,
+                                    revision = "rev-3",
+                                    endpoint = "new.example.com:51820",
+                                    peerId = "peer-2",
+                                    label = "second",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1), result)
+        assertEquals(normalizeQuickConfig(firstConf), env.tunnels.getById(7)?.quickConfig)
+        assertEquals(normalizeQuickConfig(newSecondConf), env.tunnels.getById(8)?.quickConfig)
+        assertEquals(
+            "rev-1",
+            env.managed.getByDevice("device-1").single { it.peerId == "peer-1" }.revision,
+        )
+        assertEquals(
+            "rev-3",
+            env.managed.getByDevice("device-1").single { it.peerId == "peer-2" }.revision,
+        )
+    }
+
+    @Test
+    fun removingOnePeerKeepsTheOtherTunnel() = runTest {
+        val firstConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · second",
+                            quickConfig = normalizeQuickConfig(secondConf),
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(
+                            tunnelId = 7,
+                            interfaceId = "iface-1",
+                            peerId = "peer-1",
+                        ),
+                        managedBinding(
+                            tunnelId = 8,
+                            interfaceId = "iface-1",
+                            peerId = "peer-2",
+                            label = "second",
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    conf = firstConf,
+                                    revision = "rev-1",
+                                    peerId = "peer-1",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(removed = 1), result)
+        assertEquals(listOf(7), env.tunnels.tunnels.map { it.id })
+        assertEquals(
+            listOf("peer-1"),
+            env.managed.getByDevice("device-1").map { it.peerId },
+        )
+    }
+
+    @Test
+    fun legacyBindingWithoutPeerIsReusedForPrimaryPeer() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings =
+                    listOf(
+                        ManagedTunnel(
+                            deviceId = "device-1",
+                            tunnelId = 7,
+                            deviceName = "Pixel",
+                            interfaceId = "iface-1",
+                            endpoint = "vpn.example.com:51820",
+                            revision = "rev-1",
+                            syncedAt = 1L,
+                            peerId = "",
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    revision = "rev-1",
+                                    peerId = "peer-1",
+                                    label = "primary",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(), result)
+        val binding = env.managed.getByDevice("device-1").single()
+        assertEquals(7, binding.tunnelId)
+        assertEquals("peer-1", binding.peerId)
+        assertEquals("primary", binding.label)
+        assertEquals(listOf(7), env.tunnels.tunnels.map { it.id })
+    }
+
     private fun managedBinding(
         tunnelId: Int,
         deviceId: String = "device-1",
         deviceName: String = "Pixel",
         interfaceId: String = "iface-1",
         revision: String = "rev-1",
+        peerId: String = "",
+        label: String = "",
     ): ManagedTunnel =
         ManagedTunnel(
             deviceId = deviceId,
@@ -668,5 +923,7 @@ class ManagedTunnelSyncServiceTest {
             endpoint = "vpn.example.com:51820",
             revision = revision,
             syncedAt = 1L,
+            peerId = peerId,
+            label = label,
         )
 }

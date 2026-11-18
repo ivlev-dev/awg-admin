@@ -89,28 +89,35 @@ class RemoteManagedTunnelSyncService(
             }
         }
 
+        val orderedConfigs = activeDevices.associate { device ->
+            device.id to orderManagedConfigs(device, configs[device.id].orEmpty())
+        }
         val bindings = managedTunnelRepository.getAll()
         val activeDeviceIds = activeDevices.mapTo(mutableSetOf()) { it.id }
         val desiredKeys =
             activeDevices.flatMapTo(mutableSetOf()) { device ->
-                orderManagedConfigs(device, configs[device.id].orEmpty()).mapIndexed { index, config
-                    ->
-                    BindingKey(device.id, managedInterfaceKey(config, index))
+                orderedConfigs[device.id].orEmpty().mapIndexed { index, config ->
+                    bindingKey(device, config, index)
                 }
             }
-        val reusableLegacyDeviceIds =
+        val desiredInterfaces = desiredKeys.mapTo(mutableSetOf()) { it.deviceId to it.interfaceId }
+        val reusableLegacyKeys =
             bindings
-                .filter { it.deviceId in activeDeviceIds && it.interfaceId.isBlank() }
-                .mapTo(mutableSetOf()) { it.deviceId }
+                .filter { binding ->
+                    binding.deviceId in activeDeviceIds &&
+                        binding.peerId.isBlank() &&
+                        (binding.interfaceId.isBlank() ||
+                            (binding.deviceId to binding.interfaceId) in desiredInterfaces)
+                }
+                .mapTo(mutableSetOf()) { BindingKey(it.deviceId, it.interfaceId, it.peerId) }
 
         var removedCount = 0
         for (binding in bindings) {
-            val desired =
-                BindingKey(binding.deviceId, binding.interfaceId) in desiredKeys ||
-                    binding.deviceId in reusableLegacyDeviceIds
+            val key = BindingKey(binding.deviceId, binding.interfaceId, binding.peerId)
+            val desired = key in desiredKeys || key in reusableLegacyKeys
             if (desired) continue
             tunnelRepository.getById(binding.tunnelId)?.let { tunnelRepository.delete(it) }
-            managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId)
+            managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId, binding.peerId)
             removedCount++
         }
 
@@ -120,15 +127,15 @@ class RemoteManagedTunnelSyncService(
         var createdCount = 0
         var updatedCount = 0
         val matched = mutableSetOf<BindingKey>()
+        val consumedTunnelIds = mutableSetOf<Int>()
 
         for (device in activeDevices) {
-            val ordered = orderManagedConfigs(device, configs[device.id].orEmpty())
+            val ordered = orderedConfigs[device.id].orEmpty()
             val deviceBindings = bindings.filter { it.deviceId == device.id }
-            val legacyBinding = deviceBindings.firstOrNull { it.interfaceId.isBlank() }
 
             ordered.forEachIndexed { index, config ->
-                val key = managedInterfaceKey(config, index)
-                if (!matched.add(BindingKey(device.id, key))) return@forEachIndexed
+                val key = bindingKey(device, config, index)
+                if (!matched.add(key)) return@forEachIndexed
                 val primary = index == 0
 
                 val parsed =
@@ -142,15 +149,23 @@ class RemoteManagedTunnelSyncService(
                     }
                 val quickConfig = parsed.asQuickString()
                 val desiredName = managedTunnelBaseName(device.name, config, primary)
-
                 val binding =
-                    deviceBindings.firstOrNull { it.interfaceId == key }
-                        ?: legacyBinding?.takeIf { primary && it.interfaceId != key }
+                    findBinding(
+                        deviceBindings = deviceBindings,
+                        consumedTunnelIds = consumedTunnelIds,
+                        key = key,
+                        primary = primary,
+                    )
                 val existing = binding?.let { tunnelRepository.getById(it.tunnelId) }
 
-                if (existing == null) {
+                if (binding == null || existing == null) {
                     if (binding != null) {
-                        managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId)
+                        managedTunnelRepository.unbind(
+                            binding.deviceId,
+                            binding.interfaceId,
+                            binding.peerId,
+                        )
+                        consumedTunnelIds += binding.tunnelId
                     }
                     val imported = TunnelConfig.fromConfig(parsed, device.name)
                     val name = uniqueTunnelName(desiredName, usedNames)
@@ -163,15 +178,18 @@ class RemoteManagedTunnelSyncService(
                             deviceId = device.id,
                             tunnelId = saved.id,
                             deviceName = device.name,
-                            interfaceId = key,
+                            interfaceId = key.interfaceId,
                             endpoint = config.endpoint,
                             revision = config.revision,
                             syncedAt = now(),
+                            peerId = key.peerId,
+                            label = config.displayLabel,
                         ),
                     )
                     usedNames += name
                     createdCount++
                 } else {
+                    consumedTunnelIds += binding.tunnelId
                     val name =
                         if (existing.name == desiredName) {
                             existing.name
@@ -191,13 +209,19 @@ class RemoteManagedTunnelSyncService(
                         }
                         updatedCount++
                     }
-                    if (binding.interfaceId != key) {
-                        managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId)
+                    if (binding.interfaceId != key.interfaceId || binding.peerId != key.peerId) {
+                        managedTunnelRepository.unbind(
+                            binding.deviceId,
+                            binding.interfaceId,
+                            binding.peerId,
+                        )
                     }
                     managedTunnelRepository.bind(
                         binding.copy(
                             deviceName = device.name,
-                            interfaceId = key,
+                            interfaceId = key.interfaceId,
+                            peerId = key.peerId,
+                            label = config.displayLabel,
                             endpoint = config.endpoint,
                             revision = config.revision,
                             syncedAt = now(),
@@ -210,10 +234,10 @@ class RemoteManagedTunnelSyncService(
         for (binding in managedTunnelRepository.getAll()) {
             val active =
                 binding.deviceId in activeDeviceIds &&
-                    BindingKey(binding.deviceId, binding.interfaceId) in matched
+                    BindingKey(binding.deviceId, binding.interfaceId, binding.peerId) in matched
             if (active) continue
             tunnelRepository.getById(binding.tunnelId)?.let { tunnelRepository.delete(it) }
-            managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId)
+            managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId, binding.peerId)
             removedCount++
         }
 
@@ -222,6 +246,21 @@ class RemoteManagedTunnelSyncService(
             updated = updatedCount,
             removed = removedCount,
         )
+    }
+
+    private fun findBinding(
+        deviceBindings: List<ManagedTunnel>,
+        consumedTunnelIds: Set<Int>,
+        key: BindingKey,
+        primary: Boolean,
+    ): ManagedTunnel? {
+        val available = deviceBindings.filterNot { it.tunnelId in consumedTunnelIds }
+        return available.firstOrNull {
+            it.peerId == key.peerId && it.interfaceId == key.interfaceId
+        }
+            ?: available.firstOrNull { it.peerId.isBlank() && it.interfaceId == key.interfaceId }
+            ?: available.firstOrNull { it.peerId.isBlank() && it.interfaceId.isBlank() }
+            ?: available.firstOrNull { primary && it.peerId.isBlank() }
     }
 
     private fun AccountError.toSyncResult(): SyncResult =
@@ -245,9 +284,23 @@ class RemoteManagedTunnelSyncService(
     }
 }
 
-internal data class BindingKey(val deviceId: String, val interfaceId: String)
+internal data class BindingKey(
+    val deviceId: String,
+    val interfaceId: String,
+    val peerId: String,
+)
 
 internal const val MANAGED_INTERFACE_NAME_SEPARATOR = " · "
+
+internal fun bindingKey(device: AccountDevice, config: DeviceConfig, index: Int): BindingKey =
+    BindingKey(
+        deviceId = device.id,
+        interfaceId = managedInterfaceKey(config, index),
+        peerId = config.peerId.trim(),
+    )
+
+internal val DeviceConfig.displayLabel: String
+    get() = label.trim()
 
 internal fun managedInterfaceKey(config: DeviceConfig, index: Int): String =
     config.interfaceId
@@ -262,8 +315,8 @@ internal fun managedTunnelBaseName(
 ): String {
     if (primary) return deviceName
     val suffix =
-        config.interfaceName
-            .trim()
+        config.displayLabel
+            .ifEmpty { config.interfaceName.trim() }
             .ifEmpty { config.interfaceId.trim() }
             .ifEmpty { UNKNOWN_INTERFACE_NAME }
     return "$deviceName$MANAGED_INTERFACE_NAME_SEPARATOR$suffix"

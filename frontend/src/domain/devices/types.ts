@@ -1,4 +1,11 @@
-import type { Forwarding, ShareFormat } from "../types";
+import type { Forwarding, PeerInfo, ShareFormat } from "../types";
+
+export type DevicePeer = PeerInfo;
+
+export interface TunnelInput {
+  interfaceId: string;
+  label?: string;
+}
 
 export interface DeviceInput {
   user_id: string | null;

@@ -93,6 +93,8 @@ internal fun DevicePeerDto.toDomain(): DevicePeer =
         interfaceName = interfaceName,
         publicKey = publicKey,
         addresses = addresses,
+        peerId = peerId,
+        label = label,
     )
 
 internal fun DeviceConfigDto.toDomain(): DeviceConfig =
@@ -104,6 +106,8 @@ internal fun DeviceConfigDto.toDomain(): DeviceConfig =
         addresses = addresses,
         conf = conf,
         revision = revision,
+        peerId = peerId,
+        label = label,
     )
 
 internal fun BootstrapDto.toDomain(): AccountSnapshot =

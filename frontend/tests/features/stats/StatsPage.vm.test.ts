@@ -268,6 +268,18 @@ function devicesHarness(): {
       getProfile: vi.fn(async () => {
         throw new Error("getProfile is not used in this test");
       }),
+      profileByPeer: vi.fn(async () => {
+        throw new Error("profileByPeer is not used in this test");
+      }),
+      addTunnel: vi.fn(async () => {
+        throw new Error("addTunnel is not used in this test");
+      }),
+      renameTunnel: vi.fn(async () => {
+        throw new Error("renameTunnel is not used in this test");
+      }),
+      deleteTunnel: vi.fn(async () => {
+        throw new Error("deleteTunnel is not used in this test");
+      }),
       deviceStats,
       listShares: vi.fn(async () => []),
       createShare: vi.fn(async () => {

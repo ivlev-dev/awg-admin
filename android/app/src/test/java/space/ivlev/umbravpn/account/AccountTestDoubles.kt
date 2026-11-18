@@ -12,6 +12,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountTariff
 import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.DevicePeer
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
@@ -37,6 +38,7 @@ internal fun testDevice(
     id: String = "device-1",
     name: String = "Pixel",
     revoked: Boolean = false,
+    peers: List<DevicePeer> = emptyList(),
 ): AccountDevice =
     AccountDevice(
         id = id,
@@ -52,6 +54,7 @@ internal fun testDevice(
         revoked = revoked,
         external = false,
         addresses = listOf("10.8.0.2/32"),
+        peers = peers,
         createdAt = Instant.parse("2026-01-03T09:00:00Z"),
     )
 
@@ -182,9 +185,32 @@ internal class FakeAccountRepository : AccountRepository {
     val createdNames = mutableListOf<String>()
     val createdInterfaceIds = mutableListOf<List<String>>()
     val createdIdempotencyKeys = mutableListOf<String?>()
+    val addedTunnels = mutableListOf<Triple<String, String, String?>>()
+    val addedTunnelKeys = mutableListOf<String?>()
+    val removedTunnels = mutableListOf<Pair<String, String>>()
     val renamed = mutableListOf<Pair<String, String>>()
     val deleted = mutableListOf<String>()
     var bootstrapCalls = 0
+
+    var addTunnelResult: AccountResult<CreatedDevice> =
+        AccountResult.Success(
+            CreatedDevice(
+                device = testDevice(name = "Renamed"),
+                config =
+                    DeviceConfig(
+                        interfaceId = "iface-1",
+                        interfaceName = "awg0",
+                        nodeId = "node-1",
+                        endpoint = "vpn.example.com:51820",
+                        addresses = listOf("10.8.0.2/32"),
+                        conf = "[Interface]",
+                        revision = "rev",
+                        peerId = "peer-2",
+                        label = "awg0b",
+                    ),
+            ),
+        )
+    var removeTunnelResult: AccountResult<Unit> = AccountResult.Success(Unit)
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
@@ -216,6 +242,25 @@ internal class FakeAccountRepository : AccountRepository {
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> {
         renamed += id to name
         return renameResult
+    }
+
+    override suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String?,
+        idempotencyKey: String?,
+    ): AccountResult<CreatedDevice> {
+        addedTunnels += Triple(deviceId, interfaceId, label)
+        addedTunnelKeys += idempotencyKey
+        return addTunnelResult
+    }
+
+    override suspend fun removeDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+    ): AccountResult<Unit> {
+        removedTunnels += deviceId to peerId
+        return removeTunnelResult
     }
 
     override suspend fun deleteDevice(id: String): AccountResult<Unit> {

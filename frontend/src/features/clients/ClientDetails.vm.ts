@@ -3,16 +3,18 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
 import type { DevicesService } from "@/application/devices/service";
+import { PEER_LABEL_MAX } from "@/application/guards";
+import type { InterfacesService } from "@/application/interfaces/service";
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { copyText } from "@/domain/clipboard";
-import type { DeviceStats } from "@/domain/devices/types";
+import type { DevicePeer, DeviceStats } from "@/domain/devices/types";
 import type {
   Device,
   Forwarding,
-  PeerInfo,
+  InterfaceInfo,
   Profile,
   ShareFormat,
   ShareLink,
@@ -41,11 +43,21 @@ export interface ForwardingPair {
 }
 
 export interface TunnelRow {
+  readonly peerId: string;
+  readonly label: string;
   readonly interfaceId: string;
   readonly interfaceName: string;
   readonly addresses: readonly string[];
   readonly endpoint: string;
   readonly publicKey: string;
+  readonly primary: boolean;
+}
+
+export type TunnelSeed = Omit<TunnelRow, "primary">;
+
+export interface Option {
+  readonly value: string;
+  readonly label: string;
 }
 
 const FORWARDING_MODES: ForwardingMode[] = ["off", "all", "selected"];
@@ -76,6 +88,7 @@ export interface ClientEditState {
 export class ClientDetailsVM {
   constructor(
     private readonly devicesService: DevicesService,
+    private readonly interfacesService: InterfacesService,
     private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly router: Router,
@@ -87,19 +100,32 @@ export class ClientDetailsVM {
   @reactive accessor shares: ShareLink[] = [];
   @reactive accessor stats: DeviceStats | null = null;
   @reactive accessor allDevices: Device[] = [];
+  @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor ownerQuota: QuotaUsageView | null = null;
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
   @reactive accessor saving = false;
   @reactive accessor actionBusy = false;
 
-  @reactive accessor activeProfileId = "";
+  @reactive accessor activePeerId = "";
   @reactive accessor shareInterfaceId = "";
   @reactive accessor shareFormat: ShareFormat = "conf";
   @reactive accessor shareTtl = 86400;
   @reactive accessor shareOneTime = false;
   @reactive accessor shareMaxUses = "";
   @reactive accessor shareBusy = false;
+
+  @reactive accessor tunnelBusy = false;
+  @reactive accessor addTunnelOpen = false;
+  @reactive accessor addTunnelInterfaceId = "";
+  @reactive accessor addTunnelLabel = "";
+  @reactive accessor addTunnelBusy = false;
+  @reactive accessor renameTunnelOpen = false;
+  @reactive accessor renameTunnelPeerId = "";
+  @reactive accessor renameTunnelLabel = "";
+  @reactive accessor renameTunnelBusy = false;
+
+  @reactive private accessor addTunnelLabelEdited = false;
 
   @reactive accessor qrOpen = false;
   @reactive accessor qrValue = "";
@@ -139,41 +165,136 @@ export class ClientDetailsVM {
 
   @computed
   get activeProfile(): Profile | null {
-    const current = this.profiles.find((profile) => profile.interface_id === this.activeProfileId);
+    const current = this.profiles.find((profile) => profile.peer_id === this.activePeerId);
     return current ?? this.profiles[0] ?? null;
   }
 
   @computed
-  get peers(): PeerInfo[] {
+  get peers(): DevicePeer[] {
     return this.device?.peers ?? [];
   }
 
   @computed
   get tunnels(): TunnelRow[] {
-    if (this.profiles.length > 0) {
-      return this.profiles.map((profile) => {
-        const peer = this.peers.find((item) => item.interface_id === profile.interface_id);
-        return {
-          interfaceId: profile.interface_id,
-          interfaceName: profile.interface_name,
-          addresses: profile.addresses.length > 0 ? profile.addresses : peer?.addresses ?? [],
-          endpoint: profile.endpoint,
-          publicKey: peer?.public_key ?? "",
-        };
-      });
+    const profiles = this.profiles;
+    if (profiles.length > 0) {
+      return withPrimaryPeer(
+        profiles.map((profile) => {
+          const peer = this.peers.find((item) => item.peer_id === profile.peer_id);
+          return {
+            peerId: profile.peer_id,
+            label: tunnelLabel(profile.label, peer?.label, profile.interface_name),
+            interfaceId: profile.interface_id,
+            interfaceName: profile.interface_name,
+            addresses:
+              profile.addresses.length > 0 ? [...profile.addresses] : [...(peer?.addresses ?? [])],
+            endpoint: profile.endpoint,
+            publicKey: peer?.public_key ?? "",
+          };
+        }),
+      );
     }
-    return this.peers.map((peer) => ({
-      interfaceId: peer.interface_id,
-      interfaceName: peer.interface_name,
-      addresses: peer.addresses,
-      endpoint: "",
-      publicKey: peer.public_key,
-    }));
+    return withPrimaryPeer(
+      this.peers.map((peer) => ({
+        peerId: peer.peer_id,
+        label: tunnelLabel(peer.label, undefined, peer.interface_name),
+        interfaceId: peer.interface_id,
+        interfaceName: peer.interface_name,
+        addresses: [...peer.addresses],
+        endpoint: "",
+        publicKey: peer.public_key,
+      })),
+    );
   }
 
   @computed
   get tunnelCount(): number {
     return this.tunnels.length;
+  }
+
+  @computed
+  get canRemoveTunnel(): boolean {
+    return this.tunnelCount > 1 && !this.tunnelBusy;
+  }
+
+  @computed
+  get tunnelDeleteHint(): string {
+    return this.tunnelCount <= 1 ? t("clients.details.tunnels.lastHint") : "";
+  }
+
+  @computed
+  get tunnelInterfaceOptions(): Option[] {
+    const device = this.device;
+    if (!device) return [];
+    const fromRegistry = this.interfaces
+      .filter((item) => item.enabled && interfaceFitsDevice(item, device))
+      .map((item) => ({ value: item.id, label: item.name }));
+    if (fromRegistry.length > 0) return fromRegistry;
+    const seen = new Set<string>();
+    const fromPeers: Option[] = [];
+    for (const peer of this.peers) {
+      if (seen.has(peer.interface_id)) continue;
+      seen.add(peer.interface_id);
+      fromPeers.push({ value: peer.interface_id, label: peer.interface_name });
+    }
+    return fromPeers;
+  }
+
+  @computed
+  get addTunnelInterfaceLocked(): boolean {
+    return this.tunnelInterfaceOptions.length <= 1;
+  }
+
+  @computed
+  get addTunnelLabelError(): string | null {
+    const label = this.addTunnelLabel.trim();
+    if (label.length === 0) return t("clients.details.tunnels.labelRequired");
+    if (label.length > PEER_LABEL_MAX) {
+      return t("clients.details.tunnels.labelTooLong", { max: PEER_LABEL_MAX });
+    }
+    return null;
+  }
+
+  @computed
+  get canAddTunnel(): boolean {
+    return (
+      this.addTunnelOpen &&
+      this.addTunnelInterfaceId.length > 0 &&
+      this.addTunnelLabelError === null &&
+      !this.addTunnelBusy
+    );
+  }
+
+  @computed
+  get renameTunnelLabelError(): string | null {
+    const label = this.renameTunnelLabel.trim();
+    if (label.length === 0) return t("clients.details.tunnels.labelRequired");
+    if (label.length > PEER_LABEL_MAX) {
+      return t("clients.details.tunnels.labelTooLong", { max: PEER_LABEL_MAX });
+    }
+    return null;
+  }
+
+  @computed
+  get canRenameTunnel(): boolean {
+    return (
+      this.renameTunnelOpen &&
+      this.renameTunnelPeerId.length > 0 &&
+      this.renameTunnelLabelError === null &&
+      !this.renameTunnelBusy
+    );
+  }
+
+  @computed
+  get shareInterfaceOptions(): Option[] {
+    const seen = new Set<string>();
+    const options: Option[] = [];
+    for (const profile of this.profiles) {
+      if (seen.has(profile.interface_id)) continue;
+      seen.add(profile.interface_id);
+      options.push({ value: profile.interface_id, label: profile.interface_name });
+    }
+    return options;
   }
 
   @computed
@@ -441,12 +562,20 @@ export class ClientDetailsVM {
     this.shares = [];
     this.stats = null;
     this.allDevices = [];
+    this.interfaces = [];
     this.forwardingRows = [];
     this.ownerQuota = null;
-    this.activeProfileId = "";
+    this.activePeerId = "";
     this.shareInterfaceId = "";
     this.shareOneTime = false;
     this.shareMaxUses = "";
+    this.addTunnelOpen = false;
+    this.addTunnelInterfaceId = "";
+    this.addTunnelLabel = "";
+    this.addTunnelLabelEdited = false;
+    this.renameTunnelOpen = false;
+    this.renameTunnelPeerId = "";
+    this.renameTunnelLabel = "";
     this.qrOpen = false;
     this.qrValue = "";
     this.qrTitle = "";
@@ -457,27 +586,27 @@ export class ClientDetailsVM {
       const sharesPromise: Promise<ShareLink[]> = this.devicesService.listShares(id);
       const statsPromise: Promise<DeviceStats> = this.devicesService.deviceStats(id);
       const devicesPromise: Promise<Device[]> = this.devicesService.listDevices();
-      const [device, profiles, shares, stats, devices] = await Promise.all([
+      const interfacesPromise: Promise<InterfaceInfo[]> = this.interfacesService
+        .listInterfaces()
+        .catch(() => []);
+      const [device, profiles, shares, stats, devices, interfaces] = await Promise.all([
         devicePromise,
         profilesPromise,
         sharesPromise,
         statsPromise,
         devicesPromise,
+        interfacesPromise,
       ]);
       this.device = device;
       this.profiles = profiles;
       this.shares = shares;
       this.stats = stats;
       this.allDevices = devices;
+      this.interfaces = interfaces;
       this.buildForwardingRows(device);
       this.hydrateForm(device);
       await this.loadOwnerQuota(device);
-      if (!profiles.some((profile) => profile.interface_id === this.activeProfileId)) {
-        this.activeProfileId = profiles[0]?.interface_id ?? "";
-      }
-      if (!profiles.some((profile) => profile.interface_id === this.shareInterfaceId)) {
-        this.shareInterfaceId = profiles[0]?.interface_id ?? "";
-      }
+      this.syncTunnelSelection();
     } catch (error) {
       const message = messageOf(error, t("clients.details.error.load"));
       this.error = message;
@@ -618,8 +747,145 @@ export class ClientDetailsVM {
     );
   }
 
-  selectProfile(interfaceId: string): void {
-    this.activeProfileId = interfaceId;
+  selectProfile(peerId: string): void {
+    this.activePeerId = peerId;
+  }
+
+  profileLabel(profile: Profile): string {
+    return tunnelLabel(profile.label, undefined, profile.interface_name);
+  }
+
+  profileInterfaceHint(profile: Profile): string {
+    const label = this.profileLabel(profile);
+    return label === profile.interface_name ? "" : profile.interface_name;
+  }
+
+  openAddTunnel(): void {
+    if (this.addTunnelBusy || !this.device) return;
+    const interfaceId = this.defaultTunnelInterfaceId();
+    this.addTunnelInterfaceId = interfaceId;
+    this.addTunnelLabel = this.tunnelInterfaceName(interfaceId);
+    this.addTunnelLabelEdited = false;
+    this.addTunnelOpen = true;
+  }
+
+  closeAddTunnel(): void {
+    if (this.addTunnelBusy) return;
+    this.addTunnelOpen = false;
+  }
+
+  setAddTunnelInterface(value: string): void {
+    const previous = this.tunnelInterfaceName(this.addTunnelInterfaceId);
+    this.addTunnelInterfaceId = value;
+    if (!this.addTunnelLabelEdited || this.addTunnelLabel.trim() === previous) {
+      this.addTunnelLabel = this.tunnelInterfaceName(value);
+      this.addTunnelLabelEdited = false;
+    }
+  }
+
+  setAddTunnelLabel(event: Event): void {
+    this.addTunnelLabel = (event.target as HTMLInputElement).value;
+    this.addTunnelLabelEdited = true;
+  }
+
+  async addTunnel(): Promise<void> {
+    const device = this.device;
+    if (!device || !this.canAddTunnel) return;
+    const before = new Set(this.peers.map((peer) => peer.peer_id));
+    this.addTunnelBusy = true;
+    try {
+      const updated = await this.devicesService.addTunnel(
+        device.id,
+        this.addTunnelInterfaceId,
+        this.addTunnelLabel.trim(),
+      );
+      const added = updated.peers.find((peer) => !before.has(peer.peer_id));
+      await this.applyTunnelUpdate(updated, added?.peer_id);
+      this.addTunnelOpen = false;
+      this.toasts.success(
+        t("clients.details.toast.tunnelAdded", { label: added?.label ?? this.addTunnelLabel.trim() }),
+      );
+    } catch (error) {
+      this.toasts.error(this.tunnelError(error, t("clients.details.error.tunnelAdd")));
+    } finally {
+      this.addTunnelBusy = false;
+    }
+  }
+
+  openRenameTunnel(tunnel: TunnelRow): void {
+    if (this.renameTunnelBusy) return;
+    this.renameTunnelPeerId = tunnel.peerId;
+    this.renameTunnelLabel = tunnel.label;
+    this.renameTunnelOpen = true;
+  }
+
+  closeRenameTunnel(): void {
+    if (this.renameTunnelBusy) return;
+    this.renameTunnelOpen = false;
+  }
+
+  setRenameTunnelLabel(event: Event): void {
+    this.renameTunnelLabel = (event.target as HTMLInputElement).value;
+  }
+
+  async renameTunnel(): Promise<void> {
+    const device = this.device;
+    if (!device || !this.canRenameTunnel) return;
+    const peerId = this.renameTunnelPeerId;
+    this.renameTunnelBusy = true;
+    try {
+      const updated = await this.devicesService.renameTunnel(
+        device.id,
+        peerId,
+        this.renameTunnelLabel.trim(),
+      );
+      const renamed = updated.peers.find((peer) => peer.peer_id === peerId);
+      this.device = updated;
+      this.profiles = this.profiles.map((profile) =>
+        profile.peer_id === peerId
+          ? { ...profile, label: renamed?.label ?? profile.label }
+          : profile,
+      );
+      this.renameTunnelOpen = false;
+      this.toasts.success(
+        t("clients.details.toast.tunnelRenamed", { label: renamed?.label ?? "" }),
+      );
+    } catch (error) {
+      this.toasts.error(this.tunnelError(error, t("clients.details.error.tunnelRename")));
+    } finally {
+      this.renameTunnelBusy = false;
+    }
+  }
+
+  async removeTunnel(peerId: string): Promise<void> {
+    const device = this.device;
+    const tunnel = this.tunnels.find((item) => item.peerId === peerId);
+    if (!device || !tunnel || this.tunnelBusy) return;
+    if (!this.canRemoveTunnel) {
+      this.toasts.error(t("clients.details.tunnels.lastError"));
+      return;
+    }
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.tunnelDeleteTitle"),
+      message: t("clients.details.confirm.tunnelDelete", { label: tunnel.label }),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    this.tunnelBusy = true;
+    try {
+      await this.devicesService.deleteTunnel(device.id, peerId);
+      await this.reloadTunnels();
+      this.toasts.success(t("clients.details.toast.tunnelDeleted"));
+    } catch (error) {
+      if (isConflict(error)) {
+        this.toasts.error(t("clients.details.tunnels.lastError"));
+      } else {
+        this.toasts.error(messageOf(error, t("clients.details.error.tunnelDelete")));
+      }
+    } finally {
+      this.tunnelBusy = false;
+    }
   }
 
   setShareInterface(value: string): void {
@@ -861,7 +1127,7 @@ export class ClientDetailsVM {
     const profile = this.activeProfile;
     if (!profile || !profile.vpn_link) return;
     this.qrValue = profile.vpn_link;
-    this.qrTitle = t("clients.details.qr.vpnTitle", { name: profile.interface_name });
+    this.qrTitle = t("clients.details.qr.vpnTitle", { name: this.profileLabel(profile) });
     this.qrCopyLabel = t("clients.details.profiles.copyVpn");
     this.qrOpen = true;
   }
@@ -874,7 +1140,7 @@ export class ClientDetailsVM {
     const profile = this.activeProfile;
     if (!profile || profile.conf.length === 0) return;
     this.qrValue = profile.conf;
-    this.qrTitle = t("clients.details.qr.confTitle", { name: profile.interface_name });
+    this.qrTitle = t("clients.details.qr.confTitle", { name: this.profileLabel(profile) });
     this.qrCopyLabel = t("clients.details.profiles.copy");
     this.qrOpen = true;
   }
@@ -895,7 +1161,7 @@ export class ClientDetailsVM {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `${sanitizeFilePart(this.device?.name ?? "device")}-${sanitizeFilePart(profile.interface_name)}.conf`;
+    link.download = `${sanitizeFilePart(this.device?.name ?? "device")}-${sanitizeFilePart(this.profileLabel(profile))}.conf`;
     link.rel = "noopener";
     document.body.appendChild(link);
     link.click();
@@ -938,6 +1204,58 @@ export class ClientDetailsVM {
       forwardingMode: this.forwardingMode,
       forwardingSelected: [...this.forwardingSelected],
     };
+  }
+
+  private syncTunnelSelection(): void {
+    const profiles = this.profiles;
+    if (!profiles.some((profile) => profile.peer_id === this.activePeerId)) {
+      this.activePeerId = profiles[0]?.peer_id ?? "";
+    }
+    if (!profiles.some((profile) => profile.interface_id === this.shareInterfaceId)) {
+      this.shareInterfaceId = profiles[0]?.interface_id ?? "";
+    }
+  }
+
+  private defaultTunnelInterfaceId(): string {
+    const options = this.tunnelInterfaceOptions;
+    const primary = this.device?.interface_id ?? "";
+    if (options.some((option) => option.value === primary)) return primary;
+    return options[0]?.value ?? "";
+  }
+
+  private tunnelInterfaceName(interfaceId: string): string {
+    const option = this.tunnelInterfaceOptions.find((item) => item.value === interfaceId);
+    if (option) return option.label;
+    return this.interfaceName(interfaceId);
+  }
+
+  private tunnelError(error: unknown, fallback: string): string {
+    if (isConflict(error)) return t("clients.details.tunnels.conflict");
+    return messageOf(error, fallback);
+  }
+
+  private async applyTunnelUpdate(updated: Device, selectPeerId?: string): Promise<void> {
+    this.device = updated;
+    const profiles = await this.devicesService
+      .listProfiles(updated.id)
+      .catch(() => this.profiles);
+    this.profiles = profiles;
+    if (selectPeerId && profiles.some((profile) => profile.peer_id === selectPeerId)) {
+      this.activePeerId = selectPeerId;
+    }
+    this.syncTunnelSelection();
+  }
+
+  private async reloadTunnels(): Promise<void> {
+    const device = this.device;
+    if (!device) return;
+    const [fresh, profiles] = await Promise.all([
+      this.devicesService.getDevice(device.id),
+      this.devicesService.listProfiles(device.id),
+    ]);
+    this.device = fresh;
+    this.profiles = profiles;
+    this.syncTunnelSelection();
   }
 
   private hydrateForm(device: Device): void {
@@ -1119,4 +1437,46 @@ function sanitizeFilePart(value: string): string {
     .replace(/[^\p{L}\p{N}._-]+/gu, "-")
     .replace(/^-+|-+$/g, "");
   return cleaned || "device";
+}
+
+function tunnelLabel(
+  label: string | undefined,
+  fallback: string | undefined,
+  interfaceName: string,
+): string {
+  const value = label?.trim() || fallback?.trim() || "";
+  return value.length > 0 ? value : interfaceName;
+}
+
+function compareTunnelOrder(left: TunnelSeed, right: TunnelSeed): number {
+  return (
+    left.interfaceName.localeCompare(right.interfaceName) ||
+    left.label.localeCompare(right.label) ||
+    left.peerId.localeCompare(right.peerId)
+  );
+}
+
+function withPrimaryPeer(seeds: TunnelSeed[]): TunnelRow[] {
+  const primary = new Map<string, TunnelSeed>();
+  for (const seed of seeds) {
+    const current = primary.get(seed.interfaceId);
+    if (current === undefined || compareTunnelOrder(seed, current) < 0) {
+      primary.set(seed.interfaceId, seed);
+    }
+  }
+  return [...seeds].sort(compareTunnelOrder).map((seed) => ({
+    ...seed,
+    primary: primary.get(seed.interfaceId)?.peerId === seed.peerId,
+  }));
+}
+
+function interfaceFitsDevice(item: InterfaceInfo, device: Device): boolean {
+  if (device.group_id.length > 0 && item.group_id !== device.group_id) return false;
+  if (device.node_id.length > 0 && item.node_id !== device.node_id) return false;
+  return true;
+}
+
+function isConflict(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  return Reflect.get(error, "status") === 409;
 }

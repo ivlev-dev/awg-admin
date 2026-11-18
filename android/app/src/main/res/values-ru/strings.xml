@@ -663,4 +663,7 @@
     <string name="account_add_device_interfaces">Интерфейсы</string>
     <string name="account_add_device_tunnels_count">Будет создано туннелей: %1$d</string>
     <string name="account_device_interfaces">Интерфейсы</string>
+    <string name="account_add_tunnel">Добавить туннель</string>
+    <string name="account_delete_tunnel">Удалить туннель</string>
+    <string name="account_delete_tunnel_message">Удалить туннель «%1$s»? Он будет удалён с этого устройства.</string>
 </resources>

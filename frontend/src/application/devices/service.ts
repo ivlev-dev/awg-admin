@@ -8,7 +8,7 @@ import type {
 } from "@/domain/devices/types";
 import type { Device, Profile, ShareLink } from "@/domain/types";
 import { ValidationError } from "../errors";
-import { requireId, requireRate, requireText } from "../guards";
+import { PEER_LABEL_MAX, requireId, requirePeerLabel, requireRate, requireText } from "../guards";
 
 export interface DevicesService {
   listDevices(): Promise<Device[]>;
@@ -18,6 +18,10 @@ export interface DevicesService {
   deleteDevice(id: string): Promise<void>;
   listProfiles(id: string): Promise<Profile[]>;
   getProfile(id: string, interfaceId: string): Promise<Profile>;
+  profileByPeer(id: string, peerId: string): Promise<Profile>;
+  addTunnel(id: string, interfaceId: string, label?: string): Promise<Device>;
+  renameTunnel(id: string, peerId: string, label: string): Promise<Device>;
+  deleteTunnel(id: string, peerId: string): Promise<void>;
   deviceStats(id: string): Promise<DeviceStats>;
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
@@ -76,6 +80,39 @@ export class DefaultDevicesService implements DevicesService {
     return this.repository.getProfile(
       requireId(id, "Устройство"),
       requireId(interfaceId, "Интерфейс"),
+    );
+  }
+
+  async profileByPeer(id: string, peerId: string): Promise<Profile> {
+    return this.repository.profileByPeer(
+      requireId(id, "Устройство"),
+      requireId(peerId, "Туннель"),
+    );
+  }
+
+  async addTunnel(id: string, interfaceId: string, label?: string): Promise<Device> {
+    const trimmed = label?.trim() ?? "";
+    if (trimmed.length > PEER_LABEL_MAX) {
+      throw new ValidationError(`Метка туннеля: не длиннее ${PEER_LABEL_MAX} символов`);
+    }
+    return this.repository.addTunnel(requireId(id, "Устройство"), {
+      interfaceId: requireId(interfaceId, "Интерфейс"),
+      ...(trimmed.length > 0 ? { label: trimmed } : {}),
+    });
+  }
+
+  async renameTunnel(id: string, peerId: string, label: string): Promise<Device> {
+    return this.repository.renameTunnel(
+      requireId(id, "Устройство"),
+      requireId(peerId, "Туннель"),
+      requirePeerLabel(label),
+    );
+  }
+
+  async deleteTunnel(id: string, peerId: string): Promise<void> {
+    await this.repository.deleteTunnel(
+      requireId(id, "Устройство"),
+      requireId(peerId, "Туннель"),
     );
   }
 

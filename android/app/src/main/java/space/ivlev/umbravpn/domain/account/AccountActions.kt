@@ -33,6 +33,38 @@ class AccountActions(private val accountRepository: AccountRepository) {
     suspend fun deleteDevice(id: String): ActionResult<Unit> =
         accountRepository.deleteDevice(id).toResult(AccountActionKind.Device)
 
+    suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String? = null,
+        idempotencyKey: String? = null,
+    ): ActionResult<CreatedDevice> {
+        if (deviceId.isBlank()) return ActionResult.Failure(AccountMessage.NotFound)
+        if (interfaceId.isBlank()) return ActionResult.Failure(AccountMessage.EmptyInterface)
+
+        return accountRepository
+            .addDeviceTunnel(
+                deviceId = deviceId,
+                interfaceId = interfaceId,
+                label = label?.trim()?.takeIf { it.isNotEmpty() },
+                idempotencyKey = idempotencyKey,
+            )
+            .toResult(AccountActionKind.Tunnel)
+    }
+
+    suspend fun removeDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+    ): ActionResult<Unit> {
+        if (deviceId.isBlank() || peerId.isBlank()) {
+            return ActionResult.Failure(AccountMessage.NotFound)
+        }
+
+        return accountRepository
+            .removeDeviceTunnel(deviceId, peerId)
+            .toResult(AccountActionKind.Tunnel)
+    }
+
     suspend fun deviceEndpoint(id: String): ActionResult<String> =
         when (val result = accountRepository.deviceConfig(id)) {
             is AccountResult.Success -> ActionResult.Success(result.value.endpoint.ifBlank { "" })

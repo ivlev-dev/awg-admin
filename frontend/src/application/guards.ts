@@ -12,6 +12,17 @@ export function requireText(value: string, label: string): string {
   return trimmed;
 }
 
+export const PEER_LABEL_MAX = 64;
+
+export function requirePeerLabel(value: string, label = "Метка туннеля"): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new ValidationError(`${label}: метка обязательна`);
+  if (trimmed.length > PEER_LABEL_MAX) {
+    throw new ValidationError(`${label}: не длиннее ${PEER_LABEL_MAX} символов`);
+  }
+  return trimmed;
+}
+
 export function requirePort(value: number, label: string): number {
   if (!Number.isInteger(value) || value < 1 || value > 65_535) {
     throw new ValidationError(`${label}: порт должен быть от 1 до 65535`);

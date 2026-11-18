@@ -214,7 +214,17 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <hr class="divider" />
 
                     <div>
-                      <div class="xs muted" style="margin-bottom:6px">{t("clients.details.tunnels")}</div>
+                      <div class="row-between wrap" style="margin-bottom:6px">
+                        <div class="xs muted">{t("clients.details.tunnels")}</div>
+                        <button
+                          class="btn btn--sm btn--ghost"
+                          type="button"
+                          disabled={this.vm.tunnelBusy || this.vm.tunnelInterfaceOptions.length === 0}
+                          onClick={() => this.vm.openAddTunnel()}
+                        >
+                          <Icon name="plus" size={14} class="" /> {t("clients.details.tunnels.add")}
+                        </button>
+                      </div>
                       <Show
                         when={this.vm.tunnels.length > 0}
                         fallback={<span class="small muted">{t("clients.details.tunnelsEmpty")}</span>}
@@ -222,21 +232,59 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         <div class="stack-sm">
                           <For each={this.vm.tunnels}>
                             {(tunnel) => (
-                              <div class="row-between wrap">
-                                <span class="small strong">{tunnel.interfaceName}</span>
-                                <span class="xs mono muted">
-                                  {tunnel.addresses.length > 0 ? tunnel.addresses.join(", ") : "—"}
-                                </span>
-                                <Show when={tunnel.endpoint}>
-                                  <span class="xs mono muted">{tunnel.endpoint}</span>
-                                </Show>
-                                <Show when={tunnel.publicKey}>
-                                  <span class="xs mono muted">{tunnel.publicKey.slice(0, 12)}…</span>
-                                </Show>
+                              <div class="panel" style="padding:10px 12px">
+                                <div class="row-between wrap" style="gap:8px">
+                                  <div class="stack-sm" style="gap:2px">
+                                    <span class="small strong">{tunnel.label}</span>
+                                    <span class="xs muted">
+                                      {tunnel.interfaceName}
+                                      <Show when={tunnel.primary}>
+                                        <span class="badge badge--gray" style="margin-left:6px">
+                                          {t("clients.details.tunnels.primary")}
+                                        </span>
+                                      </Show>
+                                    </span>
+                                  </div>
+                                  <span class="xs mono muted">
+                                    {tunnel.addresses.length > 0 ? tunnel.addresses.join(", ") : "—"}
+                                  </span>
+                                  <Show when={tunnel.endpoint}>
+                                    <span class="xs mono muted">{tunnel.endpoint}</span>
+                                  </Show>
+                                  <Show when={tunnel.publicKey}>
+                                    <span class="xs mono muted">{tunnel.publicKey.slice(0, 12)}…</span>
+                                  </Show>
+                                  <div class="actions-bar">
+                                    <button
+                                      class="btn btn--sm btn--ghost"
+                                      type="button"
+                                      disabled={this.vm.tunnelBusy}
+                                      aria-label={t("clients.details.tunnels.renameAria", { label: tunnel.label })}
+                                      onClick={() => this.vm.openRenameTunnel(tunnel)}
+                                    >
+                                      <Icon name="edit" size={14} class="" />
+                                      {t("clients.details.tunnels.rename")}
+                                    </button>
+                                    <button
+                                      class="btn btn--sm btn--danger"
+                                      type="button"
+                                      disabled={!this.vm.canRemoveTunnel}
+                                      aria-label={t("clients.details.tunnels.deleteAria", { label: tunnel.label })}
+                                      title={this.vm.tunnelDeleteHint}
+                                      onClick={() => { void this.vm.removeTunnel(tunnel.peerId); }}
+                                    >
+                                      <Icon name="trash" size={14} class="" />
+                                      {t("common.delete")}
+                                    </button>
+                                  </div>
+                                </div>
                               </div>
                             )}
                           </For>
                         </div>
+                        <Show when={this.vm.tunnelDeleteHint}>
+                          <div class="hint" style="margin-top:6px">{this.vm.tunnelDeleteHint}</div>
+                        </Show>
                       </Show>
                     </div>
 
@@ -561,13 +609,18 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         <For each={this.vm.profiles}>
                           {(profile) => (
                             <button
-                              class={`tab ${this.vm.activeProfileId === profile.interface_id ? "is-active" : ""}`}
+                              class={`tab ${this.vm.activePeerId === profile.peer_id ? "is-active" : ""}`}
                               type="button"
                               role="tab"
-                              aria-selected={this.vm.activeProfileId === profile.interface_id}
-                              onClick={() => this.vm.selectProfile(profile.interface_id)}
+                              aria-selected={this.vm.activePeerId === profile.peer_id}
+                              onClick={() => this.vm.selectProfile(profile.peer_id)}
                             >
-                              {profile.interface_name}
+                              <span>{this.vm.profileLabel(profile)}</span>
+                              <Show when={this.vm.profileInterfaceHint(profile)}>
+                                <span class="xs muted" style="margin-left:6px">
+                                  {this.vm.profileInterfaceHint(profile)}
+                                </span>
+                              </Show>
                             </button>
                           )}
                         </For>
@@ -637,7 +690,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                         <Select
                           id="share-interface"
                           value={this.vm.shareInterfaceId}
-                          options={this.vm.profiles.map((profile) => ({ value: profile.interface_id, label: profile.interface_name }))}
+                          options={this.vm.shareInterfaceOptions.map((option) => ({ value: option.value, label: option.label }))}
                           onChange={(value) => this.vm.setShareInterface(value)}
                           ariaLabel={t("clients.details.share.interface")}
                         />
@@ -806,6 +859,128 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
           />
           <div class="hint" style="text-align:center">{t("clients.details.qr.hint")}</div>
         </div>
+      </Modal>
+      <Modal
+        open={this.vm.addTunnelOpen}
+        title={t("clients.details.tunnels.addTitle")}
+        onClose={() => this.vm.closeAddTunnel()}
+        footer={
+          <>
+            <button
+              class="btn"
+              type="button"
+              disabled={this.vm.addTunnelBusy}
+              onClick={() => this.vm.closeAddTunnel()}
+            >
+              {t("common.cancelShort")}
+            </button>
+            <button
+              class="btn btn--primary"
+              type="submit"
+              form="tunnel-add"
+              disabled={!this.vm.canAddTunnel}
+            >
+              {this.vm.addTunnelBusy
+                ? t("clients.details.tunnels.adding")
+                : t("clients.details.tunnels.addAction")}
+            </button>
+          </>
+        }
+      >
+        <form
+          id="tunnel-add"
+          class="stack"
+          onSubmit={(event: Event) => {
+            event.preventDefault();
+            void this.vm.addTunnel();
+          }}
+        >
+          <div class="field">
+            <label for="tunnel-interface">{t("clients.details.tunnels.interface")}</label>
+            <Select
+              id="tunnel-interface"
+              value={this.vm.addTunnelInterfaceId}
+              options={this.vm.tunnelInterfaceOptions.map((option) => ({
+                value: option.value,
+                label: option.label,
+              }))}
+              disabled={this.vm.addTunnelInterfaceLocked}
+              onChange={(value) => this.vm.setAddTunnelInterface(value)}
+              ariaLabel={t("clients.details.tunnels.interface")}
+            />
+            <div class="hint">{t("clients.details.tunnels.interfaceHint")}</div>
+          </div>
+          <div class="field">
+            <label for="tunnel-label">{t("clients.details.tunnels.label")}</label>
+            <input
+              id="tunnel-label"
+              class="input"
+              type="text"
+              maxlength={64}
+              autocomplete="off"
+              value={this.vm.addTunnelLabel}
+              aria-invalid={this.vm.addTunnelLabelError !== null}
+              onInput={(event: Event) => this.vm.setAddTunnelLabel(event)}
+            />
+            <div class={this.vm.addTunnelLabelError ? "hint hint--error" : "hint"}>
+              {this.vm.addTunnelLabelError ?? t("clients.details.tunnels.labelHint")}
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={this.vm.renameTunnelOpen}
+        title={t("clients.details.tunnels.renameTitle")}
+        onClose={() => this.vm.closeRenameTunnel()}
+        footer={
+          <>
+            <button
+              class="btn"
+              type="button"
+              disabled={this.vm.renameTunnelBusy}
+              onClick={() => this.vm.closeRenameTunnel()}
+            >
+              {t("common.cancelShort")}
+            </button>
+            <button
+              class="btn btn--primary"
+              type="submit"
+              form="tunnel-rename"
+              disabled={!this.vm.canRenameTunnel}
+            >
+              {this.vm.renameTunnelBusy
+                ? t("common.saving")
+                : t("clients.details.tunnels.renameAction")}
+            </button>
+          </>
+        }
+      >
+        <form
+          id="tunnel-rename"
+          class="stack"
+          onSubmit={(event: Event) => {
+            event.preventDefault();
+            void this.vm.renameTunnel();
+          }}
+        >
+          <div class="field">
+            <label for="tunnel-rename-label">{t("clients.details.tunnels.label")}</label>
+            <input
+              id="tunnel-rename-label"
+              class="input"
+              type="text"
+              maxlength={64}
+              autocomplete="off"
+              value={this.vm.renameTunnelLabel}
+              aria-invalid={this.vm.renameTunnelLabelError !== null}
+              onInput={(event: Event) => this.vm.setRenameTunnelLabel(event)}
+            />
+            <div class={this.vm.renameTunnelLabelError ? "hint hint--error" : "hint"}>
+              {this.vm.renameTunnelLabelError ?? t("clients.details.tunnels.labelHint")}
+            </div>
+          </div>
+        </form>
       </Modal>
     </div>
   );

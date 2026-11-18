@@ -8,4 +8,6 @@ data class ManagedTunnel(
     val endpoint: String?,
     val revision: String,
     val syncedAt: Long,
+    val peerId: String = "",
+    val label: String = "",
 )

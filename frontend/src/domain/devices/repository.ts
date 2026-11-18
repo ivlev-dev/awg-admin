@@ -5,8 +5,8 @@ import type {
   DeviceInput,
   DeviceStats,
   DeviceUpdateInput,
+  TunnelInput,
 } from "./types";
-
 export type DevicesBulkAction = "revoke_shares" | "delete";
 
 export interface DevicesRepository {
@@ -17,6 +17,10 @@ export interface DevicesRepository {
   deleteDevice(id: string): Promise<void>;
   listProfiles(id: string): Promise<Profile[]>;
   getProfile(id: string, interfaceId: string): Promise<Profile>;
+  profileByPeer(id: string, peerId: string): Promise<Profile>;
+  addTunnel(id: string, input: TunnelInput): Promise<Device>;
+  renameTunnel(id: string, peerId: string, label: string): Promise<Device>;
+  deleteTunnel(id: string, peerId: string): Promise<void>;
   deviceStats(id: string): Promise<DeviceStats>;
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;

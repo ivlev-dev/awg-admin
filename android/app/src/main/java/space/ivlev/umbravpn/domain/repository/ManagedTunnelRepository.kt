@@ -14,7 +14,7 @@ interface ManagedTunnelRepository {
 
     suspend fun bind(binding: ManagedTunnel)
 
-    suspend fun unbind(deviceId: String, interfaceId: String)
+    suspend fun unbind(deviceId: String, interfaceId: String, peerId: String)
 
     suspend fun unbindDevice(deviceId: String)
 

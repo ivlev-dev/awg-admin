@@ -219,8 +219,12 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                                 {this.vm.tunnelsLabel(device)}
                               </span>
                               <Show when={this.vm.tunnelCount(device) > 1}>
-                                <For each={this.vm.interfaceNameList(device)}>
-                                  {(name) => <span class="badge badge--gray mono">{name}</span>}
+                                <For each={this.vm.interfaceChips(device)}>
+                                  {(chip) => (
+                                    <span class="badge badge--gray mono">
+                                      {chip.count > 1 ? `${chip.name} ×${chip.count}` : chip.name}
+                                    </span>
+                                  )}
                                 </For>
                               </Show>
                             </span>

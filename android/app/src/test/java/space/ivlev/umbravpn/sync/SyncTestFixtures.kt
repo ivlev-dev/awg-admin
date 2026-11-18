@@ -19,6 +19,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.DevicePeer
 import space.ivlev.umbravpn.domain.model.account.ManagedTunnel
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
@@ -69,6 +70,7 @@ internal fun accountDevice(
     name: String = "Pixel",
     revoked: Boolean = false,
     interfaceId: String = "iface-1",
+    peers: List<DevicePeer> = emptyList(),
 ): AccountDevice =
     AccountDevice(
         id = id,
@@ -84,6 +86,7 @@ internal fun accountDevice(
         revoked = revoked,
         external = false,
         addresses = listOf("10.8.0.2/32"),
+        peers = peers,
         createdAt = null,
     )
 
@@ -93,6 +96,8 @@ internal fun deviceConfig(
     endpoint: String = "vpn.example.com:51820",
     interfaceId: String = "iface-1",
     interfaceName: String = "awg0",
+    peerId: String = "",
+    label: String = "",
 ): DeviceConfig =
     DeviceConfig(
         interfaceId = interfaceId,
@@ -102,6 +107,8 @@ internal fun deviceConfig(
         addresses = listOf("10.8.0.2/32"),
         conf = conf,
         revision = revision,
+        peerId = peerId,
+        label = label,
     )
 
 internal fun accountSnapshot(
@@ -135,6 +142,10 @@ internal class FakeAccountRepository(
     var createDeviceResult: AccountResult<CreatedDevice>? = null
     val deviceConfigResults = mutableMapOf<String, AccountResult<DeviceConfig>>()
     val deviceConfigsResults = mutableMapOf<String, AccountResult<List<DeviceConfig>>>()
+    var addTunnelResult: AccountResult<CreatedDevice>? = null
+    var removeTunnelResult: AccountResult<Unit> = AccountResult.Success(Unit)
+    val addedTunnels = mutableListOf<Triple<String, String, String?>>()
+    val removedTunnels = mutableListOf<Pair<String, String>>()
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
@@ -169,6 +180,25 @@ internal class FakeAccountRepository(
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         AccountResult.Failure(AccountError.Unexpected("renameDevice not supported"))
 
+    override suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String?,
+        idempotencyKey: String?,
+    ): AccountResult<CreatedDevice> {
+        addedTunnels += Triple(deviceId, interfaceId, label)
+        return addTunnelResult
+            ?: AccountResult.Failure(AccountError.Unexpected("addDeviceTunnel not stubbed"))
+    }
+
+    override suspend fun removeDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+    ): AccountResult<Unit> {
+        removedTunnels += deviceId to peerId
+        return removeTunnelResult
+    }
+
     override suspend fun deleteDevice(id: String): AccountResult<Unit> = AccountResult.Success(Unit)
 }
 
@@ -192,13 +222,17 @@ internal class FakeManagedTunnelRepository(initial: List<ManagedTunnel> = emptyL
     override suspend fun bind(binding: ManagedTunnel) {
         state.value =
             state.value.filterNot {
-                it.deviceId == binding.deviceId && it.interfaceId == binding.interfaceId
+                it.deviceId == binding.deviceId &&
+                    it.interfaceId == binding.interfaceId &&
+                    it.peerId == binding.peerId
             } + binding
     }
 
-    override suspend fun unbind(deviceId: String, interfaceId: String) {
+    override suspend fun unbind(deviceId: String, interfaceId: String, peerId: String) {
         state.value =
-            state.value.filterNot { it.deviceId == deviceId && it.interfaceId == interfaceId }
+            state.value.filterNot {
+                it.deviceId == deviceId && it.interfaceId == interfaceId && it.peerId == peerId
+            }
     }
 
     override suspend fun unbindDevice(deviceId: String) {

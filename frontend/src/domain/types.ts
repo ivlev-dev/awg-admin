@@ -123,6 +123,8 @@ export interface Forwarding {
 }
 
 export interface PeerInfo {
+  peer_id: string;
+  label: string;
   interface_id: string;
   interface_name: string;
   public_key: string;
@@ -148,6 +150,8 @@ export interface Device {
 }
 
 export interface Profile {
+  peer_id: string;
+  label: string;
   interface_id: string;
   interface_name: string;
   node_id: string;

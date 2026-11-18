@@ -11,19 +11,19 @@ interface ManagedTunnelDao {
 
     @Query(
         "SELECT * FROM managed_tunnel ORDER BY device_name COLLATE NOCASE ASC, " +
-            "interface_id COLLATE NOCASE ASC",
+            "interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
     )
     fun getAllFlow(): Flow<List<ManagedTunnel>>
 
     @Query(
         "SELECT * FROM managed_tunnel ORDER BY device_name COLLATE NOCASE ASC, " +
-            "interface_id COLLATE NOCASE ASC",
+            "interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
     )
     suspend fun getAll(): List<ManagedTunnel>
 
     @Query(
         "SELECT * FROM managed_tunnel WHERE device_id = :deviceId " +
-            "ORDER BY interface_id COLLATE NOCASE ASC",
+            "ORDER BY interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
     )
     suspend fun getByDevice(deviceId: String): List<ManagedTunnel>
 
@@ -33,9 +33,10 @@ interface ManagedTunnelDao {
     @Upsert suspend fun upsert(binding: ManagedTunnel)
 
     @Query(
-        "DELETE FROM managed_tunnel WHERE device_id = :deviceId AND interface_id = :interfaceId",
+        "DELETE FROM managed_tunnel WHERE device_id = :deviceId " +
+            "AND interface_id = :interfaceId AND peer_id = :peerId",
     )
-    suspend fun deleteByKey(deviceId: String, interfaceId: String)
+    suspend fun deleteByKey(deviceId: String, interfaceId: String, peerId: String)
 
     @Query("DELETE FROM managed_tunnel WHERE device_id = :deviceId")
     suspend fun deleteByDeviceId(deviceId: String)

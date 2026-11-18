@@ -5,6 +5,7 @@ import type {
   DeviceInput,
   DeviceStats,
   DeviceUpdateInput,
+  TunnelInput,
 } from "@/domain/devices/types";
 import type { Device, Profile, ShareLink } from "@/domain/types";
 import type { HttpClient } from "./client";
@@ -49,6 +50,30 @@ export class HttpDevicesRepository implements DevicesRepository {
 
   getProfile(id: string, interfaceId: string): Promise<Profile> {
     return this.client.get<Profile>(`/devices/${id}/profiles/${interfaceId}`);
+  }
+
+  profileByPeer(id: string, peerId: string): Promise<Profile> {
+    return this.client.get<Profile>(
+      `/devices/${id}/profiles/by-peer/${encodeURIComponent(peerId)}`,
+    );
+  }
+
+  addTunnel(id: string, input: TunnelInput): Promise<Device> {
+    return this.client.post<Device>(`/devices/${id}/tunnels`, {
+      interface_id: input.interfaceId,
+      ...(input.label === undefined ? {} : { label: input.label }),
+    });
+  }
+
+  renameTunnel(id: string, peerId: string, label: string): Promise<Device> {
+    return this.client.patch<Device>(
+      `/devices/${id}/tunnels/${encodeURIComponent(peerId)}`,
+      { label },
+    );
+  }
+
+  async deleteTunnel(id: string, peerId: string): Promise<void> {
+    await this.client.delete(`/devices/${id}/tunnels/${encodeURIComponent(peerId)}`);
   }
 
   deviceStats(id: string): Promise<DeviceStats> {

@@ -23,6 +23,19 @@ class KtorAccountRepository(private val api: AccountApi) : AccountRepository {
     override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
         api.deviceConfigs(id)
 
+    override suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String?,
+        idempotencyKey: String?,
+    ): AccountResult<CreatedDevice> =
+        api.addDeviceTunnel(deviceId, interfaceId, label, idempotencyKey)
+
+    override suspend fun removeDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+    ): AccountResult<Unit> = api.removeDeviceTunnel(deviceId, peerId)
+
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         api.renameDevice(id, name)
 

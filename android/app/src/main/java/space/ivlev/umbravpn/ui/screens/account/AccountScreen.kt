@@ -88,6 +88,8 @@ fun AccountScreen(
         onCreateDevice = viewModel::createDevice,
         onRenameDevice = viewModel::renameDevice,
         onDeleteDevice = viewModel::deleteDevice,
+        onAddTunnel = viewModel::addTunnel,
+        onDeleteTunnel = viewModel::deleteTunnel,
         onLogout = viewModel::logout,
         onChangeServer = viewModel::changeServer,
     )

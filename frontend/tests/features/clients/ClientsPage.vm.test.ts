@@ -130,12 +130,16 @@ const DEVICE: Device = {
   created_at: "2020-01-01T00:00:00Z",
   peers: [
     {
+      peer_id: "p1",
+      label: "wg0",
       interface_id: "i1",
       interface_name: "wg0",
       public_key: "aaaaaaaaaaaa",
       addresses: ["10.0.0.2"],
     },
     {
+      peer_id: "p2",
+      label: "wg1",
       interface_id: "i2",
       interface_name: "wg1",
       public_key: "bbbbbbbbbbbb",
@@ -264,6 +268,16 @@ function devicesHarness(initial: Device[]): {
     getProfile: vi.fn(async () => {
       throw new Error("profile is not used in this test");
     }),
+    profileByPeer: vi.fn(async () => {
+      throw new Error("profileByPeer is not used in this test");
+    }),
+    addTunnel: vi.fn(async () => {
+      throw new Error("addTunnel is not used in this test");
+    }),
+    renameTunnel: vi.fn(async () => {
+      throw new Error("renameTunnel is not used in this test");
+    }),
+    deleteTunnel: vi.fn(async () => undefined),
     deviceStats: vi.fn(async (id: string) => ({
       device_id: id,
       today: { rx: 0, tx: 0 },
@@ -910,9 +924,41 @@ describe("ClientsPageVM", () => {
     expect(vm.tunnelCount(DEVICE)).toBe(2);
     expect(vm.tunnelsLabel(DEVICE)).toBe("2 туннеля");
     expect(vm.interfaceNameList(DEVICE)).toEqual(["wg0", "wg1"]);
+    expect(vm.interfaceChips(DEVICE)).toEqual([
+      { name: "wg0", count: 1 },
+      { name: "wg1", count: 1 },
+    ]);
     expect(vm.tunnelCount(PHONE)).toBe(1);
     expect(vm.tunnelsLabel(PHONE)).toBe("1 туннель");
     expect(vm.interfaceNames(PHONE)).toBe("wg1");
+  });
+
+  it("считает несколько пиров одного интерфейса", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+    const device: Device = {
+      ...DEVICE,
+      peers: [
+        ...DEVICE.peers,
+        {
+          peer_id: "p3",
+          label: "extra",
+          interface_id: "i1",
+          interface_name: "wg0",
+          public_key: "cccccccccccc",
+          addresses: ["10.0.0.9"],
+        },
+      ],
+      addresses: [...DEVICE.addresses, "10.0.0.9"],
+    };
+
+    expect(vm.tunnelCount(device)).toBe(3);
+    expect(vm.tunnelsLabel(device)).toBe("3 туннеля");
+    expect(vm.interfaceNames(device)).toBe("wg0, wg1");
+    expect(vm.interfaceChips(device)).toEqual([
+      { name: "wg0", count: 2 },
+      { name: "wg1", count: 1 },
+    ]);
   });
 
   it("переключает язык заголовка и таблицы", async () => {

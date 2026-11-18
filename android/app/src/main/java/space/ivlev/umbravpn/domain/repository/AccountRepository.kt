@@ -19,6 +19,15 @@ interface AccountRepository {
 
     suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>>
 
+    suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String? = null,
+        idempotencyKey: String? = null,
+    ): AccountResult<CreatedDevice>
+
+    suspend fun removeDeviceTunnel(deviceId: String, peerId: String): AccountResult<Unit>
+
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice>
 
     suspend fun deleteDevice(id: String): AccountResult<Unit>

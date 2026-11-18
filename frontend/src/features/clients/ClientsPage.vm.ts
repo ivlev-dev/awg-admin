@@ -501,6 +501,16 @@ export class ClientsPageVM {
     return device.interface_name ? [device.interface_name] : [];
   }
 
+  interfaceChips(device: Device): Array<{ name: string; count: number }> {
+    const counts = new Map<string, number>();
+    for (const peer of device.peers) {
+      const name = peer.interface_name || "—";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+    if (counts.size === 0 && device.interface_name) counts.set(device.interface_name, 1);
+    return Array.from(counts, ([name, count]) => ({ name, count }));
+  }
+
   private userNodeId(userId: string): string {
     if (!this.isAdmin) return this.session.user?.node_id ?? "";
     return this.users.find((user) => user.id === userId)?.node_id ?? "";

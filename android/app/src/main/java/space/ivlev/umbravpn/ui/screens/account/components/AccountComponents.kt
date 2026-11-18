@@ -39,6 +39,9 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.PasswordMismatch -> R.string.passwords_do_not_match
         AccountMessage.EmptyToken -> R.string.account_error_empty_token
         AccountMessage.EmptyDeviceName -> R.string.account_error_device_name
+        AccountMessage.EmptyInterface -> R.string.account_error_interfaces_empty
+        AccountMessage.EmptyTunnelLabel -> R.string.account_error_empty_tunnel_label
+        AccountMessage.TunnelLabelTooLong -> R.string.account_error_tunnel_label_long
         AccountMessage.ServerUrlEmpty -> R.string.account_error_server_empty
         AccountMessage.ServerUrlInvalid -> R.string.account_error_server_invalid
         AccountMessage.ServerUrlUnsupportedScheme -> R.string.account_error_server_scheme
@@ -58,6 +61,7 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.DeviceLimitReached -> R.string.account_error_device_limit
         AccountMessage.EmailAlreadyRegistered -> R.string.account_error_email_registered
         AccountMessage.Conflicted -> R.string.account_error_conflict
+        AccountMessage.LastTunnel -> R.string.account_error_last_tunnel
         AccountMessage.NotFound -> R.string.account_error_not_found
         AccountMessage.InvalidToken -> R.string.account_error_invalid_token
         AccountMessage.ServerError -> R.string.account_error_server
@@ -65,6 +69,8 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.DeviceCreated -> R.string.account_device_created
         AccountMessage.DeviceRenamed -> R.string.account_device_renamed
         AccountMessage.DeviceDeleted -> R.string.account_device_deleted
+        AccountMessage.TunnelAdded -> R.string.account_tunnel_added
+        AccountMessage.TunnelDeleted -> R.string.account_tunnel_deleted
         AccountMessage.ServerChanged -> R.string.account_server_changed
         AccountMessage.LoggedOut -> R.string.account_logged_out
         AccountMessage.EmailResent -> R.string.account_email_resent

@@ -53,6 +53,7 @@ class AccountViewModel(
                                     isRefreshing = false,
                                     dialog = null,
                                     pendingCreateKey = null,
+                                    pendingTunnelKey = null,
                                 )
                             }
                         }
@@ -114,6 +115,32 @@ class AccountViewModel(
         reduce { state.copy(dialog = AccountDialog.DeleteDevice(id, name), dialogError = null) }
     }
 
+    fun showAddTunnel(deviceId: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce {
+            state.copy(
+                dialog = AccountDialog.AddTunnel(deviceId),
+                dialogError = null,
+                pendingTunnelKey =
+                    if (state.dialog is AccountDialog.AddTunnel) {
+                        state.pendingTunnelKey
+                    } else {
+                        UUID.randomUUID().toString()
+                    },
+            )
+        }
+    }
+
+    fun showDeleteTunnel(deviceId: String, peerId: String, label: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce {
+            state.copy(
+                dialog = AccountDialog.DeleteTunnel(deviceId, peerId, label),
+                dialogError = null,
+            )
+        }
+    }
+
     fun showLogout() = intent { reduce { state.copy(dialog = AccountDialog.Logout) } }
 
     fun showChangeServer() = intent {
@@ -122,7 +149,14 @@ class AccountViewModel(
 
     fun dismissDialog() = intent {
         if (state.isActionInProgress) return@intent
-        reduce { state.copy(dialog = null, dialogError = null, pendingCreateKey = null) }
+        reduce {
+            state.copy(
+                dialog = null,
+                dialogError = null,
+                pendingCreateKey = null,
+                pendingTunnelKey = null,
+            )
+        }
     }
 
     fun createDevice(name: String, interfaceIds: List<String> = emptyList()) = intent {
@@ -145,6 +179,7 @@ class AccountViewModel(
                         dialog = null,
                         dialogError = null,
                         pendingCreateKey = null,
+                        pendingTunnelKey = null,
                         snapshot =
                             snapshot?.copy(devices = snapshot.devices + outcome.value.device),
                     )
@@ -207,6 +242,70 @@ class AccountViewModel(
         }
     }
 
+    fun addTunnel(deviceId: String, interfaceId: String, label: String) = intent {
+        if (state.isActionInProgress) return@intent
+        val tunnelKey = state.pendingTunnelKey ?: UUID.randomUUID().toString()
+        reduce {
+            state.copy(
+                isActionInProgress = true,
+                dialogError = null,
+                pendingTunnelKey = tunnelKey,
+            )
+        }
+
+        when (
+            val outcome =
+                accountActions.addDeviceTunnel(
+                    deviceId = deviceId,
+                    interfaceId = interfaceId,
+                    label = label,
+                    idempotencyKey = tunnelKey,
+                )
+        ) {
+            is ActionResult.Success -> {
+                val snapshot = state.snapshot
+                reduce {
+                    state.copy(
+                        isActionInProgress = false,
+                        dialog = null,
+                        dialogError = null,
+                        pendingTunnelKey = null,
+                        snapshot = snapshot?.replaceDevice(outcome.value.device),
+                    )
+                }
+                syncTunnels()
+                autoConnector.ensureConnected()
+                postSideEffect(AccountSideEffect.Notice(AccountMessage.TunnelAdded))
+            }
+            is ActionResult.Failure ->
+                reduce { state.copy(isActionInProgress = false, dialogError = outcome.message) }
+        }
+    }
+
+    fun deleteTunnel(deviceId: String, peerId: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce { state.copy(isActionInProgress = true, dialogError = null) }
+
+        when (val outcome = accountActions.removeDeviceTunnel(deviceId, peerId)) {
+            is ActionResult.Success -> {
+                val snapshot = state.snapshot
+                reduce {
+                    state.copy(
+                        isActionInProgress = false,
+                        dialog = null,
+                        dialogError = null,
+                        snapshot = snapshot?.removeDevicePeer(deviceId, peerId),
+                    )
+                }
+                syncTunnels()
+                autoConnector.ensureConnected()
+                postSideEffect(AccountSideEffect.Notice(AccountMessage.TunnelDeleted))
+            }
+            is ActionResult.Failure ->
+                reduce { state.copy(isActionInProgress = false, dialogError = outcome.message) }
+        }
+    }
+
     fun logout() = intent {
         if (state.isActionInProgress) return@intent
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
@@ -218,6 +317,7 @@ class AccountViewModel(
                 isActionInProgress = false,
                 dialog = null,
                 pendingCreateKey = null,
+                pendingTunnelKey = null,
                 snapshot = null,
                 error = null,
             )
@@ -245,6 +345,7 @@ class AccountViewModel(
                 isActionInProgress = false,
                 dialog = null,
                 pendingCreateKey = null,
+                pendingTunnelKey = null,
                 snapshot = null,
                 error = null,
                 serverUrl = validation.url,
@@ -309,4 +410,19 @@ class AccountViewModel(
 
     private fun AccountSnapshot.replaceDevice(device: AccountDevice): AccountSnapshot =
         copy(devices = devices.map { if (it.id == device.id) device else it })
+
+    private fun AccountSnapshot.removeDevicePeer(
+        deviceId: String,
+        peerId: String,
+    ): AccountSnapshot =
+        copy(
+            devices =
+                devices.map { device ->
+                    if (device.id != deviceId) {
+                        device
+                    } else {
+                        device.copy(peers = device.peers.filterNot { it.peerId == peerId })
+                    }
+                },
+        )
 }

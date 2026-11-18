@@ -97,19 +97,28 @@ fun AccountDeviceRow(
                 )
             }
             if (device.peers.size > 1) {
-                val interfaceNames =
-                    device.peers.map { it.interfaceName }.filter { it.isNotBlank() }
                 Text(
                     text = stringResource(R.string.account_device_tunnels_count, device.peers.size),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
-                if (interfaceNames.isNotEmpty()) {
-                    Text(
-                        text = interfaceNames.joinToString(", "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
+                val labels =
+                    device.peers
+                        .map { peer -> peer.label.trim().ifEmpty { peer.interfaceName.trim() } }
+                        .filter { it.isNotBlank() }
+                if (labels.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        labels.take(MAX_VISIBLE_TUNNEL_CHIPS).forEach { TunnelLabelChip(it) }
+                        val hidden = labels.size - MAX_VISIBLE_TUNNEL_CHIPS
+                        if (hidden > 0) {
+                            Text(
+                                text = "+$hidden",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.align(Alignment.CenterVertically),
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -124,5 +133,23 @@ fun AccountDeviceRow(
         enabled = onClick != null,
     ) {
         content()
+    }
+}
+
+private const val MAX_VISIBLE_TUNNEL_CHIPS = 3
+
+@Composable
+private fun TunnelLabelChip(label: String) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+        )
     }
 }

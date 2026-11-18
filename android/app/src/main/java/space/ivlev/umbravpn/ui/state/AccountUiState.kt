@@ -12,6 +12,14 @@ sealed interface AccountDialog {
 
     data class DeleteDevice(val id: String, val name: String) : AccountDialog
 
+    data class AddTunnel(val deviceId: String) : AccountDialog
+
+    data class DeleteTunnel(
+        val deviceId: String,
+        val peerId: String,
+        val label: String,
+    ) : AccountDialog
+
     data object Logout : AccountDialog
 
     data object ChangeServer : AccountDialog
@@ -37,6 +45,7 @@ data class AccountUiState(
     val isEndpointLoading: Boolean = false,
     val endpointError: AccountMessage? = null,
     val pendingCreateKey: String? = null,
+    val pendingTunnelKey: String? = null,
 ) {
     val isActive: Boolean
         get() = session is SessionState.Active

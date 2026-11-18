@@ -63,6 +63,8 @@ data class DevicePeer(
     val interfaceName: String,
     val publicKey: String = "",
     val addresses: List<String> = emptyList(),
+    val peerId: String = "",
+    val label: String = "",
 )
 
 data class DeviceConfig(
@@ -73,6 +75,8 @@ data class DeviceConfig(
     val addresses: List<String>,
     val conf: String,
     val revision: String,
+    val peerId: String = "",
+    val label: String = "",
 )
 
 data class CreatedDevice(

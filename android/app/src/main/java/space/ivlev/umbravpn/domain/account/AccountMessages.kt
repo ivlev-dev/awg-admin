@@ -12,6 +12,9 @@ enum class AccountMessage {
     PasswordMismatch,
     EmptyToken,
     EmptyDeviceName,
+    EmptyInterface,
+    EmptyTunnelLabel,
+    TunnelLabelTooLong,
     ServerUrlEmpty,
     ServerUrlInvalid,
     ServerUrlUnsupportedScheme,
@@ -31,6 +34,7 @@ enum class AccountMessage {
     DeviceLimitReached,
     EmailAlreadyRegistered,
     Conflicted,
+    LastTunnel,
     NotFound,
     InvalidToken,
     ServerError,
@@ -38,6 +42,8 @@ enum class AccountMessage {
     DeviceCreated,
     DeviceRenamed,
     DeviceDeleted,
+    TunnelAdded,
+    TunnelDeleted,
     ServerChanged,
     LoggedOut,
     EmailResent,
@@ -53,6 +59,7 @@ enum class AccountActionKind {
     Login,
     Register,
     Device,
+    Tunnel,
     ResetPassword,
     Verification,
     Generic,
@@ -101,6 +108,7 @@ object AccountMessages {
             error.status == STATUS_CONFLICT || error.code == CODE_CONFLICT ->
                 when (kind) {
                     AccountActionKind.Device -> AccountMessage.DeviceLimitReached
+                    AccountActionKind.Tunnel -> AccountMessage.LastTunnel
                     AccountActionKind.Register -> AccountMessage.EmailAlreadyRegistered
                     else -> AccountMessage.Conflicted
                 }

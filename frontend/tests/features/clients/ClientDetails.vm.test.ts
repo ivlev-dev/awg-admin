@@ -1,6 +1,7 @@
 import { createComponent, flushSync } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
@@ -8,13 +9,15 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
-import type { CreateShareInput, DeviceStats } from "@/domain/devices/types";
+import type { CreateShareInput, DeviceStats, TunnelInput } from "@/domain/devices/types";
+import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, UserQuota } from "@/domain/quota/types";
-import type { Device, Profile, Role, ShareLink, User } from "@/domain/types";
+import type { Device, InterfaceInfo, PeerInfo, Profile, Role, ShareLink, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { ClientDetails } from "@/features/clients/ClientDetails";
 import { ClientDetailsVM } from "@/features/clients/ClientDetails.vm";
+import { ApiError } from "@/infrastructure/http/errors";
 
 const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
 vi.mock("@/app/confirm", () => confirmMock);
@@ -63,6 +66,8 @@ const DEVICE: Device = {
   created_at: "2020-01-01T00:00:00Z",
   peers: [
     {
+      peer_id: "p1",
+      label: "wg0",
       interface_id: "i1",
       interface_name: "wg0",
       public_key: "aaaaaaaaaaaa",
@@ -145,6 +150,8 @@ const FOREIGN: Device = {
 };
 
 const PROFILE_1: Profile = {
+  peer_id: "p1",
+  label: "wg0",
   interface_id: "i1",
   interface_name: "wg0",
   node_id: "n1",
@@ -155,6 +162,8 @@ const PROFILE_1: Profile = {
 };
 
 const PROFILE_2: Profile = {
+  peer_id: "p2",
+  label: "wg1",
   interface_id: "i2",
   interface_name: "wg1",
   node_id: "n1",
@@ -163,6 +172,70 @@ const PROFILE_2: Profile = {
   conf: "[Interface]\nPrivateKey = key-2",
   vpn_link: "vpn://profile-2",
 };
+
+const INTERFACE_1: InterfaceInfo = {
+  id: "i1",
+  group_id: "g1",
+  group_name: "group",
+  node_id: "n1",
+  node_name: "node-1",
+  name: "wg0",
+  label: "wg0",
+  endpoint_host: "vpn.example.com",
+  endpoint_port: 51820,
+  listen_port: 51820,
+  mtu: 1420,
+  public_key: "serverpub1",
+  obf: {
+    h1: { lo: 1, hi: 2 },
+    h2: { lo: 3, hi: 4 },
+    h3: { lo: 5, hi: 6 },
+    h4: { lo: 7, hi: 8 },
+    s1: 1,
+    s2: 2,
+    s3: 3,
+    s4: 4,
+    header_protection_key: "key",
+    random_trailers: false,
+  },
+  enabled: true,
+  peers: 1,
+};
+
+const INTERFACE_2: InterfaceInfo = {
+  ...INTERFACE_1,
+  id: "i2",
+  name: "wg1",
+  label: "wg1",
+  public_key: "serverpub2",
+};
+
+const INTERFACE_OTHER_NODE: InterfaceInfo = {
+  ...INTERFACE_1,
+  id: "i9",
+  node_id: "n9",
+  node_name: "node-9",
+  name: "wg9",
+  label: "wg9",
+  public_key: "serverpub9",
+};
+
+const INTERFACE_OTHER_GROUP: InterfaceInfo = {
+  ...INTERFACE_1,
+  id: "i8",
+  group_id: "g9",
+  group_name: "other",
+  name: "wg8",
+  label: "wg8",
+  public_key: "serverpub8",
+};
+
+const INTERFACES: InterfaceInfo[] = [
+  INTERFACE_1,
+  INTERFACE_2,
+  INTERFACE_OTHER_NODE,
+  INTERFACE_OTHER_GROUP,
+];
 
 const SHARE: ShareLink = {
   token: "share-1",
@@ -310,6 +383,82 @@ function devicesHarness(profiles: Profile[] = [PROFILE_1, PROFILE_2]): {
       if (!profile) throw new Error(`404: профиль ${interfaceId} не найден`);
       return { ...profile };
     }),
+    profileByPeer: vi.fn(async (_id: string, peerId: string) => {
+      const profile = state.profiles.find((item) => item.peer_id === peerId);
+      if (!profile) throw new Error(`404: профиль ${peerId} не найден`);
+      return { ...profile };
+    }),
+    addTunnel: vi.fn(async (id: string, input: TunnelInput) => {
+      const index = state.devices.findIndex((item) => item.id === id);
+      const current = state.devices[index];
+      if (!current) throw new Error(`404: устройство ${id} не найдено`);
+      const iface = INTERFACES.find((item) => item.id === input.interfaceId);
+      if (!iface) throw new Error(`404: интерфейс ${input.interfaceId} не найден`);
+      const peerId = `p${state.profiles.length + 1}`;
+      const label = input.label?.trim() || iface.name;
+      const address = `10.0.9.${state.profiles.length + 2}`;
+      const peer: PeerInfo = {
+        peer_id: peerId,
+        label,
+        interface_id: iface.id,
+        interface_name: iface.name,
+        public_key: `key-${peerId}`,
+        addresses: [address],
+      };
+      const updated: Device = {
+        ...current,
+        peers: [...current.peers, peer],
+        addresses: [...current.addresses, address],
+      };
+      state.devices[index] = updated;
+      state.profiles = [
+        ...state.profiles,
+        {
+          peer_id: peerId,
+          label,
+          interface_id: iface.id,
+          interface_name: iface.name,
+          node_id: iface.node_id,
+          endpoint: `${iface.endpoint_host}:${iface.endpoint_port}`,
+          addresses: [address],
+          conf: `[Interface]\nPrivateKey = ${peerId}`,
+          vpn_link: `vpn://${peerId}`,
+        },
+      ];
+      return { ...updated, peers: updated.peers.map((item) => ({ ...item })) };
+    }),
+    renameTunnel: vi.fn(async (id: string, peerId: string, label: string) => {
+      const index = state.devices.findIndex((item) => item.id === id);
+      const current = state.devices[index];
+      if (!current) throw new Error(`404: устройство ${id} не найдено`);
+      const peers = current.peers.map((peer) =>
+        peer.peer_id === peerId ? { ...peer, label } : { ...peer },
+      );
+      const updated: Device = { ...current, peers };
+      state.devices[index] = updated;
+      state.profiles = state.profiles.map((profile) =>
+        profile.peer_id === peerId ? { ...profile, label } : { ...profile },
+      );
+      return { ...updated, peers: peers.map((peer) => ({ ...peer })) };
+    }),
+    deleteTunnel: vi.fn(async (id: string, peerId: string) => {
+      const index = state.devices.findIndex((item) => item.id === id);
+      const current = state.devices[index];
+      if (!current) throw new Error(`404: устройство ${id} не найдено`);
+      if (current.peers.length <= 1) {
+        throw new ApiError(409, "conflict", "last peer cannot be deleted");
+      }
+      const peer = current.peers.find((item) => item.peer_id === peerId);
+      const updated: Device = {
+        ...current,
+        peers: current.peers
+          .filter((item) => item.peer_id !== peerId)
+          .map((item) => ({ ...item })),
+        addresses: current.addresses.filter((address) => !peer?.addresses.includes(address)),
+      };
+      state.devices[index] = updated;
+      state.profiles = state.profiles.filter((profile) => profile.peer_id !== peerId);
+    }),
     deviceStats: vi.fn(async () => ({ ...state.stats })),
     listShares: vi.fn(async () => state.shares.map((share) => ({ ...share }))),
     createShare: vi.fn(async (id: string, input: CreateShareInput) => {
@@ -361,14 +510,33 @@ function quotaHarness(
   };
 }
 
+function interfacesHarness(items: InterfaceInfo[] = INTERFACES): {
+  repository: InterfacesRepository;
+  service: DefaultInterfacesService;
+  listInterfaces: ReturnType<typeof vi.fn>;
+} {
+  const listInterfaces = vi.fn(async () => items.map((item) => ({ ...item })));
+  const repository: InterfacesRepository = {
+    listInterfaces,
+    createInterface: vi.fn(),
+    updateInterface: vi.fn(),
+    rotateInterface: vi.fn(),
+    deleteInterface: vi.fn(),
+    bulk: vi.fn(),
+  };
+  return { repository, service: new DefaultInterfacesService(repository), listInterfaces };
+}
+
 function setup(
   role: Role = "admin",
   quotaState: QuotaState = QUOTA,
   quotaUsers: UserQuota[] = [USER_QUOTA],
   profiles: Profile[] = [PROFILE_1, PROFILE_2],
+  interfaces: InterfaceInfo[] = INTERFACES,
 ) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness(profiles);
+  const ifaces = interfacesHarness(interfaces);
   const quota = quotaHarness(quotaState, quotaUsers);
   const devicesService = new DefaultDevicesService(devices.repository);
   const session = makeSession(user);
@@ -377,6 +545,7 @@ function setup(
   const toasts = new ToastStore();
   const vm = new ClientDetailsVM(
     devicesService,
+    ifaces.service,
     quota.service,
     session,
     router,
@@ -387,6 +556,7 @@ function setup(
     repository: devices.repository,
     state: devices.state,
     devicesService,
+    interfaces: ifaces,
     quota,
     session,
     router,
@@ -417,8 +587,8 @@ describe("ClientDetailsVM", () => {
     expect(repository.listDevices).toHaveBeenCalledTimes(1);
 
     expect(vm.device?.name).toBe("laptop");
-    expect(vm.profiles.map((profile) => profile.interface_id)).toEqual(["i1", "i2"]);
-    expect(vm.activeProfileId).toBe("i1");
+    expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1", "p2"]);
+    expect(vm.activePeerId).toBe("p1");
     expect(vm.activeProfile?.vpn_link).toBe("vpn://profile-1");
     expect(vm.shares).toHaveLength(1);
     expect(vm.stats?.device_id).toBe("d1");
@@ -472,9 +642,9 @@ describe("ClientDetailsVM", () => {
     const { vm } = setup("admin");
     await vm.load();
 
-    vm.selectProfile("i2");
+    vm.selectProfile("p2");
 
-    expect(vm.activeProfileId).toBe("i2");
+    expect(vm.activePeerId).toBe("p2");
     expect(vm.activeProfile?.interface_name).toBe("wg1");
     expect(vm.interfaceName("i2")).toBe("wg1");
     expect(vm.interfaceName("i9")).toBe("i9");
@@ -486,7 +656,7 @@ describe("ClientDetailsVM", () => {
     await vm.load();
 
     expect(vm.profiles).toHaveLength(1);
-    expect(vm.activeProfileId).toBe("i1");
+    expect(vm.activePeerId).toBe("p1");
     expect(vm.activeProfile?.interface_name).toBe("wg0");
     expect(vm.shareInterfaceId).toBe("i1");
     expect(vm.canShowVpnQr).toBe(true);
@@ -502,11 +672,14 @@ describe("ClientDetailsVM", () => {
     expect(vm.profiles).toEqual([]);
     expect(vm.tunnels).toEqual([
       {
+        peerId: "p1",
+        label: "wg0",
         interfaceId: "i1",
         interfaceName: "wg0",
         addresses: ["10.0.0.2"],
         endpoint: "",
         publicKey: "aaaaaaaaaaaa",
+        primary: true,
       },
     ]);
     expect(vm.tunnelsCountLabel).toBe("Туннелей: 1");
@@ -557,6 +730,7 @@ describe("ClientDetailsVM", () => {
     window.history.replaceState(null, "", "/clients");
     const vm = new ClientDetailsVM(
       new DefaultDevicesService(repository),
+      interfacesHarness().service,
       new DefaultQuotaService({ me: async () => QUOTA, users: async () => [USER_QUOTA] }),
       makeSession(ADMIN),
       new Router(),
@@ -1247,7 +1421,7 @@ describe("ClientDetailsVM", () => {
     expect(vm.qrTitle).toBe("QR-код профиля wg0");
     expect(vm.qrCopyLabel).toBe("Копировать vpn://");
 
-    vm.selectProfile("i2");
+    vm.selectProfile("p2");
     vm.openVpnQr();
     expect(vm.qrValue).toBe("vpn://profile-2");
 
@@ -1330,9 +1504,10 @@ describe("ClientDetailsVM", () => {
   });
 
   it("открывает модалки QR из share-ссылки и профиля", async () => {
-    const { devicesService, quota, session, router, toasts } = setup("admin");
+    const { devicesService, interfaces, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultInterfacesService, () => interfaces.service);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
@@ -1387,9 +1562,10 @@ describe("ClientDetailsVM", () => {
   });
 
   it("резолвит VM через DI и монтирует представление с внедрёнными зависимостями", async () => {
-    const { devicesService, quota, session, router, toasts } = setup("admin");
+    const { devicesService, interfaces, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultInterfacesService, () => interfaces.service);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
@@ -1425,7 +1601,7 @@ describe("ClientDetailsVM", () => {
   });
 
   it("рендерит единственный профиль интерфейса", async () => {
-    const { devicesService, quota, session, router, toasts } = setup(
+    const { devicesService, interfaces, quota, session, router, toasts } = setup(
       "admin",
       QUOTA,
       [USER_QUOTA],
@@ -1433,6 +1609,7 @@ describe("ClientDetailsVM", () => {
     );
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultInterfacesService, () => interfaces.service);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
@@ -1451,6 +1628,384 @@ describe("ClientDetailsVM", () => {
     expect(root.querySelector(".tabs .tab")?.textContent).toBe("wg0");
     expect(root.querySelector("#share-interface")).not.toBeNull();
     expect(root.textContent).toContain("node-1");
+
+    result.dispose();
+    document.body.replaceChildren();
+  });
+});
+
+describe("ClientDetailsVM: туннели и несколько пиров", () => {
+  const PEER_MAIN: PeerInfo = {
+    peer_id: "p1",
+    label: "main",
+    interface_id: "i1",
+    interface_name: "wg0",
+    public_key: "key-main",
+    addresses: ["10.0.0.2"],
+  };
+
+  const PEER_SECOND: PeerInfo = {
+    peer_id: "p2",
+    label: "second",
+    interface_id: "i1",
+    interface_name: "wg0",
+    public_key: "key-second",
+    addresses: ["10.0.0.7"],
+  };
+
+  const SAME_INTERFACE_PROFILES: Profile[] = [
+    {
+      ...PROFILE_1,
+      peer_id: PEER_MAIN.peer_id,
+      label: PEER_MAIN.label,
+      conf: "[Interface]\nPrivateKey = main",
+      vpn_link: "vpn://main",
+    },
+    {
+      ...PROFILE_1,
+      peer_id: PEER_SECOND.peer_id,
+      label: PEER_SECOND.label,
+      addresses: PEER_SECOND.addresses,
+      conf: "[Interface]\nPrivateKey = second",
+      vpn_link: "vpn://second",
+    },
+    { ...PROFILE_2, peer_id: "p3", label: "wg1" },
+  ];
+
+  beforeEach(() => {
+    confirmMock.askConfirm.mockReset();
+    confirmMock.askConfirm.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  function setupSameInterface(profiles: Profile[] = SAME_INTERFACE_PROFILES) {
+    const harness = setup("admin", QUOTA, [USER_QUOTA], profiles);
+    harness.state.devices[0] = {
+      ...DEVICE,
+      peers: [{ ...PEER_MAIN }, { ...PEER_SECOND }],
+      addresses: ["10.0.0.2", "10.0.0.7"],
+    };
+    return harness;
+  }
+
+  it("показывает два пира одного интерфейса отдельными профилями и туннелями", async () => {
+    const { vm } = setupSameInterface();
+
+    await vm.load();
+
+    expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1", "p2", "p3"]);
+    expect(vm.activePeerId).toBe("p1");
+    expect(vm.profileLabel(vm.profiles[0]!)).toBe("main");
+    expect(vm.profileInterfaceHint(vm.profiles[0]!)).toBe("wg0");
+    expect(vm.profileInterfaceHint(vm.profiles[2]!)).toBe("");
+
+    expect(vm.tunnels.map((tunnel) => tunnel.peerId)).toEqual(["p1", "p2", "p3"]);
+    expect(vm.tunnels.map((tunnel) => tunnel.label)).toEqual(["main", "second", "wg1"]);
+    expect(vm.tunnels.filter((tunnel) => tunnel.primary).map((tunnel) => tunnel.peerId)).toEqual([
+      "p1",
+      "p3",
+    ]);
+    expect(vm.tunnels[0]?.publicKey).toBe("key-main");
+    expect(vm.tunnels[1]?.publicKey).toBe("key-second");
+    expect(vm.tunnelCount).toBe(3);
+
+    vm.selectProfile("p2");
+    expect(vm.activePeerId).toBe("p2");
+    expect(vm.activeProfile?.conf).toContain("second");
+  });
+
+  it("не дублирует интерфейсы в выборе для временных ссылок", async () => {
+    const { vm } = setupSameInterface();
+    await vm.load();
+
+    expect(vm.shareInterfaceOptions).toEqual([
+      { value: "i1", label: "wg0" },
+      { value: "i2", label: "wg1" },
+    ]);
+  });
+
+  it("добавляет туннель и выбирает новый профиль", async () => {
+    const { vm, repository, toasts } = setup("admin");
+    await vm.load();
+
+    vm.openAddTunnel();
+    expect(vm.addTunnelOpen).toBe(true);
+    expect(vm.addTunnelInterfaceId).toBe("i1");
+    expect(vm.addTunnelLabel).toBe("wg0");
+    expect(vm.tunnelInterfaceOptions[0]).toEqual({ value: "i1", label: "wg0" });
+
+    vm.setAddTunnelLabel({ target: { value: "extra" } } as unknown as Event);
+    await vm.addTunnel();
+
+    expect(repository.addTunnel).toHaveBeenCalledWith("d1", {
+      interfaceId: "i1",
+      label: "extra",
+    });
+    expect(vm.device?.peers.map((peer) => peer.label)).toEqual(["wg0", "extra"]);
+    expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1", "p2", "p3"]);
+    expect(vm.activePeerId).toBe("p3");
+    expect(vm.activeProfile?.label).toBe("extra");
+    expect(vm.addTunnelOpen).toBe(false);
+    expect(vm.addTunnelBusy).toBe(false);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Туннель «extra» создан",
+    });
+  });
+
+  it("предлагает интерфейсы группы и ноды и подставляет имя интерфейса в метку", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    expect(vm.tunnelInterfaceOptions).toEqual([
+      { value: "i1", label: "wg0" },
+      { value: "i2", label: "wg1" },
+    ]);
+    expect(vm.addTunnelInterfaceLocked).toBe(false);
+
+    vm.openAddTunnel();
+    vm.setAddTunnelInterface("i2");
+    expect(vm.addTunnelLabel).toBe("wg1");
+
+    vm.setAddTunnelLabel({ target: { value: "custom" } } as unknown as Event);
+    vm.setAddTunnelInterface("i1");
+    expect(vm.addTunnelLabel).toBe("custom");
+  });
+
+  it("блокирует добавление при пустой или слишком длинной метке", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+    vm.openAddTunnel();
+
+    vm.setAddTunnelLabel({ target: { value: "   " } } as unknown as Event);
+    expect(vm.addTunnelLabelError).toBe("Укажите метку туннеля");
+    expect(vm.canAddTunnel).toBe(false);
+    await vm.addTunnel();
+    expect(repository.addTunnel).not.toHaveBeenCalled();
+
+    vm.setAddTunnelLabel({ target: { value: "a".repeat(65) } } as unknown as Event);
+    expect(vm.addTunnelLabelError).toBe("Не длиннее 64 символов");
+    expect(vm.canAddTunnel).toBe(false);
+
+    vm.setAddTunnelLabel({ target: { value: "ok" } } as unknown as Event);
+    expect(vm.addTunnelLabelError).toBeNull();
+    expect(vm.canAddTunnel).toBe(true);
+  });
+
+  it("переименовывает туннель и обновляет устройство", async () => {
+    const { vm, repository, toasts } = setup("admin");
+    await vm.load();
+    const tunnel = vm.tunnels[0];
+    if (!tunnel) throw new Error("tunnel fixture is missing");
+
+    vm.openRenameTunnel(tunnel);
+    expect(vm.renameTunnelPeerId).toBe("p1");
+    expect(vm.renameTunnelLabel).toBe("wg0");
+
+    vm.setRenameTunnelLabel({ target: { value: "  renamed  " } } as unknown as Event);
+    await vm.renameTunnel();
+
+    expect(repository.renameTunnel).toHaveBeenCalledWith("d1", "p1", "renamed");
+    expect(vm.device?.peers[0]?.label).toBe("renamed");
+    expect(vm.profiles[0]?.label).toBe("renamed");
+    expect(vm.renameTunnelOpen).toBe(false);
+    expect(vm.renameTunnelBusy).toBe(false);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Туннель переименован в «renamed»",
+    });
+  });
+
+  it("не переименовывает туннель с пустой меткой", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+    const tunnel = vm.tunnels[0];
+    if (!tunnel) throw new Error("tunnel fixture is missing");
+
+    vm.openRenameTunnel(tunnel);
+    vm.setRenameTunnelLabel({ target: { value: "" } } as unknown as Event);
+
+    expect(vm.renameTunnelLabelError).toBe("Укажите метку туннеля");
+    expect(vm.canRenameTunnel).toBe(false);
+    await vm.renameTunnel();
+    expect(repository.renameTunnel).not.toHaveBeenCalled();
+  });
+
+  it("удаляет туннель после подтверждения", async () => {
+    const { vm, repository, toasts, state } = setup("admin");
+    state.devices[0] = {
+      ...DEVICE,
+      peers: [
+        DEVICE.peers[0]!,
+        {
+          peer_id: "p2",
+          label: "wg1",
+          interface_id: "i2",
+          interface_name: "wg1",
+          public_key: "bbbbbbbbbbbb",
+          addresses: ["10.0.1.2"],
+        },
+      ],
+      addresses: ["10.0.0.2", "10.0.1.2"],
+    };
+    await vm.load();
+
+    await vm.removeTunnel("p2");
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Удаление туннеля",
+      message: "Удалить туннель «wg1»? Действие необратимо.",
+      confirmLabel: "Удалить",
+      tone: "danger",
+    });
+    expect(repository.deleteTunnel).toHaveBeenCalledWith("d1", "p2");
+    expect(vm.device?.peers.map((peer) => peer.peer_id)).toEqual(["p1"]);
+    expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1"]);
+    expect(vm.tunnelCount).toBe(1);
+    expect(vm.tunnelBusy).toBe(false);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "success",
+      message: "Туннель удалён",
+    });
+  });
+
+  it("не удаляет последний туннель и показывает подсказку", async () => {
+    const { vm, repository, toasts } = setup("admin", QUOTA, [USER_QUOTA], [PROFILE_1]);
+    await vm.load();
+
+    expect(vm.canRemoveTunnel).toBe(false);
+    expect(vm.tunnelDeleteHint).toBe("Последний туннель удалить нельзя");
+
+    await vm.removeTunnel("p1");
+
+    expect(repository.deleteTunnel).not.toHaveBeenCalled();
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Нельзя удалить последний туннель устройства",
+    });
+  });
+
+  it("обрабатывает 409 при удалении туннеля", async () => {
+    const { vm, repository, toasts, state } = setup("admin");
+    state.devices[0] = {
+      ...DEVICE,
+      peers: [
+        DEVICE.peers[0]!,
+        {
+          peer_id: "p2",
+          label: "wg1",
+          interface_id: "i2",
+          interface_name: "wg1",
+          public_key: "bbbbbbbbbbbb",
+          addresses: ["10.0.1.2"],
+        },
+      ],
+    };
+    await vm.load();
+    vi.mocked(repository.deleteTunnel).mockRejectedValueOnce(
+      new ApiError(409, "conflict", "last peer cannot be deleted"),
+    );
+
+    await vm.removeTunnel("p2");
+
+    expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1", "p2"]);
+    expect(vm.tunnelBusy).toBe(false);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Нельзя удалить последний туннель устройства",
+    });
+  });
+
+  it("показывает конфликт API при добавлении и переименовании", async () => {
+    const { vm, repository, toasts } = setup("admin");
+    await vm.load();
+    vi.mocked(repository.addTunnel).mockRejectedValueOnce(
+      new ApiError(409, "conflict", "device is revoked"),
+    );
+
+    vm.openAddTunnel();
+    await vm.addTunnel();
+
+    expect(vm.addTunnelOpen).toBe(true);
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Туннель нельзя изменить в текущем состоянии устройства",
+    });
+
+    const tunnel = vm.tunnels[0];
+    if (!tunnel) throw new Error("tunnel fixture is missing");
+    vi.mocked(repository.renameTunnel).mockRejectedValueOnce(new Error("Сервис недоступен"));
+    vm.openRenameTunnel(tunnel);
+    await vm.renameTunnel();
+
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Сервис недоступен",
+    });
+  });
+
+  it("получает профиль конкретного пира через DevicesService", async () => {
+    const { devicesService, repository } = setup("admin");
+
+    await expect(devicesService.profileByPeer("d1", "p2")).resolves.toEqual(PROFILE_2);
+    expect(repository.profileByPeer).toHaveBeenCalledWith("d1", "p2");
+    await expect(devicesService.profileByPeer("d1", "missing")).rejects.toThrow(
+      "404: профиль missing не найден",
+    );
+  });
+
+  it("рендерит отдельные вкладки для двух пиров одного интерфейса", async () => {
+    const { devicesService, interfaces, quota, session, router, toasts } =
+      setupSameInterface();
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultInterfacesService, () => interfaces.service);
+    container.bind(DefaultQuotaService, () => quota.service);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(ClientDetails, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+    flushSync();
+    const root = document.body;
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".tabs .tab")).toHaveLength(3);
+    });
+
+    const readTabs = () =>
+      Array.from(root.querySelectorAll<HTMLButtonElement>(".tabs .tab"));
+    expect(readTabs().map((tab) => tab.textContent?.trim())).toEqual([
+      "mainwg0",
+      "secondwg0",
+      "wg1",
+    ]);
+    expect(readTabs()[0]?.getAttribute("aria-selected")).toBe("true");
+
+    readTabs()[1]?.click();
+    flushSync();
+    await vi.waitFor(() => {
+      expect(readTabs()[1]?.getAttribute("aria-selected")).toBe("true");
+      expect(root.textContent).toContain("PrivateKey = second");
+    });
+
+    const addButton = Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.includes("Добавить туннель"),
+    );
+    expect(addButton).not.toBeUndefined();
+    addButton?.click();
+    flushSync();
+    await vi.waitFor(() => {
+      expect(root.querySelector("#tunnel-label")).not.toBeNull();
+    });
+    expect(
+      root.querySelector<HTMLInputElement>("#tunnel-label")?.value,
+    ).toBe("wg0");
 
     result.dispose();
     document.body.replaceChildren();

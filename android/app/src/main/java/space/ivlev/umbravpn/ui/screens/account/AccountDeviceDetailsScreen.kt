@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.account
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,10 +9,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,6 +33,8 @@ import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.account.AccountFormat
 import space.ivlev.umbravpn.domain.account.AccountMessage
+import space.ivlev.umbravpn.domain.model.account.AccountDevice
+import space.ivlev.umbravpn.domain.model.account.DevicePeer
 import space.ivlev.umbravpn.ui.screens.account.components.AccountCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountDialogs
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
@@ -50,6 +59,8 @@ fun AccountDeviceDetailsScreen(
         onCreateDevice = viewModel::createDevice,
         onRenameDevice = viewModel::renameDevice,
         onDeleteDevice = viewModel::deleteDevice,
+        onAddTunnel = viewModel::addTunnel,
+        onDeleteTunnel = viewModel::deleteTunnel,
         onLogout = viewModel::logout,
         onChangeServer = viewModel::changeServer,
     )
@@ -85,26 +96,13 @@ fun AccountDeviceDetailsScreen(
             subtitle = stringResource(R.string.account_device_details),
         )
 
+        TunnelsCard(device = device, viewModel = viewModel)
+
         AccountCard {
             AccountInfoRow(
                 label = stringResource(R.string.account_device_interface),
                 value = device.interfaceName.ifBlank { stringResource(R.string.account_unknown) },
             )
-            if (device.peers.isNotEmpty()) {
-                AccountInfoRow(
-                    label = stringResource(R.string.account_device_interfaces),
-                    value =
-                        stringResource(R.string.account_device_tunnels_count, device.peers.size),
-                )
-                val interfaceNames =
-                    device.peers.map { it.interfaceName }.filter { it.isNotBlank() }
-                if (interfaceNames.isNotEmpty()) {
-                    AccountInfoRow(
-                        label = stringResource(R.string.account_add_device_interfaces),
-                        value = interfaceNames.joinToString(", "),
-                    )
-                }
-            }
             AccountInfoRow(
                 label = stringResource(R.string.account_node),
                 value = device.nodeName.ifBlank { stringResource(R.string.account_unknown) },
@@ -162,3 +160,102 @@ fun AccountDeviceDetailsScreen(
         }
     }
 }
+
+@Composable
+private fun TunnelsCard(device: AccountDevice, viewModel: AccountViewModel) {
+    val canDelete = device.peers.size > 1
+    AccountCard {
+        Text(
+            text = stringResource(R.string.account_tunnels_title),
+            style = MaterialTheme.typography.titleMedium,
+        )
+        Text(
+            text = stringResource(R.string.account_device_tunnels_count, device.peers.size),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.outline,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (device.peers.isEmpty()) {
+            Text(
+                text = stringResource(R.string.account_unknown),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+        } else {
+            val unknownLabel = stringResource(R.string.account_tunnel_unknown_label)
+            device.peers.forEach { peer ->
+                val label = displayTunnelLabel(peer, unknownLabel)
+                TunnelRow(
+                    peer = peer,
+                    label = label,
+                    canDelete = canDelete,
+                    onDelete = {
+                        viewModel.showDeleteTunnel(
+                            deviceId = device.id,
+                            peerId = peer.peerId,
+                            label = label,
+                        )
+                    },
+                )
+            }
+        }
+        AccountSecondaryButton(
+            text = stringResource(R.string.account_add_tunnel),
+            onClick = { viewModel.showAddTunnel(device.id) },
+            modifier = Modifier.padding(top = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun TunnelRow(
+    peer: DevicePeer,
+    label: String,
+    canDelete: Boolean,
+    onDelete: () -> Unit,
+) {
+    val details =
+        listOfNotNull(
+                peer.interfaceName.takeIf { it.isNotBlank() },
+                peer.addresses.joinToString(", ").takeIf { it.isNotBlank() },
+            )
+            .joinToString(" · ")
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label, style = MaterialTheme.typography.bodyMedium)
+                if (details.isNotBlank()) {
+                    Text(
+                        text = details,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+            }
+            IconButton(onClick = onDelete, enabled = canDelete && peer.peerId.isNotBlank()) {
+                Icon(
+                    Icons.Outlined.Delete,
+                    contentDescription = stringResource(R.string.account_delete_tunnel),
+                    tint =
+                        if (canDelete && peer.peerId.isNotBlank()) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                        },
+                )
+            }
+        }
+    }
+}
+
+private fun displayTunnelLabel(peer: DevicePeer, fallback: String): String =
+    peer.label.trim().ifEmpty { peer.interfaceName.trim() }.ifEmpty { fallback }

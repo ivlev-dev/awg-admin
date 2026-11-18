@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import space.ivlev.umbravpn.data.AppDatabase
 import space.ivlev.umbravpn.data.migrations.MIGRATION_42_43
 import space.ivlev.umbravpn.data.migrations.MIGRATION_43_44
+import space.ivlev.umbravpn.data.migrations.MIGRATION_44_45
 
 @RunWith(AndroidJUnit4::class)
 class MigrationTest {
@@ -95,6 +96,55 @@ class MigrationTest {
                 (`device_id`, `tunnel_id`, `device_name`, `interface_id`, `endpoint`,
                  `revision`, `synced_at`)
             VALUES ('device-1', 9, 'Pixel', 'iface-3', NULL, 'rev-3', 3)
+            """
+                .trimIndent(),
+        )
+        db.query("SELECT COUNT(*) FROM `managed_tunnel` WHERE `device_id` = 'device-1'").use {
+            cursor ->
+            cursor.moveToFirst()
+            assertEquals(2, cursor.getInt(0))
+        }
+    }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate44To45AddsPeerKeyAndLabel() {
+        helper.createDatabase(dbName, 44).apply {
+            execSQL(
+                """
+                INSERT INTO `managed_tunnel`
+                    (`device_id`, `tunnel_id`, `device_name`, `interface_id`, `endpoint`,
+                     `revision`, `synced_at`)
+                VALUES
+                    ('device-1', 7, 'Pixel', 'iface-1', 'vpn.example.com:51820', 'rev-1', 1)
+                """
+                    .trimIndent(),
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(dbName, 45, true, MIGRATION_44_45)
+        db.query(
+                "SELECT `device_id`, `interface_id`, `peer_id`, `label`, `tunnel_id` " +
+                    "FROM `managed_tunnel`",
+            )
+            .use { cursor ->
+                assertEquals(1, cursor.count)
+                cursor.moveToFirst()
+                assertEquals("device-1", cursor.getString(0))
+                assertEquals("iface-1", cursor.getString(1))
+                assertEquals("", cursor.getString(2))
+                assertEquals("", cursor.getString(3))
+                assertEquals(7, cursor.getInt(4))
+            }
+
+        db.execSQL(
+            """
+            INSERT INTO `managed_tunnel`
+                (`device_id`, `tunnel_id`, `device_name`, `interface_id`, `endpoint`,
+                 `revision`, `synced_at`, `peer_id`, `label`)
+            VALUES
+                ('device-1', 8, 'Pixel', 'iface-1', NULL, 'rev-2', 2, 'peer-2', 'extra')
             """
                 .trimIndent(),
         )

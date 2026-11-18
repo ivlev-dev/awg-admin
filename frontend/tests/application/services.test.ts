@@ -695,6 +695,10 @@ describe("DevicesService", () => {
       deleteDevice: vi.fn(async () => undefined),
       listProfiles: vi.fn(async () => []),
       getProfile: vi.fn(),
+      profileByPeer: vi.fn(),
+      addTunnel: vi.fn(),
+      renameTunnel: vi.fn(),
+      deleteTunnel: vi.fn(),
       deviceStats: vi.fn(async () => ({
         device_id: "d1",
         today: { rx: 1, tx: 2 },
@@ -783,6 +787,45 @@ describe("DevicesService", () => {
       format: "vpn",
       ttlSecs: 60,
     });
+  });
+
+  it("validates and forwards tunnel operations", async () => {
+    const repo = makeDevices();
+    const service = new DefaultDevicesService(repo);
+
+    await service.addTunnel(" d1 ", " i1 ", " extra ");
+    expect(repo.addTunnel).toHaveBeenCalledWith("d1", {
+      interfaceId: "i1",
+      label: "extra",
+    });
+
+    await service.addTunnel("d1", "i1", "   ");
+    expect(repo.addTunnel).toHaveBeenLastCalledWith("d1", { interfaceId: "i1" });
+
+    await expect(
+      service.addTunnel("d1", "i1", "a".repeat(65)),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(service.addTunnel("d1", " ", "extra")).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+
+    await service.renameTunnel("d1", " p1 ", " renamed ");
+    expect(repo.renameTunnel).toHaveBeenCalledWith("d1", "p1", "renamed");
+    await expect(service.renameTunnel("d1", "p1", "  ")).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await expect(
+      service.renameTunnel("d1", "p1", "a".repeat(65)),
+    ).rejects.toBeInstanceOf(ValidationError);
+
+    await service.deleteTunnel(" d1 ", " p1 ");
+    expect(repo.deleteTunnel).toHaveBeenCalledWith("d1", "p1");
+    await expect(service.deleteTunnel("d1", " ")).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+
+    await service.profileByPeer(" d1 ", " p1 ");
+    expect(repo.profileByPeer).toHaveBeenCalledWith("d1", "p1");
   });
 });
 

@@ -27,8 +27,8 @@ class RoomManagedTunnelRepository(private val managedTunnelDao: ManagedTunnelDao
         managedTunnelDao.upsert(binding.toEntity())
     }
 
-    override suspend fun unbind(deviceId: String, interfaceId: String) {
-        managedTunnelDao.deleteByKey(deviceId, interfaceId)
+    override suspend fun unbind(deviceId: String, interfaceId: String, peerId: String) {
+        managedTunnelDao.deleteByKey(deviceId, interfaceId, peerId)
     }
 
     override suspend fun unbindDevice(deviceId: String) {

@@ -236,6 +236,39 @@ class AccountApi(
             decode = { body -> json.decodeFromString<DeviceDto>(body).toDomain() },
         )
 
+    suspend fun addDeviceTunnel(
+        deviceId: String,
+        interfaceId: String,
+        label: String? = null,
+        idempotencyKey: String? = null,
+    ): AccountResult<CreatedDevice> =
+        execute(
+            authenticated = true,
+            method = HttpMethod.Post,
+            path = "app/devices/$deviceId/tunnels",
+            idempotencyKey = idempotencyKey,
+            configure = {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    CreateTunnelRequestDto(
+                        interfaceId = interfaceId,
+                        label = label?.trim()?.takeIf { it.isNotEmpty() },
+                    ),
+                )
+            },
+            decode = { body -> json.decodeFromString<AppDeviceDto>(body).toDomain() },
+        )
+
+    suspend fun removeDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+    ): AccountResult<Unit> =
+        executeUnit(
+            authenticated = true,
+            method = HttpMethod.Delete,
+            path = "app/devices/$deviceId/tunnels/$peerId",
+        )
+
     suspend fun deleteDevice(id: String): AccountResult<Unit> =
         executeUnit(
             authenticated = true,

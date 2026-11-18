@@ -151,6 +151,8 @@ internal data class DevicePeerDto(
     @SerialName("interface_name") val interfaceName: String = "",
     @SerialName("public_key") val publicKey: String = "",
     val addresses: List<String> = emptyList(),
+    @SerialName("peer_id") val peerId: String = "",
+    val label: String = "",
 )
 
 @Serializable
@@ -162,6 +164,14 @@ internal data class DeviceConfigDto(
     val addresses: List<String> = emptyList(),
     val conf: String = "",
     val revision: String = "",
+    @SerialName("peer_id") val peerId: String = "",
+    val label: String = "",
+)
+
+@Serializable
+internal data class CreateTunnelRequestDto(
+    @SerialName("interface_id") val interfaceId: String,
+    val label: String? = null,
 )
 
 @Serializable

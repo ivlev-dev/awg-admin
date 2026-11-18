@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -22,6 +23,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.account.AccountInterfaceSelection
+import space.ivlev.umbravpn.domain.account.AccountTunnelDraft
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.state.AccountDialog
 import space.ivlev.umbravpn.ui.state.AccountUiState
@@ -33,6 +35,8 @@ fun AccountDialogs(
     onCreateDevice: (String, List<String>) -> Unit,
     onRenameDevice: (String, String) -> Unit,
     onDeleteDevice: (String) -> Unit,
+    onAddTunnel: (String, String, String) -> Unit,
+    onDeleteTunnel: (String, String) -> Unit,
     onLogout: () -> Unit,
     onChangeServer: (String) -> Unit,
 ) {
@@ -174,6 +178,110 @@ fun AccountDialogs(
                                 stringResource(
                                     R.string.account_delete_device_message,
                                     dialog.name,
+                                ),
+                        )
+                        state.dialogError?.let { AccountErrorCard(it) }
+                    }
+                },
+                confirmText = stringResource(R.string.delete),
+                confirmEnabled = !state.isActionInProgress,
+            )
+        }
+        is AccountDialog.AddTunnel -> {
+            val interfaces = AccountTunnelDraft.interfaces(state.snapshot?.interfaces.orEmpty())
+            val initial = AccountTunnelDraft.initialInterface(interfaces)
+            var selectedId by rememberSaveable(dialog) { mutableStateOf(initial?.id.orEmpty()) }
+            var label by
+                rememberSaveable(dialog) {
+                    mutableStateOf(AccountTunnelDraft.defaultLabel(initial))
+                }
+            val labelError = AccountTunnelDraft.labelError(label)
+            InfoDialog(
+                onAttest = { onAddTunnel(dialog.deviceId, selectedId, label) },
+                onDismiss = onDismiss,
+                title = stringResource(R.string.account_add_tunnel),
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (interfaces.isEmpty()) {
+                            Text(
+                                text = stringResource(R.string.account_tunnel_no_interfaces),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            Text(
+                                text = stringResource(R.string.account_tunnel_interface),
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                            interfaces.forEach { accountInterface ->
+                                Row(
+                                    modifier =
+                                        Modifier.fillMaxWidth().clickable(
+                                            enabled = !state.isActionInProgress,
+                                        ) {
+                                            selectedId = accountInterface.id
+                                            label =
+                                                AccountTunnelDraft.defaultLabel(accountInterface)
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = selectedId == accountInterface.id,
+                                        onClick = {
+                                            selectedId = accountInterface.id
+                                            label =
+                                                AccountTunnelDraft.defaultLabel(accountInterface)
+                                        },
+                                        enabled = !state.isActionInProgress,
+                                    )
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = accountInterface.name,
+                                            style = MaterialTheme.typography.bodyMedium,
+                                        )
+                                        if (accountInterface.nodeName.isNotBlank()) {
+                                            Text(
+                                                text = accountInterface.nodeName,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.outline,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        AccountFormField(
+                            value = label,
+                            onValueChange = { label = it },
+                            label = stringResource(R.string.account_tunnel_label),
+                            error = labelError,
+                            enabled = !state.isActionInProgress,
+                        )
+                        Text(
+                            text = stringResource(R.string.account_tunnel_default_label),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                        state.dialogError?.let { AccountErrorCard(it) }
+                    }
+                },
+                confirmText = stringResource(R.string.create),
+                confirmEnabled =
+                    AccountTunnelDraft.isValid(selectedId, label) && !state.isActionInProgress,
+            )
+        }
+        is AccountDialog.DeleteTunnel -> {
+            InfoDialog(
+                onAttest = { onDeleteTunnel(dialog.deviceId, dialog.peerId) },
+                onDismiss = onDismiss,
+                title = stringResource(R.string.account_delete_tunnel),
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.account_delete_tunnel_message,
+                                    dialog.label,
                                 ),
                         )
                         state.dialogError?.let { AccountErrorCard(it) }
