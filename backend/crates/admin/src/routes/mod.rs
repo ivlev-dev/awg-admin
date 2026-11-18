@@ -321,6 +321,15 @@ mod tests {
     }
 
     #[test]
+    fn bulk_routes_are_registered_without_conflicts() {
+        let _app = Router::new()
+            .merge(auth::router())
+            .merge(network::router())
+            .merge(clients::router())
+            .merge(stats::router());
+    }
+
+    #[test]
     fn request_id_validation_rules() {
         assert!(valid_request_id("abc-123_def.456"));
         assert!(valid_request_id(&"a".repeat(MAX_REQUEST_ID_LEN)));

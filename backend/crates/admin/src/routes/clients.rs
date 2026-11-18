@@ -12,6 +12,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/devices",
             get(controllers::devices::list).post(controllers::devices::create),
         )
+        .route("/devices/bulk", post(controllers::bulk::devices))
         .route(
             "/devices/{id}",
             get(controllers::devices::get)

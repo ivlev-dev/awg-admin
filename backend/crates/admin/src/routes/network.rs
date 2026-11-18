@@ -12,6 +12,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/tariffs",
             get(controllers::tariffs::list).post(controllers::tariffs::create),
         )
+        .route("/tariffs/bulk", post(controllers::bulk::tariffs))
         .route(
             "/tariffs/{id}",
             patch(controllers::tariffs::update).delete(controllers::tariffs::delete),
@@ -20,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/groups",
             get(controllers::groups::list).post(controllers::groups::create),
         )
+        .route("/groups/bulk", post(controllers::bulk::groups))
         .route(
             "/groups/{id}",
             patch(controllers::groups::update).delete(controllers::groups::delete),
@@ -36,12 +38,14 @@ pub fn router() -> Router<Arc<AppState>> {
             "/nodes",
             get(controllers::nodes::list).post(controllers::nodes::create),
         )
+        .route("/nodes/bulk", post(controllers::bulk::nodes))
         .route("/nodes/{id}", delete(controllers::nodes::delete))
         .route("/nodes/{id}/rotate", post(controllers::nodes::rotate))
         .route(
             "/interfaces",
             get(controllers::interfaces::list).post(controllers::interfaces::create),
         )
+        .route("/interfaces/bulk", post(controllers::bulk::interfaces))
         .route(
             "/interfaces/{id}",
             patch(controllers::interfaces::update).delete(controllers::interfaces::delete),

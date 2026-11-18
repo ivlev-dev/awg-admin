@@ -75,6 +75,47 @@ impl ApiError {
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
+
+    pub fn message(&self) -> String {
+        match self {
+            ApiError::BadRequest(message) => message.clone(),
+            ApiError::InvalidToken => "password reset token is invalid or expired".to_string(),
+            ApiError::Unauthorized(message) => message.clone(),
+            ApiError::Forbidden(message) => message.clone(),
+            ApiError::NotFound(message) => message.clone(),
+            ApiError::BillingDisabled => "billing is disabled".to_string(),
+            ApiError::Conflict(message) => message.clone(),
+            ApiError::TooManyRequests { message, .. } => message.clone(),
+            ApiError::TotpRequired => "two-factor authentication code required".to_string(),
+            ApiError::TotpInvalid(message) => message.clone(),
+            ApiError::EmailNotVerified => "email is not verified".into(),
+            ApiError::PendingApproval => "account is awaiting administrator approval".into(),
+            ApiError::Rejected => "registration was rejected".into(),
+            ApiError::Internal(message) => {
+                tracing::error!(%message, "internal API error");
+                "internal server error".to_string()
+            }
+        }
+    }
+
+    fn code(&self) -> &'static str {
+        match self {
+            ApiError::BadRequest(_) => "bad_request",
+            ApiError::InvalidToken => "invalid_token",
+            ApiError::Unauthorized(_) => "unauthorized",
+            ApiError::Forbidden(_) => "forbidden",
+            ApiError::NotFound(_) => "not_found",
+            ApiError::BillingDisabled => "billing_disabled",
+            ApiError::Conflict(_) => "conflict",
+            ApiError::TooManyRequests { .. } => "too_many_requests",
+            ApiError::TotpRequired => "totp_required",
+            ApiError::TotpInvalid(_) => "totp_invalid",
+            ApiError::EmailNotVerified => "email_not_verified",
+            ApiError::PendingApproval => "pending_approval",
+            ApiError::Rejected => "rejected",
+            ApiError::Internal(_) => "internal",
+        }
+    }
 }
 
 impl IntoResponse for ApiError {
@@ -84,34 +125,8 @@ impl IntoResponse for ApiError {
             ApiError::TooManyRequests { retry_after, .. } => Some(*retry_after),
             _ => None,
         };
-        let (code, message) = match self {
-            ApiError::BadRequest(message) => ("bad_request", message),
-            ApiError::InvalidToken => (
-                "invalid_token",
-                "password reset token is invalid or expired".to_string(),
-            ),
-            ApiError::Unauthorized(message) => ("unauthorized", message),
-            ApiError::Forbidden(message) => ("forbidden", message),
-            ApiError::NotFound(message) => ("not_found", message),
-            ApiError::BillingDisabled => ("billing_disabled", "billing is disabled".to_string()),
-            ApiError::Conflict(message) => ("conflict", message),
-            ApiError::TooManyRequests { message, .. } => ("too_many_requests", message),
-            ApiError::TotpRequired => (
-                "totp_required",
-                "two-factor authentication code required".to_string(),
-            ),
-            ApiError::TotpInvalid(message) => ("totp_invalid", message),
-            ApiError::EmailNotVerified => ("email_not_verified", "email is not verified".into()),
-            ApiError::PendingApproval => (
-                "pending_approval",
-                "account is awaiting administrator approval".into(),
-            ),
-            ApiError::Rejected => ("rejected", "registration was rejected".into()),
-            ApiError::Internal(message) => {
-                tracing::error!(%message, "internal API error");
-                ("internal", "internal server error".to_string())
-            }
-        };
+        let code = self.code();
+        let message = self.message();
         let mut response = (
             status,
             Json(json!({ "error": { "code": code, "message": message } })),
@@ -161,5 +176,20 @@ mod tests {
         let invalid_token = ApiError::from(CoreError::Invalid(CODE_INVALID_TOKEN.into()));
         assert_eq!(invalid_token.status_code(), StatusCode::BAD_REQUEST);
         assert!(matches!(invalid_token, ApiError::InvalidToken));
+    }
+
+    #[test]
+    fn exposes_response_messages() {
+        assert_eq!(ApiError::BadRequest("bad ids".into()).message(), "bad ids");
+        assert_eq!(ApiError::Forbidden("denied".into()).message(), "denied");
+        assert_eq!(ApiError::BillingDisabled.message(), "billing is disabled");
+        assert_eq!(
+            ApiError::TotpRequired.message(),
+            "two-factor authentication code required"
+        );
+        assert_eq!(
+            ApiError::Internal("storage failure".into()).message(),
+            "internal server error"
+        );
     }
 }

@@ -41,6 +41,7 @@ pub fn router() -> Router<Arc<AppState>> {
             "/users",
             get(controllers::users::list).post(controllers::users::create),
         )
+        .route("/users/bulk", post(controllers::bulk::users))
         .route(
             "/users/{id}",
             get(controllers::users::get)

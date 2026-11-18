@@ -40,15 +40,18 @@
 | GET | `/users/{id}` | admin | — | `UserView` |
 | PATCH | `/users/{id}` | admin | `UpdateUserRequest` | `UserView` |
 | DELETE | `/users/{id}` | admin | — | `{ok:true}` |
+| POST | `/users/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/users/{id}/password` | admin | `{new_password}` (по контроллеру) | `{ok:true}` |
 | GET | `/tariffs` | admin | — | `TariffView[]` |
 | POST | `/tariffs` | admin | `CreateTariffRequest` | `TariffView` |
 | PATCH | `/tariffs/{id}` | admin | `UpdateTariffRequest` | `TariffView` |
 | DELETE | `/tariffs/{id}` | admin | — | `{ok:true}` |
+| POST | `/tariffs/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | GET | `/groups` | user | — | `GroupView[]` (interfaces, devices) |
 | POST | `/groups` | admin | `CreateGroupRequest` | `GroupView` |
 | PATCH | `/groups/{id}` | admin | `UpdateGroupRequest` | `GroupView` |
 | DELETE | `/groups/{id}` | admin | — | `{ok:true}` |
+| POST | `/groups/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | GET | `/groups/{id}/pools` | user | — | `PoolView[]` |
 | POST | `/groups/{id}/pools` | admin | `CreatePoolRequest` | `PoolView` |
 | PATCH | `/pools/{id}` | admin | `UpdatePoolRequest` | `PoolView` |
@@ -56,17 +59,20 @@
 | GET | `/nodes` | user | — | `NodeView[]` |
 | POST | `/nodes` | admin | `CreateNodeRequest` | `NodeView` |
 | DELETE | `/nodes/{id}` | admin | — | `{ok:true}` |
+| POST | `/nodes/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/nodes/{id}/rotate` | admin | — | `{node: NodeView, token}` (токен показывается один раз) |
 | GET | `/interfaces` | user | — | `InterfaceView[]` |
 | POST | `/interfaces` | admin | `CreateInterfaceRequest` | `InterfaceView` |
 | PATCH | `/interfaces/{id}` | admin | `UpdateInterfaceRequest` | `InterfaceView` |
 | DELETE | `/interfaces/{id}` | admin | — | `{ok:true}` |
+| POST | `/interfaces/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/interfaces/{id}/rotate` | admin | — | `{ok:true}` |
 | GET | `/devices` | user | — | `DeviceView[]` (admin видит все, user — свои) |
 | POST | `/devices` | user | `CreateDeviceRequest` | `DeviceView` |
 | GET | `/devices/{id}` | self/admin | — | `DeviceView` |
 | PATCH | `/devices/{id}` | self/admin | `UpdateDeviceRequest` | `DeviceView` |
 | DELETE | `/devices/{id}` | self/admin | — | `{ok:true}` |
+| POST | `/devices/bulk` | self/admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` |
 | GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` |
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
@@ -99,6 +105,63 @@
 | POST | `/billing/checkout` | user | `{plan_id}` | `{invoice, checkout_url}` |
 | GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
 | POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
+
+## Массовые действия
+
+`POST /api/v1/{users|devices|interfaces|nodes|groups|tariffs}/bulk` выполняет
+одно действие над списком объектов одним запросом вместо N последовательных
+вызовов. Тело запроса одинаково для всех ресурсов:
+
+```json
+{ "action": "disable", "ids": ["11111111-1111-1111-1111-111111111111"] }
+```
+
+Ответ всегда `200`, даже если часть объектов не обработана:
+
+```json
+{
+  "done": 1,
+  "failed": [
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "error": "user not found"
+    }
+  ]
+}
+```
+
+`done` — число успешно обработанных объектов, `failed` — ошибки по каждому
+`id`. Обработка последовательная: ошибка одного объекта не прерывает
+остальные, а `error` содержит текст ошибки одиночного запроса. Каждый `id`
+обрабатывается тем же контроллером, что и одиночный запрос, поэтому права,
+публикация в worker и проверки (например, запрет удаления самого себя)
+сохраняются.
+
+`400 Bad Request` возвращается, если `ids` пуст, содержит больше 500
+элементов или `action` неизвестен для ресурса. Дубликаты в `ids`
+схлопываются, порядок первого вхождения сохраняется.
+
+| Ресурс | Actions | Права |
+|---|---|---|
+| `users` | `disable`, `enable`, `delete` | admin |
+| `devices` | `revoke_shares`, `delete` | self/admin по каждому устройству |
+| `interfaces` | `enable`, `disable`, `delete` | admin |
+| `nodes` | `delete` | admin |
+| `groups` | `delete` | admin |
+| `tariffs` | `delete` | admin |
+
+Пример: выключить двух пользователей.
+
+```bash
+curl -X POST https://panel.example.com/api/v1/users/bulk \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"disable","ids":["11111111-1111-1111-1111-111111111111","22222222-2222-2222-2222-222222222222"]}'
+```
+
+```json
+{"done":2,"failed":[]}
+```
 
 ## Импорт конфигураций
 
