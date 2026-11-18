@@ -29,6 +29,7 @@ pub struct NewDevice {
     pub user_id: Uuid,
     pub group_id: Option<Uuid>,
     pub interface_id: Option<Uuid>,
+    pub interface_ids: Vec<Uuid>,
     pub name: String,
     pub down_kbps: u32,
     pub up_kbps: u32,
@@ -110,8 +111,18 @@ impl DeviceService {
             ));
         }
         let group_id = input.group_id.or(user.group_id);
-        let interface = self.resolve_interface(user, group_id, tariff, input.interface_id)?;
-        let group = self.network.get_group(interface.group_id)?;
+        let interfaces = self.resolve_interfaces(
+            user,
+            group_id,
+            tariff,
+            input.interface_id,
+            &input.interface_ids,
+        )?;
+        let primary = interfaces
+            .first()
+            .cloned()
+            .ok_or_else(|| CoreError::Invalid("at least one interface is required".into()))?;
+        let group = self.network.get_group(primary.group_id)?;
         let existing = self.devices.by_user(user.id)?;
         if existing.iter().filter(|d| !d.revoked).count() as u32 >= tariff.max_devices {
             return Err(CoreError::Conflict(format!(
@@ -128,20 +139,12 @@ impl DeviceService {
         limits.push((down, up));
         LimitPolicy::validate_group_sum(tariff, &limits)?;
 
-        let pools = self.network.list_pools(group.id)?;
-        let enabled_pools: Vec<_> = pools.into_iter().filter(|p| p.enabled).collect();
-        if enabled_pools.is_empty() {
-            return Err(CoreError::Conflict(
-                "group has no enabled address pools".into(),
-            ));
-        }
-
         let now = Utc::now();
         let device = Device {
             id: Uuid::new_v4(),
             user_id: user.id,
             group_id: group.id,
-            interface_id: interface.id,
+            interface_id: primary.id,
             name: input.name.trim().to_string(),
             down_kbps: down,
             up_kbps: up,
@@ -159,54 +162,115 @@ impl DeviceService {
             .flat_map(|p| p.ips.values().copied())
             .collect();
 
-        let mut ips = std::collections::BTreeMap::new();
-        for pool in &enabled_pools {
-            let net = self.network.pool_net(pool)?;
-            let gateway = pool
-                .gateway
-                .as_deref()
-                .and_then(|g| g.split('/').next())
-                .and_then(|g| g.parse().ok());
-            let ip = awg_network::SubnetAllocator::allocate(
-                net,
-                &to_v4(&used),
-                seed_from_uuid(device.id) ^ seed_from_uuid(pool.id),
-                gateway,
-            )?;
-            used.insert(IpAddr::V4(ip));
-            ips.insert(pool.id, IpAddr::V4(ip));
+        let mut peers = Vec::with_capacity(interfaces.len());
+        for interface in &interfaces {
+            let interface_group = self.network.get_group(interface.group_id)?;
+            let pools = self.network.list_pools(interface_group.id)?;
+            let enabled_pools: Vec<_> = pools.into_iter().filter(|p| p.enabled).collect();
+            if enabled_pools.is_empty() {
+                return Err(CoreError::Conflict(
+                    "group has no enabled address pools".into(),
+                ));
+            }
+
+            let mut ips = std::collections::BTreeMap::new();
+            for pool in &enabled_pools {
+                let net = self.network.pool_net(pool)?;
+                let gateway = pool
+                    .gateway
+                    .as_deref()
+                    .and_then(|g| g.split('/').next())
+                    .and_then(|g| g.parse().ok());
+                let ip = awg_network::SubnetAllocator::allocate(
+                    net,
+                    &to_v4(&used),
+                    seed_from_uuid(device.id)
+                        ^ seed_from_uuid(pool.id)
+                        ^ seed_from_uuid(interface.id),
+                    gateway,
+                )?;
+                used.insert(IpAddr::V4(ip));
+                ips.insert(pool.id, IpAddr::V4(ip));
+            }
+
+            let keypair = generate_keypair();
+            let psk = random_key();
+            peers.push(DevicePeer {
+                device_id: device.id,
+                interface_id: interface.id,
+                public_key: keypair.public_key,
+                private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
+                preshared_key_sealed: self.sealer.seal_str(&psk)?,
+                ips,
+                client_obf: generate_client_obf(settings),
+                created_at: now,
+            });
         }
 
-        let keypair = generate_keypair();
-        let psk = random_key();
-        let peer = DevicePeer {
-            device_id: device.id,
-            interface_id: interface.id,
-            public_key: keypair.public_key,
-            private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
-            preshared_key_sealed: self.sealer.seal_str(&psk)?,
-            ips,
-            client_obf: generate_client_obf(settings),
-            created_at: now,
-        };
-
         self.devices.save(&device)?;
-        self.peers.save(&peer)?;
+        if let Err(error) = peers.iter().try_for_each(|peer| self.peers.save(peer)) {
+            let _ = self.peers.delete_for_device(device.id);
+            let _ = self.devices.delete(device.id);
+            return Err(error);
+        }
         Ok(device)
     }
 
-    fn resolve_interface(
+    fn resolve_interfaces(
         &self,
         user: &User,
         group_id: Option<Uuid>,
         tariff: &Tariff,
         requested: Option<Uuid>,
+        requested_many: &[Uuid],
+    ) -> CoreResult<Vec<awg_network::Interface>> {
+        if let Some(interface_id) = tariff.interface_id {
+            let interface =
+                self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?;
+            self.validate_interface_scope(user, group_id, &interface)?;
+            return Ok(vec![interface]);
+        }
+
+        let mut requested_ids: Vec<Uuid> = Vec::new();
+        for id in requested_many {
+            if !requested_ids.contains(id) {
+                requested_ids.push(*id);
+            }
+        }
+        if requested_ids.is_empty()
+            && let Some(id) = requested
+        {
+            requested_ids.push(id);
+        }
+
+        if requested_ids.is_empty() {
+            return Ok(vec![self.auto_interface(user, group_id)?]);
+        }
+
+        let mut interfaces = Vec::with_capacity(requested_ids.len());
+        for id in requested_ids {
+            let interface = self.ensure_interface_enabled(self.network.get_interface(id)?)?;
+            self.validate_interface_scope(user, group_id, &interface)?;
+            interfaces.push(interface);
+        }
+        let primary_group = interfaces[0].group_id;
+        if interfaces
+            .iter()
+            .any(|interface| interface.group_id != primary_group)
+        {
+            return Err(CoreError::Forbidden(
+                "interfaces belong to different groups".into(),
+            ));
+        }
+        Ok(interfaces)
+    }
+
+    fn auto_interface(
+        &self,
+        user: &User,
+        group_id: Option<Uuid>,
     ) -> CoreResult<awg_network::Interface> {
-        let interface = if let Some(interface_id) = tariff.interface_id {
-            self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?
-        } else if let Some(interface_id) = requested {
-            self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?
-        } else if let Some(node_id) = user.node_id {
+        let interface = if let Some(node_id) = user.node_id {
             self.interface_for_node(node_id)?
         } else if let Some(group_id) = group_id {
             self.interface_for_group(group_id)?
@@ -215,6 +279,16 @@ impl DeviceService {
                 "user has no node assigned; interface_id is required".into(),
             ));
         };
+        self.validate_interface_scope(user, group_id, &interface)?;
+        Ok(interface)
+    }
+
+    fn validate_interface_scope(
+        &self,
+        user: &User,
+        group_id: Option<Uuid>,
+        interface: &awg_network::Interface,
+    ) -> CoreResult<()> {
         if let Some(node_id) = user.node_id
             && interface.node_id != node_id
         {
@@ -229,7 +303,7 @@ impl DeviceService {
                 "interface belongs to another group".into(),
             ));
         }
-        Ok(interface)
+        Ok(())
     }
 
     fn interface_for_node(&self, node_id: Uuid) -> CoreResult<awg_network::Interface> {

@@ -8,6 +8,8 @@ pub struct CreateDeviceRequest {
     pub user_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
     pub interface_id: Option<Uuid>,
+    #[serde(default)]
+    pub interface_ids: Vec<Uuid>,
     pub name: String,
     #[serde(default)]
     pub down_kbps: u32,
@@ -19,6 +21,8 @@ pub struct CreateDeviceRequest {
 #[derive(Debug, Deserialize)]
 pub struct AppDeviceRequest {
     pub name: Option<String>,
+    #[serde(default)]
+    pub interface_ids: Vec<Uuid>,
 }
 
 impl AppDeviceRequest {

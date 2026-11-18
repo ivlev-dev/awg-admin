@@ -18,4 +18,8 @@ pub fn router() -> Router<Arc<AppState>> {
             "/app/devices/{id}/config",
             get(controllers::app::device_config),
         )
+        .route(
+            "/app/devices/{id}/configs",
+            get(controllers::app::device_configs),
+        )
 }

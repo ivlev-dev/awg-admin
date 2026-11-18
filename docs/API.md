@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -73,7 +73,7 @@
 | PATCH | `/devices/{id}` | self/admin | `UpdateDeviceRequest` | `DeviceView` |
 | DELETE | `/devices/{id}` | self/admin | — | `{ok:true}` |
 | POST | `/devices/bulk` | self/admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
-| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` (один элемент — интерфейс устройства) |
+| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` (по одному на каждый интерфейс/пир устройства, отсортировано по `interface_name`) |
 | GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` |
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
@@ -95,9 +95,10 @@
 | POST | `/import/clients/preview` | admin | `ClientsImportRequest` | `ClientsImportPreviewView` (без записи в БД) |
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
-| GET | `/app/bootstrap` | user | — | `AppBootstrapView` (свой профиль, тариф, квота, устройства) |
-| POST | `/app/devices` | user | `{name}` | `{device: DeviceView, config: AppConfigView}` |
-| GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` |
+| GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, доступные интерфейсы) |
+| POST | `/app/devices` | user | `{name, interface_ids?}` | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
+| GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` (primary-интерфейс) |
+| GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все интерфейсы) |
 | PATCH | `/app/devices/{id}` | self/admin | `{name}` | `DeviceView` |
 | DELETE | `/app/devices/{id}` | self/admin | — | `204` |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
@@ -163,21 +164,30 @@
 
 `DeviceView` (устройства) дополнительно содержит:
 
-- `interface_id` — интерфейс устройства;
+- `interface_id` — интерфейс устройства (primary);
 - `interface_name` — имя интерфейса;
 - `node_id` — нода интерфейса;
-- `node_name` — имя ноды.
+- `node_name` — имя ноды;
+- `peers[]` — все пиры устройства (`interface_id`, `interface_name`,
+  `public_key`, `addresses`).
 
-`CreateDeviceRequest` принимает `interface_id?: string` и необязательный
+`CreateDeviceRequest` принимает `interface_id?: string` (устаревшее, один
+интерфейс), `interface_ids?: string[]` (список интерфейсов) и необязательный
 `group_id?: string` (устаревший; используется только если у пользователя нет
-ноды и интерфейс не выбран тарифом или запросом). Интерфейс выбирается в таком
-порядке:
+ноды и интерфейсы не выбраны тарифом или запросом). Правила выбора:
 
-1. `interface_id` тарифа пользователя;
-2. `interface_id` из запроса;
-3. единственный включённый интерфейс ноды пользователя (`node_id`);
-4. единственный включённый интерфейс устаревшей группы пользователя
-   (`group_id`).
+1. Если у тарифа пользователя задан `interface_id`, используется только он;
+   `interface_ids` и `interface_id` запроса игнорируются.
+2. Иначе, если `interface_ids` непуст, используются все перечисленные
+   интерфейсы по порядку. Дубликаты отбрасываются. Все интерфейсы обязаны
+   быть включёнными, принадлежать ноде пользователя (если `node_id` задан) и
+   одной группе устройства; иначе `403 forbidden` (другая нода/группа или
+   интерфейсы из разных групп) либо `409 conflict` (интерфейс выключен или не
+   найден — `404 not_found`). Устаревший `interface_id` учитывается, когда
+   `interface_ids` пуст.
+3. Иначе работает автоопределение: единственный включённый интерфейс ноды
+   пользователя (`node_id`) → единственный включённый интерфейс устаревшей
+   группы пользователя (`group_id`) → ошибка.
 
 Если у ноды нет включённых интерфейсов — `400 bad_request`
 (`node has no enabled interfaces`), если их несколько — `400 bad_request`
@@ -187,10 +197,19 @@
 выключенный явно выбранный интерфейс — `409 conflict`. `group_id` устройства
 всегда равен группе выбранного интерфейса.
 
-Устройство создаётся ровно с одним пиром — на выбранном интерфейсе. `PATCH
-/devices/{id}` интерфейс не меняет. `GET /devices/{id}/profiles` всегда
-возвращает массив из одного профиля — конфигурацию интерфейса устройства.
-`GET /devices/{id}/profiles/{interface_id}` для другого интерфейса даёт `404`.
+Устройство создаётся с одним пиром (`DevicePeer`) на каждый выбранный
+интерфейс. `Device.interface_id` и `DeviceView.interface_id` — первый
+(primary) интерфейс списка; `DeviceView.peers[]` содержит все пиры.
+Лимиты тарифа (`max_devices`, суммарная полоса группы) считаются один раз на
+устройство, а не на пир. IP выделяется каждому пиру отдельно из enabled-пулов
+группы его интерфейса; в пределах одного интерфейса адреса не повторяются,
+между интерфейсами уникальность также сохраняется.
+
+`PATCH /devices/{id}` интерфейсы не меняет. `GET /devices/{id}/profiles`
+возвращает по профилю на каждый пир устройства, отсортированные по
+`interface_name` (затем по `interface_id`).
+`GET /devices/{id}/profiles/{interface_id}` возвращает профиль конкретного
+пира, для отсутствующего интерфейса — `404`.
 
 ## Мобильное приложение (Android)
 
@@ -198,21 +217,79 @@
 данными текущего пользователя (`self/admin`), админских возможностей не
 добавляют.
 
-- `GET /app/bootstrap` → `{user: UserView, tariff: null|{id,name,description,max_devices,device_down_kbps,device_up_kbps,traffic_quota_bytes}, quota: QuotaView, devices: DeviceView[]}`.
+- `GET /app/bootstrap` → `{user: UserView, tariff: null|{id,name,description,max_devices,device_down_kbps,device_up_kbps,traffic_quota_bytes}, quota: QuotaView, subscription: null|AppSubscriptionView, access: AppAccessView, devices: DeviceView[], interfaces: AppInterfaceView[]}`.
   `tariff` — `null`, если тариф не назначен; `quota` считается по месяцу, как
-  `GET /quota`.
-- `POST /app/devices` `{"name":"Phone"}` → `{device: DeviceView, config: AppConfigView}`.
+  `GET /quota`. `interfaces` — доступные пользователю включённые интерфейсы
+  `{id,name,node_id,node_name}`, отсортированные по `(name,id)`: если тариф
+  пинит интерфейс — только он; иначе интерфейсы ноды пользователя, иначе
+  интерфейсы его группы; если не задано ни то, ни другое — пустой массив.
+- `POST /app/devices` `{"name":"Phone","interface_ids":["uuid","uuid"]}` →
+  `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}`.
   Имя обязательно, 1..64 символа после `trim`, иначе `400 bad_request`.
-  Интерфейс выбирается детерминированно: `interface_id` тарифа → единственный
-  enabled-интерфейс ноды пользователя → первый по `(name,id)` enabled-интерфейс
-  ноды → единственный/первый enabled-интерфейс группы → `400 bad_request`.
-  Проверки «интерфейс другой ноды/группы» и лимит устройств тарифа сохраняются
-  (`403`/`409`). Forwarding по умолчанию — как у `POST /devices`.
-- `GET /app/devices/{id}/config` → `AppConfigView` для интерфейса устройства.
+  Без тарифа у пользователя — `409 tariff_required` (`tariff is required`).
+  `interface_ids` необязателен; правила выбора те же, что у `POST /devices`
+  (тариф → список интерфейсов → автоопределение). `configs` содержит конфиг
+  на каждый интерфейс (отсортировано по `interface_name`), `config` —
+  primary-интерфейс (`device.interface_id`). Устройство с несколькими
+  интерфейсами создаёт по пиру на каждый из них, но занимает одну позицию в
+  лимите `max_devices`. Проверки «интерфейс другой ноды/группы/выключен» и
+  лимит устройств тарифа сохраняются (`403`/`409`). Forwarding по умолчанию —
+  как у `POST /devices`.
+- `GET /app/devices/{id}/config` → `AppConfigView` для primary-интерфейса.
+  Доступ не блокируется ни квотой, ни статусом подписки: конфиг уже выдан,
+  ограничение трафика применяется на ноде (см. «Троттлинг доступа»).
+- `GET /app/devices/{id}/configs` → `AppConfigView[]` для всех интерфейсов
+  устройства (те же поля: `interface_id`, `interface_name`, `node_id`,
+  `endpoint`, `addresses`, `conf`, `revision`), отсортировано по
+  `interface_name`. Чужое устройство — `403 forbidden`.
 - `PATCH /app/devices/{id}` `{"name":"New"}` → `DeviceView`; пустое имя или
   длиннее 64 символов — `400 bad_request`.
-- `DELETE /app/devices/{id}` → `204`, устройство удаляется и группа публикуется
-  на ноды.
+- `DELETE /app/devices/{id}` → `204`, устройство удаляется вместе со всеми
+  пирами, группа публикуется на ноды.
+
+`AppSubscriptionView` (`subscription` в bootstrap):
+
+```json
+{
+  "id": "uuid",
+  "plan_name": "Pro",
+  "status": "active",
+  "current_period_end": "2026-12-17T12:00:00Z",
+  "auto_renew": true,
+  "cancel_at_period_end": false,
+  "grants_access": true
+}
+```
+
+- `status` — `incomplete`, `trialing`, `active`, `past_due`, `suspended`,
+  `canceled`; `grants_access` — `true` только для `trialing` и `active`.
+- `plan_name` — имя плана текущей подписки (`""`, если план удалён).
+- `subscription: null`, если биллинг выключен
+  (`AWG_BILLING_ENABLED=false`) или у пользователя нет текущей подписки
+  (текущая — последняя неаннулированная, как у `GET /billing/subscription`).
+  Аннулированная (`canceled`) подписка текущей не считается и в
+  `subscription` не попадает, но троттлинг по ней применяется — это видно в
+  `access.reasons` (`subscription_inactive`).
+
+`AppAccessView` (`access` в bootstrap):
+
+```json
+{
+  "blocked": false,
+  "throttled": true,
+  "reasons": ["subscription_inactive"]
+}
+```
+
+- `blocked` — `true`, когда у пользователя нет тарифа; создание устройств
+  недоступно, существующие продолжают работать.
+- `throttled` — `true`, когда исчерпана месячная квота или последняя
+  подписка не даёт доступа (`grants_access=false`).
+- `reasons` — подмножество `quota_exceeded`, `subscription_inactive`,
+  `tariff_missing` в этом порядке; пустой массив при нормальном доступе.
+  `quota_exceeded` — `quota.exceeded`, `subscription_inactive` — у
+  пользователя есть подписка (последняя, включая `canceled`) и она не даёт
+  доступа, `tariff_missing` — тариф не назначен.
 
 `AppConfigView`:
 
@@ -757,8 +834,10 @@ refresh, повтор refresh, заблокированный или удалё�
 
 Вход `POST /auth/login` принимает в поле `login` email или логин (email
 проверяется первым). Незавершённые статусы дают `403` с кодом
-`email_not_verified`, `pending_approval` или `rejected`. Пользователи,
-созданные администратором, сразу `active`.
+`email_not_verified`, `pending_approval` или `rejected`; отключённый
+администратором аккаунт (`disabled`) — `403 account_disabled`
+(`account is disabled`). Пользователи, созданные администратором, сразу
+`active`.
 
 `UserView` дополнен полями `email`, `status` (`pending_email`,
 `pending_approval`, `active`, `rejected`), `totp_enabled` и `node_id` (нода
@@ -851,7 +930,7 @@ email.
 - `remaining_bytes` — `max(quota_bytes - used_bytes, 0)`; `null` без квоты.
 - `exceeded` — `used_bytes >= quota_bytes`; без квоты всегда `false`. При
   превышении snapshot ограничивает группу и устройства пользователя
-  скоростью 1 kbps.
+  скоростью 1 kbps (см. «Троттлинг доступа»).
 
 `GET /api/v1/quota/users` доступен только роли `admin` (иначе
 `403 forbidden`) и возвращает массив по пользователям, у которых задан
@@ -872,6 +951,22 @@ email.
 
 Пользователь с тарифом без квоты попадает в список с `quota_bytes:null` и
 `percent:null`. Пользователи без тарифа не возвращаются.
+
+### Троттлинг доступа
+
+`SnapshotBuilder` ограничивает скорость пользователя в желаемом состоянии
+ноды (`DesiredState`) в двух случаях:
+
+- исчерпана месячная квота тарифа (`used_bytes >= traffic_quota_bytes`);
+- у пользователя есть подписка (биллинг включён) и её текущий статус не даёт
+  доступа (`incomplete`, `past_due`, `suspended`, `canceled`).
+
+В обоих случаях групповые лимиты пользователя (`user_limits`) и скорости его
+пиров (down/up) становятся `1 kbps`; при активной подписке и неисчерпанной
+квоте применяются обычные лимиты тарифа и устройства. Без подписки и без
+биллинга поведение прежнее — ограничивает только квота. Подписки читаются
+одним запросом на build и кэшируются по `user_id`, поэтому число обращений к
+репозиторию не зависит от количества пиров.
 
 ## Агрегация статистики
 

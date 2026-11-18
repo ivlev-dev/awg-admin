@@ -29,6 +29,7 @@ struct Fixture {
     group_id: Uuid,
     node_id: Uuid,
     interface_id: Uuid,
+    interface_ids: Vec<Uuid>,
 }
 
 fn fixture() -> Fixture {
@@ -120,6 +121,7 @@ fn fixture() -> Fixture {
         group_id: group.id,
         node_id: node.id,
         interface_id: interface_ids[0],
+        interface_ids,
     }
 }
 
@@ -190,6 +192,7 @@ fn creates_single_peer_and_enforces_tariff() {
                 name: "phone".into(),
                 down_kbps: 500_000,
                 up_kbps: 500_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding {
                     to_own_devices: true,
                     allowed_devices: vec![],
@@ -219,6 +222,7 @@ fn creates_single_peer_and_enforces_tariff() {
                 name: "laptop".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -236,6 +240,7 @@ fn creates_single_peer_and_enforces_tariff() {
             name: "tablet".into(),
             down_kbps: 1,
             up_kbps: 1,
+            interface_ids: Vec::new(),
             forwarding: Forwarding::default(),
         },
         &ObfuscationSettings::default(),
@@ -290,6 +295,7 @@ fn keepalive_range_follows_obfuscation_settings() {
                     name: name.into(),
                     down_kbps: 1_000,
                     up_kbps: 1_000,
+                    interface_ids: Vec::new(),
                     forwarding: Forwarding::default(),
                 },
                 &settings,
@@ -343,6 +349,7 @@ fn create_inherits_the_tariff_interface() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -389,6 +396,7 @@ fn tariff_interface_takes_priority_over_request() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -427,6 +435,7 @@ fn request_interface_is_used_when_tariff_has_none() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -456,6 +465,7 @@ fn create_uses_the_only_enabled_interface_of_the_user_node() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -487,6 +497,7 @@ fn create_rejects_a_node_with_several_enabled_interfaces() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -528,6 +539,7 @@ fn create_rejects_a_node_without_enabled_interfaces() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -559,6 +571,7 @@ fn create_forbids_an_interface_of_another_node() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -595,6 +608,7 @@ fn tariff_interface_takes_priority_over_the_user_node() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -626,6 +640,7 @@ fn create_requires_an_interface_when_the_group_has_several() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -665,6 +680,7 @@ fn create_requires_an_enabled_interface() {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -690,6 +706,7 @@ fn forwarding_is_scoped_to_the_user() {
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding {
                     to_own_devices: true,
                     allowed_devices: vec![],
@@ -710,6 +727,7 @@ fn forwarding_is_scoped_to_the_user() {
                 name: "two".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -750,6 +768,7 @@ fn create_normalizes_forwarding() {
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -769,6 +788,7 @@ fn create_normalizes_forwarding() {
                 name: "two".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding {
                     to_own_devices: true,
                     allowed_devices: vec![first.id, first.id],
@@ -820,6 +840,7 @@ fn create_rejects_invalid_forwarding() {
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -839,6 +860,7 @@ fn create_rejects_invalid_forwarding() {
                 name: "other".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -854,6 +876,7 @@ fn create_rejects_invalid_forwarding() {
             name: "bad".into(),
             down_kbps: 1_000,
             up_kbps: 1_000,
+            interface_ids: Vec::new(),
             forwarding: Forwarding {
                 to_own_devices: false,
                 allowed_devices: vec![other_device.id],
@@ -973,6 +996,7 @@ fn peers_for_devices_returns_only_requested_devices() {
                 name: "phone".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -990,6 +1014,7 @@ fn peers_for_devices_returns_only_requested_devices() {
                 name: "laptop".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),
@@ -1008,4 +1033,213 @@ fn peers_for_devices_returns_only_requested_devices() {
     assert!(both.iter().any(|peer| peer.device_id == second.id));
 
     assert!(fixture.devices.peers_for_devices(&[]).unwrap().is_empty());
+}
+
+fn multi_device(fixture: &Fixture, user: &User) -> NewDevice {
+    NewDevice {
+        user_id: user.id,
+        group_id: Some(fixture.group_id),
+        interface_id: None,
+        interface_ids: fixture.interface_ids.clone(),
+        name: "multi".into(),
+        down_kbps: 1_000,
+        up_kbps: 1_000,
+        forwarding: Forwarding::default(),
+    }
+}
+
+#[test]
+fn creates_one_peer_per_requested_interface() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    assert_eq!(device.interface_id, fixture.interface_ids[0]);
+    let mut peers = fixture.devices.peers_for(device.id).unwrap();
+    peers.sort_by_key(|peer| peer.interface_id);
+    let mut expected = fixture.interface_ids.clone();
+    expected.sort();
+    assert_eq!(
+        peers
+            .iter()
+            .map(|peer| peer.interface_id)
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert!(peers.iter().all(|peer| !peer.ips.is_empty()));
+    let first_ips: Vec<_> = peers[0].ips.values().copied().collect();
+    let second_ips: Vec<_> = peers[1].ips.values().copied().collect();
+    assert_ne!(first_ips, second_ips);
+
+    let (_, profiles) = fixture.profiles.build_all(device.id).unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0].interface_name, "awg0");
+    assert_eq!(profiles[1].interface_name, "awg1");
+    assert_eq!(profiles[0].interface_id, fixture.interface_ids[0]);
+    assert_eq!(profiles[1].interface_id, fixture.interface_ids[1]);
+    assert!(
+        profiles
+            .iter()
+            .all(|profile| profile.conf.contains("[Interface]"))
+    );
+    assert!(profiles[0].conf != profiles[1].conf);
+}
+
+#[test]
+fn duplicate_interface_ids_do_not_duplicate_peers() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let mut input = multi_device(&fixture, &user);
+    input.interface_ids = vec![
+        fixture.interface_ids[0],
+        fixture.interface_ids[1],
+        fixture.interface_ids[0],
+    ];
+
+    let device = fixture
+        .devices
+        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .unwrap();
+
+    assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 2);
+    let (_, profiles) = fixture.profiles.build_all(device.id).unwrap();
+    assert_eq!(profiles.len(), 2);
+}
+
+#[test]
+fn requested_interface_of_another_node_is_forbidden() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let (node_id, interface_id) = node_with_interface(&fixture, "node-b");
+    let mut user = node_user(node_id, tariff.id);
+    user.group_id = Some(fixture.group_id);
+
+    let mut input = multi_device(&fixture, &user);
+    input.group_id = None;
+    input.interface_ids = vec![fixture.interface_ids[0], interface_id];
+
+    let error = fixture
+        .devices
+        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .expect_err("interface belongs to another node");
+    assert!(matches!(error, CoreError::Forbidden(_)));
+    assert!(fixture.devices.list_all().unwrap().is_empty());
+}
+
+#[test]
+fn requested_interfaces_must_share_the_device_group() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let other_group = fixture
+        .network
+        .create_group("Other", "", "10.30.0.0/16", false)
+        .unwrap();
+    fixture
+        .network
+        .add_pool(
+            other_group.id,
+            NewPool {
+                name: "clients".into(),
+                cidr: "10.30.0.0/24".into(),
+                mode: PoolMode::Auto,
+                gateway: None,
+            },
+        )
+        .unwrap();
+    let other_interface = fixture
+        .network
+        .add_interface(
+            other_group.id,
+            fixture.node_id,
+            NewInterface {
+                name: "awg9".into(),
+                label: "awg9".into(),
+                endpoint_host: "vpn.example.com".into(),
+                endpoint_port: 51820,
+                listen_port: 51820,
+                mtu: 1420,
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let mut user = node_user(fixture.node_id, tariff.id);
+    user.group_id = None;
+
+    let mut input = multi_device(&fixture, &user);
+    input.group_id = None;
+    input.interface_ids = vec![fixture.interface_ids[0], other_interface.id];
+
+    let error = fixture
+        .devices
+        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .expect_err("interfaces belong to different groups");
+    assert!(matches!(error, CoreError::Forbidden(_)));
+}
+
+#[test]
+fn tariff_interface_ignores_the_requested_list() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let tariff = fixture
+        .tariffs
+        .update(
+            tariff.id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(Some(fixture.interface_ids[1])),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let user = user(fixture.group_id, tariff.id);
+    let mut input = multi_device(&fixture, &user);
+    input.interface_ids = vec![fixture.interface_ids[0]];
+
+    let device = fixture
+        .devices
+        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .unwrap();
+
+    assert_eq!(device.interface_id, fixture.interface_ids[1]);
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].interface_id, fixture.interface_ids[1]);
+}
+
+#[test]
+fn requested_disabled_interface_is_rejected() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    fixture
+        .network
+        .update_interface(
+            fixture.interface_ids[1],
+            awg_network::InterfaceChanges {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let user = user(fixture.group_id, tariff.id);
+
+    let error = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .expect_err("interface is disabled");
+    assert!(matches!(error, CoreError::Conflict(_)));
 }

@@ -137,6 +137,7 @@ fn fixture() -> Fixture {
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
+                interface_ids: Vec::new(),
                 forwarding: Forwarding::default(),
             },
             &ObfuscationSettings::default(),

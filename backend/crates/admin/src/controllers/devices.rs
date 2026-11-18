@@ -69,7 +69,15 @@ pub async fn create(
     let group_id = request.group_id.or(owner.group_id);
     let settings = state.settings.get().map_err(ApiError::from)?;
     let forwarding = request.forwarding.unwrap_or(Forwarding {
-        to_own_devices: forwarding_default(&state, &owner, &tariff, request.interface_id, group_id),
+        to_own_devices: forwarding_default(
+            &state,
+            &owner,
+            &tariff,
+            request
+                .interface_id
+                .or_else(|| request.interface_ids.first().copied()),
+            group_id,
+        ),
         allowed_devices: vec![],
     });
     let device = state
@@ -81,6 +89,7 @@ pub async fn create(
                 user_id: owner.id,
                 group_id,
                 interface_id: request.interface_id,
+                interface_ids: request.interface_ids,
                 name: request.name,
                 down_kbps: request.down_kbps,
                 up_kbps: request.up_kbps,

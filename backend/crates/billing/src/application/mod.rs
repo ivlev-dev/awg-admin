@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use chrono::{DateTime, Months, Utc};
@@ -256,6 +257,35 @@ impl BillingService {
             return Ok(None);
         };
         self.plans.find(subscription.plan_id)
+    }
+
+    pub fn latest_subscriptions(&self) -> CoreResult<HashMap<Uuid, Subscription>> {
+        let mut latest: HashMap<Uuid, Subscription> = HashMap::new();
+        for subscription in self.subscriptions.list()? {
+            let replace = latest.get(&subscription.user_id).is_none_or(|existing| {
+                (subscription.created_at, subscription.id) > (existing.created_at, existing.id)
+            });
+            if replace {
+                latest.insert(subscription.user_id, subscription);
+            }
+        }
+        Ok(latest)
+    }
+
+    pub fn latest_subscription(&self, user_id: Uuid) -> CoreResult<Option<Subscription>> {
+        let mut latest: Option<Subscription> = None;
+        for subscription in self.subscriptions.list()? {
+            if subscription.user_id != user_id {
+                continue;
+            }
+            let replace = latest.as_ref().is_none_or(|existing| {
+                (subscription.created_at, subscription.id) > (existing.created_at, existing.id)
+            });
+            if replace {
+                latest = Some(subscription);
+            }
+        }
+        Ok(latest)
     }
 
     pub fn plan_for_user(&self, user_id: Uuid) -> CoreResult<Option<Uuid>> {
@@ -982,6 +1012,55 @@ mod tests {
         assert_eq!(
             harness.service.plan_for_user(incomplete.user_id).unwrap(),
             None
+        );
+    }
+
+    #[test]
+    fn latest_subscriptions_keeps_newest_per_user_including_canceled() {
+        let harness = Harness::new(Arc::new(NoopGateway));
+        let now = at(16);
+        let first_user = Uuid::new_v4();
+        let second_user = Uuid::new_v4();
+
+        let active = subscription(first_user, Uuid::new_v4(), SubscriptionStatus::Active, now);
+        harness.subscriptions.save(&active).unwrap();
+        let canceled = subscription(
+            first_user,
+            Uuid::new_v4(),
+            SubscriptionStatus::Canceled,
+            now + chrono::Duration::hours(1),
+        );
+        harness.subscriptions.save(&canceled).unwrap();
+        let other = subscription(
+            second_user,
+            Uuid::new_v4(),
+            SubscriptionStatus::Suspended,
+            now,
+        );
+        harness.subscriptions.save(&other).unwrap();
+
+        let latest = harness.service.latest_subscriptions().unwrap();
+        assert_eq!(latest.len(), 2);
+        assert_eq!(latest[&first_user].id, canceled.id);
+        assert!(!latest[&first_user].grants_access());
+        assert_eq!(latest[&second_user].id, other.id);
+        assert!(!latest[&second_user].grants_access());
+
+        assert_eq!(
+            harness
+                .service
+                .latest_subscription(first_user)
+                .unwrap()
+                .unwrap()
+                .id,
+            canceled.id
+        );
+        assert!(
+            harness
+                .service
+                .latest_subscription(Uuid::new_v4())
+                .unwrap()
+                .is_none()
         );
     }
 

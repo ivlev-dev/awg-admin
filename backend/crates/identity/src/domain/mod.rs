@@ -12,6 +12,7 @@ pub const CODE_TOTP_INVALID: &str = "totp_invalid";
 pub const CODE_EMAIL_NOT_VERIFIED: &str = "email_not_verified";
 pub const CODE_PENDING_APPROVAL: &str = "pending_approval";
 pub const CODE_REJECTED: &str = "rejected";
+pub const CODE_ACCOUNT_DISABLED: &str = "account_disabled";
 pub const CODE_INVALID_TOKEN: &str = "invalid_token";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -77,7 +78,7 @@ impl User {
             UserStatus::Active => {}
         }
         if self.disabled {
-            return Err(CoreError::Forbidden("user is disabled".into()));
+            return Err(CoreError::Forbidden(CODE_ACCOUNT_DISABLED.into()));
         }
         Ok(())
     }
@@ -380,7 +381,12 @@ mod tests {
         );
         user.status = UserStatus::Active;
         user.disabled = true;
-        assert!(user.ensure_active().is_err());
+        assert!(
+            user.ensure_active()
+                .unwrap_err()
+                .to_string()
+                .contains(CODE_ACCOUNT_DISABLED)
+        );
     }
 
     #[test]

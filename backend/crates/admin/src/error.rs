@@ -4,8 +4,8 @@ use axum::response::{IntoResponse, Response};
 use serde_json::json;
 
 use awg_identity::{
-    CODE_EMAIL_NOT_VERIFIED, CODE_INVALID_TOKEN, CODE_PENDING_APPROVAL, CODE_REJECTED,
-    CODE_TOTP_INVALID, CODE_TOTP_REQUIRED,
+    CODE_ACCOUNT_DISABLED, CODE_EMAIL_NOT_VERIFIED, CODE_INVALID_TOKEN, CODE_PENDING_APPROVAL,
+    CODE_REJECTED, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED,
 };
 use awg_shared::CoreError;
 
@@ -18,12 +18,14 @@ pub enum ApiError {
     NotFound(String),
     BillingDisabled,
     Conflict(String),
+    TariffRequired,
     TooManyRequests { message: String, retry_after: u64 },
     TotpRequired,
     TotpInvalid(String),
     EmailNotVerified,
     PendingApproval,
     Rejected,
+    AccountDisabled,
     Internal(String),
 }
 
@@ -42,6 +44,7 @@ impl From<CoreError> for ApiError {
                 CODE_EMAIL_NOT_VERIFIED => ApiError::EmailNotVerified,
                 CODE_PENDING_APPROVAL => ApiError::PendingApproval,
                 CODE_REJECTED => ApiError::Rejected,
+                CODE_ACCOUNT_DISABLED => ApiError::AccountDisabled,
                 _ => ApiError::Forbidden(message),
             },
             CoreError::Codec(message) | CoreError::Crypto(message) => ApiError::BadRequest(message),
@@ -67,10 +70,11 @@ impl ApiError {
             ApiError::Forbidden(_)
             | ApiError::EmailNotVerified
             | ApiError::PendingApproval
-            | ApiError::Rejected => StatusCode::FORBIDDEN,
+            | ApiError::Rejected
+            | ApiError::AccountDisabled => StatusCode::FORBIDDEN,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::BillingDisabled => StatusCode::NOT_FOUND,
-            ApiError::Conflict(_) => StatusCode::CONFLICT,
+            ApiError::Conflict(_) | ApiError::TariffRequired => StatusCode::CONFLICT,
             ApiError::TooManyRequests { .. } => StatusCode::TOO_MANY_REQUESTS,
             ApiError::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
@@ -85,12 +89,14 @@ impl ApiError {
             ApiError::NotFound(message) => message.clone(),
             ApiError::BillingDisabled => "billing is disabled".to_string(),
             ApiError::Conflict(message) => message.clone(),
+            ApiError::TariffRequired => "tariff is required".to_string(),
             ApiError::TooManyRequests { message, .. } => message.clone(),
             ApiError::TotpRequired => "two-factor authentication code required".to_string(),
             ApiError::TotpInvalid(message) => message.clone(),
             ApiError::EmailNotVerified => "email is not verified".into(),
             ApiError::PendingApproval => "account is awaiting administrator approval".into(),
             ApiError::Rejected => "registration was rejected".into(),
+            ApiError::AccountDisabled => "account is disabled".into(),
             ApiError::Internal(message) => {
                 tracing::error!(%message, "internal API error");
                 "internal server error".to_string()
@@ -107,12 +113,14 @@ impl ApiError {
             ApiError::NotFound(_) => "not_found",
             ApiError::BillingDisabled => "billing_disabled",
             ApiError::Conflict(_) => "conflict",
+            ApiError::TariffRequired => "tariff_required",
             ApiError::TooManyRequests { .. } => "too_many_requests",
             ApiError::TotpRequired => "totp_required",
             ApiError::TotpInvalid(_) => "totp_invalid",
             ApiError::EmailNotVerified => "email_not_verified",
             ApiError::PendingApproval => "pending_approval",
             ApiError::Rejected => "rejected",
+            ApiError::AccountDisabled => "account_disabled",
             ApiError::Internal(_) => "internal",
         }
     }
@@ -169,6 +177,11 @@ mod tests {
         assert_eq!(rejected.status_code(), StatusCode::FORBIDDEN);
         assert!(matches!(rejected, ApiError::Rejected));
 
+        let disabled = ApiError::from(CoreError::Forbidden(CODE_ACCOUNT_DISABLED.into()));
+        assert_eq!(disabled.status_code(), StatusCode::FORBIDDEN);
+        assert_eq!(disabled.code(), "account_disabled");
+        assert!(matches!(disabled, ApiError::AccountDisabled));
+
         let other = ApiError::from(CoreError::Forbidden("user is disabled".into()));
         assert_eq!(other.status_code(), StatusCode::FORBIDDEN);
         assert!(matches!(other, ApiError::Forbidden(_)));
@@ -179,10 +192,19 @@ mod tests {
     }
 
     #[test]
+    fn maps_tariff_required_to_conflict() {
+        let error = ApiError::TariffRequired;
+        assert_eq!(error.status_code(), StatusCode::CONFLICT);
+        assert_eq!(error.code(), "tariff_required");
+        assert_eq!(error.message(), "tariff is required");
+    }
+
+    #[test]
     fn exposes_response_messages() {
         assert_eq!(ApiError::BadRequest("bad ids".into()).message(), "bad ids");
         assert_eq!(ApiError::Forbidden("denied".into()).message(), "denied");
         assert_eq!(ApiError::BillingDisabled.message(), "billing is disabled");
+        assert_eq!(ApiError::AccountDisabled.message(), "account is disabled");
         assert_eq!(
             ApiError::TotpRequired.message(),
             "two-factor authentication code required"

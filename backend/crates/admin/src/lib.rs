@@ -218,6 +218,7 @@ pub async fn run() -> Result<()> {
         identity: identity.clone(),
         tariffs: tariffs.clone(),
         stats: stats.clone(),
+        billing: config.billing.enabled.then(|| billing.clone()),
     });
 
     let orchestration = Arc::new(OrchestrationService::new(

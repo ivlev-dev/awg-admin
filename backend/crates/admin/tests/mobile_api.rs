@@ -8,7 +8,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use awg_admin::routes::{self, Readiness};
-use awg_admin::test_support::{AppEnv, OTHER_EMAIL, OWNER_EMAIL, app_env};
+use awg_admin::test_support::{
+    AppEnv, OTHER_EMAIL, OWNER_EMAIL, PASSWORD, app_env, app_env_with_billing,
+};
 use awg_network::InterfaceChanges;
 
 fn router(env: &AppEnv) -> Router {
@@ -88,6 +90,11 @@ async fn bootstrap_reports_tariff_quota_and_devices() {
     assert_eq!(body["quota"]["used_bytes"], 0);
     assert_eq!(body["quota"]["quota_bytes"], 1_000_000_000_u64);
     assert_eq!(body["quota"]["exceeded"], false);
+    assert_eq!(body["subscription"], Value::Null);
+    assert_eq!(
+        body["access"],
+        json!({ "blocked": false, "throttled": false, "reasons": [] })
+    );
     assert_eq!(body["devices"], json!([]));
 }
 
@@ -110,6 +117,347 @@ async fn bootstrap_without_tariff_has_null_tariff_and_quota() {
     assert_eq!(body["quota"]["quota_bytes"], Value::Null);
     assert_eq!(body["quota"]["percent"], Value::Null);
     assert_eq!(body["quota"]["used_bytes"], 0);
+    assert_eq!(body["subscription"], Value::Null);
+    assert_eq!(
+        body["access"],
+        json!({ "blocked": true, "throttled": false, "reasons": ["tariff_missing"] })
+    );
+}
+
+#[tokio::test]
+async fn create_device_without_tariff_requires_a_tariff() {
+    let env = app_env();
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.other_token,
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+    assert_eq!(body["error"]["code"], "tariff_required");
+    assert_eq!(body["error"]["message"], "tariff is required");
+    assert!(
+        env.state
+            .devices
+            .list_for_user(env.other_id)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn disabled_account_cannot_log_in() {
+    let env = app_env();
+    env.state
+        .identity
+        .update(
+            env.other_id,
+            awg_identity::UserChanges {
+                email: None,
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: Some(true),
+            },
+        )
+        .unwrap();
+
+    let response = router(&env)
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/auth/login")
+                .header("content-type", "application/json")
+                .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 45_000))))
+                .body(Body::from(
+                    serde_json::to_vec(&json!({
+                        "login": OTHER_EMAIL,
+                        "password": PASSWORD,
+                    }))
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    let bytes = to_bytes(response.into_body(), 1024 * 1024).await.unwrap();
+    let body: Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["error"]["code"], "account_disabled");
+    assert_eq!(body["error"]["message"], "account is disabled");
+}
+
+fn save_subscription(
+    store: &std::sync::Arc<awg_storage::Store>,
+    user_id: uuid::Uuid,
+    plan_id: uuid::Uuid,
+    status: awg_billing::SubscriptionStatus,
+    created_at: chrono::DateTime<chrono::Utc>,
+) -> awg_billing::Subscription {
+    use awg_billing::SubscriptionRepository;
+
+    let subscription = awg_billing::Subscription {
+        id: uuid::Uuid::new_v4(),
+        user_id,
+        plan_id,
+        status,
+        current_period_start: created_at,
+        current_period_end: created_at + chrono::Duration::days(30),
+        auto_renew: true,
+        cancel_at_period_end: false,
+        trial_ends_at: None,
+        gateway: None,
+        gateway_ref: None,
+        created_at,
+        updated_at: created_at,
+    };
+    awg_billing::RedbSubscriptionRepository::new(store.clone())
+        .save(&subscription)
+        .unwrap();
+    subscription
+}
+
+fn pro_plan(env: &AppEnv) -> awg_billing::Plan {
+    use awg_billing::{BillingPeriod, NewPlan};
+
+    env.state
+        .billing
+        .create_plan(NewPlan {
+            name: "Pro".into(),
+            description: String::new(),
+            price_cents: 99_000,
+            currency: "RUB".into(),
+            period: BillingPeriod::Month,
+            tariff_id: env.tariff_id,
+            active: true,
+        })
+        .unwrap()
+}
+
+#[tokio::test]
+async fn bootstrap_reports_active_subscription_and_its_status_changes() {
+    use awg_billing::SubscriptionStatus;
+
+    let env = app_env_with_billing(true);
+    let plan = pro_plan(&env);
+    let base = chrono::Utc::now() - chrono::Duration::days(1);
+    let active = save_subscription(
+        &env.store,
+        env.owner_id,
+        plan.id,
+        SubscriptionStatus::Active,
+        base,
+    );
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["subscription"]["id"], active.id.to_string());
+    assert_eq!(body["subscription"]["plan_name"], "Pro");
+    assert_eq!(body["subscription"]["status"], "active");
+    assert_eq!(body["subscription"]["grants_access"], true);
+    assert_eq!(body["subscription"]["auto_renew"], true);
+    assert_eq!(body["subscription"]["cancel_at_period_end"], false);
+    assert!(body["subscription"]["current_period_end"].is_string());
+    assert_eq!(
+        body["access"],
+        json!({ "blocked": false, "throttled": false, "reasons": [] })
+    );
+
+    save_subscription(
+        &env.store,
+        env.owner_id,
+        plan.id,
+        SubscriptionStatus::Suspended,
+        base + chrono::Duration::hours(1),
+    );
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["subscription"]["status"], "suspended");
+    assert_eq!(body["subscription"]["grants_access"], false);
+    assert_eq!(
+        body["access"],
+        json!({
+            "blocked": false,
+            "throttled": true,
+            "reasons": ["subscription_inactive"]
+        })
+    );
+}
+
+#[tokio::test]
+async fn canceled_only_subscription_is_not_current_but_still_throttles() {
+    use awg_billing::SubscriptionStatus;
+
+    let env = app_env_with_billing(true);
+    let plan = pro_plan(&env);
+    save_subscription(
+        &env.store,
+        env.owner_id,
+        plan.id,
+        SubscriptionStatus::Canceled,
+        chrono::Utc::now(),
+    );
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["subscription"], Value::Null);
+    assert_eq!(
+        body["access"],
+        json!({
+            "blocked": false,
+            "throttled": true,
+            "reasons": ["subscription_inactive"]
+        })
+    );
+}
+
+#[tokio::test]
+async fn throttled_subscription_keeps_existing_device_config_available() {
+    use awg_billing::SubscriptionStatus;
+
+    let env = app_env_with_billing(true);
+    let plan = pro_plan(&env);
+    let created = create_device(router(&env), &env.owner_token, "Phone").await;
+    let device_id = created["device"]["id"].as_str().unwrap().to_string();
+    save_subscription(
+        &env.store,
+        env.owner_id,
+        plan.id,
+        SubscriptionStatus::Suspended,
+        chrono::Utc::now(),
+    );
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/app/devices/{device_id}/config"),
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert!(body["conf"].as_str().unwrap().contains("[Interface]"));
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["access"]["throttled"], true);
+    assert_eq!(body["access"]["blocked"], false);
+}
+
+#[tokio::test]
+async fn throttled_subscription_limits_desired_state_to_one_kbps() {
+    use awg_billing::SubscriptionStatus;
+
+    let env = app_env_with_billing(true);
+    let plan = pro_plan(&env);
+    let created = create_device(router(&env), &env.owner_token, "Phone").await;
+    let interface_id: uuid::Uuid = created["device"]["interface_id"]
+        .as_str()
+        .unwrap()
+        .parse()
+        .unwrap();
+    let device_id = created["device"]["id"].as_str().unwrap().to_string();
+    let base = chrono::Utc::now() - chrono::Duration::days(2);
+
+    let _active = save_subscription(
+        &env.store,
+        env.owner_id,
+        plan.id,
+        SubscriptionStatus::Active,
+        base,
+    );
+    let state = env.state.orchestration.snapshot(env.node_id).unwrap();
+    let interface = state
+        .interfaces
+        .iter()
+        .find(|interface| interface.id == interface_id)
+        .unwrap();
+    let peer = interface
+        .peers
+        .iter()
+        .find(|peer| peer.device_id.to_string() == device_id)
+        .unwrap();
+    assert_eq!(peer.down_kbps, 100_000);
+    assert_eq!(peer.up_kbps, 50_000);
+    let limit = interface
+        .user_limits
+        .iter()
+        .find(|limit| limit.user_id == env.owner_id)
+        .unwrap();
+    assert_eq!((limit.group_down_kbps, limit.group_up_kbps), (0, 0));
+
+    for (offset, status) in [
+        SubscriptionStatus::Suspended,
+        SubscriptionStatus::Canceled,
+        SubscriptionStatus::PastDue,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        save_subscription(
+            &env.store,
+            env.owner_id,
+            plan.id,
+            status,
+            base + chrono::Duration::hours(1 + offset as i64),
+        );
+        let state = env.state.orchestration.snapshot(env.node_id).unwrap();
+        let interface = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.id == interface_id)
+            .unwrap();
+        let peer = interface
+            .peers
+            .iter()
+            .find(|peer| peer.device_id.to_string() == device_id)
+            .unwrap();
+        assert_eq!(peer.down_kbps, 1, "{status:?}");
+        assert_eq!(peer.up_kbps, 1, "{status:?}");
+        let limit = interface
+            .user_limits
+            .iter()
+            .find(|limit| limit.user_id == env.owner_id)
+            .unwrap();
+        assert_eq!(
+            (limit.group_down_kbps, limit.group_up_kbps),
+            (1, 1),
+            "{status:?}"
+        );
+    }
 }
 
 #[tokio::test]
@@ -308,4 +656,381 @@ async fn delete_removes_device_and_config_returns_not_found() {
 
     let (status, body) = call(router(&env), "GET", &config_uri, &env.owner_token, None).await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+}
+
+async fn create_multi_device(app: Router, token: &str, name: &str, ids: &[uuid::Uuid]) -> Value {
+    let (status, body) = call(
+        app,
+        "POST",
+        "/api/v1/app/devices",
+        token,
+        Some(json!({ "name": name, "interface_ids": ids })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    body
+}
+
+#[tokio::test]
+async fn create_device_with_multiple_interfaces_returns_every_config() {
+    let env = app_env();
+    let first = env.interface_ids[0];
+    let second = env.interface_ids[1];
+    let body =
+        create_multi_device(router(&env), &env.owner_token, "Laptop", &[first, second]).await;
+
+    let device = &body["device"];
+    assert_eq!(device["interface_id"], first.to_string());
+    assert_eq!(device["peers"].as_array().unwrap().len(), 2);
+
+    let configs = body["configs"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(configs[0]["interface_id"], second.to_string());
+    assert_eq!(configs[0]["interface_name"], "awg-a");
+    assert_eq!(configs[1]["interface_id"], first.to_string());
+    assert_eq!(configs[1]["interface_name"], "awg-b");
+    assert_ne!(configs[0]["conf"], configs[1]["conf"]);
+    assert_ne!(configs[0]["revision"], configs[1]["revision"]);
+    for config in configs {
+        assert_revision(&config["revision"]);
+        assert!(config["conf"].as_str().unwrap().contains("[Interface]"));
+    }
+
+    assert_eq!(body["config"]["interface_id"], first.to_string());
+    assert_eq!(body["config"]["interface_name"], "awg-b");
+    assert_eq!(body["config"], configs[1]);
+}
+
+#[tokio::test]
+async fn device_configs_route_returns_all_interfaces() {
+    let env = app_env();
+    let first = env.interface_ids[0];
+    let third = env.interface_ids[3];
+    let created =
+        create_multi_device(router(&env), &env.owner_token, "Laptop", &[first, third]).await;
+    let device_id = created["device"]["id"].as_str().unwrap().to_string();
+    let uri = format!("/api/v1/app/devices/{device_id}/configs");
+
+    let (status, body) = call(router(&env), "GET", &uri, &env.owner_token, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let configs = body.as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert_eq!(configs[0]["interface_name"], "awg-b");
+    assert_eq!(configs[0]["interface_id"], first.to_string());
+    assert_eq!(configs[1]["interface_name"], "awg-c");
+    assert_eq!(configs[1]["interface_id"], third.to_string());
+
+    let primary_uri = format!("/api/v1/app/devices/{device_id}/config");
+    let (status, primary) = call(router(&env), "GET", &primary_uri, &env.owner_token, None).await;
+    assert_eq!(status, StatusCode::OK, "{primary}");
+    assert_eq!(primary["interface_id"], first.to_string());
+
+    let (status, _) = call(router(&env), "GET", &uri, &env.other_token, None).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn duplicate_interface_ids_do_not_create_duplicate_peers() {
+    let env = app_env();
+    let first = env.interface_ids[0];
+    let second = env.interface_ids[1];
+    let body = create_multi_device(
+        router(&env),
+        &env.owner_token,
+        "Laptop",
+        &[first, second, first],
+    )
+    .await;
+
+    assert_eq!(body["device"]["peers"].as_array().unwrap().len(), 2);
+    assert_eq!(body["configs"].as_array().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn create_device_rejects_foreign_or_disabled_interfaces() {
+    let env = app_env();
+    let disabled = env.interface_ids[2];
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(json!({ "name": "Phone", "interface_ids": [disabled] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+
+    let other_group = env
+        .state
+        .network
+        .create_group("foreign", "", "10.40.0.0/16", false)
+        .unwrap();
+    let (other_node, _) = env.state.network.create_node("node-foreign").unwrap();
+    let foreign = env
+        .state
+        .network
+        .add_interface(
+            other_group.id,
+            other_node.id,
+            awg_network::NewInterface {
+                name: "awg-x".into(),
+                label: "awg-x".into(),
+                endpoint_host: "vpn.example.com".into(),
+                endpoint_port: 51820,
+                listen_port: 51820,
+                mtu: 1420,
+            },
+            &awg_shared::obf::ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(json!({ "name": "Phone", "interface_ids": [foreign.id] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(
+        env.state
+            .devices
+            .list_for_user(env.owner_id)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn tariff_interface_ignores_requested_interfaces_in_the_app() {
+    let env = app_env();
+    let pinned = env.interface_ids[3];
+    env.state
+        .tariffs
+        .update(
+            env.tariff_id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(Some(pinned)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let body = create_multi_device(
+        router(&env),
+        &env.owner_token,
+        "Phone",
+        &[env.interface_ids[0]],
+    )
+    .await;
+
+    assert_eq!(body["device"]["interface_id"], pinned.to_string());
+    let configs = body["configs"].as_array().unwrap();
+    assert_eq!(configs.len(), 1);
+    assert_eq!(configs[0]["interface_id"], pinned.to_string());
+    assert_eq!(configs[0]["interface_name"], "awg-c");
+}
+
+#[tokio::test]
+async fn bootstrap_lists_available_interfaces_for_the_node() {
+    let env = app_env();
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let interfaces = body["interfaces"].as_array().unwrap();
+    let names: Vec<&str> = interfaces
+        .iter()
+        .map(|interface| interface["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["awg-a", "awg-b", "awg-c"]);
+    for interface in interfaces {
+        assert_eq!(interface["node_id"], env.node_id.to_string());
+        assert_eq!(interface["node_name"], "node-mobile");
+        assert!(interface["id"].is_string());
+    }
+}
+
+#[tokio::test]
+async fn bootstrap_interfaces_follow_tariff_pin_and_group_fallback() {
+    let env = app_env();
+    let pinned = env.interface_ids[0];
+    env.state
+        .tariffs
+        .update(
+            env.tariff_id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(Some(pinned)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let interfaces = body["interfaces"].as_array().unwrap();
+    assert_eq!(interfaces.len(), 1);
+    assert_eq!(interfaces[0]["id"], pinned.to_string());
+    assert_eq!(interfaces[0]["name"], "awg-b");
+
+    env.state
+        .tariffs
+        .update(
+            env.tariff_id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(None),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    env.state
+        .identity
+        .update(
+            env.owner_id,
+            awg_identity::UserChanges {
+                email: None,
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: Some(None),
+                disabled: None,
+            },
+        )
+        .unwrap();
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/app/bootstrap",
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let names: Vec<&str> = body["interfaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|interface| interface["name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, vec!["awg-a", "awg-b", "awg-c"]);
+}
+
+async fn admin_token(env: &AppEnv) -> String {
+    env.state
+        .identity
+        .update(
+            env.owner_id,
+            awg_identity::UserChanges {
+                email: None,
+                role: Some(awg_identity::Role::Admin),
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap();
+    env.state
+        .identity
+        .login(
+            OWNER_EMAIL,
+            PASSWORD,
+            &awg_identity::SessionMetadata {
+                user_agent: None,
+                ip: None,
+            },
+        )
+        .unwrap()
+        .access_token
+}
+
+#[tokio::test]
+async fn admin_create_device_with_multiple_interfaces_exposes_peers_and_profiles() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let first = env.interface_ids[0];
+    let second = env.interface_ids[1];
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/devices",
+        &token,
+        Some(json!({
+            "user_id": env.owner_id,
+            "name": "Laptop",
+            "interface_ids": [first, second, first],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["interface_id"], first.to_string());
+    let peers = body["peers"].as_array().unwrap();
+    assert_eq!(peers.len(), 2);
+    let mut peer_interfaces: Vec<&str> = peers
+        .iter()
+        .map(|peer| peer["interface_id"].as_str().unwrap())
+        .collect();
+    peer_interfaces.sort();
+    let mut expected = [first.to_string(), second.to_string()];
+    expected.sort();
+    assert_eq!(
+        peer_interfaces,
+        expected.iter().map(String::as_str).collect::<Vec<_>>()
+    );
+
+    let device_id = body["id"].as_str().unwrap();
+    let (status, profiles) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device_id}/profiles"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{profiles}");
+    let profiles = profiles.as_array().unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles[0]["interface_name"], "awg-a");
+    assert_eq!(profiles[1]["interface_name"], "awg-b");
+    assert_ne!(profiles[0]["conf"], profiles[1]["conf"]);
+}
+
+#[tokio::test]
+async fn admin_create_device_still_accepts_a_single_interface() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let first = env.interface_ids[0];
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/devices",
+        &token,
+        Some(json!({
+            "user_id": env.owner_id,
+            "name": "Phone",
+            "interface_id": first,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["interface_id"], first.to_string());
+    assert_eq!(body["peers"].as_array().unwrap().len(), 1);
 }

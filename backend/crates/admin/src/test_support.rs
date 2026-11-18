@@ -470,7 +470,7 @@ pub const OWNER_EMAIL: &str = "owner@example.com";
 pub const OTHER_EMAIL: &str = "other@example.com";
 pub const PASSWORD: &str = "password123";
 
-fn app_config() -> crate::config::Config {
+fn app_config(billing_enabled: bool) -> crate::config::Config {
     use crate::config::{
         Config, ConfigInput, DEFAULT_ADMIN_EMAIL, DEFAULT_APP_VERIFY_URL, DEFAULT_JWT_AUDIENCE,
         DEFAULT_JWT_ISSUER, Environment,
@@ -513,7 +513,7 @@ fn app_config() -> crate::config::Config {
         smtp_url: None,
         smtp_from: None,
         metrics_token: None,
-        billing_enabled: "false".into(),
+        billing_enabled: if billing_enabled { "true" } else { "false" }.into(),
         billing_currency: "RUB".into(),
         billing_trial_days: "0".into(),
         payment_provider: "noop".into(),
@@ -526,6 +526,10 @@ fn app_config() -> crate::config::Config {
 }
 
 pub fn app_env() -> AppEnv {
+    app_env_with_billing(false)
+}
+
+pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
     use std::time::Duration;
 
     use awg_audit::AuditService;
@@ -551,7 +555,7 @@ pub fn app_env() -> AppEnv {
     use crate::snapshot::SnapshotBuilder;
     use crate::state::AppState;
 
-    let config = Arc::new(app_config());
+    let config = Arc::new(app_config(billing_enabled));
     let store = Arc::new(Store::open_in_memory().unwrap());
     let key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
     let sealer = Arc::new(Sealer::from_master_key(&key).unwrap());
@@ -703,12 +707,24 @@ pub fn app_env() -> AppEnv {
         stats_hub.clone(),
     ));
     let registry = Arc::new(WorkerRegistry::new());
+    let subscriptions = Arc::new(RedbSubscriptionRepository::new(store.clone()));
+    let billing = Arc::new(BillingService::new(
+        Arc::new(RedbPlanRepository::new(store.clone())),
+        subscriptions,
+        Arc::new(RedbInvoiceRepository::new(store.clone())),
+        Arc::new(RedbPaymentMethodRepository::new(store.clone())),
+        Arc::new(RedbPaymentEventRepository::new(store.clone())),
+        Arc::new(TariffCatalogAdapter::new(tariffs.clone())),
+        Arc::new(NoopGateway),
+        config.billing.settings(),
+    ));
     let snapshot = Arc::new(SnapshotBuilder {
         network: network.clone(),
         devices: devices.clone(),
         identity: identity.clone(),
         tariffs: tariffs.clone(),
         stats: stats.clone(),
+        billing: config.billing.enabled.then(|| billing.clone()),
     });
     let orchestration = Arc::new(OrchestrationService::new(
         registry.clone(),
@@ -721,16 +737,6 @@ pub fn app_env() -> AppEnv {
     let audit = Arc::new(AuditService::new(Arc::new(RedbAuditRepository::new(
         store.clone(),
     ))));
-    let billing = Arc::new(BillingService::new(
-        Arc::new(RedbPlanRepository::new(store.clone())),
-        Arc::new(RedbSubscriptionRepository::new(store.clone())),
-        Arc::new(RedbInvoiceRepository::new(store.clone())),
-        Arc::new(RedbPaymentMethodRepository::new(store.clone())),
-        Arc::new(RedbPaymentEventRepository::new(store.clone())),
-        Arc::new(TariffCatalogAdapter::new(tariffs.clone())),
-        Arc::new(NoopGateway),
-        config.billing.settings(),
-    ));
     let backend: Arc<dyn RateLimiter> = Arc::new(MemoryRateLimiter::new());
     let scope = |prefix: &'static str| {
         RateLimitScope::new(backend.clone(), prefix, 100, Duration::from_secs(60))

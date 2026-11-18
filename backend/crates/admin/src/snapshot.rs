@@ -4,6 +4,7 @@ use std::sync::Arc;
 use ipnet::Ipv4Net;
 use uuid::Uuid;
 
+use awg_billing::BillingService;
 use awg_clients::{DevicePeer, DeviceService, ForwardingPolicy};
 use awg_identity::IdentityService;
 use awg_network::{CidrPool, NetworkService};
@@ -20,6 +21,7 @@ pub struct SnapshotBuilder {
     pub identity: Arc<IdentityService>,
     pub tariffs: Arc<TariffService>,
     pub stats: Arc<StatsService>,
+    pub billing: Option<Arc<BillingService>>,
 }
 
 impl SnapshotSource for SnapshotBuilder {
@@ -54,6 +56,8 @@ impl SnapshotSource for SnapshotBuilder {
                 interfaces: desired,
             });
         }
+
+        let subscription_access = self.subscription_access()?;
 
         let devices = self.devices.list_all()?;
         let mut devices_by_group: HashMap<Uuid, Vec<awg_clients::Device>> = HashMap::new();
@@ -90,7 +94,7 @@ impl SnapshotSource for SnapshotBuilder {
                 .map(|devices| {
                     devices
                         .iter()
-                        .filter(|device| device.interface_id == interface.id)
+                        .filter(|device| peer_index.contains_key(&(device.id, interface.id)))
                         .cloned()
                         .collect()
                 })
@@ -125,7 +129,7 @@ impl SnapshotSource for SnapshotBuilder {
                 let (down, up) = match user_tariffs.get(&user.id) {
                     Some(tariff) => {
                         let used = used_bytes_cached(&self.stats, &mut used_cache, user.id);
-                        if tariff.period_usage_exceeded(used) {
+                        if throttled(tariff, used, &subscription_access, user.id) {
                             (1, 1)
                         } else {
                             (tariff.group_down_kbps, tariff.group_up_kbps)
@@ -150,7 +154,7 @@ impl SnapshotSource for SnapshotBuilder {
                 let used = used_bytes_cached(&self.stats, &mut used_cache, device.user_id);
                 let blocked = user_tariffs
                     .get(&device.user_id)
-                    .map(|t| t.period_usage_exceeded(used))
+                    .map(|t| throttled(t, used, &subscription_access, device.user_id))
                     .unwrap_or(false);
                 let (down, up) = if blocked {
                     (1, 1)
@@ -232,6 +236,28 @@ impl SnapshotSource for SnapshotBuilder {
             interfaces: desired,
         })
     }
+}
+
+impl SnapshotBuilder {
+    fn subscription_access(&self) -> awg_shared::CoreResult<HashMap<Uuid, bool>> {
+        let Some(billing) = &self.billing else {
+            return Ok(HashMap::new());
+        };
+        Ok(billing
+            .latest_subscriptions()?
+            .into_iter()
+            .map(|(user_id, subscription)| (user_id, subscription.grants_access()))
+            .collect())
+    }
+}
+
+fn throttled(
+    tariff: &Tariff,
+    used: u64,
+    subscription_access: &HashMap<Uuid, bool>,
+    user_id: Uuid,
+) -> bool {
+    tariff.period_usage_exceeded(used) || subscription_access.get(&user_id) == Some(&false)
 }
 
 fn used_bytes_cached(stats: &StatsService, cache: &mut HashMap<Uuid, u64>, user_id: Uuid) -> u64 {
@@ -801,6 +827,7 @@ mod tests {
             (pool_a_disabled.id, IpAddr::V4(Ipv4Addr::new(10, 4, 0, 9))),
         ]);
         let ghost_ips = BTreeMap::from([(pool_a.id, IpAddr::V4(Ipv4Addr::new(10, 1, 0, 4)))]);
+        let phone_a1_ips = BTreeMap::from([(pool_a.id, IpAddr::V4(Ipv4Addr::new(10, 1, 0, 6)))]);
         let tablet_ips = BTreeMap::from([(pool_b.id, IpAddr::V4(Ipv4Addr::new(10, 20, 0, 7)))]);
         let revoked_ips = BTreeMap::from([(pool_a.id, IpAddr::V4(Ipv4Addr::new(10, 1, 0, 5)))]);
 
@@ -812,6 +839,7 @@ mod tests {
                 "key-phone-a0",
                 phone_ips.clone(),
             ),
+            peer(&sealer, &phone, iface_a1.id, "key-phone-a1", phone_a1_ips),
             peer(&sealer, &laptop, iface_a0.id, "key-laptop-a0", laptop_ips),
             peer(&sealer, &ghost, iface_a0.id, "key-ghost-a0", ghost_ips),
             peer(&sealer, &tablet, iface_b0.id, "key-tablet-b0", tablet_ips),
@@ -867,6 +895,7 @@ mod tests {
                 identity,
                 tariffs,
                 stats: Arc::new(StatsService::new(stats.clone(), Arc::new(StatsHub::new(8)))),
+                billing: None,
             },
             node_id: node.id,
             iface_a1_id: iface_a1.id,
@@ -902,14 +931,22 @@ mod tests {
         }
 
         let mut desired = Vec::new();
+        let all_devices = builder.devices.list_all()?;
+        let mut device_peers: HashMap<Uuid, Vec<DevicePeer>> = HashMap::new();
+        for device in &all_devices {
+            device_peers.insert(device.id, builder.devices.peers_for(device.id)?);
+        }
         for interface in interfaces {
-            let group_devices = builder
-                .devices
-                .list_all()?
-                .into_iter()
+            let group_devices = all_devices
+                .iter()
                 .filter(|d| {
-                    d.group_id == interface.group_id && d.interface_id == interface.id && !d.revoked
+                    d.group_id == interface.group_id
+                        && !d.revoked
+                        && device_peers.get(&d.id).is_some_and(|peers| {
+                            peers.iter().any(|peer| peer.interface_id == interface.id)
+                        })
                 })
+                .cloned()
                 .collect::<Vec<_>>();
             let pools = builder.network.list_pools(interface.group_id)?;
             let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
@@ -961,15 +998,13 @@ mod tests {
             let mut peers = Vec::new();
             let mut peer_by_device: HashMap<Uuid, (Vec<String>, Vec<String>)> = HashMap::new();
             for device in &group_devices {
-                let Some(peer) = builder
-                    .devices
-                    .peers_for(device.id)?
-                    .into_iter()
-                    .find(|p| p.interface_id == interface.id)
+                let Some(peer) = device_peers
+                    .get(&device.id)
+                    .and_then(|peers| peers.iter().find(|p| p.interface_id == interface.id))
                 else {
                     continue;
                 };
-                let (private_key, preshared_key) = builder.devices.peer_secrets(&peer)?;
+                let (private_key, preshared_key) = builder.devices.peer_secrets(peer)?;
                 let _ = private_key;
                 let blocked = builder
                     .stats
@@ -1083,8 +1118,45 @@ mod tests {
                 .len()
         };
         assert_eq!(peers_of("awg0"), 3);
-        assert_eq!(peers_of("awg1"), 0);
+        assert_eq!(peers_of("awg1"), 1);
         assert_eq!(peers_of("awg2"), 1);
+    }
+
+    #[test]
+    fn multi_interface_device_reaches_every_interface_in_desired_state() {
+        let fixture = seed();
+        let state = fixture.builder.build(fixture.node_id).unwrap();
+        let devices = fixture.builder.devices.list_all().unwrap();
+        let phone = devices.iter().find(|d| d.name == "phone").unwrap();
+
+        let awg0 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg0")
+            .unwrap();
+        let awg1 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg1")
+            .unwrap();
+
+        let on_a0 = awg0
+            .peers
+            .iter()
+            .find(|peer| peer.device_id == phone.id)
+            .expect("phone peer on awg0");
+        let on_a1 = awg1
+            .peers
+            .iter()
+            .find(|peer| peer.device_id == phone.id)
+            .expect("phone peer on awg1");
+        assert_eq!(on_a0.public_key, "key-phone-a0");
+        assert_eq!(on_a1.public_key, "key-phone-a1");
+        let mut on_a0_addresses = on_a0.addresses.clone();
+        on_a0_addresses.sort();
+        assert_eq!(on_a0_addresses, vec!["10.1.0.2/24", "10.2.0.5/24"]);
+        assert_eq!(on_a1.addresses, vec!["10.1.0.6/24"]);
+        assert_ne!(on_a0.addresses, on_a1.addresses);
     }
 
     #[test]
@@ -1112,9 +1184,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(awg1.id, fixture.iface_a1_id);
-        assert!(awg1.peers.is_empty());
+        assert!(awg1.peers.iter().any(|peer| peer.device_id == phone.id));
         assert!(awg0.peers.iter().any(|peer| peer.device_id == phone.id));
         assert!(awg0.peers.iter().all(|peer| peer.device_id != tablet.id));
+        assert!(awg1.peers.iter().all(|peer| peer.device_id != tablet.id));
         assert_eq!(awg2.peers.len(), 1);
         assert_eq!(awg2.peers[0].device_id, tablet.id);
     }
@@ -1142,12 +1215,12 @@ mod tests {
         fixture.reset_calls();
         legacy_build(&fixture.builder, fixture.node_id).unwrap();
 
-        assert_eq!(fixture.devices.list_calls.load(Ordering::SeqCst), 3);
-        assert_eq!(fixture.peers.by_device_calls.load(Ordering::SeqCst), 5);
+        assert_eq!(fixture.devices.list_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(fixture.peers.by_device_calls.load(Ordering::SeqCst), 6);
         assert_eq!(fixture.peers.list_calls.load(Ordering::SeqCst), 0);
         assert_eq!(fixture.pools.by_group_calls.load(Ordering::SeqCst), 3);
         assert_eq!(fixture.pools.list_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(fixture.stats.used(), 6);
+        assert_eq!(fixture.stats.used(), 8);
     }
 
     #[test]
