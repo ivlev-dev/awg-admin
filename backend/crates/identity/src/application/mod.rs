@@ -12,7 +12,7 @@ use crate::domain::{
     CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
     EmailVerificationRepository, IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role,
     SessionMetadata, TokenIssuer, User, UserRepository, UserStatus, VerificationKind,
-    normalize_email, validate_login, validate_password,
+    email_from_login, normalize_email, sanitize_login, validate_login, validate_password,
 };
 
 const VERIFICATION_TTL_HOURS: i64 = 24;
@@ -22,7 +22,7 @@ const TOTP_ISSUER: &str = "awg-admin";
 
 #[derive(Debug, Clone)]
 pub struct NewUser {
-    pub login: String,
+    pub email: String,
     pub password: String,
     pub role: Role,
     pub tariff_id: Option<Uuid>,
@@ -46,6 +46,7 @@ pub struct TotpSetup {
 
 #[derive(Debug, Clone)]
 pub struct UserChanges {
+    pub email: Option<String>,
     pub role: Option<Role>,
     pub tariff_id: Option<Option<Uuid>>,
     pub group_id: Option<Option<Uuid>>,
@@ -113,11 +114,22 @@ impl IdentityService {
     }
 
     pub fn seed_admin(&self, login: &str, password: &str) -> CoreResult<Option<User>> {
+        self.seed_admin_with_email(login, &email_from_login(login), password)
+    }
+
+    pub fn seed_admin_with_email(
+        &self,
+        login: &str,
+        email: &str,
+        password: &str,
+    ) -> CoreResult<Option<User>> {
         if self.users.count()? > 0 {
             return Ok(None);
         }
+        let email =
+            normalize_email(email).or_else(|_| normalize_email(&email_from_login(login)))?;
         let user = self.create(NewUser {
-            login: login.to_string(),
+            email,
             password: password.to_string(),
             role: Role::Admin,
             tariff_id: None,
@@ -226,27 +238,32 @@ impl IdentityService {
             .ok_or_else(|| CoreError::NotFound("user".into()))
     }
 
+    pub fn find_by_login(&self, login: &str) -> CoreResult<Option<User>> {
+        self.users.find_by_login(login)
+    }
+
     pub fn list(&self) -> CoreResult<Vec<User>> {
         self.users.list()
     }
 
     pub fn create(&self, input: NewUser) -> CoreResult<User> {
-        validate_login(&input.login)?;
+        let email = normalize_email(&input.email)?;
         validate_password(&input.password)?;
-        if self.users.find_by_login(input.login.trim())?.is_some() {
-            return Err(CoreError::Conflict("login is already taken".into()));
+        if self.users.find_by_email(&email)?.is_some() {
+            return Err(CoreError::Conflict("email is already registered".into()));
         }
+        let login = self.derived_login(&email)?;
         let now = Utc::now();
         let user = User {
             id: Uuid::new_v4(),
-            login: input.login.trim().to_string(),
+            login,
             password_hash: self.hasher.hash(&input.password)?,
             role: input.role,
             tariff_id: input.tariff_id,
             group_id: input.group_id,
             node_id: input.node_id,
             disabled: false,
-            email: None,
+            email: Some(email),
             status: UserStatus::Active,
             totp_secret_sealed: None,
             totp_enabled: false,
@@ -548,11 +565,7 @@ impl IdentityService {
 
     fn derived_login(&self, email: &str) -> CoreResult<String> {
         let local = email.split('@').next().unwrap_or("user");
-        let mut base: String = local
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.'))
-            .collect();
-        base = base.trim_matches('.').to_string();
+        let mut base = sanitize_login(local);
         if base.len() < 3 {
             base = format!("user{base}");
         }
@@ -602,6 +615,15 @@ impl IdentityService {
 
     pub fn update(&self, id: Uuid, changes: UserChanges) -> CoreResult<User> {
         let mut user = self.find(id)?;
+        if let Some(email) = changes.email {
+            let email = normalize_email(&email)?;
+            if let Some(existing) = self.users.find_by_email(&email)?
+                && existing.id != user.id
+            {
+                return Err(CoreError::Conflict("email is already registered".into()));
+            }
+            user.email = Some(email);
+        }
         if let Some(role) = changes.role {
             user.role = role;
         }

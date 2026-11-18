@@ -84,7 +84,7 @@ Protocols`).
 
 - Пароли хэшируются Argon2.
 - JWT выдаются парой: access (по умолчанию 900 с) и refresh (30 дней); обновление через `/auth/refresh`, отзыв через `/auth/logout`.
-- Seed-администратор создаётся при первом запуске из `AWG_ADMIN_LOGIN`/`AWG_ADMIN_PASSWORD`.
+- Seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`; `AWG_ADMIN_LOGIN` остаётся legacy-логином для поиска существующей записи.
 
 ## Шифрование секретов
 

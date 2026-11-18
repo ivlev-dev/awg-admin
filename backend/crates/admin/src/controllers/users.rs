@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
+use base64::Engine;
 use uuid::Uuid;
 
 use awg_identity::{NewUser, UserChanges};
+use awg_shared::crypto::random_bytes;
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
@@ -38,11 +40,15 @@ pub async fn create(
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
     ensure_node(&state, request.node_id)?;
+    let password = request
+        .password
+        .filter(|password| !password.trim().is_empty())
+        .unwrap_or_else(generated_password);
     let created = state
         .identity
         .create(NewUser {
-            login: request.login,
-            password: request.password,
+            email: request.email,
+            password,
             role: request.role,
             tariff_id: request.tariff_id,
             group_id: request.group_id,
@@ -80,6 +86,7 @@ pub async fn update(
         .update(
             id,
             UserChanges {
+                email: request.email,
                 role: request.role,
                 tariff_id: request.tariff_id,
                 group_id: request.group_id,
@@ -146,6 +153,7 @@ pub async fn approve(
             .update(
                 approved.id,
                 UserChanges {
+                    email: None,
                     role: None,
                     tariff_id: None,
                     group_id: Some(Some(group_id)),
@@ -166,4 +174,8 @@ pub async fn reject(
     user.require_admin()?;
     let rejected = state.identity.reject_user(id).map_err(ApiError::from)?;
     Ok(Json(UserView::from(&rejected)))
+}
+
+fn generated_password() -> String {
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(random_bytes::<24>())
 }

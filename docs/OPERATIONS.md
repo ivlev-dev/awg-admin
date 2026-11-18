@@ -44,7 +44,7 @@ Frontend доступен на `http://localhost:5173`, admin на `http://local
 
 - `AWG_MASTER_KEY` — 32 байта в base64 (`openssl rand -base64 32`), используется `Sealer` (ChaCha20-Poly1305) для шифрования приватных ключей устройств и интерфейсов в redb. В `production` старт завершается ошибкой, если ключ не задан, не base64 или длина не 32 байта. Потеря ключа делает сохранённые секреты нечитаемыми; менять ключ на данных production нельзя.
 - `AWG_JWT_SECRET` — не короче 32 байт в `production` (`openssl rand -base64 48`). Влияет на все JWT; смена секрета инвалидирует выданные токены.
-- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; seed-администратор создаётся при первом запуске из `AWG_ADMIN_LOGIN`/`AWG_ADMIN_PASSWORD`.
+- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`, `AWG_ADMIN_LOGIN` (legacy) используется для поиска существующей записи.
 - `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` по умолчанию `awg-admin`; пустые значения заменяются значением по умолчанию.
 - SMTP: `AWG_MAIL_MODE=log|smtp`, `AWG_SMTP_URL=smtp://user:pass@host:port`, `AWG_SMTP_FROM`, `AWG_PUBLIC_URL` для ссылки подтверждения email.
 - Без `.env` admin генерирует эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` с предупреждением; после рестарта секреты устройств становятся нечитаемыми. Проверка:
@@ -55,7 +55,7 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 
 ## 3. Backup и restore redb
 
-БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 3` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
+БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 6` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
 
 Методы `Store`:
 

@@ -89,6 +89,10 @@ impl User {
         }
         Ok(())
     }
+
+    pub fn email_or_login(&self) -> String {
+        self.email.clone().unwrap_or_else(|| self.login.clone())
+    }
 }
 
 pub fn validate_login(login: &str) -> CoreResult<()> {
@@ -119,9 +123,36 @@ pub fn validate_password(password: &str) -> CoreResult<()> {
     Ok(())
 }
 
+pub fn sanitize_login(raw: &str) -> String {
+    let mut sanitized: String = raw
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    sanitized.truncate(64);
+    sanitized.trim_matches(['-', '.']).to_string()
+}
+
+pub fn email_from_login(login: &str) -> String {
+    let local = sanitize_login(login);
+    let local = if local.is_empty() {
+        "user".to_string()
+    } else {
+        local
+    };
+    format!("{local}@local")
+}
+
 pub fn normalize_email(raw: &str) -> CoreResult<String> {
     let email = raw.trim().to_ascii_lowercase();
-    if email.len() < 5 || email.len() > 254 {
+    if email.len() < 3 || email.len() > 254 {
         return Err(CoreError::Invalid("email is invalid".into()));
     }
     let mut parts = email.split('@');
@@ -130,12 +161,26 @@ pub fn normalize_email(raw: &str) -> CoreResult<String> {
     if parts.next().is_some()
         || local.is_empty()
         || domain.is_empty()
-        || !domain.contains('.')
+        || !is_valid_domain(domain)
         || email.chars().any(|c| c.is_whitespace())
     {
         return Err(CoreError::Invalid("email is invalid".into()));
     }
     Ok(email)
+}
+
+fn is_valid_domain(domain: &str) -> bool {
+    if domain.starts_with('.') || domain.ends_with('.') || domain.contains("..") {
+        return false;
+    }
+    if domain.contains('.') {
+        return true;
+    }
+    !domain.starts_with('-')
+        && !domain.ends_with('-')
+        && domain
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
 pub type MailerFuture<'a> = Pin<Box<dyn Future<Output = CoreResult<()>> + Send + 'a>>;
@@ -353,15 +398,27 @@ mod tests {
             normalize_email("  User.Name@Example.COM ").unwrap(),
             "user.name@example.com"
         );
+        assert_eq!(normalize_email("Admin@Local").unwrap(), "admin@local");
         for invalid in [
             "",
             "no-at",
             "@example.com",
             "user@",
-            "user@localhost",
+            "user@.local",
             "a b@example.com",
         ] {
             assert!(normalize_email(invalid).is_err(), "{invalid}");
         }
+    }
+
+    #[test]
+    fn sanitizes_legacy_logins_and_builds_local_emails() {
+        assert_eq!(sanitize_login("  Admin "), "admin");
+        assert_eq!(sanitize_login("User Name!"), "user-name");
+        assert_eq!(sanitize_login("new.user"), "new.user");
+        assert_eq!(sanitize_login("--"), "");
+        assert_eq!(email_from_login("Admin"), "admin@local");
+        assert_eq!(email_from_login("User Name"), "user-name@local");
+        assert_eq!(email_from_login(""), "user@local");
     }
 }

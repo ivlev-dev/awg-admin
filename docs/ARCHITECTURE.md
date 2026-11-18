@@ -253,7 +253,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `3`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `6`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -717,10 +717,11 @@ snapshot/worker.
 
 Схема была поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
 таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
-Текущая версия схемы — `5` (шаг `v3_rate_limits` добавляет `rate_limits`,
+Текущая версия схемы — `6` (шаг `v3_rate_limits` добавляет `rate_limits`,
 `v4_device_interfaces` привязывает устройства к интерфейсу и оставляет один пир,
 `v5_user_nodes` привязывает пользователей к ноде по первому интерфейсу их
-группы).
+группы, `v6_user_emails` проставляет email пользователям без email:
+`<login>@local`, при коллизии `+id`).
 Backup/restore по-прежнему требует точного совпадения версии.
 
 Конфигурация:

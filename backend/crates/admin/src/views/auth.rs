@@ -2,13 +2,14 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
+use awg_identity::domain::email_from_login;
 use awg_identity::{Role, User, UserStatus};
 
 #[derive(Debug, Serialize)]
 pub struct UserView {
     pub id: Uuid,
     pub login: String,
-    pub email: Option<String>,
+    pub email: String,
     pub status: UserStatus,
     pub totp_enabled: bool,
     pub role: Role,
@@ -25,7 +26,10 @@ impl From<&User> for UserView {
         Self {
             id: user.id,
             login: user.login.clone(),
-            email: user.email.clone(),
+            email: user
+                .email
+                .clone()
+                .unwrap_or_else(|| email_from_login(&user.login)),
             status: user.status,
             totp_enabled: user.totp_enabled,
             role: user.role,
@@ -71,5 +75,42 @@ impl From<&awg_identity::RefreshSession> for SessionView {
             user_agent: session.user_agent.clone(),
             ip: session.ip.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(login: &str, email: Option<&str>) -> User {
+        let now = Utc::now();
+        User {
+            id: Uuid::new_v4(),
+            login: login.into(),
+            password_hash: String::new(),
+            role: Role::Admin,
+            tariff_id: None,
+            group_id: None,
+            node_id: None,
+            disabled: false,
+            email: email.map(str::to_string),
+            status: UserStatus::Active,
+            totp_secret_sealed: None,
+            totp_enabled: false,
+            recovery_codes: Vec::new(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn user_view_always_exposes_email() {
+        let view = UserView::from(&user("admin", Some("admin@local")));
+        assert_eq!(view.email, "admin@local");
+        assert_eq!(view.login, "admin");
+
+        let legacy = UserView::from(&user("Admin", None));
+        assert_eq!(legacy.email, "admin@local");
+        assert_eq!(legacy.login, "Admin");
     }
 }

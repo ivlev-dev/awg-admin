@@ -63,7 +63,7 @@ fn metadata() -> SessionMetadata {
 fn create_user(service: &IdentityService, login: &str) -> awg_identity::User {
     service
         .create(NewUser {
-            login: login.into(),
+            email: format!("{login}@example.com"),
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -102,6 +102,11 @@ fn seeds_admin_once_and_logs_in() {
     let service = service();
     let admin = service.seed_admin("admin", "password123").unwrap();
     assert!(admin.is_some());
+    assert_eq!(
+        admin.as_ref().unwrap().email.as_deref(),
+        Some("admin@local")
+    );
+    assert_eq!(admin.as_ref().unwrap().login, "admin");
     assert!(
         service
             .seed_admin("other", "password123")
@@ -120,6 +125,30 @@ fn seeds_admin_once_and_logs_in() {
     let principal = service.authenticate(&session.access_token).unwrap();
     assert!(principal.is_admin());
     assert_eq!(principal.user_id, session.user.id);
+}
+
+#[test]
+fn seeds_admin_with_configured_email() {
+    let service = service();
+    let admin = service
+        .seed_admin_with_email("root", " Owner@Example.COM ", "password123")
+        .unwrap()
+        .unwrap();
+    assert_eq!(admin.email.as_deref(), Some("owner@example.com"));
+    assert_eq!(admin.login, "owner");
+    assert_eq!(admin.role, Role::Admin);
+
+    assert!(
+        service
+            .login("owner@example.com", "password123", &metadata())
+            .is_ok()
+    );
+    assert!(
+        service
+            .seed_admin_with_email("other", "other@example.com", "password123")
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]
@@ -229,6 +258,7 @@ fn password_change_and_role_update() {
         .update(
             user.id,
             UserChanges {
+                email: None,
                 role: Some(Role::Admin),
                 tariff_id: None,
                 group_id: None,
@@ -247,7 +277,7 @@ fn create_and_update_bind_users_to_a_node() {
     let node_id = Uuid::new_v4();
     let user = service
         .create(NewUser {
-            login: "node-user".into(),
+            email: "node-user@example.com".into(),
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -261,6 +291,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                email: None,
                 role: None,
                 tariff_id: None,
                 group_id: None,
@@ -275,6 +306,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                email: None,
                 role: None,
                 tariff_id: None,
                 group_id: None,
@@ -290,6 +322,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                email: None,
                 role: None,
                 tariff_id: None,
                 group_id: None,
@@ -299,6 +332,120 @@ fn create_and_update_bind_users_to_a_node() {
         )
         .unwrap();
     assert_eq!(rebound.node_id, Some(another));
+}
+
+#[test]
+fn create_uses_email_as_primary_identifier() {
+    let service = service();
+    let user = service
+        .create(NewUser {
+            email: " New.User@Example.COM ".into(),
+            password: "password123".into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            node_id: None,
+        })
+        .unwrap();
+    assert_eq!(user.email.as_deref(), Some("new.user@example.com"));
+    assert_eq!(user.login, "new.user");
+
+    let duplicate = service
+        .create(NewUser {
+            email: "NEW.USER@example.com".into(),
+            password: "password123".into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            node_id: None,
+        })
+        .unwrap_err();
+    assert!(
+        duplicate
+            .to_string()
+            .contains("email is already registered"),
+        "{duplicate}"
+    );
+
+    let other = service
+        .create(NewUser {
+            email: "new.user@another.example".into(),
+            password: "password123".into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            node_id: None,
+        })
+        .unwrap();
+    assert_eq!(other.login, "new.user-2");
+
+    let session = service
+        .login("NEW.USER@EXAMPLE.COM", "password123", &metadata())
+        .unwrap();
+    assert_eq!(session.user.id, user.id);
+    assert!(
+        service
+            .login("new.user", "password123", &metadata())
+            .is_ok(),
+        "legacy login remains a valid fallback"
+    );
+}
+
+#[test]
+fn update_changes_email_with_uniqueness() {
+    let service = service();
+    let alice = create_user(&service, "alice");
+    let bob = create_user(&service, "bob");
+
+    let updated = service
+        .update(
+            alice.id,
+            UserChanges {
+                email: Some(" Alice.New@Example.COM ".into()),
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(updated.email.as_deref(), Some("alice.new@example.com"));
+    assert_eq!(updated.login, "alice");
+
+    let conflict = service
+        .update(
+            bob.id,
+            UserChanges {
+                email: Some("ALICE.NEW@example.com".into()),
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap_err();
+    assert!(
+        conflict.to_string().contains("email is already registered"),
+        "{conflict}"
+    );
+    assert_eq!(
+        service.find(bob.id).unwrap().email.as_deref(),
+        Some("bob@example.com")
+    );
+
+    assert!(
+        service
+            .login("alice.new@example.com", "password123", &metadata())
+            .is_ok()
+    );
+    assert!(
+        service
+            .login("alice@example.com", "password123", &metadata())
+            .is_err()
+    );
+    assert!(service.login("alice", "password123", &metadata()).is_ok());
 }
 
 #[test]
@@ -312,6 +459,7 @@ fn disabled_user_cannot_log_in_and_loses_sessions() {
         .update(
             user.id,
             UserChanges {
+                email: None,
                 role: None,
                 tariff_id: None,
                 group_id: None,

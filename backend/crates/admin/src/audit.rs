@@ -91,7 +91,7 @@ fn resolve_actor(state: &AppState, authorization: Option<&str>) -> Option<(Uuid,
     let token = authorization?.strip_prefix("Bearer ")?;
     let principal = state.identity.authenticate(token).ok()?;
     let user = state.identity.find(principal.user_id).ok()?;
-    Some((user.id, user.login))
+    Some((user.id, user.email_or_login()))
 }
 
 pub fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>) -> Option<String> {

@@ -69,7 +69,7 @@ pub async fn login(
     record_login(
         &state,
         ip,
-        &session.user.login,
+        &session.user.email_or_login(),
         Some(session.user.id),
         200,
         Some("success".into()),

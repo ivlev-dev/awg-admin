@@ -111,13 +111,31 @@
 `UserView` (ответы `/auth/me`, `/auth/login`, `/auth/refresh`, `/users*`)
 содержит обычные поля пользователя и:
 
+- `email: string` — основной идентификатор, всегда заполнен (после миграции
+  схемы); нормализуется (trim + нижний регистр), уникален без учёта регистра;
+- `login: string` — устаревшее поле (deprecated), сохранено для совместимости;
+  новые интеграции и UI используют `email`;
 - `node_id: string|null` — нода, к интерфейсам которой привязываются новые
   устройства пользователя; `null` — нода не задана;
 - `group_id: string|null` — устаревшее поле (deprecated), сохранено для
   совместимости и квот; новые интеграции используют `node_id`.
 
-`CreateUserRequest` принимает `node_id?: string|null` и по-прежнему принимает
-`group_id?: string`. `UpdateUserRequest` принимает `node_id` как double option:
+`CreateUserRequest`:
+
+- `email: string` — обязательный; невалидный email даёт `400 bad_request`,
+  занятый (без учёта регистра) — `409 conflict`;
+- `password?: string` — опционально; если не передан или пуст, генерируется
+  случайный пароль, который затем меняется через `POST /users/{id}/password`;
+- `role`, `tariff_id`, `group_id?`, `node_id?` — как раньше;
+- `login` больше не принимается: лишнее поле в JSON игнорируется. Внутренний
+  `login` генерируется из local-part email: нижний регистр, допустимые символы
+  `[a-z0-9._-]`, при коллизии добавляется суффикс (`user-2`). Для существующих
+  пользователей `login` не меняется.
+
+`UpdateUserRequest` принимает `email?: string` — смена email с нормализацией и
+проверкой уникальности (занятый чужой email — `409 conflict`); отсутствие поля
+оставляет email без изменений. `login` в `UpdateUserRequest` отсутствует.
+Также `UpdateUserRequest` принимает `node_id` как double option:
 поле отсутствует — привязка не меняется, `null` — очистить, строка — привязать
 к ноде. `POST /users/{id}/approve` принимает `node_id?: string|null`;
 `group_id` в этом запросе считается устаревшим, но если он передан, он
@@ -613,11 +631,13 @@ Access- и refresh-токены подписаны HS256 и содержат `su
   "token": "<access>",
   "refresh_token": "<refresh>",
   "expires_in": 900,
-  "user": {"id": "…", "login": "admin", "role": "admin", "…": "…"}
+  "user": {"id": "…", "email": "admin@local", "login": "admin", "role": "admin", "…": "…"}
 }
 ```
 
-- `POST /auth/login` — `{"login":"…","password":"…"}`; неверные данные и
+- `POST /auth/login` — `{"login":"…","password":"…"}`; в поле `login`
+  передаётся email (UI отправляет email); для обратной совместимости поиск
+  идёт сначала по email, затем по legacy-логину. Неверные данные и
   заблокированный пользователь дают `403 forbidden`.
 - `POST /auth/refresh` — `{"refresh_token":"…"}`. Refresh одноразовый: успешный
   вызов помечает старую запись использованной и выдаёт новую пару в той же
@@ -696,7 +716,21 @@ refresh, повтор refresh, заблокированный или удалё�
 
 `UserView` дополнен полями `email`, `status` (`pending_email`,
 `pending_approval`, `active`, `rejected`), `totp_enabled` и `node_id` (нода
-пользователя; `group_id` — устаревшее поле).
+пользователя; `group_id` — устаревшее поле). `email` — строка, всегда
+заполнена.
+
+### Seed-администратор и миграция email
+
+Seed-администратор создаётся при первом запуске с email из `AWG_ADMIN_EMAIL`
+(по умолчанию `admin@local`) и legacy-логином из `AWG_ADMIN_LOGIN`. Если email
+администратора в базе отличается от `AWG_ADMIN_EMAIL`, при старте он
+обновляется. `AWG_ADMIN_LOGIN` остаётся только для поиска существующей учётной
+записи и обратной совместимости; вход выполняется по email (fallback — логин).
+
+Миграция схемы `5 → 6`: пользователям без email проставляется `<login>@local`
+(логин приводится к нижнему регистру, недопустимые символы заменяются на `-`);
+при коллизии добавляется `+id` (`admin+<uuid>@local`). Существующие email не
+меняются. После миграции email можно менять через `PATCH /users/{id}`.
 
 TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 

@@ -38,7 +38,7 @@ use awg_clients::{
 };
 use awg_identity::{
     Argon2Hasher, IdentityService, JwtIssuer, RedbEmailVerificationRepository, RedbUserRepository,
-    TokenIssuer,
+    TokenIssuer, UserChanges,
 };
 use awg_network::{
     NetworkService, RedbCidrPoolRepository, RedbGroupRepository, RedbInterfaceRepository,
@@ -320,10 +320,41 @@ async fn main() -> Result<()> {
     }
 
     if let Some(admin) = identity
-        .seed_admin(&config.admin_login, &config.admin_password)
+        .seed_admin_with_email(
+            &config.admin_login,
+            &config.admin_email,
+            &config.admin_password,
+        )
         .context("failed to seed the initial administrator")?
     {
-        tracing::info!(login = %admin.login, "seeded the initial administrator");
+        tracing::info!(login = %admin.login, email = %admin.email_or_login(), "seeded the initial administrator");
+    }
+
+    if let Some(admin) = identity
+        .find_by_login(&config.admin_login)
+        .context("failed to read the initial administrator")?
+    {
+        let desired = config.admin_email.trim();
+        let current_is_desired = admin
+            .email
+            .as_deref()
+            .is_some_and(|email| email.eq_ignore_ascii_case(desired));
+        if !current_is_desired {
+            identity
+                .update(
+                    admin.id,
+                    UserChanges {
+                        email: Some(desired.to_string()),
+                        role: None,
+                        tariff_id: None,
+                        group_id: None,
+                        node_id: None,
+                        disabled: None,
+                    },
+                )
+                .context("failed to update the administrator email")?;
+            tracing::info!(login = %admin.login, email = %desired, "updated the administrator email");
+        }
     }
 
     let state = Arc::new(AppState {

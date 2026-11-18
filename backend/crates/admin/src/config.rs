@@ -6,6 +6,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
 pub const DEFAULT_ADMIN_PASSWORD: &str = "admin12345";
+pub const DEFAULT_ADMIN_EMAIL: &str = "admin@local";
 pub const MASTER_KEY_LEN: usize = 32;
 pub const MIN_JWT_SECRET_LEN: usize = 32;
 pub const DEFAULT_JWT_ISSUER: &str = "awg-admin";
@@ -161,6 +162,7 @@ pub struct ConfigInput {
     pub access_ttl_secs: u64,
     pub refresh_ttl_secs: u64,
     pub admin_login: String,
+    pub admin_email: String,
     pub admin_password: String,
     pub dns: String,
     pub cors_origins: String,
@@ -206,6 +208,7 @@ pub struct Config {
     pub access_ttl_secs: u64,
     pub refresh_ttl_secs: u64,
     pub admin_login: String,
+    pub admin_email: String,
     pub admin_password: String,
     pub dns: Vec<String>,
     pub cors_origins: Vec<String>,
@@ -368,6 +371,7 @@ impl Config {
             access_ttl_secs: input.access_ttl_secs,
             refresh_ttl_secs: input.refresh_ttl_secs,
             admin_login: input.admin_login,
+            admin_email: trimmed_or(&input.admin_email, DEFAULT_ADMIN_EMAIL),
             admin_password: input.admin_password,
             dns,
             cors_origins,
@@ -484,6 +488,7 @@ fn input_from_env() -> Result<ConfigInput> {
         access_ttl_secs: env_u64("AWG_ACCESS_TTL_SECS", 900),
         refresh_ttl_secs: env_u64("AWG_REFRESH_TTL_SECS", 30 * 86_400),
         admin_login: env("AWG_ADMIN_LOGIN", "admin"),
+        admin_email: env("AWG_ADMIN_EMAIL", DEFAULT_ADMIN_EMAIL),
         admin_password: env("AWG_ADMIN_PASSWORD", DEFAULT_ADMIN_PASSWORD),
         dns: env("AWG_DNS", "1.1.1.1,8.8.8.8"),
         cors_origins: env("AWG_CORS_ORIGINS", ""),
@@ -562,6 +567,7 @@ mod tests {
             access_ttl_secs: 900,
             refresh_ttl_secs: 86_400,
             admin_login: "admin".into(),
+            admin_email: DEFAULT_ADMIN_EMAIL.into(),
             admin_password: "super-secret-password".into(),
             dns: "1.1.1.1,8.8.8.8".into(),
             cors_origins: String::new(),
@@ -660,6 +666,18 @@ mod tests {
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.jwt_issuer, DEFAULT_JWT_ISSUER);
         assert_eq!(config.jwt_audience, DEFAULT_JWT_AUDIENCE);
+    }
+
+    #[test]
+    fn admin_email_defaults_and_is_trimmed() {
+        let mut input = base_input(Environment::Development);
+        input.admin_email = "   ".into();
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.admin_email, DEFAULT_ADMIN_EMAIL);
+
+        input.admin_email = "  Owner@Example.COM  ".into();
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.admin_email, "Owner@Example.COM");
     }
 
     #[test]

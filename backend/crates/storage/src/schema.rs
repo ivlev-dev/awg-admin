@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -36,6 +36,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 4,
         to: 5,
         apply: v5_user_nodes,
+    },
+    MigrationStep {
+        from: 5,
+        to: 6,
+        apply: v6_user_emails,
     },
 ];
 
@@ -221,6 +226,82 @@ fn v5_user_nodes(txn: &WriteTransaction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn v6_user_emails(txn: &WriteTransaction) -> Result<()> {
+    let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (_, user) in read_values(txn, Table::Users)? {
+        if let Some(email) = user_email(&user) {
+            used.insert(email.to_ascii_lowercase());
+        }
+    }
+
+    let mut updated: Vec<(String, Value)> = Vec::new();
+    for (key, mut user) in read_values(txn, Table::Users)? {
+        if user_email(&user).is_some() {
+            continue;
+        }
+        let login = user
+            .get("login")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let id = user
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(key.as_str());
+        let local = sanitize_email_local(login);
+        let mut candidate = format!("{local}@local");
+        let mut attempt = 0;
+        while used.contains(&candidate) {
+            attempt += 1;
+            let suffix = match attempt {
+                1 => sanitize_email_local(id),
+                other => format!("{}-{other}", sanitize_email_local(id)),
+            };
+            let suffix = if suffix.is_empty() {
+                attempt.to_string()
+            } else {
+                suffix
+            };
+            candidate = format!("{local}+{suffix}@local");
+        }
+        used.insert(candidate.clone());
+        user["email"] = json!(candidate);
+        updated.push((key, user));
+    }
+
+    if !updated.is_empty() {
+        let mut table = txn.open_table(Table::Users.definition())?;
+        for (key, value) in updated {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
+    }
+    Ok(())
+}
+
+fn user_email(user: &Value) -> Option<&str> {
+    user.get("email")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|email| !email.is_empty())
+}
+
+fn sanitize_email_local(raw: &str) -> String {
+    let mut sanitized: String = raw
+        .trim()
+        .to_ascii_lowercase()
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    sanitized.truncate(64);
+    sanitized.trim_matches(['-', '.']).to_string()
 }
 
 pub(crate) fn initialize(db: &Database) -> Result<()> {
@@ -554,10 +635,10 @@ mod tests {
         }
         {
             let users = txn.open_table(Table::Users.definition()).unwrap();
-            assert_eq!(
-                users.get("user-1").unwrap().unwrap().value(),
-                b"{\"login\":\"alice\"}".as_slice()
-            );
+            let raw = users.get("user-1").unwrap().unwrap();
+            let value: Value = serde_json::from_slice(raw.value()).unwrap();
+            assert_eq!(value["login"], json!("alice"));
+            assert_eq!(value["email"], json!("alice@local"));
         }
         {
             let plans = txn.open_table(Table::BillingPlans.definition()).unwrap();
@@ -570,7 +651,7 @@ mod tests {
             let meta = txn.open_table(Table::Meta.definition()).unwrap();
             assert_eq!(
                 meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
-                b"5".as_slice()
+                b"6".as_slice()
             );
         }
     }
@@ -804,6 +885,74 @@ mod tests {
         let txn = db.begin_write().unwrap();
         v5_user_nodes(&txn).unwrap();
         txn.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v6_fills_missing_user_emails() {
+        let db = in_memory();
+        seed_legacy(&db, Some(5));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            for (key, value) in [
+                (
+                    "admin",
+                    r#"{"id":"11111111-1111-1111-1111-111111111111","login":"Admin"}"#,
+                ),
+                (
+                    "user-1",
+                    r#"{"id":"22222222-2222-2222-2222-222222222222","login":"alice","email":"Alice@Example.COM"}"#,
+                ),
+                (
+                    "user-2",
+                    r#"{"id":"33333333-3333-3333-3333-333333333333","login":"Admin"}"#,
+                ),
+                (
+                    "user-3",
+                    r#"{"id":"44444444-4444-4444-4444-444444444444","login":"Bad Login!","email":null}"#,
+                ),
+            ] {
+                users.insert(key, value.as_bytes()).unwrap();
+            }
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 5, 6).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(6));
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let email_of = |key: &str| {
+            let raw = users.get(key).unwrap().unwrap();
+            let value: Value = serde_json::from_slice(raw.value()).unwrap();
+            value
+                .get("email")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        assert_eq!(email_of("admin"), Some("admin@local".to_string()));
+        assert_eq!(
+            email_of("user-1"),
+            Some("Alice@Example.COM".to_string()),
+            "existing emails are preserved as-is"
+        );
+        assert_eq!(
+            email_of("user-2"),
+            Some("admin+33333333-3333-3333-3333-333333333333@local".to_string())
+        );
+        assert_eq!(email_of("user-3"), Some("bad-login@local".to_string()));
+        drop(users);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v6_user_emails(&txn).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let raw = users.get("admin").unwrap().unwrap();
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert_eq!(value["email"], json!("admin@local"));
     }
 
     #[test]

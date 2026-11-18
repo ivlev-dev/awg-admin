@@ -38,8 +38,9 @@ docker compose up -d --build
 нечитаемыми после рестарта), а логин/пароль будут `admin`/`admin12345`.
 
 Откройте `https://panel.localhost` (или `AWG_DOMAIN`). Первый вход:
-`AWG_ADMIN_LOGIN` / `AWG_ADMIN_PASSWORD` из `.env` (по умолчанию `admin` /
-`admin12345`) — **смените пароль после входа**.
+`AWG_ADMIN_EMAIL` / `AWG_ADMIN_PASSWORD` из `.env` (по умолчанию
+`admin@local` / `admin12345`); legacy-логин `AWG_ADMIN_LOGIN` (`admin`) тоже
+принимается — **смените пароль после входа**.
 
 Проверка API: `curl --http2-prior-knowledge http://127.0.0.1:8080/api/v1/health`.
 
