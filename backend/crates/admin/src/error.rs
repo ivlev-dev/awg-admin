@@ -12,6 +12,7 @@ use awg_shared::CoreError;
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    InvalidIdempotencyKey,
     InvalidToken,
     Unauthorized(String),
     Forbidden(String),
@@ -63,6 +64,7 @@ impl ApiError {
     pub fn status_code(&self) -> StatusCode {
         match self {
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
+            ApiError::InvalidIdempotencyKey => StatusCode::BAD_REQUEST,
             ApiError::InvalidToken => StatusCode::BAD_REQUEST,
             ApiError::Unauthorized(_) | ApiError::TotpRequired | ApiError::TotpInvalid(_) => {
                 StatusCode::UNAUTHORIZED
@@ -83,6 +85,10 @@ impl ApiError {
     pub fn message(&self) -> String {
         match self {
             ApiError::BadRequest(message) => message.clone(),
+            ApiError::InvalidIdempotencyKey => {
+                "idempotency key must be 8..128 characters of ASCII letters, digits, '-', '_' or '.'"
+                    .to_string()
+            }
             ApiError::InvalidToken => "password reset token is invalid or expired".to_string(),
             ApiError::Unauthorized(message) => message.clone(),
             ApiError::Forbidden(message) => message.clone(),
@@ -107,6 +113,7 @@ impl ApiError {
     fn code(&self) -> &'static str {
         match self {
             ApiError::BadRequest(_) => "bad_request",
+            ApiError::InvalidIdempotencyKey => "invalid_idempotency_key",
             ApiError::InvalidToken => "invalid_token",
             ApiError::Unauthorized(_) => "unauthorized",
             ApiError::Forbidden(_) => "forbidden",

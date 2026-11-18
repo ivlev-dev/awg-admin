@@ -1,5 +1,11 @@
 import { ApiError } from "./errors";
 import type { HttpTransport } from "./transport";
+import {
+  createIdempotencyKey,
+  hasIdempotencyKey,
+  IDEMPOTENCY_KEY_HEADER,
+  needsIdempotencyKey,
+} from "./idempotency";
 import type { InterceptorRegistry } from "./interceptor-registry";
 import type {
   HttpMethod,
@@ -11,6 +17,7 @@ import type {
 export interface RequestOptions {
   auth?: boolean;
   source?: RequestSource;
+  headers?: Record<string, string>;
 }
 
 export class HttpClient {
@@ -104,11 +111,15 @@ function context(
   body: unknown,
   options: RequestOptions,
 ): RequestContext {
+  const headers: Record<string, string> = { ...options.headers };
+  if (needsIdempotencyKey(method, path) && !hasIdempotencyKey(headers)) {
+    headers[IDEMPOTENCY_KEY_HEADER] = createIdempotencyKey();
+  }
   return {
     method,
     path,
     body,
-    headers: {},
+    headers,
     auth: options.auth ?? true,
     source: options.source ?? "api",
     attempt: 0,

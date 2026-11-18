@@ -76,6 +76,10 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
         .nest("/api/v1", api)
         .layer(middleware::from_fn_with_state(
             state.clone(),
+            crate::idempotency::middleware,
+        ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
             crate::audit::middleware,
         ))
         .layer(cors)
@@ -142,6 +146,7 @@ fn valid_request_id(value: &str) -> bool {
 
 fn build_cors(origins: &[String]) -> CorsLayer {
     let request_id = HeaderName::from_static(REQUEST_ID_HEADER);
+    let idempotency_key = HeaderName::from_static(crate::idempotency::IDEMPOTENCY_HEADER);
     let layer = CorsLayer::new()
         .allow_methods([
             Method::GET,
@@ -156,6 +161,7 @@ fn build_cors(origins: &[String]) -> CorsLayer {
             header::CONTENT_TYPE,
             header::ACCEPT,
             request_id.clone(),
+            idempotency_key,
         ])
         .expose_headers([request_id]);
     if origins.is_empty() {

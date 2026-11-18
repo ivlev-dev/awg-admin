@@ -98,6 +98,7 @@ tables! {
     BillingPaymentMethods => "billing_payment_methods",
     BillingEvents => "billing_events",
     RateLimits => "rate_limits",
+    Idempotency => "idempotency",
 }
 
 #[derive(Debug, Clone)]
@@ -172,6 +173,15 @@ impl Store {
             return Ok(None);
         };
         Ok(Some(serde_json::from_slice(bytes.value())?))
+    }
+
+    pub fn get_raw(&self, table: Table, key: &str) -> Result<Option<Vec<u8>>> {
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(table.definition())?;
+        let Some(bytes) = table.get(key)? else {
+            return Ok(None);
+        };
+        Ok(Some(bytes.value().to_vec()))
     }
 
     pub fn put<T: Serialize>(&self, table: Table, key: &str, value: &T) -> Result<()> {

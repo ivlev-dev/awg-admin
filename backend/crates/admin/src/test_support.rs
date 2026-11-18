@@ -550,6 +550,7 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
 
     use crate::controllers::billing::TariffCatalogAdapter;
     use crate::directory::{DevicesAdapter, NodesAdapter};
+    use crate::idempotency::IdempotencyStore;
     use crate::rate_limit::{MemoryRateLimiter, RateLimitScope, RateLimiter};
     use crate::settings::SettingsStore;
     use crate::snapshot::SnapshotBuilder;
@@ -734,6 +735,7 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
         Arc::new(NodesAdapter::new(network.clone())),
     ));
     let settings = Arc::new(SettingsStore::new(store.clone()));
+    let idempotency = Arc::new(IdempotencyStore::new(store.clone(), sealer.clone()));
     let audit = Arc::new(AuditService::new(Arc::new(RedbAuditRepository::new(
         store.clone(),
     ))));
@@ -757,6 +759,7 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
         settings,
         audit,
         billing,
+        idempotency,
         login_limiter: scope("login"),
         refresh_limiter: scope("refresh"),
         register_limiter: scope("register"),

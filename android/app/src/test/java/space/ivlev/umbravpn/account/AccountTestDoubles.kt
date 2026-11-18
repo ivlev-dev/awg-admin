@@ -181,6 +181,7 @@ internal class FakeAccountRepository : AccountRepository {
 
     val createdNames = mutableListOf<String>()
     val createdInterfaceIds = mutableListOf<List<String>>()
+    val createdIdempotencyKeys = mutableListOf<String?>()
     val renamed = mutableListOf<Pair<String, String>>()
     val deleted = mutableListOf<String>()
     var bootstrapCalls = 0
@@ -193,9 +194,11 @@ internal class FakeAccountRepository : AccountRepository {
     override suspend fun createDevice(
         name: String,
         interfaceIds: List<String>,
+        idempotencyKey: String?,
     ): AccountResult<CreatedDevice> {
         createdNames += name
         createdInterfaceIds += interfaceIds
+        createdIdempotencyKeys += idempotencyKey
         return createResult
     }
 

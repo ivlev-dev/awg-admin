@@ -4,6 +4,7 @@ import io.ktor.client.engine.mock.toByteArray
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
+import java.util.UUID
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -375,6 +376,131 @@ class AccountRepositoryTest {
         val body = env.requests.single().body.toByteArray().decodeToString()
         assertTrue(body.contains("\"name\":\"Phone\""))
         assertTrue(body.contains("\"interface_ids\":[\"iface-1\",\"iface-2\"]"))
+    }
+
+    @Test
+    fun createDeviceSendsIdempotencyKeyHeader() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+            }
+
+        env.accountRepository
+            .createDevice("Phone", emptyList(), "3f1c9b6e-0f2a-4b7c-9d11-1234567890ab")
+            .requireSuccess()
+
+        assertEquals(
+            "3f1c9b6e-0f2a-4b7c-9d11-1234567890ab",
+            env.requests.single().headers["Idempotency-Key"],
+        )
+    }
+
+    @Test
+    fun createDeviceRepeatedWithSameKeySendsSameHeader() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+            }
+
+        env.accountRepository.createDevice("Phone", emptyList(), "key-1").requireSuccess()
+        env.accountRepository.createDevice("Phone", emptyList(), "key-1").requireSuccess()
+
+        assertEquals(
+            listOf("key-1", "key-1"),
+            env.requests.map { it.headers["Idempotency-Key"] },
+        )
+    }
+
+    @Test
+    fun createDeviceWithoutIdempotencyKeyGeneratesUuid() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+            }
+
+        env.accountRepository.createDevice("Phone").requireSuccess()
+
+        val key = requireNotNull(env.requests.single().headers["Idempotency-Key"])
+        assertEquals(key, UUID.fromString(key).toString())
+    }
+
+    @Test
+    fun createDeviceCallsUseDistinctIdempotencyKeys() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+            }
+
+        env.accountRepository.createDevice("Phone").requireSuccess()
+        env.accountRepository.createDevice("Phone").requireSuccess()
+
+        val keys = env.requests.map { it.headers["Idempotency-Key"] }
+        assertEquals(2, keys.size)
+        val first = requireNotNull(keys[0])
+        val second = requireNotNull(keys[1])
+        assertTrue(first != second)
+    }
+
+    @Test
+    fun createDeviceKeepsIdempotencyKeyOnRefreshRetry() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices" ->
+                        if (request.headers[HttpHeaders.Authorization] == "Bearer new-access") {
+                            jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+                        } else {
+                            jsonResponse(
+                                HttpStatusCode.Unauthorized,
+                                errorBody("unauthorized", "expired"),
+                            )
+                        }
+                    "/api/v1/auth/refresh" ->
+                        jsonResponse(
+                            HttpStatusCode.OK,
+                            authJson(token = "new-access", refreshToken = "refresh-2"),
+                        )
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        env.accountRepository.createDevice("Phone").requireSuccess()
+
+        assertEquals(
+            listOf("/api/v1/app/devices", "/api/v1/auth/refresh", "/api/v1/app/devices"),
+            env.requests.map { it.url.encodedPath },
+        )
+        val deviceKeys =
+            env.requests
+                .filter { it.url.encodedPath == "/api/v1/app/devices" }
+                .map { it.headers["Idempotency-Key"] }
+        assertEquals(2, deviceKeys.size)
+        assertEquals(requireNotNull(deviceKeys[0]), requireNotNull(deviceKeys[1]))
+        assertNull(env.requests[1].headers["Idempotency-Key"])
+    }
+
+    @Test
+    fun loginSendsNoIdempotencyKey() = runTest {
+        val env = createEnvironment { jsonResponse(HttpStatusCode.OK, authJson()) }
+
+        env.authRepository.login("alice@example.com", "secret").requireSuccess()
+
+        val request = env.requests.single()
+        assertEquals(HttpMethod.Post, request.method)
+        assertEquals("/api/v1/auth/login", request.url.encodedPath)
+        assertNull(request.headers["Idempotency-Key"])
+    }
+
+    @Test
+    fun getRequestsSendNoIdempotencyKey() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.OK, bootstrapJson())
+            }
+
+        env.accountRepository.bootstrap().requireSuccess()
+
+        assertNull(env.requests.single().headers["Idempotency-Key"])
     }
 
     @Test

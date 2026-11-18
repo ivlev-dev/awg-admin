@@ -15,6 +15,7 @@ mod auth;
 mod backup;
 mod directory;
 mod grpc;
+pub mod idempotency;
 mod logging;
 mod metrics;
 mod publish;
@@ -57,6 +58,7 @@ use tokio::sync::watch;
 use crate::config::{Config, RateLimitStore};
 use crate::directory::{DevicesAdapter, NodesAdapter};
 use crate::grpc::WorkerGrpc;
+use crate::idempotency::IdempotencyStore;
 use crate::rate_limit::{MemoryRateLimiter, RateLimitScope, RateLimiter, StoreRateLimiter};
 use crate::routes::Readiness;
 use crate::settings::SettingsStore;
@@ -230,6 +232,7 @@ pub async fn run() -> Result<()> {
     ));
 
     let settings = Arc::new(SettingsStore::new(store.clone()));
+    let idempotency = Arc::new(IdempotencyStore::new(store.clone(), sealer.clone()));
 
     let audit = {
         let repo = Arc::new(RedbAuditRepository::new(store.clone()));
@@ -376,6 +379,7 @@ pub async fn run() -> Result<()> {
         settings,
         audit,
         billing,
+        idempotency,
         login_limiter,
         refresh_limiter,
         register_limiter,

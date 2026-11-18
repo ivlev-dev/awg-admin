@@ -24,11 +24,25 @@ async fn call(
     token: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    call_with_key(app, method, uri, token, None, body).await
+}
+
+async fn call_with_key(
+    app: Router,
+    method: &str,
+    uri: &str,
+    token: &str,
+    idempotency_key: Option<&str>,
+    body: Option<Value>,
+) -> (StatusCode, Value) {
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
         .header("authorization", format!("Bearer {token}"))
         .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 45_000))));
+    if let Some(key) = idempotency_key {
+        builder = builder.header("idempotency-key", key);
+    }
     let payload = match body {
         Some(value) => {
             builder = builder.header("content-type", "application/json");
@@ -1033,4 +1047,209 @@ async fn admin_create_device_still_accepts_a_single_interface() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["interface_id"], first.to_string());
     assert_eq!(body["peers"].as_array().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn repeated_idempotency_key_returns_the_first_device() {
+    let env = app_env();
+    let key = "create-phone-0001";
+
+    let (status, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let (status, second) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second, first);
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        1
+    );
+
+    let (status, third) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Another phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{third}");
+    assert_eq!(third, first, "replay ignores a different body");
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn different_idempotency_keys_create_different_devices() {
+    let env = app_env();
+
+    let (status, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some("create-phone-0001"),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let (status, second) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some("create-tablet-0002"),
+        Some(json!({ "name": "Tablet" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_ne!(first["device"]["id"], second["device"]["id"]);
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn malformed_idempotency_keys_are_rejected() {
+    let env = app_env();
+
+    for key in [
+        "short",
+        "",
+        "bad key with spaces",
+        "semi;colon-key",
+        "ключ-кириллица",
+    ] {
+        let (status, body) = call_with_key(
+            router(&env),
+            "POST",
+            "/api/v1/app/devices",
+            &env.owner_token,
+            Some(key),
+            Some(json!({ "name": "Phone" })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{key}: {body}");
+        assert_eq!(body["error"]["code"], "invalid_idempotency_key", "{key}");
+    }
+    assert!(
+        env.state
+            .devices
+            .list_for_user(env.owner_id)
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn create_device_without_idempotency_key_is_not_deduplicated() {
+    let env = app_env();
+    create_device(router(&env), &env.owner_token, "Phone").await;
+    create_device(router(&env), &env.owner_token, "Phone").await;
+
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn failed_request_does_not_cache_the_idempotency_key() {
+    let env = app_env();
+    let key = "validation-retry-0001";
+
+    let (status, body) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "   " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(
+        env.state
+            .idempotency
+            .get(&awg_admin::idempotency::user_key(env.owner_id, key))
+            .unwrap()
+            .is_none()
+    );
+
+    let (status, body) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn idempotency_record_survives_a_router_restart() {
+    let env = app_env();
+    let key = "restart-phone-0001";
+
+    let (status, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+    assert!(
+        env.state
+            .idempotency
+            .get(&awg_admin::idempotency::user_key(env.owner_id, key))
+            .unwrap()
+            .is_some(),
+        "the response must be persisted in the store"
+    );
+
+    let (status, replay) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/app/devices",
+        &env.owner_token,
+        Some(key),
+        Some(json!({ "name": "Phone" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{replay}");
+    assert_eq!(replay, first);
+    assert_eq!(
+        env.state.devices.list_for_user(env.owner_id).unwrap().len(),
+        1
+    );
 }

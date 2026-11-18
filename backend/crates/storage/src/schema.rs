@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 6;
+pub const CURRENT_SCHEMA_VERSION: u32 = 7;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -42,6 +42,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         to: 6,
         apply: v6_user_emails,
     },
+    MigrationStep {
+        from: 6,
+        to: 7,
+        apply: v7_idempotency,
+    },
 ];
 
 const BILLING_TABLES: &[Table] = &[
@@ -54,6 +59,8 @@ const BILLING_TABLES: &[Table] = &[
 
 const RATE_LIMIT_TABLES: &[Table] = &[Table::RateLimits];
 
+const IDEMPOTENCY_TABLES: &[Table] = &[Table::Idempotency];
+
 fn v2_billing(txn: &WriteTransaction) -> Result<()> {
     for table in BILLING_TABLES {
         txn.open_table(table.definition())?;
@@ -63,6 +70,13 @@ fn v2_billing(txn: &WriteTransaction) -> Result<()> {
 
 fn v3_rate_limits(txn: &WriteTransaction) -> Result<()> {
     for table in RATE_LIMIT_TABLES {
+        txn.open_table(table.definition())?;
+    }
+    Ok(())
+}
+
+fn v7_idempotency(txn: &WriteTransaction) -> Result<()> {
+    for table in IDEMPOTENCY_TABLES {
         txn.open_table(table.definition())?;
     }
     Ok(())
@@ -651,7 +665,7 @@ mod tests {
             let meta = txn.open_table(Table::Meta.definition()).unwrap();
             assert_eq!(
                 meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
-                b"6".as_slice()
+                CURRENT_SCHEMA_VERSION.to_string().as_bytes()
             );
         }
     }
@@ -978,6 +992,51 @@ mod tests {
         let raw = users.get("user-1").unwrap().unwrap();
         let value: Value = serde_json::from_slice(raw.value()).unwrap();
         assert_eq!(value.get("node_id"), None);
+    }
+
+    #[test]
+    fn migration_v7_creates_idempotency_table_and_keeps_data() {
+        let db = in_memory();
+        seed_legacy(&db, Some(6));
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut users = txn.open_table(Table::Users.definition()).unwrap();
+                users
+                    .insert("user-1", b"{\"login\":\"alice\"}".as_slice())
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 6, 7).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(7));
+        let txn = db.begin_read().unwrap();
+        for table in IDEMPOTENCY_TABLES {
+            assert!(txn.open_table(table.definition()).is_ok());
+        }
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        assert_eq!(
+            users.get("user-1").unwrap().unwrap().value(),
+            b"{\"login\":\"alice\"}".as_slice()
+        );
+    }
+
+    #[test]
+    fn migration_v7_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(6));
+
+        migrate(&db, 6, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 6, CURRENT_SCHEMA_VERSION).unwrap();
+
+        let txn = db.begin_write().unwrap();
+        v7_idempotency(&txn).unwrap();
+        v7_idempotency(&txn).unwrap();
+        txn.commit().unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
     }
 
     #[test]

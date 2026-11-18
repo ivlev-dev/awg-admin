@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use uuid::Uuid;
 
@@ -17,6 +18,7 @@ use crate::auth::AuthUser;
 use crate::controllers::devices::{build_view, build_views, forwarding_default, unlimited_tariff};
 use crate::controllers::quota::current_quota;
 use crate::error::{ApiError, ApiResult};
+use crate::idempotency::{IDEMPOTENCY_HEADER, IdempotentResponse, user_key, valid_key};
 use crate::models::AppDeviceRequest;
 use crate::publish::publish_group;
 use crate::state::AppState;
@@ -95,8 +97,59 @@ fn app_subscription_inactive(state: &AppState, user_id: Uuid) -> ApiResult<bool>
 pub async fn create_device(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
+    headers: HeaderMap,
     Json(request): Json<AppDeviceRequest>,
-) -> ApiResult<Json<AppDeviceView>> {
+) -> ApiResult<Response> {
+    let Some(key) = idempotency_key(&headers)? else {
+        return Ok(Json(create_device_view(&state, &user, &request)?).into_response());
+    };
+
+    let storage_key = user_key(user.id(), &key);
+    let _guard = state.idempotency.lock().await;
+    if let Some(cached) = state
+        .idempotency
+        .get(&storage_key)
+        .map_err(ApiError::from)?
+    {
+        return Ok(cached.into_response());
+    }
+
+    let view = create_device_view(&state, &user, &request)?;
+    let body =
+        serde_json::to_value(&view).map_err(|error| ApiError::Internal(error.to_string()))?;
+    state
+        .idempotency
+        .put(
+            &storage_key,
+            &IdempotentResponse::new(
+                StatusCode::OK.as_u16(),
+                body,
+                Some("application/json".into()),
+            ),
+        )
+        .map_err(ApiError::from)?;
+    Ok(Json(view).into_response())
+}
+
+fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<String>> {
+    let Some(value) = headers.get(IDEMPOTENCY_HEADER) else {
+        return Ok(None);
+    };
+    let key = value
+        .to_str()
+        .map(str::trim)
+        .map_err(|_| ApiError::InvalidIdempotencyKey)?;
+    if !valid_key(key) {
+        return Err(ApiError::InvalidIdempotencyKey);
+    }
+    Ok(Some(key.to_string()))
+}
+
+fn create_device_view(
+    state: &AppState,
+    user: &AuthUser,
+    request: &AppDeviceRequest,
+) -> ApiResult<AppDeviceView> {
     let name = request.resolved_name().map_err(ApiError::BadRequest)?;
     let owner = state.identity.find(user.id()).map_err(ApiError::from)?;
     let tariff = state
@@ -107,16 +160,16 @@ pub async fn create_device(
     let group_id = owner.group_id;
     let (interface_id, interface_ids) = if request.interface_ids.is_empty() {
         (
-            Some(select_interface(&state, &owner, &tariff, group_id)?),
+            Some(select_interface(state, &owner, &tariff, group_id)?),
             Vec::new(),
         )
     } else {
-        (None, request.interface_ids)
+        (None, request.interface_ids.clone())
     };
     let settings = state.settings.get().map_err(ApiError::from)?;
     let forwarding = Forwarding {
         to_own_devices: forwarding_default(
-            &state,
+            state,
             &owner,
             &tariff,
             interface_id.or_else(|| interface_ids.first().copied()),
@@ -142,19 +195,19 @@ pub async fn create_device(
             &settings.obfuscation,
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
-    let configs = device_configs_for(&state, device.id)?;
+    publish_group(state, device.group_id);
+    let configs = device_configs_for(state, device.id)?;
     let config = configs
         .iter()
         .find(|config| config.interface_id == device.interface_id)
         .cloned()
         .or_else(|| configs.first().cloned())
         .ok_or_else(|| ApiError::NotFound("device peer".into()))?;
-    Ok(Json(AppDeviceView {
-        device: build_view(&state, &device)?,
+    Ok(AppDeviceView {
+        device: build_view(state, &device)?,
         config,
         configs,
-    }))
+    })
 }
 
 pub async fn device_configs(

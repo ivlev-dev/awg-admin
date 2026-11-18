@@ -59,6 +59,20 @@ class AccountActionsTest {
     }
 
     @Test
+    fun createDevicePassesIdempotencyKey() = runTest {
+        actions.createDevice("Laptop", emptyList(), "key-1")
+
+        assertEquals(listOf<String?>("key-1"), repository.createdIdempotencyKeys)
+    }
+
+    @Test
+    fun createDeviceWithoutIdempotencyKeyPassesNull() = runTest {
+        actions.createDevice("Laptop")
+
+        assertEquals(listOf<String?>(null), repository.createdIdempotencyKeys)
+    }
+
+    @Test
     fun createDeviceRejectsBlankNameWithoutRequest() = runTest {
         val outcome = actions.createDevice("   ")
 

@@ -12,6 +12,7 @@ interface AccountRepository {
     suspend fun createDevice(
         name: String,
         interfaceIds: List<String> = emptyList(),
+        idempotencyKey: String? = null,
     ): AccountResult<CreatedDevice>
 
     suspend fun deviceConfig(id: String): AccountResult<DeviceConfig>

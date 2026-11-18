@@ -13,12 +13,13 @@ class AccountActions(private val accountRepository: AccountRepository) {
     suspend fun createDevice(
         name: String,
         interfaceIds: List<String> = emptyList(),
+        idempotencyKey: String? = null,
     ): ActionResult<CreatedDevice> {
         val error = AccountValidation.deviceNameError(name)
         if (error != null) return ActionResult.Failure(error)
 
         return accountRepository
-            .createDevice(name.trim(), interfaceIds.distinct())
+            .createDevice(name.trim(), interfaceIds.distinct(), idempotencyKey)
             .toResult(AccountActionKind.Device)
     }
 

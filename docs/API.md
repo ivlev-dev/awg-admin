@@ -6,7 +6,7 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_idempotency_key`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
@@ -96,7 +96,7 @@
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
 | GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, доступные интерфейсы) |
-| POST | `/app/devices` | user | `{name, interface_ids?}` | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
+| POST | `/app/devices` | user | `{name, interface_ids?}`, заголовок `Idempotency-Key` (опционально) | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
 | GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` (primary-интерфейс) |
 | GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все интерфейсы) |
 | PATCH | `/app/devices/{id}` | self/admin | `{name}` | `DeviceView` |
@@ -111,6 +111,40 @@
 | POST | `/billing/checkout` | user | `{plan_id}` | `{invoice, checkout_url}` |
 | GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
 | POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
+
+## Идемпотентность
+
+Любой бизнес-`POST` под `/api/v1` можно сделать идемпотентным: достаточно
+передать заголовок `Idempotency-Key` (имя регистронезависимо). Тогда повтор
+запроса с тем же ключом и тем же телом адреса не выполнит операцию второй раз,
+а вернёт сохранённый ответ первого успешного вызова.
+
+- Заголовок действует на все `POST /api/v1/*`, кроме `POST /auth/*` и
+  `POST /billing/webhook/*` (они не кэшируются: у логина, refresh и webhook
+  своя семантика), а также кроме `POST /app/devices` — у него отдельный
+  обработчик, см. «Идемпотентность создания устройства».
+- Ключ: 8..128 символов из `A-Z`, `a-z`, `0-9`, `-`, `_`, `.`. Некорректный
+  ключ — `400` с кодом `invalid_idempotency_key`; запрос до обработчика не
+  доходит.
+- Область ключа — пара «пользователь + метод + путь с query + ключ».
+  Владелец определяется по заголовку `Authorization` (без токена — `anon`).
+  Одинаковый ключ у разных пользователей или для разных маршрутов не
+  конфликтует; повтор с тем же ключом на другой `path` — это другой запрос.
+- TTL записи — 24 часа, после чего ключ можно использовать снова.
+  Просроченная запись удаляется при чтении.
+- Поведение при повторе: возвращается статус и тело первого ответа (`2xx`),
+  `Content-Type` восстанавливается из записи; обработчик не вызывается.
+  Тело запроса повтора не сравнивается — возвращается первый результат.
+- Кэшируются только успешные (`2xx`) ответы с JSON-телом не больше 2 МиБ.
+  Ответы `4xx`/`5xx`, таймауты и ошибки не запоминаются: после исправления
+  запроса тот же ключ выполнит операцию.
+- `GET`/`PATCH`/`PUT`/`DELETE` заголовок игнорируют.
+- Тело сохранённого ответа шифруется мастер-ключом (`AWG_MASTER_KEY`):
+  в redb-таблице `idempotency` лежит только зашифрованная строка, открытых
+  конфигов, ключей и приватных данных там нет.
+
+Поддерживается заголовок в CORS: `Access-Control-Allow-Headers` содержит
+`Idempotency-Key`, так что браузерный клиент может отправлять его напрямую.
 
 ## Пользователи и привязка к ноде
 
@@ -246,6 +280,26 @@
   длиннее 64 символов — `400 bad_request`.
 - `DELETE /app/devices/{id}` → `204`, устройство удаляется вместе со всеми
   пирами, группа публикуется на ноды.
+
+### Идемпотентность создания устройства
+
+`POST /app/devices` принимает необязательный заголовок `Idempotency-Key`
+(имя заголовка регистронезависимо). Допустимый ключ — 8..128 символов из
+`A-Z`, `a-z`, `0-9`, `-`, `_`, `.`; иначе `400 invalid_idempotency_key` и
+устройство не создаётся. Ключ уникален в пределах пользователя и не
+пересекается с общим механизмом из раздела «Идемпотентность» (общий
+middleware этот маршрут не обрабатывает).
+
+- Повтор с тем же ключом в течение 24 часов возвращает `200` и тело первого
+  успешного ответа (`AppDeviceView`); новое устройство не создаётся. Другое
+  тело запроса игнорируется — возвращается первый результат.
+- Ответы с ошибкой (`4xx`/`5xx`) не запоминаются: после исправления запроса
+  тот же ключ создаёт устройство.
+- Без заголовка поведение прежнее: каждый запрос создаёт новое устройство.
+- Записи лежат в redb-таблице `idempotency` 24 часа и зашифрованы
+  мастер-ключом (`Sealer`): тело ответа не читается из БД в открытом виде.
+  Просроченная запись удаляется при чтении. На `PATCH`/`DELETE` заголовок не
+  влияет.
 
 `AppSubscriptionView` (`subscription` в bootstrap):
 

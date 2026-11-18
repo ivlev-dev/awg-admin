@@ -1,6 +1,7 @@
 package space.ivlev.umbravpn.viewmodel
 
 import androidx.lifecycle.ViewModel
+import java.util.UUID
 import kotlinx.coroutines.flow.combine
 import org.orbitmvi.orbit.OrbitContainerHost
 import org.orbitmvi.orbit.syntax.Syntax
@@ -51,6 +52,7 @@ class AccountViewModel(
                                     isLoading = false,
                                     isRefreshing = false,
                                     dialog = null,
+                                    pendingCreateKey = null,
                                 )
                             }
                         }
@@ -90,7 +92,18 @@ class AccountViewModel(
                 return@intent
             }
         }
-        reduce { state.copy(dialog = AccountDialog.AddDevice, dialogError = null) }
+        reduce {
+            state.copy(
+                dialog = AccountDialog.AddDevice,
+                dialogError = null,
+                pendingCreateKey =
+                    if (state.dialog is AccountDialog.AddDevice) {
+                        state.pendingCreateKey
+                    } else {
+                        UUID.randomUUID().toString()
+                    },
+            )
+        }
     }
 
     fun showRenameDevice(id: String, name: String) = intent {
@@ -109,14 +122,21 @@ class AccountViewModel(
 
     fun dismissDialog() = intent {
         if (state.isActionInProgress) return@intent
-        reduce { state.copy(dialog = null, dialogError = null) }
+        reduce { state.copy(dialog = null, dialogError = null, pendingCreateKey = null) }
     }
 
     fun createDevice(name: String, interfaceIds: List<String> = emptyList()) = intent {
         if (state.isActionInProgress) return@intent
-        reduce { state.copy(isActionInProgress = true, dialogError = null) }
+        val createKey = state.pendingCreateKey ?: UUID.randomUUID().toString()
+        reduce {
+            state.copy(
+                isActionInProgress = true,
+                dialogError = null,
+                pendingCreateKey = createKey,
+            )
+        }
 
-        when (val outcome = accountActions.createDevice(name, interfaceIds)) {
+        when (val outcome = accountActions.createDevice(name, interfaceIds, createKey)) {
             is ActionResult.Success -> {
                 val snapshot = state.snapshot
                 reduce {
@@ -124,6 +144,7 @@ class AccountViewModel(
                         isActionInProgress = false,
                         dialog = null,
                         dialogError = null,
+                        pendingCreateKey = null,
                         snapshot =
                             snapshot?.copy(devices = snapshot.devices + outcome.value.device),
                     )
@@ -196,6 +217,7 @@ class AccountViewModel(
             state.copy(
                 isActionInProgress = false,
                 dialog = null,
+                pendingCreateKey = null,
                 snapshot = null,
                 error = null,
             )
@@ -222,6 +244,7 @@ class AccountViewModel(
             state.copy(
                 isActionInProgress = false,
                 dialog = null,
+                pendingCreateKey = null,
                 snapshot = null,
                 error = null,
                 serverUrl = validation.url,

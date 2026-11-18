@@ -10,6 +10,7 @@ use awg_statistics::{StatsHub, StatsService};
 use awg_tariffs::TariffService;
 
 use crate::config::Config;
+use crate::idempotency::IdempotencyStore;
 use crate::rate_limit::RateLimitScope;
 use crate::settings::SettingsStore;
 
@@ -29,6 +30,7 @@ pub struct AppState {
     pub settings: Arc<SettingsStore>,
     pub audit: Arc<AuditService>,
     pub billing: Arc<BillingService>,
+    pub idempotency: Arc<IdempotencyStore>,
     pub login_limiter: RateLimitScope,
     pub refresh_limiter: RateLimitScope,
     pub register_limiter: RateLimitScope,

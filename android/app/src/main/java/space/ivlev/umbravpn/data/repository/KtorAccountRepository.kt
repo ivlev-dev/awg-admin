@@ -14,7 +14,8 @@ class KtorAccountRepository(private val api: AccountApi) : AccountRepository {
     override suspend fun createDevice(
         name: String,
         interfaceIds: List<String>,
-    ): AccountResult<CreatedDevice> = api.createDevice(name, interfaceIds)
+        idempotencyKey: String?,
+    ): AccountResult<CreatedDevice> = api.createDevice(name, interfaceIds, idempotencyKey)
 
     override suspend fun deviceConfig(id: String): AccountResult<DeviceConfig> =
         api.deviceConfig(id)

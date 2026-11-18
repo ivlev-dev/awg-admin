@@ -144,6 +144,7 @@ internal class FakeAccountRepository(
     override suspend fun createDevice(
         name: String,
         interfaceIds: List<String>,
+        idempotencyKey: String?,
     ): AccountResult<CreatedDevice> {
         createdDeviceNames += name
         createdInterfaceIds += interfaceIds

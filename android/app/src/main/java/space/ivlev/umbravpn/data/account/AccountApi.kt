@@ -2,20 +2,20 @@ package space.ivlev.umbravpn.data.account
 
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.client.request.delete
-import io.ktor.client.request.get
 import io.ktor.client.request.header
-import io.ktor.client.request.patch
 import io.ktor.client.request.post
+import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import java.time.Instant
+import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -48,17 +48,17 @@ class AccountApi(
         val result =
             execute(
                 authenticated = false,
-                send = { baseUrl, _ ->
-                    client.post(endpoint(baseUrl, "auth/login")) {
-                        contentType(ContentType.Application.Json)
-                        setBody(
-                            LoginRequestDto(
-                                login = login,
-                                password = password,
-                                totpCode = totpCode?.takeIf { it.isNotBlank() },
-                            ),
-                        )
-                    }
+                method = HttpMethod.Post,
+                path = "auth/login",
+                configure = {
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        LoginRequestDto(
+                            login = login,
+                            password = password,
+                            totpCode = totpCode?.takeIf { it.isNotBlank() },
+                        ),
+                    )
                 },
                 decode = { body -> json.decodeFromString<AuthResponseDto>(body) },
             )
@@ -76,11 +76,13 @@ class AccountApi(
 
     suspend fun register(email: String, password: String): AccountResult<Unit> {
         val result =
-            executeUnit(authenticated = false) { baseUrl, _ ->
-                client.post(endpoint(baseUrl, "auth/register")) {
-                    contentType(ContentType.Application.Json)
-                    setBody(RegisterRequestDto(email = email, password = password))
-                }
+            executeUnit(
+                authenticated = false,
+                method = HttpMethod.Post,
+                path = "auth/register",
+            ) {
+                contentType(ContentType.Application.Json)
+                setBody(RegisterRequestDto(email = email, password = password))
             }
         if (result is AccountResult.Success) sessionManager.markPendingEmail()
         return result
@@ -88,38 +90,46 @@ class AccountApi(
 
     suspend fun verifyEmail(token: String): AccountResult<Unit> {
         val result =
-            executeUnit(authenticated = false) { baseUrl, _ ->
-                client.post(endpoint(baseUrl, "auth/verify-email")) {
-                    contentType(ContentType.Application.Json)
-                    setBody(VerifyEmailRequestDto(token = token))
-                }
+            executeUnit(
+                authenticated = false,
+                method = HttpMethod.Post,
+                path = "auth/verify-email",
+            ) {
+                contentType(ContentType.Application.Json)
+                setBody(VerifyEmailRequestDto(token = token))
             }
         if (result is AccountResult.Success) sessionManager.markPendingApproval()
         return result
     }
 
     suspend fun resendVerification(email: String): AccountResult<Unit> =
-        executeUnit(authenticated = false) { baseUrl, _ ->
-            client.post(endpoint(baseUrl, "auth/resend-verification")) {
-                contentType(ContentType.Application.Json)
-                setBody(ResendVerificationRequestDto(email = email))
-            }
+        executeUnit(
+            authenticated = false,
+            method = HttpMethod.Post,
+            path = "auth/resend-verification",
+        ) {
+            contentType(ContentType.Application.Json)
+            setBody(ResendVerificationRequestDto(email = email))
         }
 
     suspend fun forgotPassword(email: String): AccountResult<Unit> =
-        executeUnit(authenticated = false) { baseUrl, _ ->
-            client.post(endpoint(baseUrl, "auth/forgot-password")) {
-                contentType(ContentType.Application.Json)
-                setBody(ForgotPasswordRequestDto(email = email))
-            }
+        executeUnit(
+            authenticated = false,
+            method = HttpMethod.Post,
+            path = "auth/forgot-password",
+        ) {
+            contentType(ContentType.Application.Json)
+            setBody(ForgotPasswordRequestDto(email = email))
         }
 
     suspend fun resetPassword(token: String, password: String): AccountResult<Unit> =
-        executeUnit(authenticated = false) { baseUrl, _ ->
-            client.post(endpoint(baseUrl, "auth/reset-password")) {
-                contentType(ContentType.Application.Json)
-                setBody(ResetPasswordRequestDto(token = token, password = password))
-            }
+        executeUnit(
+            authenticated = false,
+            method = HttpMethod.Post,
+            path = "auth/reset-password",
+        ) {
+            contentType(ContentType.Application.Json)
+            setBody(ResetPasswordRequestDto(token = token, password = password))
         }
 
     suspend fun logout(): AccountResult<Unit> {
@@ -128,11 +138,13 @@ class AccountApi(
             if (refreshToken == null) {
                 AccountResult.Success(Unit)
             } else {
-                executeUnit(authenticated = false) { baseUrl, _ ->
-                    client.post(endpoint(baseUrl, "auth/logout")) {
-                        contentType(ContentType.Application.Json)
-                        setBody(LogoutRequestDto(refreshToken = refreshToken))
-                    }
+                executeUnit(
+                    authenticated = false,
+                    method = HttpMethod.Post,
+                    path = "auth/logout",
+                ) {
+                    contentType(ContentType.Application.Json)
+                    setBody(LogoutRequestDto(refreshToken = refreshToken))
                 }
             }
         sessionManager.markLoggedOut()
@@ -143,9 +155,8 @@ class AccountApi(
         val result =
             execute(
                 authenticated = true,
-                send = { baseUrl, token ->
-                    client.get(endpoint(baseUrl, "auth/me")) { bearer(token) }
-                },
+                method = HttpMethod.Get,
+                path = "auth/me",
                 decode = { body -> json.decodeFromString<UserDto>(body) },
             )
         return when (result) {
@@ -165,9 +176,8 @@ class AccountApi(
         val result =
             execute(
                 authenticated = true,
-                send = { baseUrl, token ->
-                    client.get(endpoint(baseUrl, "app/bootstrap")) { bearer(token) }
-                },
+                method = HttpMethod.Get,
+                path = "app/bootstrap",
                 decode = { body -> json.decodeFromString<BootstrapDto>(body).toDomain() },
             )
         if (result is AccountResult.Failure) applyAuthFailure(result.error)
@@ -177,20 +187,21 @@ class AccountApi(
     suspend fun createDevice(
         name: String,
         interfaceIds: List<String> = emptyList(),
+        idempotencyKey: String? = null,
     ): AccountResult<CreatedDevice> =
         execute(
             authenticated = true,
-            send = { baseUrl, token ->
-                client.post(endpoint(baseUrl, "app/devices")) {
-                    bearer(token)
-                    contentType(ContentType.Application.Json)
-                    setBody(
-                        CreateDeviceRequestDto(
-                            name = name,
-                            interfaceIds = interfaceIds.takeIf { it.isNotEmpty() },
-                        ),
-                    )
-                }
+            method = HttpMethod.Post,
+            path = "app/devices",
+            idempotencyKey = idempotencyKey,
+            configure = {
+                contentType(ContentType.Application.Json)
+                setBody(
+                    CreateDeviceRequestDto(
+                        name = name,
+                        interfaceIds = interfaceIds.takeIf { it.isNotEmpty() },
+                    ),
+                )
             },
             decode = { body -> json.decodeFromString<AppDeviceDto>(body).toDomain() },
         )
@@ -198,18 +209,16 @@ class AccountApi(
     suspend fun deviceConfig(id: String): AccountResult<DeviceConfig> =
         execute(
             authenticated = true,
-            send = { baseUrl, token ->
-                client.get(endpoint(baseUrl, "app/devices/$id/config")) { bearer(token) }
-            },
+            method = HttpMethod.Get,
+            path = "app/devices/$id/config",
             decode = { body -> json.decodeFromString<DeviceConfigDto>(body).toDomain() },
         )
 
     suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
         execute(
             authenticated = true,
-            send = { baseUrl, token ->
-                client.get(endpoint(baseUrl, "app/devices/$id/configs")) { bearer(token) }
-            },
+            method = HttpMethod.Get,
+            path = "app/devices/$id/configs",
             decode = { body ->
                 json.decodeFromString<List<DeviceConfigDto>>(body).map(DeviceConfigDto::toDomain)
             },
@@ -218,20 +227,21 @@ class AccountApi(
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         execute(
             authenticated = true,
-            send = { baseUrl, token ->
-                client.patch(endpoint(baseUrl, "app/devices/$id")) {
-                    bearer(token)
-                    contentType(ContentType.Application.Json)
-                    setBody(RenameDeviceRequestDto(name = name))
-                }
+            method = HttpMethod.Patch,
+            path = "app/devices/$id",
+            configure = {
+                contentType(ContentType.Application.Json)
+                setBody(RenameDeviceRequestDto(name = name))
             },
             decode = { body -> json.decodeFromString<DeviceDto>(body).toDomain() },
         )
 
     suspend fun deleteDevice(id: String): AccountResult<Unit> =
-        executeUnit(authenticated = true) { baseUrl, token ->
-            client.delete(endpoint(baseUrl, "app/devices/$id")) { bearer(token) }
-        }
+        executeUnit(
+            authenticated = true,
+            method = HttpMethod.Delete,
+            path = "app/devices/$id",
+        )
 
     private fun persist(auth: AuthResponseDto) {
         sessionManager.onAuthenticated(
@@ -271,12 +281,26 @@ class AccountApi(
 
     private suspend fun executeUnit(
         authenticated: Boolean,
-        send: suspend (baseUrl: String, accessToken: String?) -> HttpResponse,
-    ): AccountResult<Unit> = execute(authenticated = authenticated, send = send, decode = {})
+        method: HttpMethod,
+        path: String,
+        idempotencyKey: String? = null,
+        configure: HttpRequestBuilder.() -> Unit = {},
+    ): AccountResult<Unit> =
+        execute(
+            authenticated = authenticated,
+            method = method,
+            path = path,
+            idempotencyKey = idempotencyKey,
+            configure = configure,
+            decode = {},
+        )
 
     private suspend fun <T> execute(
         authenticated: Boolean,
-        send: suspend (baseUrl: String, accessToken: String?) -> HttpResponse,
+        method: HttpMethod,
+        path: String,
+        idempotencyKey: String? = null,
+        configure: HttpRequestBuilder.() -> Unit = {},
         decode: suspend (body: String) -> T,
     ): AccountResult<T> {
         val baseUrl = settings.serverUrl()
@@ -296,9 +320,12 @@ class AccountApi(
                 null
             }
 
-        val first =
-            sendOrNetwork(baseUrl, accessToken, send)
-                ?: return AccountResult.Failure(AccountError.Network)
+        val requestKey = idempotencyKeyFor(method, path, idempotencyKey)
+
+        suspend fun send(token: String?): HttpResponse? =
+            sendOrNetwork(baseUrl, method, path, token, requestKey, configure)
+
+        val first = send(accessToken) ?: return AccountResult.Failure(AccountError.Network)
 
         if (authenticated && first.status == HttpStatusCode.Unauthorized) {
             val failedToken =
@@ -311,7 +338,7 @@ class AccountApi(
                 RefreshOutcome.NetworkFailure -> AccountResult.Failure(AccountError.Network)
                 is RefreshOutcome.Refreshed -> {
                     val retry =
-                        sendOrNetwork(baseUrl, outcome.accessToken, send)
+                        send(outcome.accessToken)
                             ?: return AccountResult.Failure(AccountError.Network)
                     if (retry.status == HttpStatusCode.Unauthorized) {
                         sessionManager.markExpired()
@@ -372,15 +399,37 @@ class AccountApi(
 
     private suspend fun sendOrNetwork(
         baseUrl: String,
+        method: HttpMethod,
+        path: String,
         accessToken: String?,
-        send: suspend (baseUrl: String, accessToken: String?) -> HttpResponse,
+        idempotencyKey: String?,
+        configure: HttpRequestBuilder.() -> Unit,
     ): HttpResponse? =
         try {
-            send(baseUrl, accessToken)
+            client.request(endpoint(baseUrl, path)) {
+                this.method = method
+                bearer(accessToken)
+                if (!idempotencyKey.isNullOrBlank()) {
+                    header(IDEMPOTENCY_KEY_HEADER, idempotencyKey)
+                }
+                configure()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             null
+        }
+
+    private fun idempotencyKeyFor(
+        method: HttpMethod,
+        path: String,
+        explicitKey: String?,
+    ): String? =
+        when {
+            method != HttpMethod.Post -> null
+            !path.startsWith(APP_PATH_PREFIX) -> null
+            !explicitKey.isNullOrBlank() -> explicitKey
+            else -> UUID.randomUUID().toString()
         }
 
     private suspend fun <T> parse(
@@ -417,6 +466,8 @@ class AccountApi(
         data object NetworkFailure : RefreshOutcome
     }
 }
+
+private const val APP_PATH_PREFIX = "app/"
 
 private fun endpoint(baseUrl: String, path: String): String = "$baseUrl/api/v1/$path"
 

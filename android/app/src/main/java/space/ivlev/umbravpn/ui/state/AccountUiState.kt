@@ -36,6 +36,7 @@ data class AccountUiState(
     val deviceEndpoint: String? = null,
     val isEndpointLoading: Boolean = false,
     val endpointError: AccountMessage? = null,
+    val pendingCreateKey: String? = null,
 ) {
     val isActive: Boolean
         get() = session is SessionState.Active
