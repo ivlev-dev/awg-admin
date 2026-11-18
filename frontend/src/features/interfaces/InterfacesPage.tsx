@@ -1,6 +1,7 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { InterfacesPageVM, InterfacesSortKey } from "./InterfacesPage.vm";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Modal } from "@/components/Modal";
@@ -29,7 +30,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
       </div>
 
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.load()} />
       </Show>
 
       <section class="card card--flush">

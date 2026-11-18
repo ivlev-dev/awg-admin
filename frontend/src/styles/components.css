@@ -683,3 +683,20 @@
 
 .btn--danger.btn--icon { background: transparent; border-color: transparent; color: var(--md-error); }
 .btn--danger.btn--icon:hover { background: var(--md-error-container); color: var(--md-on-error-container); }
+
+.confirm-dialog__message { margin: 0; color: var(--md-on-surface-variant); line-height: 1.55; }
+
+.confirm-backdrop { z-index: calc(var(--z-modal) + 1); }
+.confirm-dialog { max-width: 480px; }
+
+.alert--with-action { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.alert--with-action .btn { margin-left: auto; }
+
+.rate-field { display: flex; gap: 8px; align-items: center; }
+.rate-field .input { flex: 1; }
+.rate-field__unit { flex: 0 0 130px; }
+
+@media (max-width: 420px) {
+  .rate-field { flex-wrap: wrap; }
+  .rate-field__unit { flex: 1 1 100%; }
+}

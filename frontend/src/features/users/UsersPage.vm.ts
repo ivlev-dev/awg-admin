@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
 import { compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
@@ -235,7 +236,12 @@ export class UsersPageVM {
       .filter((user) => this.selectedIds.includes(user.id) && user.id !== this.selfId)
       .map((user) => user.id);
     if (ids.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("users.bulk.delete.title"),
+      message: t("bulk.confirm.delete", { count: ids.length }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     await this.runBulk("delete", ids);
   }
 
@@ -517,7 +523,12 @@ export class UsersPageVM {
       this.toasts.error("Нельзя удалить собственную учётную запись");
       return;
     }
-    if (!window.confirm(`Удалить пользователя ${user.login}?`)) return;
+    const confirmed = await askConfirm({
+      title: t("users.confirm.delete.title"),
+      message: t("users.confirm.delete", { login: user.login }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     try {
       await this.usersService.deleteUser(user.id);
       this.toasts.success("Пользователь удалён");
@@ -579,7 +590,12 @@ export class UsersPageVM {
 
   async reject(user: User): Promise<void> {
     const login = user.email ?? user.login;
-    if (!window.confirm(t("users.pending.rejectConfirm", { login }))) return;
+    const confirmed = await askConfirm({
+      title: t("users.pending.rejectTitle"),
+      message: t("users.pending.rejectConfirm", { login }),
+      confirmLabel: t("users.pending.reject"),
+    });
+    if (!confirmed) return;
     try {
       await this.usersService.rejectUser(user.id);
       this.toasts.success(t("users.pending.rejected"));

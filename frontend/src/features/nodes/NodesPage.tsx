@@ -2,6 +2,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { NodesPageVM } from "./NodesPage.vm";
 import { BulkBar } from "@/components/BulkBar";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { Select } from "@/components/Select";
@@ -78,7 +79,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
   return (
     <div class="stack">
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.load()} />
       </Show>
 
       <section class="card card--flush">

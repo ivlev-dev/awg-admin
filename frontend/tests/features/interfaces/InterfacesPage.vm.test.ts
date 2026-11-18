@@ -13,6 +13,9 @@ import type { BulkFailure, BulkResult } from "@/domain/bulk";
 import type { InterfaceBulkAction } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
+
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type {
   AuthSession,
@@ -296,7 +299,8 @@ function submit(): Event {
 
 describe("InterfacesPageVM", () => {
   beforeEach(() => {
-    window.confirm = vi.fn(() => true);
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   it("loads interfaces, groups and nodes", async () => {
@@ -508,10 +512,13 @@ describe("InterfacesPageVM", () => {
     const harness = makeVm();
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await harness.vm.rotate(iface());
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Перевыпустить ключи интерфейса") }),
+    );
     expect(harness.interfacesRepo.rotateInterface).not.toHaveBeenCalled();
     expect(harness.vm.rotated).toBeNull();
   });
@@ -544,7 +551,7 @@ describe("InterfacesPageVM", () => {
     const harness = makeVm();
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await harness.vm.remove(iface());
 
@@ -620,7 +627,9 @@ describe("InterfacesPageVM", () => {
     expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls + 1);
     expect(harness.vm.selectedIds).toEqual([]);
     expect(harness.vm.interfaces.map((item) => item.id)).toEqual(["i3"]);
-    expect(window.confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить выбранные записи (2)?" }),
+    );
     expect(
       harness.toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 2, ошибок: 0"),
     ).toBe(true);
@@ -664,7 +673,7 @@ describe("InterfacesPageVM", () => {
     const harness = makeVm();
     harness.interfacesRepo.items.set("i1", iface({ id: "i1" }));
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     harness.vm.toggleSelected("i1");
 
     await harness.vm.bulkDelete();

@@ -18,6 +18,9 @@ import type { TokenStore } from "@/infrastructure/storage";
 import { ClientDetails } from "@/features/clients/ClientDetails";
 import { ClientDetailsVM } from "@/features/clients/ClientDetails.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const ADMIN: User = {
   id: "u1",
   login: "admin",
@@ -408,6 +411,11 @@ function setup(
 }
 
 describe("ClientDetailsVM", () => {
+  beforeEach(() => {
+    confirmMock.askConfirm.mockReset();
+    confirmMock.askConfirm.mockResolvedValue(true);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -442,8 +450,8 @@ describe("ClientDetailsVM", () => {
     await vm.load();
 
     expect(vm.editName).toBe("laptop");
-    expect(vm.editDown).toBe("1000");
-    expect(vm.editUp).toBe("500");
+    expect(vm.editDownKbps).toBe(1000);
+    expect(vm.editUpKbps).toBe(500);
     expect(vm.forwardingMode).toBe("off");
     expect(vm.forwardingSelected).toEqual([]);
     expect(vm.forwardingSymmetric).toBe(true);
@@ -612,8 +620,8 @@ describe("ClientDetailsVM", () => {
     await vm.load();
 
     vm.editName = "  renamed  ";
-    vm.editDown = "2000";
-    vm.editUp = "1000";
+    vm.setEditDownKbps(2000);
+    vm.setEditUpKbps(1000);
     vm.setForwardingMode("all");
 
     await vm.save();
@@ -890,6 +898,41 @@ describe("ClientDetailsVM", () => {
     });
   });
 
+  it("нормализует лимиты скорости в кбит/с", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    vm.setEditDownKbps(1500.6);
+    vm.setEditUpKbps(-3);
+
+    expect(vm.editDownKbps).toBe(1501);
+    expect(vm.editUpKbps).toBe(0);
+
+    await vm.save();
+
+    expect(repository.updateDevice).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ down_kbps: 1501, up_kbps: 0 }),
+    );
+  });
+
+  it("не отзывает все ссылки при отказе от подтверждения", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    await vm.revokeAllShares();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отзыв ссылок",
+      message: "Отозвать все ссылки устройства «laptop»?",
+      confirmLabel: "Отозвать",
+      tone: "danger",
+    });
+    expect(repository.revokeAllShares).not.toHaveBeenCalled();
+    expect(vm.shares).toEqual([SHARE]);
+  });
+
   it("показывает ошибку сохранения", async () => {
     const { vm, repository, toasts } = setup("admin");
     await vm.load();
@@ -909,10 +952,15 @@ describe("ClientDetailsVM", () => {
   it("отзывает устройство и возвращает к списку", async () => {
     const { vm, repository, router, toasts } = setup("admin");
     await vm.load();
-    vi.stubGlobal("confirm", vi.fn(() => true));
 
     await vm.revoke();
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отзыв устройства",
+      message: "Отозвать устройство «laptop»?",
+      confirmLabel: "Отозвать",
+      tone: "danger",
+    });
     expect(repository.updateDevice).toHaveBeenCalledWith("d1", { revoked: true });
     expect(router.path).toBe("/clients");
     expect(vm.actionBusy).toBe(false);
@@ -925,10 +973,15 @@ describe("ClientDetailsVM", () => {
   it("удаляет устройство после подтверждения", async () => {
     const { vm, repository, router, toasts } = setup("admin");
     await vm.load();
-    vi.stubGlobal("confirm", vi.fn(() => true));
 
     await vm.remove();
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Удаление клиента",
+      message: "Удалить устройство «laptop»? Действие необратимо.",
+      confirmLabel: "Удалить",
+      tone: "danger",
+    });
     expect(repository.deleteDevice).toHaveBeenCalledWith("d1");
     expect(router.path).toBe("/clients");
     expect(vm.actionBusy).toBe(false);
@@ -939,19 +992,19 @@ describe("ClientDetailsVM", () => {
   });
 
   it("не удаляет устройство без подтверждения", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm, repository } = setup("admin");
     await vm.load();
-    vi.stubGlobal("confirm", vi.fn(() => false));
 
     await vm.remove();
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
     expect(repository.deleteDevice).not.toHaveBeenCalled();
   });
 
   it("показывает ошибку удаления", async () => {
     const { vm, repository, toasts } = setup("admin");
     await vm.load();
-    vi.stubGlobal("confirm", vi.fn(() => true));
     vi.mocked(repository.deleteDevice).mockRejectedValueOnce(new Error("Сервис недоступен"));
 
     await vm.remove();

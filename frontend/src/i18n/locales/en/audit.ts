@@ -5,6 +5,8 @@ export const enAudit = {
   "audit.export": "Export CSV",
   "audit.clear": "Clear filtered",
   "audit.clear.confirm": "Delete every event matching the filter? This cannot be undone.",
+  "audit.clear.title": "Clear the log",
+  "audit.clear.action": "Clear",
   "audit.clear.success": "Deleted events: {count}",
   "audit.clear.error": "Failed to clear the audit log",
   "audit.filter.action": "Action",

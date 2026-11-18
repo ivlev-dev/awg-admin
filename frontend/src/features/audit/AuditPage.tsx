@@ -1,6 +1,7 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { AuditPageVM } from "./AuditPage.vm";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
@@ -35,7 +36,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
       </div>
 
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.refresh()} />
       </Show>
 
       <section

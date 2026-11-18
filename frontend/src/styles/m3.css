@@ -571,5 +571,6 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   .bulk-bar,
   .toast-stack {
     width: min(720px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    bottom: calc(56px + env(safe-area-inset-bottom));
   }
 }

@@ -800,3 +800,108 @@ describe("AppVM mobile gestures", () => {
     harness.vm.dispose();
   });
 });
+
+describe("AppVM command palette", () => {
+  const booted: Harness[] = [];
+
+  async function boot(options: { user?: User | null; path?: string } = {}): Promise<Harness> {
+    const harness = makeHarness(options);
+    await harness.vm.created();
+    booted.push(harness);
+    return harness;
+  }
+
+  function pressKey(target: EventTarget, key: string, init: KeyboardEventInit = {}): KeyboardEvent {
+    const event = new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true, ...init });
+    target.dispatchEvent(event);
+    return event;
+  }
+
+  afterEach(() => {
+    for (const harness of booted.splice(0)) harness.vm.dispose();
+    document.body.replaceChildren();
+  });
+
+  it("открывает и закрывает палитру по Ctrl+K и Cmd+K", async () => {
+    const harness = await boot({ user: ADMIN });
+
+    expect(harness.vm.commandOpen).toBe(false);
+
+    const opened = pressKey(document, "k", { ctrlKey: true });
+    expect(opened.defaultPrevented).toBe(true);
+    expect(harness.vm.commandOpen).toBe(true);
+
+    pressKey(document, "k", { metaKey: true });
+    expect(harness.vm.commandOpen).toBe(false);
+
+    pressKey(document, "K", { ctrlKey: true, shiftKey: true });
+    expect(harness.vm.commandOpen).toBe(false);
+  });
+
+  it("открывает палитру по косой черте", async () => {
+    const harness = await boot({ user: ADMIN });
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.blur();
+
+    const opened = pressKey(document, "/");
+
+    expect(opened.defaultPrevented).toBe(true);
+    expect(harness.vm.commandOpen).toBe(true);
+  });
+
+  it("не открывает палитру по косой черте из поля ввода", async () => {
+    const harness = await boot({ user: ADMIN });
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+
+    pressKey(input, "/");
+
+    expect(harness.vm.commandOpen).toBe(false);
+  });
+
+  it("снимает обработчик клавиатуры при dispose", async () => {
+    const harness = await boot({ user: ADMIN });
+    harness.vm.dispose();
+
+    pressKey(document, "k", { ctrlKey: true });
+
+    expect(harness.vm.commandOpen).toBe(false);
+  });
+
+  it("собирает навигацию и действия в список команд", async () => {
+    const harness = await boot({ user: ADMIN });
+
+    const ids = harness.vm.commandItems.map((item) => item.id);
+
+    expect(ids).toContain("nav:/clients");
+    expect(ids).toContain("nav:/settings");
+    expect(ids).toContain("action:theme");
+    expect(ids).toContain("action:density");
+    expect(ids).toContain("action:settings");
+    expect(ids).toContain("action:profile");
+    expect(ids).toContain("action:logout");
+  });
+
+  it("переходит по пути и закрывает палитру", async () => {
+    const harness = await boot({ user: ADMIN });
+    harness.vm.openCommand();
+
+    harness.vm.runCommand({ id: "nav:clients", title: "Клиенты", path: "/clients" });
+
+    expect(harness.router.path).toBe("/clients");
+    expect(harness.vm.commandOpen).toBe(false);
+  });
+
+  it("выполняет действие и закрывает палитру", async () => {
+    const harness = await boot({ user: ADMIN });
+    const run = vi.fn();
+    harness.vm.openCommand();
+
+    harness.vm.runCommand({ id: "action:test", title: "Действие", run });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(harness.vm.commandOpen).toBe(false);
+  });
+});

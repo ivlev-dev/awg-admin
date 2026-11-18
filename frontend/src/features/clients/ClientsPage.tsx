@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
+import { RateField } from "@/components/RateField";
 import { SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 import { formatRateI18n } from "@/i18n/format";
@@ -382,30 +383,20 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
           </Show>
 
           <div class="grid grid--2">
-            <div class="field">
-              <label for="client-down">{t("clients.form.down")}</label>
-              <input
-                id="client-down"
-                class="input"
-                type="number"
-                min="0"
-                value={this.vm.formDown}
-                onInput={(event: Event) => this.vm.setFormDown(event)}
-              />
-              <div class="hint">{t("clients.form.limitHint")}</div>
-            </div>
-            <div class="field">
-              <label for="client-up">{t("clients.form.up")}</label>
-              <input
-                id="client-up"
-                class="input"
-                type="number"
-                min="0"
-                value={this.vm.formUp}
-                onInput={(event: Event) => this.vm.setFormUp(event)}
-              />
-              <div class="hint">{t("clients.form.limitHint")}</div>
-            </div>
+            <RateField
+              id="client-down"
+              label={t("clients.form.down")}
+              value={this.vm.formDownKbps}
+              hint={t("clients.form.limitHint")}
+              onChange={(kbps) => this.vm.setFormDownKbps(kbps)}
+            />
+            <RateField
+              id="client-up"
+              label={t("clients.form.up")}
+              value={this.vm.formUpKbps}
+              hint={t("clients.form.limitHint")}
+              onChange={(kbps) => this.vm.setFormUpKbps(kbps)}
+            />
           </div>
 
           <label class="checkbox">

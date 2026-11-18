@@ -16,6 +16,9 @@ import type { TokenStore } from "@/infrastructure/storage";
 import { setLocale } from "@/i18n";
 import { ProfilePage } from "@/features/profile/ProfilePage";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const USER: User = {
   id: "u1",
   login: "admin",
@@ -285,8 +288,8 @@ describe("ProfilePage sessions", () => {
 
   it("revokes a session after confirmation", async () => {
     const revokeSession = vi.fn(async (_jti: string) => undefined);
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal("confirm", confirm);
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
     const harness = mount(authRepository({ revokeSession }));
     const root = document.body;
 
@@ -295,7 +298,9 @@ describe("ProfilePage sessions", () => {
     actionButtons(root)[0]?.click();
 
     await vi.waitFor(() => expect(revokeSession).toHaveBeenCalledWith("jti-active"));
-    expect(confirm).toHaveBeenCalledWith("Завершить эту сессию?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Завершить эту сессию?" }),
+    );
     await vi.waitFor(() => {
       expect(
         harness.toasts.items.some((item) => item.message === "Сессия завершена"),
@@ -307,8 +312,8 @@ describe("ProfilePage sessions", () => {
 
   it("ends all sessions and redirects to login", async () => {
     const logoutAll = vi.fn(async () => ({ ok: true, revoked: 2 }));
-    const confirm = vi.fn(() => true);
-    vi.stubGlobal("confirm", confirm);
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
     const harness = mount(authRepository({ logoutAll }));
     const root = document.body;
 
@@ -317,7 +322,9 @@ describe("ProfilePage sessions", () => {
     buttonByText(root, "Завершить все сессии")?.click();
 
     await vi.waitFor(() => expect(harness.router.path).toBe("/login"));
-    expect(confirm).toHaveBeenCalledWith("Завершить все сессии? Потребуется войти заново.");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Завершить все сессии? Потребуется войти заново." }),
+    );
     expect(logoutAll).toHaveBeenCalledTimes(1);
     expect(harness.tokens.access()).toBeNull();
 

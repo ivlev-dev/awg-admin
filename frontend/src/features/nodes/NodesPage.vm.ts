@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { Session } from "@/app/session";
 import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { ToastStore } from "@/app/toast";
@@ -112,7 +113,12 @@ export class NodesPageVM {
   async bulkDelete(): Promise<void> {
     const ids = [...this.selectedIds];
     if (ids.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("nodes.bulk.delete.title"),
+      message: t("bulk.confirm.delete", { count: ids.length }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     this.bulkBusy = true;
     try {
       const result = await this.nodesService.bulk("delete", ids);
@@ -226,7 +232,11 @@ export class NodesPageVM {
 
   async rotate(node: NodeInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(t("nodes.confirm.rotate", { name: node.name }));
+    const confirmed = await askConfirm({
+      title: t("nodes.confirm.rotate.title"),
+      message: t("nodes.confirm.rotate", { name: node.name }),
+      confirmLabel: t("nodes.confirm.rotate.action"),
+    });
     if (!confirmed) return;
     this.busy = true;
     try {
@@ -244,7 +254,11 @@ export class NodesPageVM {
 
   async remove(node: NodeInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(t("nodes.confirm.delete", { name: node.name }));
+    const confirmed = await askConfirm({
+      title: t("nodes.confirm.delete.title"),
+      message: t("nodes.confirm.delete", { name: node.name }),
+      confirmLabel: t("common.delete"),
+    });
     if (!confirmed) return;
     this.busy = true;
     try {

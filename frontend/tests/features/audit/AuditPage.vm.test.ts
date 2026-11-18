@@ -5,6 +5,9 @@ import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/t
 import { formatDateTimeI18n } from "@/i18n/format";
 import { formatAuditRow, AuditPageVM, auditFiltersStorage } from "@/features/audit/AuditPage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
   return {
     id: "e1",
@@ -70,15 +73,11 @@ function unix(value: string): number {
   return Math.floor(new Date(value).getTime() / 1000);
 }
 
-function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
-  const confirm = vi.fn(() => result);
-  vi.stubGlobal("confirm", confirm);
-  return confirm;
-}
-
 describe("AuditPageVM", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", new MemoryStorage());
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -407,7 +406,6 @@ describe("AuditPageVM", () => {
   });
 
   it("очищает по текущим фильтрам и обновляет журнал", async () => {
-    const confirm = stubConfirm(true);
     const repository = new FakeAuditRepository();
     repository.deleted = 7;
     repository.pages.push({ items: [], next_cursor: null });
@@ -422,8 +420,10 @@ describe("AuditPageVM", () => {
 
     await vm.clearFiltered();
 
-    expect(confirm).toHaveBeenCalledWith(
-      "Удалить все события, подходящие под фильтр? Действие необратимо.",
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "Удалить все события, подходящие под фильтр? Действие необратимо.",
+      }),
     );
     expect(repository.clearCalls).toEqual([
       {
@@ -443,24 +443,22 @@ describe("AuditPageVM", () => {
   });
 
   it("не очищает без активных фильтров и без подтверждения", async () => {
-    const confirm = stubConfirm(true);
     const repository = new FakeAuditRepository();
     const vm = makeVM(repository);
 
     await vm.clearFiltered();
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
     expect(repository.clearCalls).toHaveLength(0);
 
     vm.action = "POST";
-    const declined = stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     await vm.clearFiltered();
 
-    expect(declined).toHaveBeenCalledTimes(1);
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
     expect(repository.clearCalls).toHaveLength(0);
   });
 
   it("показывает ошибку и тост при неудачной очистке", async () => {
-    stubConfirm(true);
     const repository = new FakeAuditRepository();
     repository.clearFailure = new Error("Сервис недоступен");
     const toasts = new ToastStore();

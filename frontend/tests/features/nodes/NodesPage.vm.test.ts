@@ -11,6 +11,9 @@ import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { AuthSession, NodeInfo, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const ADMIN: User = {
   id: "u1",
   login: "admin",
@@ -159,7 +162,8 @@ function submit(): Event {
 
 describe("NodesPageVM", () => {
   beforeEach(() => {
-    window.confirm = vi.fn(() => true);
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   it("loads and sorts online nodes first", async () => {
@@ -263,10 +267,13 @@ describe("NodesPageVM", () => {
     const harness = makeVm();
     harness.repo.items.set("n1", node());
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await harness.vm.rotate(node());
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining("Перевыпустить токен ноды") }),
+    );
     expect(harness.repo.rotateNode).not.toHaveBeenCalled();
     expect(harness.vm.rotatedNode).toBeNull();
   });
@@ -342,7 +349,7 @@ describe("NodesPageVM", () => {
     const harness = makeVm();
     harness.repo.items.set("n1", node());
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await harness.vm.remove(node());
 
@@ -395,7 +402,9 @@ describe("NodesPageVM", () => {
     expect(harness.vm.selectedIds).toEqual([]);
     expect(harness.vm.nodes.map((item) => item.id)).toEqual(["n3"]);
     expect(harness.vm.bulkBusy).toBe(false);
-    expect(window.confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить выбранные записи (2)?" }),
+    );
     expect(
       harness.toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 2, ошибок: 0"),
     ).toBe(true);
@@ -439,7 +448,7 @@ describe("NodesPageVM", () => {
     const harness = makeVm();
     harness.repo.items.set("n1", node());
     await harness.vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     harness.vm.toggleSelected("n1");
 
     await harness.vm.bulkDelete();

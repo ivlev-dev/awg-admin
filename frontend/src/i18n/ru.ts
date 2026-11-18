@@ -1,6 +1,7 @@
 import { ruAudit } from "./locales/ru/audit";
 import { ruAuth } from "./locales/ru/auth";
 import { ruClients } from "./locales/ru/clients";
+import { ruCommand } from "./locales/ru/command";
 import { ruCommon } from "./locales/ru/common";
 import { ruGroups } from "./locales/ru/groups";
 import { ruImport } from "./locales/ru/import";
@@ -17,6 +18,7 @@ export const ru = {
   ...ruAudit,
   ...ruAuth,
   ...ruClients,
+  ...ruCommand,
   ...ruCommon,
   ...ruGroups,
   ...ruImport,

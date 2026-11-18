@@ -60,6 +60,10 @@ export const enNodes = {
   "nodes.toast.deleted": "Node “{name}” deleted",
   "nodes.toast.tokenCopied": "Token copied",
   "nodes.toast.tokenCopyFailed": "Failed to copy the token",
+  "nodes.bulk.delete.title": "Delete nodes",
+  "nodes.confirm.rotate.title": "Regenerate token",
+  "nodes.confirm.rotate.action": "Regenerate",
   "nodes.confirm.rotate": "Rotate the token of node “{name}”?\n\nThe old token stops working immediately and the worker will lose its connection until the token is updated.",
+  "nodes.confirm.delete.title": "Delete node",
   "nodes.confirm.delete": "Delete node “{name}”?\n\nUnbind its interfaces first: without a node they will have no worker.",
 } as const;

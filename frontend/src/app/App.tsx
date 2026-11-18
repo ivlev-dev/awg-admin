@@ -2,6 +2,9 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import { RouterView } from "@ivlev-dev/silent-router";
 
 import type { AppVM } from "./App.vm";
+import { type CommandItem } from "@/app/command";
+import { CommandPalette } from "@/components/CommandPalette";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ConnectionBanner } from "@/components/ConnectionBanner";
 import { AppErrorBoundary } from "@/components/ErrorBoundary";
 import { Icon } from "@/components/Icon";
@@ -135,6 +138,16 @@ function shell(vm: AppVM) {
           <button class="btn btn--ghost btn--icon no-mobile" type="button" onClick={() => vm.toggleTheme()} aria-label={t("shell.theme")}>
             <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={18} class="" />
           </button>
+          <button
+            class="btn btn--ghost btn--sm command-trigger"
+            type="button"
+            onClick={() => vm.openCommand()}
+            aria-label={t("command.search")}
+            aria-keyshortcuts="Control+K Meta+K"
+          >
+            <Icon name="search" size={18} class="" />
+            <span class="command-trigger__text no-mobile">{t("command.search")}… ⌘K</span>
+          </button>
           <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.go("/profile")} aria-label={t("shell.profile")}>
             <div class="avatar avatar--sm">{vm.userInitial}</div>
           </button>
@@ -149,6 +162,12 @@ function shell(vm: AppVM) {
           {pageView(vm)}
         </main>
       </div>
+      <CommandPalette
+        open={vm.commandOpen}
+        items={vm.commandItems}
+        onRun={(item: CommandItem) => vm.runCommand(item)}
+        onClose={() => vm.closeCommand()}
+      />
       <nav class="mobile-nav" aria-label={t("shell.menu")}>
         <For each={vm.mobileNav}>
           {(item) => (
@@ -239,6 +258,7 @@ function shell(vm: AppVM) {
           </div>
         </div>
       </Modal>
+      <ConfirmDialog />
     </div>
   );
 }

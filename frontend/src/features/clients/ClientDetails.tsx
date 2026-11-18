@@ -4,6 +4,7 @@ import type { ClientDetailsVM } from "./ClientDetails.vm";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { QrCode } from "@/components/QrCode";
+import { RateField } from "@/components/RateField";
 import { Select } from "@/components/Select";
 import { t } from "@/i18n";
 import { formatDateTimeI18n } from "@/i18n/format";
@@ -198,30 +199,20 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     </div>
 
                     <div class="grid grid--2">
-                      <div class="field">
-                        <label for="device-down">{t("clients.form.down")}</label>
-                        <input
-                          id="device-down"
-                          class="input"
-                          type="number"
-                          min="0"
-                          value={this.vm.editDown}
-                          onInput={(event: Event) => this.vm.setEditDown(event)}
-                        />
-                        <div class="hint">{t("clients.form.limitHint")}</div>
-                      </div>
-                      <div class="field">
-                        <label for="device-up">{t("clients.form.up")}</label>
-                        <input
-                          id="device-up"
-                          class="input"
-                          type="number"
-                          min="0"
-                          value={this.vm.editUp}
-                          onInput={(event: Event) => this.vm.setEditUp(event)}
-                        />
-                        <div class="hint">{t("clients.form.limitHint")}</div>
-                      </div>
+                      <RateField
+                        id="device-down"
+                        label={t("clients.form.down")}
+                        value={this.vm.editDownKbps}
+                        hint={t("clients.form.limitHint")}
+                        onChange={(kbps) => this.vm.setEditDownKbps(kbps)}
+                      />
+                      <RateField
+                        id="device-up"
+                        label={t("clients.form.up")}
+                        value={this.vm.editUpKbps}
+                        hint={t("clients.form.limitHint")}
+                        onChange={(kbps) => this.vm.setEditUpKbps(kbps)}
+                      />
                     </div>
 
                     <Show when={this.vm.rateLimitHint}>

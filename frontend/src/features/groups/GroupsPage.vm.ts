@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
@@ -192,7 +193,12 @@ export class GroupsPageVM {
   }
 
   async remove(group: Group): Promise<void> {
-    if (!window.confirm(t("groups.confirm.delete", { name: group.name }))) return;
+    const confirmed = await askConfirm({
+      title: t("groups.confirm.delete.title"),
+      message: t("groups.confirm.delete", { name: group.name }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     try {
       await this.groupsService.deleteGroup(group.id);
       this.toasts.success(t("groups.toast.deleted", { name: group.name }));
@@ -211,7 +217,12 @@ export class GroupsPageVM {
       .filter((group) => this.selectedIds.includes(group.id))
       .map((group) => group.id);
     if (ids.length === 0) return;
-    if (!window.confirm(t("groups.bulk.confirm", { count: ids.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("groups.bulk.delete.title"),
+      message: t("groups.bulk.confirm", { count: ids.length }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
 
     this.bulkBusy = true;
     try {

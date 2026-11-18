@@ -60,6 +60,10 @@ export const ruNodes = {
   "nodes.toast.deleted": "Нода «{name}» удалена",
   "nodes.toast.tokenCopied": "Токен скопирован",
   "nodes.toast.tokenCopyFailed": "Не удалось скопировать токен",
+  "nodes.bulk.delete.title": "Удалить ноды",
+  "nodes.confirm.rotate.title": "Перегенерировать токен",
+  "nodes.confirm.rotate.action": "Перегенерировать",
   "nodes.confirm.rotate": "Перевыпустить токен ноды «{name}»?\n\nСтарый токен сразу перестанет работать, и воркер потеряет подключение до обновления токена.",
+  "nodes.confirm.delete.title": "Удалить ноду",
   "nodes.confirm.delete": "Удалить ноду «{name}»?\n\nСначала отвяжите от неё интерфейсы: без ноды они останутся без воркера.",
 } as const;

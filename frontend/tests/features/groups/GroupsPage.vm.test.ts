@@ -11,6 +11,9 @@ import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 function group(overrides: Partial<Group> = {}): Group {
   return {
     id: "g1",
@@ -122,6 +125,8 @@ function submit(): Event {
 describe("GroupsPageVM", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/groups");
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   it("loads groups through the service", async () => {
@@ -231,10 +236,12 @@ describe("GroupsPageVM", () => {
     const repo = new MemoryGroupsRepository();
     repo.groups.set("g1", group());
     const { vm, toasts } = makeVm(repo);
-    window.confirm = vi.fn(() => true);
 
     await vm.remove(group());
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить группу «Офис»?" }),
+    );
     expect(repo.deleteGroup).toHaveBeenCalledWith("g1");
     expect(vm.groups).toEqual([]);
     expect(toasts.items.some((item) => item.message === "Группа «Офис» удалена")).toBe(true);
@@ -243,7 +250,7 @@ describe("GroupsPageVM", () => {
   it("does not delete when the confirmation is rejected", async () => {
     const repo = new MemoryGroupsRepository();
     const { vm } = makeVm(repo);
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await vm.remove(group());
 
@@ -254,7 +261,6 @@ describe("GroupsPageVM", () => {
     const repo = new MemoryGroupsRepository();
     repo.deleteGroup.mockRejectedValueOnce(new Error("group still has interfaces"));
     const { vm } = makeVm(repo);
-    window.confirm = vi.fn(() => true);
 
     await vm.remove(group());
 
@@ -323,12 +329,12 @@ describe("GroupsPageVM", () => {
     await vm.load();
     repo.listGroups.mockClear();
     vm.toggleSelectAll();
-    const confirm = vi.fn(() => true);
-    window.confirm = confirm;
 
     await vm.bulkDelete();
 
-    expect(confirm).toHaveBeenCalledWith("Удалить выбранные группы (2)?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить выбранные группы (2)?" }),
+    );
     expect(repo.bulk).toHaveBeenCalledTimes(1);
     expect(repo.bulk).toHaveBeenCalledWith("delete", ["g1", "g2"]);
     expect(repo.deleteGroup).not.toHaveBeenCalled();
@@ -361,7 +367,6 @@ describe("GroupsPageVM", () => {
     const { vm, toasts } = makeVm(repo);
     await vm.load();
     vm.toggleSelectAll();
-    window.confirm = vi.fn(() => true);
 
     await vm.bulkDelete();
 
@@ -380,7 +385,7 @@ describe("GroupsPageVM", () => {
     const { vm } = makeVm(repo);
     await vm.load();
     vm.toggleSelected("g1");
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await vm.bulkDelete();
 
@@ -391,12 +396,10 @@ describe("GroupsPageVM", () => {
   it("ignores bulk deletion without a selection", async () => {
     const repo = new MemoryGroupsRepository();
     const { vm } = makeVm(repo);
-    const confirm = vi.fn(() => true);
-    window.confirm = confirm;
 
     await vm.bulkDelete();
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
     expect(repo.bulk).not.toHaveBeenCalled();
   });
 
@@ -407,7 +410,6 @@ describe("GroupsPageVM", () => {
     const { vm, toasts } = makeVm(repo);
     await vm.load();
     vm.toggleSelected("g1");
-    window.confirm = vi.fn(() => true);
 
     await vm.bulkDelete();
 

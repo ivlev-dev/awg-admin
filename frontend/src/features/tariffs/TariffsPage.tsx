@@ -4,6 +4,7 @@ import type { TariffsPageVM, TariffsSortKey } from "./TariffsPage.vm";
 import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
+import { RateField } from "@/components/RateField";
 import { SkeletonTable } from "@/components/Skeleton";
 import { formatBytes, formatRate } from "@/domain/format";
 import type { SortState } from "@/domain/table-sort";
@@ -256,22 +257,34 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
             <textarea class="input" rows={2} value={this.vm.description} onInput={(event: Event) => this.vm.setDescription(event)}></textarea>
           </div>
           <div class="grid grid--2">
-            <div class="field">
-              <label>Устр. скачивание, Кбит/с</label>
-              <input class="input" type="number" min="0" value={this.vm.device_down_kbps} onInput={(event: Event) => this.vm.setDeviceDown(event)} />
-            </div>
-            <div class="field">
-              <label>Устр. отдача, Кбит/с</label>
-              <input class="input" type="number" min="0" value={this.vm.device_up_kbps} onInput={(event: Event) => this.vm.setDeviceUp(event)} />
-            </div>
-            <div class="field">
-              <label>Группа скачивание, Кбит/с</label>
-              <input class="input" type="number" min="0" value={this.vm.group_down_kbps} onInput={(event: Event) => this.vm.setGroupDown(event)} />
-            </div>
-            <div class="field">
-              <label>Группа отдача, Кбит/с</label>
-              <input class="input" type="number" min="0" value={this.vm.group_up_kbps} onInput={(event: Event) => this.vm.setGroupUp(event)} />
-            </div>
+            <RateField
+              id="tariff-device-down"
+              label="Устр. скачивание"
+              value={this.vm.device_down_kbps}
+              hint="0 — без лимита"
+              onChange={(kbps) => this.vm.setDeviceDownKbps(kbps)}
+            />
+            <RateField
+              id="tariff-device-up"
+              label="Устр. отдача"
+              value={this.vm.device_up_kbps}
+              hint="0 — без лимита"
+              onChange={(kbps) => this.vm.setDeviceUpKbps(kbps)}
+            />
+            <RateField
+              id="tariff-group-down"
+              label="Группа скачивание"
+              value={this.vm.group_down_kbps}
+              hint="0 — без лимита"
+              onChange={(kbps) => this.vm.setGroupDownKbps(kbps)}
+            />
+            <RateField
+              id="tariff-group-up"
+              label="Группа отдача"
+              value={this.vm.group_up_kbps}
+              hint="0 — без лимита"
+              onChange={(kbps) => this.vm.setGroupUpKbps(kbps)}
+            />
           </div>
           <div class="field">
             <label>Квота трафика, ГБ (0/пусто = безлимит)</label>

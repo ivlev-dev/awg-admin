@@ -6,6 +6,8 @@ export const ruTariffs = {
   "tariffs.selectRow": "Выбрать тариф «{name}»",
   "tariffs.bulk.delete": "Удалить выбранные",
   "tariffs.confirm.delete": "Удалить тариф?",
+  "tariffs.confirm.deleteTitle": "Удаление тарифа",
+  "tariffs.bulk.deleteTitle": "Удаление тарифов",
   "tariffs.column.name": "Название",
   "tariffs.column.maxDevices": "Устройств",
   "tariffs.column.deviceDown": "Устр. ↓",

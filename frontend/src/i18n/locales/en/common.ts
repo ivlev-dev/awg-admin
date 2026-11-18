@@ -9,6 +9,7 @@ export const enCommon = {
   "common.guest": "Guest",
   "common.online": "Online",
   "common.cancelShort": "Cancel",
+  "common.confirm": "Confirm",
   "common.saveShort": "Save",
   "common.delete": "Delete",
   "common.copy": "Copy",

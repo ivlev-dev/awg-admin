@@ -6,6 +6,8 @@ export const enTariffs = {
   "tariffs.selectRow": "Select tariff “{name}”",
   "tariffs.bulk.delete": "Delete selected",
   "tariffs.confirm.delete": "Delete the tariff?",
+  "tariffs.confirm.deleteTitle": "Delete tariff",
+  "tariffs.bulk.deleteTitle": "Delete tariffs",
   "tariffs.column.name": "Name",
   "tariffs.column.maxDevices": "Devices",
   "tariffs.column.deviceDown": "Device ↓",

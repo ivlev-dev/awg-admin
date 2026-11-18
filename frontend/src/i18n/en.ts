@@ -3,6 +3,7 @@ import type { Dictionary } from "./ru";
 import { enAudit } from "./locales/en/audit";
 import { enAuth } from "./locales/en/auth";
 import { enClients } from "./locales/en/clients";
+import { enCommand } from "./locales/en/command";
 import { enCommon } from "./locales/en/common";
 import { enGroups } from "./locales/en/groups";
 import { enImport } from "./locales/en/import";
@@ -19,6 +20,7 @@ export const en: Dictionary = {
   ...enAudit,
   ...enAuth,
   ...enClients,
+  ...enCommand,
   ...enCommon,
   ...enGroups,
   ...enImport,

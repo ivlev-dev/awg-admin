@@ -2,6 +2,7 @@ import { Show } from "@ivlev-dev/silent-core";
 
 import type { OverviewVM } from "./Overview.vm";
 import { AreaChart, Sparkline } from "@/components/Charts";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
 
@@ -47,7 +48,7 @@ export function Overview(this: { vm: OverviewVM }) {
       </section>
 
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.load()} />
       </Show>
 
       <Show when={this.vm.nodesTotal > this.vm.nodesOnline}>

@@ -34,6 +34,9 @@ import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPageVM, usersFiltersStorage } from "@/features/users/UsersPage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const ADMIN: User = {
   id: "u1",
   login: "admin",
@@ -511,18 +514,14 @@ function toastMessages(toasts: ToastStore): string[] {
   return toasts.items.map((item) => item.message);
 }
 
-function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
-  const confirm = vi.fn(() => result);
-  vi.stubGlobal("confirm", confirm);
-  return confirm;
-}
-
 afterEach(() => {
   vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", new MemoryStorage());
+  confirmMock.askConfirm.mockClear();
+  confirmMock.askConfirm.mockResolvedValue(true);
 });
 
 describe("UsersPageVM", () => {
@@ -714,29 +713,29 @@ describe("UsersPageVM", () => {
   });
 
   it("deletes another user after confirmation", async () => {
-    const confirm = stubConfirm(true);
     const { vm, usersRepo, toasts } = setup();
 
     await vm.remove(ALICE);
 
-    expect(confirm).toHaveBeenCalledWith("Удалить пользователя alice?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить пользователя alice?" }),
+    );
     expect(usersRepo.users.map((user) => user.id)).toEqual([ADMIN.id]);
     expect(toastMessages(toasts)).toContain("Пользователь удалён");
   });
 
   it("does not delete the current account", async () => {
-    const confirm = stubConfirm(true);
     const { vm, usersRepo, toasts } = setup();
 
     await vm.remove(ADMIN);
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
     expect(usersRepo.users).toHaveLength(2);
     expect(toastMessages(toasts)).toContain("Нельзя удалить собственную учётную запись");
   });
 
   it("cancels deletion when confirmation is declined", async () => {
-    stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm, usersRepo } = setup();
 
     await vm.remove(ALICE);
@@ -930,20 +929,21 @@ describe("UsersPageVM", () => {
   });
 
   it("rejects a pending account after confirmation", async () => {
-    const confirm = stubConfirm(true);
     const { vm, usersRepo, toasts } = setup([ADMIN, PENDING]);
     await vm.load();
 
     await vm.reject(PENDING);
 
-    expect(confirm).toHaveBeenCalledWith("Отклонить заявку newbie@example.com?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Отклонить заявку newbie@example.com?" }),
+    );
     expect(usersRepo.users.find((user) => user.id === PENDING.id)?.status).toBe("rejected");
     expect(vm.pending).toHaveLength(0);
     expect(toastMessages(toasts)).toContain("Заявка отклонена");
   });
 
   it("keeps the request when rejection is declined", async () => {
-    stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm, usersRepo } = setup([ADMIN, PENDING]);
     await vm.load();
 
@@ -1012,7 +1012,6 @@ describe("UsersPageVM", () => {
     });
 
     it("удаляет выбранных одним bulk-запросом после подтверждения", async () => {
-      const confirm = stubConfirm(true);
       const { vm, usersRepo, toasts } = setup([ADMIN, ALICE]);
       await vm.load();
       const bulk = vi.spyOn(usersRepo, "bulk");
@@ -1020,7 +1019,9 @@ describe("UsersPageVM", () => {
 
       await vm.bulkDelete();
 
-      expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (1)?");
+      expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "Удалить выбранные записи (1)?" }),
+      );
       expect(bulk).toHaveBeenCalledTimes(1);
       expect(bulk).toHaveBeenCalledWith("delete", [ALICE.id]);
       expect(usersRepo.users.map((user) => user.id)).toEqual([ADMIN.id]);
@@ -1064,7 +1065,7 @@ describe("UsersPageVM", () => {
     });
 
     it("не удаляет пользователей при отказе от подтверждения", async () => {
-      stubConfirm(false);
+      confirmMock.askConfirm.mockResolvedValueOnce(false);
       const { vm, usersRepo } = setup([ADMIN, ALICE]);
       await vm.load();
       const bulk = vi.spyOn(usersRepo, "bulk");

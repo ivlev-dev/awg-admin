@@ -5,6 +5,8 @@ export const ruAudit = {
   "audit.export": "Экспорт CSV",
   "audit.clear": "Очистить по фильтру",
   "audit.clear.confirm": "Удалить все события, подходящие под фильтр? Действие необратимо.",
+  "audit.clear.title": "Очистить журнал",
+  "audit.clear.action": "Очистить",
   "audit.clear.success": "Удалено событий: {count}",
   "audit.clear.error": "Не удалось очистить журнал аудита",
   "audit.filter.action": "Действие",

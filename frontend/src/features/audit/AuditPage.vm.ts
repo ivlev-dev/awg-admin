@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
@@ -285,7 +286,12 @@ export class AuditPageVM {
 
   async clearFiltered(): Promise<void> {
     if (!this.canClear) return;
-    if (!window.confirm(t("audit.clear.confirm"))) return;
+    const confirmed = await askConfirm({
+      title: t("audit.clear.title"),
+      message: t("audit.clear.confirm"),
+      confirmLabel: t("audit.clear.action"),
+    });
+    if (!confirmed) return;
     this.clearing = true;
     this.error = null;
     try {

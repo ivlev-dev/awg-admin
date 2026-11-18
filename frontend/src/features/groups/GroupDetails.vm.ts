@@ -1,5 +1,6 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
@@ -334,7 +335,12 @@ export class GroupDetailsVM {
   }
 
   async removePool(pool: CidrPool): Promise<void> {
-    if (!window.confirm(t("groups.details.pools.confirm.delete", { name: pool.name }))) return;
+    const confirmed = await askConfirm({
+      title: t("groups.details.pools.confirm.delete.title"),
+      message: t("groups.details.pools.confirm.delete", { name: pool.name }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     try {
       await this.groupsService.deletePool(pool.id);
       this.toasts.success(t("groups.details.pools.toast.deleted", { name: pool.name }));

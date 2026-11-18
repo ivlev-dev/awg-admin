@@ -3,6 +3,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 import type { DevicesService } from "@/application/devices/service";
 import type { GroupsService } from "@/application/groups/service";
 import type { UsersService } from "@/application/users/service";
+import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
 import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
@@ -68,8 +69,8 @@ export class ClientsPageVM {
   @reactive accessor formName = "";
   @reactive accessor formUserId = "";
   @reactive accessor formGroupId = "";
-  @reactive accessor formDown = "0";
-  @reactive accessor formUp = "0";
+  @reactive accessor formDownKbps = 0;
+  @reactive accessor formUpKbps = 0;
   @reactive accessor formForwarding = false;
 
   created(): void {
@@ -149,7 +150,13 @@ export class ClientsPageVM {
 
   async bulkDelete(): Promise<void> {
     if (this.selectedIds.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: this.selectedIds.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.bulkDeleteTitle"),
+      message: t("bulk.confirm.delete", { count: this.selectedIds.length }),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     await this.runBulk("delete", [...this.selectedIds]);
   }
 
@@ -240,12 +247,12 @@ export class ClientsPageVM {
     this.formGroupId = value;
   }
 
-  setFormDown(event: Event): void {
-    this.formDown = (event.target as HTMLInputElement).value;
+  setFormDownKbps(value: number): void {
+    this.formDownKbps = sanitizeKbps(value);
   }
 
-  setFormUp(event: Event): void {
-    this.formUp = (event.target as HTMLInputElement).value;
+  setFormUpKbps(value: number): void {
+    this.formUpKbps = sanitizeKbps(value);
   }
 
   setFormForwarding(event: Event): void {
@@ -256,8 +263,8 @@ export class ClientsPageVM {
     this.formName = "";
     this.formUserId = this.isAdmin ? "" : this.session.user?.id ?? "";
     this.formGroupId = this.isAdmin ? this.groupFilter : "";
-    this.formDown = "0";
-    this.formUp = "0";
+    this.formDownKbps = 0;
+    this.formUpKbps = 0;
     this.formForwarding = false;
     this.createOpen = true;
   }
@@ -280,8 +287,8 @@ export class ClientsPageVM {
         user_id: userId,
         group_id: this.isAdmin ? this.formGroupId || null : this.session.user?.group_id ?? null,
         name: this.formName.trim(),
-        down_kbps: parseKbps(this.formDown),
-        up_kbps: parseKbps(this.formUp),
+        down_kbps: this.formDownKbps,
+        up_kbps: this.formUpKbps,
         forwarding: {
           to_own_devices: this.formForwarding,
           allowed_devices: [],
@@ -343,7 +350,6 @@ function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function parseKbps(value: string): number {
-  const parsed = Number(value.replace(",", "."));
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+function sanitizeKbps(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }

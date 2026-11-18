@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
@@ -387,7 +388,12 @@ export class InterfacesPageVM {
   async bulkDelete(): Promise<void> {
     const ids = [...this.selectedIds];
     if (ids.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("interfaces.bulk.delete.title"),
+      message: t("bulk.confirm.delete", { count: ids.length }),
+      confirmLabel: t("common.delete"),
+    });
+    if (!confirmed) return;
     await this.runBulk("delete", ids);
   }
 
@@ -409,7 +415,11 @@ export class InterfacesPageVM {
 
   async rotate(item: InterfaceInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(t("interfaces.confirm.rotate", { name: item.name }));
+    const confirmed = await askConfirm({
+      title: t("interfaces.confirm.rotate.title"),
+      message: t("interfaces.confirm.rotate", { name: item.name }),
+      confirmLabel: t("interfaces.confirm.rotate.action"),
+    });
     if (!confirmed) return;
     this.busy = true;
     try {
@@ -444,7 +454,11 @@ export class InterfacesPageVM {
 
   async remove(item: InterfaceInfo): Promise<void> {
     if (this.busy) return;
-    const confirmed = window.confirm(t("interfaces.confirm.delete", { name: item.name }));
+    const confirmed = await askConfirm({
+      title: t("interfaces.confirm.delete.title"),
+      message: t("interfaces.confirm.delete", { name: item.name }),
+      confirmLabel: t("common.delete"),
+    });
     if (!confirmed) return;
     this.busy = true;
     try {

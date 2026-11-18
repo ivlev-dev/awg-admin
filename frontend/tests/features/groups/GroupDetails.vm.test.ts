@@ -11,6 +11,9 @@ import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { CidrPool, Group, InterfaceInfo } from "@/domain/types";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 function group(overrides: Partial<Group> = {}): Group {
   return {
     id: "g1",
@@ -196,7 +199,8 @@ function submit(): Event {
 describe("GroupDetailsVM", () => {
   beforeEach(() => {
     window.history.replaceState(null, "", "/groups/g1");
-    window.confirm = vi.fn(() => true);
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   it("loads the group, its pools and its interfaces", async () => {
@@ -403,6 +407,9 @@ describe("GroupDetailsVM", () => {
 
     await vm.removePool(pool());
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Удалить пул «Пул»?" }),
+    );
     expect(groupsRepo.deletePool).toHaveBeenCalledWith("p1");
     expect(vm.pools).toEqual([]);
     expect(toasts.items.some((item) => item.message === "Пул «Пул» удалён")).toBe(true);
@@ -414,7 +421,7 @@ describe("GroupDetailsVM", () => {
     groupsRepo.pools.set("p1", pool());
     const { vm } = makeVm(groupsRepo);
     await vm.load();
-    window.confirm = vi.fn(() => false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
 
     await vm.removePool(pool());
 

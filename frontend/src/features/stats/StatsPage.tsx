@@ -2,6 +2,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { StatsVM } from "./StatsPage.vm";
 import { AreaChart } from "@/components/Charts";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/Skeleton";
@@ -21,7 +22,7 @@ export function StatsPage(this: { vm: StatsVM }) {
       </div>
 
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.refresh()} />
       </Show>
       <Show when={this.vm.entitiesError}>
         <div class="alert alert--warn">{this.vm.entitiesError}</div>

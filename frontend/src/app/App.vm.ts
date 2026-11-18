@@ -1,7 +1,8 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
-import { initDensity } from "@/app/density";
+import { density, initDensity, setDensity } from "@/app/density";
+import { type CommandItem } from "@/app/command";
 import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
 import { Router } from "@/app/router";
 import {
@@ -91,15 +92,25 @@ function localize(definitions: NavDefinition[]): NavItem[] {
   }));
 }
 
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
+
 export class AppVM {
   @reactive accessor booting = true;
   @reactive accessor moreOpen = false;
+  @reactive accessor commandOpen = false;
 
   private readonly connection = new ConnectionMonitor();
 
   private cancelIdlePrefetch: CancelIdlePrefetch | null = null;
 
   private idlePrefetchPlanned = false;
+
+  private keydownBound = false;
 
   private swipeStart: { point: SwipePoint; blocked: boolean } | null = null;
 
@@ -116,6 +127,10 @@ export class AppVM {
   }
 
   async created(): Promise<void> {
+    if (!this.keydownBound) {
+      document.addEventListener("keydown", this.onGlobalKeydown);
+      this.keydownBound = true;
+    }
     await this.session.init();
     this.booting = false;
     this.guard();
@@ -123,6 +138,10 @@ export class AppVM {
   }
 
   dispose(): void {
+    if (this.keydownBound) {
+      document.removeEventListener("keydown", this.onGlobalKeydown);
+      this.keydownBound = false;
+    }
     this.cancelIdlePrefetch?.();
     this.cancelIdlePrefetch = null;
     this.connection.dispose();
@@ -199,6 +218,55 @@ export class AppVM {
   @computed
   get mobileNav(): NavItem[] {
     return localize(MOBILE_NAV);
+  }
+
+  @computed
+  get commandItems(): CommandItem[] {
+    const navigation: CommandItem[] = [...this.nav, ...this.accountNav].map((item) => ({
+      id: `nav:${item.path}`,
+      title: item.title,
+      hint: item.path,
+      icon: item.icon,
+      path: item.path,
+    }));
+    const compact = density() === "compact";
+    return [
+      ...navigation,
+      {
+        id: "action:theme",
+        title: t("command.action.theme"),
+        hint: this.themeEffective === "dark" ? t("profile.theme.dark") : t("profile.theme.light"),
+        icon: this.themeEffective === "dark" ? "sun" : "moon",
+        run: () => this.toggleTheme(),
+      },
+      {
+        id: "action:density",
+        title: t("command.action.density"),
+        hint: compact ? t("settings.interface.density.compact") : t("settings.interface.density.comfortable"),
+        icon: "settings",
+        run: () => setDensity(compact ? "comfortable" : "compact"),
+      },
+      {
+        id: "action:settings",
+        title: t("command.action.settings"),
+        icon: "settings",
+        path: "/settings",
+      },
+      {
+        id: "action:profile",
+        title: t("command.action.profile"),
+        icon: "profile",
+        path: "/profile",
+      },
+      {
+        id: "action:logout",
+        title: t("command.action.logout"),
+        icon: "logout",
+        run: () => {
+          void this.logout();
+        },
+      },
+    ];
   }
 
   @computed
@@ -306,6 +374,45 @@ export class AppVM {
   closeMore(): void {
     this.moreOpen = false;
   }
+
+  openCommand(): void {
+    this.moreOpen = false;
+    this.commandOpen = true;
+  }
+
+  closeCommand(): void {
+    this.commandOpen = false;
+  }
+
+  toggleCommand(): void {
+    if (this.commandOpen) {
+      this.closeCommand();
+      return;
+    }
+    this.openCommand();
+  }
+
+  runCommand(item: CommandItem): void {
+    this.commandOpen = false;
+    if (item.path !== undefined) {
+      this.go(item.path);
+      return;
+    }
+    item.run?.();
+  }
+
+  private readonly onGlobalKeydown = (event: KeyboardEvent): void => {
+    const key = event.key.toLowerCase();
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && key === "k") {
+      event.preventDefault();
+      this.toggleCommand();
+      return;
+    }
+    if (event.key === "/" && !event.ctrlKey && !event.metaKey && !event.altKey && !isEditableTarget(event.target)) {
+      event.preventDefault();
+      this.openCommand();
+    }
+  };
 
 
   toggleTheme(): void {

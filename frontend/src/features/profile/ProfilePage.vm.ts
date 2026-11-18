@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
@@ -259,7 +260,12 @@ export class ProfilePageVM {
 
   async revokeSession(jti: string): Promise<void> {
     if (this.sessionsBusy) return;
-    if (!window.confirm(t("profile.sessions.confirm.revoke"))) return;
+    const confirmed = await askConfirm({
+      title: t("profile.sessions.confirm.revoke.title"),
+      message: t("profile.sessions.confirm.revoke"),
+      confirmLabel: t("profile.sessions.revoke"),
+    });
+    if (!confirmed) return;
     this.sessionsBusy = true;
     this.sessionsBusyJti = jti;
     try {
@@ -276,7 +282,12 @@ export class ProfilePageVM {
 
   async revokeAll(): Promise<void> {
     if (this.sessionsBusy) return;
-    if (!window.confirm(t("profile.sessions.confirm.revokeAll"))) return;
+    const confirmed = await askConfirm({
+      title: t("profile.sessions.confirm.revokeAll.title"),
+      message: t("profile.sessions.confirm.revokeAll"),
+      confirmLabel: t("profile.sessions.revokeAll"),
+    });
+    if (!confirmed) return;
     this.sessionsBusy = true;
     try {
       const result = await this.auth.logoutAll();

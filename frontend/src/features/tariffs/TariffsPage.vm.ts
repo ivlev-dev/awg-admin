@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -167,7 +168,13 @@ export class TariffsPageVM {
       .filter((tariff) => this.selectedIds.includes(tariff.id))
       .map((tariff) => tariff.id);
     if (ids.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    const confirmed = await askConfirm({
+      title: t("tariffs.bulk.deleteTitle"),
+      message: t("bulk.confirm.delete", { count: ids.length }),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
 
     this.bulkBusy = true;
     try {
@@ -233,24 +240,20 @@ export class TariffsPageVM {
     this.max_devices = Number.isFinite(value) ? value : 0;
   }
 
-  setDeviceDown(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.device_down_kbps = Number.isFinite(value) ? value : 0;
+  setDeviceDownKbps(value: number): void {
+    this.device_down_kbps = sanitizeKbps(value);
   }
 
-  setDeviceUp(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.device_up_kbps = Number.isFinite(value) ? value : 0;
+  setDeviceUpKbps(value: number): void {
+    this.device_up_kbps = sanitizeKbps(value);
   }
 
-  setGroupDown(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.group_down_kbps = Number.isFinite(value) ? value : 0;
+  setGroupDownKbps(value: number): void {
+    this.group_down_kbps = sanitizeKbps(value);
   }
 
-  setGroupUp(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.group_up_kbps = Number.isFinite(value) ? value : 0;
+  setGroupUpKbps(value: number): void {
+    this.group_up_kbps = sanitizeKbps(value);
   }
 
   setQuota(event: Event): void {
@@ -313,7 +316,13 @@ export class TariffsPageVM {
   }
 
   async remove(id: string): Promise<void> {
-    if (!window.confirm(t("tariffs.confirm.delete"))) return;
+    const confirmed = await askConfirm({
+      title: t("tariffs.confirm.deleteTitle"),
+      message: t("tariffs.confirm.delete"),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       await this.tariffsService.deleteTariff(id);
       this.toasts.success("Тариф удалён");
@@ -326,4 +335,8 @@ export class TariffsPageVM {
 
 function quotaSortValue(value: number | null): number {
   return value === null ? Number.POSITIVE_INFINITY : value;
+}
+
+function sanitizeKbps(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }

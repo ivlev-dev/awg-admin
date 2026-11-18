@@ -17,6 +17,9 @@ import { setLocale } from "@/i18n";
 import { ClientsPage } from "@/features/clients/ClientsPage";
 import { ClientsPageVM, clientsFiltersStorage } from "@/features/clients/ClientsPage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const ADMIN: User = {
   id: "u1",
   login: "admin",
@@ -294,6 +297,8 @@ function setup(role: Role = "admin", seed: Device[] = [DEVICE]) {
 describe("ClientsPageVM", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", new MemoryStorage());
+    confirmMock.askConfirm.mockReset();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -363,8 +368,8 @@ describe("ClientsPageVM", () => {
     vm.formName = " Pixel ";
     vm.setFormUser(OWNER.id);
     vm.setFormGroup(GROUP.id);
-    vm.formDown = "1500";
-    vm.formUp = "750";
+    vm.setFormDownKbps(1500);
+    vm.setFormUpKbps(750);
     vm.formForwarding = true;
 
     await vm.create();
@@ -385,6 +390,26 @@ describe("ClientsPageVM", () => {
       kind: "success",
       message: "Устройство «Pixel» создано",
     });
+  });
+
+  it("хранит лимиты в кбит/с и нормализует значения", async () => {
+    const { vm, devices } = setup("admin");
+    await vm.load();
+
+    vm.openCreate();
+    vm.formName = "Round";
+    vm.setFormUser(OWNER.id);
+    vm.setFormDownKbps(1500.4);
+    vm.setFormUpKbps(-10);
+
+    expect(vm.formDownKbps).toBe(1500);
+    expect(vm.formUpKbps).toBe(0);
+
+    await vm.create();
+
+    expect(devices.repository.createDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ down_kbps: 1500, up_kbps: 0 }),
+    );
   });
 
   it("создаёт устройство для собственного аккаунта обычного пользователя", async () => {
@@ -621,15 +646,18 @@ describe("ClientsPageVM", () => {
 
   describe("массовые действия", () => {
     it("удаляет выбранных клиентов одним bulk-запросом", async () => {
-      const confirm = vi.fn(() => true);
-      vi.stubGlobal("confirm", confirm);
       const { vm, devices, toasts } = setup("admin", [DEVICE, PHONE]);
       await vm.load();
       vm.selectedIds = [DEVICE.id, PHONE.id];
 
       await vm.bulkDelete();
 
-      expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+      expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+        title: "Удаление клиентов",
+        message: "Удалить выбранные записи (2)?",
+        confirmLabel: "Удалить",
+        tone: "danger",
+      });
       expect(devices.repository.bulk).toHaveBeenCalledTimes(1);
       expect(devices.repository.bulk).toHaveBeenCalledWith("delete", [DEVICE.id, PHONE.id]);
       expect(devices.repository.listDevices).toHaveBeenCalledTimes(2);
@@ -684,15 +712,17 @@ describe("ClientsPageVM", () => {
     });
 
     it("не выполняет массовое удаление при отказе от подтверждения", async () => {
-      vi.stubGlobal("confirm", vi.fn(() => false));
-      const { vm, devices } = setup("admin", [DEVICE]);
+      confirmMock.askConfirm.mockResolvedValueOnce(false);
+      const { vm, devices, toasts } = setup("admin", [DEVICE]);
       await vm.load();
       vm.selectedIds = [DEVICE.id];
 
       await vm.bulkDelete();
 
+      expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
       expect(devices.repository.bulk).not.toHaveBeenCalled();
       expect(vm.selectedIds).toEqual([DEVICE.id]);
+      expect(toasts.items).toEqual([]);
     });
 
     it("не вызывает bulk без выбранных клиентов", async () => {

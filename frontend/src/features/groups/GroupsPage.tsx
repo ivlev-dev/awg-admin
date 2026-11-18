@@ -2,6 +2,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { GroupsPageVM } from "./GroupsPage.vm";
 import { BulkBar } from "@/components/BulkBar";
+import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { t } from "@/i18n";
@@ -102,7 +103,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
       </div>
 
       <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => this.vm.load()} />
       </Show>
 
       <Show

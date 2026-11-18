@@ -6,6 +6,9 @@ import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
 import { TariffsPageVM } from "@/features/tariffs/TariffsPage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const TARIFF: Tariff = {
   id: "t1",
   name: "Basic",
@@ -126,14 +129,9 @@ function toastMessages(toasts: ToastStore): string[] {
   return toasts.items.map((item) => item.message);
 }
 
-function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
-  const confirm = vi.fn(() => result);
-  vi.stubGlobal("confirm", confirm);
-  return confirm;
-}
-
-afterEach(() => {
-  vi.unstubAllGlobals();
+beforeEach(() => {
+  confirmMock.askConfirm.mockReset();
+  confirmMock.askConfirm.mockResolvedValue(true);
 });
 
 describe("TariffsPageVM", () => {
@@ -163,10 +161,10 @@ describe("TariffsPageVM", () => {
     vm.name = "  Premium  ";
     vm.description = "  Лучший  ";
     vm.max_devices = 3;
-    vm.device_down_kbps = 400;
-    vm.device_up_kbps = 200;
-    vm.group_down_kbps = 800;
-    vm.group_up_kbps = 400;
+    vm.setDeviceDownKbps(400);
+    vm.setDeviceUpKbps(200);
+    vm.setGroupDownKbps(800);
+    vm.setGroupUpKbps(400);
     vm.quotaGb = "2";
 
     await vm.submit();
@@ -200,6 +198,21 @@ describe("TariffsPageVM", () => {
     expect(repo.tariffs[2]?.traffic_quota_bytes).toBeNull();
   });
 
+  it("stores limits in kbps and sanitizes the input", () => {
+    const { vm } = setup();
+    vm.openCreate();
+
+    vm.setDeviceDownKbps(1500);
+    vm.setDeviceUpKbps(0);
+    vm.setGroupDownKbps(12.6);
+    vm.setGroupUpKbps(-5);
+
+    expect(vm.device_down_kbps).toBe(1500);
+    expect(vm.device_up_kbps).toBe(0);
+    expect(vm.group_down_kbps).toBe(13);
+    expect(vm.group_up_kbps).toBe(0);
+  });
+
   it("rejects a tariff without a name", async () => {
     const { vm, repo, service, toasts } = setup();
     const createSpy = vi.spyOn(service, "createTariff");
@@ -219,8 +232,8 @@ describe("TariffsPageVM", () => {
     const { vm, repo } = setup();
     vm.openCreate();
     vm.name = "Broken";
-    vm.device_down_kbps = 500;
-    vm.group_down_kbps = 100;
+    vm.setDeviceDownKbps(500);
+    vm.setGroupDownKbps(100);
 
     await vm.submit();
 
@@ -260,23 +273,29 @@ describe("TariffsPageVM", () => {
   });
 
   it("deletes a tariff after confirmation", async () => {
-    const confirm = stubConfirm(true);
     const { vm, repo, toasts } = setup();
 
     await vm.remove(PRO.id);
 
-    expect(confirm).toHaveBeenCalledWith("Удалить тариф?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Удаление тарифа",
+      message: "Удалить тариф?",
+      confirmLabel: "Удалить",
+      tone: "danger",
+    });
     expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([TARIFF.id]);
     expect(toastMessages(toasts)).toContain("Тариф удалён");
   });
 
   it("cancels deletion when confirmation is declined", async () => {
-    stubConfirm(false);
-    const { vm, repo } = setup();
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm, repo, toasts } = setup();
 
     await vm.remove(PRO.id);
 
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
     expect(repo.tariffs).toHaveLength(2);
+    expect(toastMessages(toasts)).toEqual([]);
   });
 });
 
@@ -435,7 +454,6 @@ describe("TariffsPageVM selection", () => {
 
 describe("TariffsPageVM bulk delete", () => {
   it("deletes the selected tariffs in one request and reloads the list", async () => {
-    const confirm = stubConfirm(true);
     const { vm, repo, service, toasts } = setup([TARIFF, PRO, PREMIUM]);
     await vm.load();
     const listSpy = vi.spyOn(service, "listTariffs");
@@ -444,7 +462,12 @@ describe("TariffsPageVM bulk delete", () => {
     vm.toggleSelected(PRO.id);
     await vm.bulkDelete();
 
-    expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Удаление тарифов",
+      message: "Удалить выбранные записи (2)?",
+      confirmLabel: "Удалить",
+      tone: "danger",
+    });
     expect(repo.bulk).toHaveBeenCalledTimes(1);
     expect(repo.bulk).toHaveBeenCalledWith("delete", [TARIFF.id, PRO.id]);
     expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);
@@ -457,7 +480,6 @@ describe("TariffsPageVM bulk delete", () => {
   });
 
   it("reports a partial failure, keeps the failed tariff and clears the selection", async () => {
-    stubConfirm(true);
     const { vm, repo, toasts } = setup([TARIFF, PRO, PREMIUM]);
     await vm.load();
     repo.bulk.mockImplementationOnce(async (_action, ids): Promise<BulkResult> => {
@@ -487,18 +509,17 @@ describe("TariffsPageVM bulk delete", () => {
   });
 
   it("does nothing without a selection", async () => {
-    const confirm = stubConfirm(true);
     const { vm, repo } = setup();
     await vm.load();
 
     await vm.bulkDelete();
 
-    expect(confirm).not.toHaveBeenCalled();
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
     expect(repo.bulk).not.toHaveBeenCalled();
   });
 
   it("keeps the selection when the confirmation is declined", async () => {
-    stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm, repo } = setup();
     await vm.load();
     vm.toggleSelected(PRO.id);

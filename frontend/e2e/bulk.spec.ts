@@ -36,10 +36,10 @@ test.describe("Массовые действия", () => {
     await rows.locator('input[type="checkbox"]').first().check();
     await rows.locator('input[type="checkbox"]').nth(1).check();
 
-    page.once("dialog", (dialog) => {
-      void dialog.accept();
-    });
     await page.getByRole("button", { name: "Удалить выбранные" }).click();
+    const dialog = page.getByRole("dialog", { name: "Удаление тарифов" });
+    await expect(dialog).toBeVisible();
+    await dialog.locator(".modal__foot").getByRole("button", { name: "Удалить" }).click();
 
     const body = await (await bulk).json();
     expect(body.done).toBe(2);

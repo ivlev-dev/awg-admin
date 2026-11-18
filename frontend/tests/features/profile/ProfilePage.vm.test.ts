@@ -19,6 +19,9 @@ import { formatDateTimeI18n } from "@/i18n/format";
 import { ProfilePage } from "@/features/profile/ProfilePage";
 import { ProfilePageVM } from "@/features/profile/ProfilePage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const ADMIN: User = {
   id: "u1",
   login: "admin",
@@ -271,12 +274,6 @@ function checkedEvent(checked: boolean): Event {
   return event;
 }
 
-function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
-  const confirm = vi.fn(() => result);
-  vi.stubGlobal("confirm", confirm);
-  return confirm;
-}
-
 class MemoryStorage {
   private readonly store = new Map<string, string>();
 
@@ -297,6 +294,8 @@ describe("ProfilePageVM", () => {
   beforeEach(() => {
     vi.stubGlobal("localStorage", new MemoryStorage());
     document.documentElement.removeAttribute("data-theme");
+    confirmMock.askConfirm.mockClear();
+    confirmMock.askConfirm.mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -594,7 +593,6 @@ describe("ProfilePageVM", () => {
   });
 
   it("завершает одну сессию после подтверждения и обновляет список", async () => {
-    const confirm = stubConfirm(true);
     let sessions = SESSIONS.map((session) => ({ ...session }));
     const harness = makeHarness(ADMIN, {
       sessions: async () => sessions.map((session) => ({ ...session })),
@@ -606,7 +604,9 @@ describe("ProfilePageVM", () => {
 
     await harness.vm.revokeSession("jti-old-active");
 
-    expect(confirm).toHaveBeenCalledWith("Завершить эту сессию?");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Завершить эту сессию?" }),
+    );
     expect(harness.revokeSession).toHaveBeenCalledWith("jti-old-active");
     expect(harness.sessions).toHaveBeenCalledTimes(2);
     expect(harness.vm.sessionRows.map((row) => row.jti)).not.toContain("jti-old-active");
@@ -616,18 +616,17 @@ describe("ProfilePageVM", () => {
   });
 
   it("не завершает сессию без подтверждения", async () => {
-    const confirm = stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const harness = makeHarness(ADMIN, { sessions: async () => SESSIONS });
 
     await harness.vm.revokeSession("jti-old-active");
 
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
     expect(harness.revokeSession).not.toHaveBeenCalled();
     expect(harness.vm.sessionsBusy).toBe(false);
   });
 
   it("сообщает об ошибке завершения сессии", async () => {
-    stubConfirm(true);
     const harness = makeHarness(ADMIN, {
       sessions: async () => SESSIONS,
       revokeSession: async () => {
@@ -643,7 +642,6 @@ describe("ProfilePageVM", () => {
   });
 
   it("завершает все сессии и выводит из аккаунта", async () => {
-    const confirm = stubConfirm(true);
     const harness = makeHarness(ADMIN, {
       sessions: async () => SESSIONS,
       logoutAll: async () => ({ ok: true, revoked: 3 }),
@@ -651,7 +649,9 @@ describe("ProfilePageVM", () => {
 
     await harness.vm.revokeAll();
 
-    expect(confirm).toHaveBeenCalledWith("Завершить все сессии? Потребуется войти заново.");
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Завершить все сессии? Потребуется войти заново." }),
+    );
     expect(harness.logoutAll).toHaveBeenCalledTimes(1);
     expect(harness.logout).toHaveBeenCalledWith("refresh-1");
     expect(harness.tokens.access()).toBeNull();
@@ -665,19 +665,18 @@ describe("ProfilePageVM", () => {
   });
 
   it("не завершает все сессии без подтверждения", async () => {
-    const confirm = stubConfirm(false);
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
     const harness = makeHarness(ADMIN, { sessions: async () => SESSIONS });
 
     await harness.vm.revokeAll();
 
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
     expect(harness.logoutAll).not.toHaveBeenCalled();
     expect(harness.router.path).toBe("/profile");
     expect(harness.session.user).not.toBeNull();
   });
 
   it("сообщает об ошибке завершения всех сессий и остаётся в аккаунте", async () => {
-    stubConfirm(true);
     const harness = makeHarness(ADMIN, {
       sessions: async () => SESSIONS,
       logoutAll: async () => {

@@ -4,6 +4,7 @@ import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
 import type { DevicesService } from "@/application/devices/service";
 import type { GroupsService } from "@/application/groups/service";
+import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
@@ -94,8 +95,8 @@ export class ClientDetailsVM {
   @reactive accessor qrCopyLabel = "";
 
   @reactive accessor editName = "";
-  @reactive accessor editDown = "0";
-  @reactive accessor editUp = "0";
+  @reactive accessor editDownKbps = 0;
+  @reactive accessor editUpKbps = 0;
   @reactive accessor forwardingMode: ForwardingMode = "off";
   @reactive accessor forwardingSelected: string[] = [];
   @reactive accessor forwardingRows: ForwardingRow[] = [];
@@ -431,12 +432,12 @@ export class ClientDetailsVM {
     this.editName = (event.target as HTMLInputElement).value;
   }
 
-  setEditDown(event: Event): void {
-    this.editDown = (event.target as HTMLInputElement).value;
+  setEditDownKbps(value: number): void {
+    this.editDownKbps = sanitizeKbps(value);
   }
 
-  setEditUp(event: Event): void {
-    this.editUp = (event.target as HTMLInputElement).value;
+  setEditUpKbps(value: number): void {
+    this.editUpKbps = sanitizeKbps(value);
   }
 
   setForwardingMode(value: string): void {
@@ -595,8 +596,8 @@ export class ClientDetailsVM {
     try {
       const updated = await this.devicesService.updateDevice(device.id, {
         name,
-        down_kbps: parseKbps(this.editDown),
-        up_kbps: parseKbps(this.editUp),
+        down_kbps: this.editDownKbps,
+        up_kbps: this.editUpKbps,
         forwarding: forwardingPayload(
           this.forwardingMode,
           this.orderedAllowed(this.forwardingSelected),
@@ -616,7 +617,13 @@ export class ClientDetailsVM {
   async revoke(): Promise<void> {
     const device = this.device;
     if (!device || this.actionBusy) return;
-    if (!window.confirm(t("clients.details.confirm.revoke", { name: device.name }))) return;
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.revokeTitle"),
+      message: t("clients.details.confirm.revoke", { name: device.name }),
+      confirmLabel: t("clients.details.revoke"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     this.actionBusy = true;
     try {
       await this.devicesService.updateDevice(device.id, { revoked: true });
@@ -632,7 +639,13 @@ export class ClientDetailsVM {
   async remove(): Promise<void> {
     const device = this.device;
     if (!device || this.actionBusy) return;
-    if (!window.confirm(t("clients.details.confirm.delete", { name: device.name }))) return;
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.deleteTitle"),
+      message: t("clients.details.confirm.delete", { name: device.name }),
+      confirmLabel: t("common.delete"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     this.actionBusy = true;
     try {
       await this.devicesService.deleteDevice(device.id);
@@ -684,7 +697,13 @@ export class ClientDetailsVM {
   async revokeAllShares(): Promise<void> {
     const device = this.device;
     if (!device || this.shareBusy) return;
-    if (!window.confirm(t("clients.details.confirm.shareRevokeAll", { name: device.name }))) return;
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.shareRevokeTitle"),
+      message: t("clients.details.confirm.shareRevokeAll", { name: device.name }),
+      confirmLabel: t("clients.details.revoke"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     this.shareBusy = true;
     try {
       const revoked = await this.devicesService.revokeAllShares(device.id);
@@ -807,8 +826,8 @@ export class ClientDetailsVM {
 
   private hydrateForm(device: Device): void {
     this.editName = device.name;
-    this.editDown = String(device.down_kbps);
-    this.editUp = String(device.up_kbps);
+    this.editDownKbps = device.down_kbps;
+    this.editUpKbps = device.up_kbps;
     this.forwardingMode = modeOfForwarding(device.forwarding);
     this.forwardingSelected =
       this.forwardingMode === "selected" ? [...device.forwarding.allowed_devices] : [];
@@ -957,9 +976,8 @@ function messageOf(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function parseKbps(value: string): number {
-  const parsed = Number(value.replace(",", "."));
-  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : 0;
+function sanitizeKbps(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
 function sanitizeFilePart(value: string): string {
