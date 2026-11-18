@@ -1,3 +1,4 @@
+import type { BulkResult } from "@/domain/bulk";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
@@ -10,6 +11,7 @@ export interface TariffsService {
   createTariff(input: TariffInput): Promise<Tariff>;
   updateTariff(id: string, input: Partial<TariffInput>): Promise<Tariff>;
   deleteTariff(id: string): Promise<void>;
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult>;
 }
 
 export class DefaultTariffsService implements TariffsService {
@@ -55,6 +57,11 @@ export class DefaultTariffsService implements TariffsService {
 
   async deleteTariff(id: string): Promise<void> {
     await this.repository.deleteTariff(requireId(id, "Тариф"));
+  }
+
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {
+    const targets = ids.map((id) => requireId(id, "Тариф"));
+    return this.repository.bulk(action, targets);
   }
 }
 

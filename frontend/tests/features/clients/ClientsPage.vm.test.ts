@@ -206,6 +206,15 @@ function devicesHarness(initial: Device[]): {
     }),
     revokeShare: vi.fn(async () => undefined),
     revokeAllShares: vi.fn(async () => 0),
+    bulk: vi.fn(async (action, ids) => {
+      if (action === "delete") {
+        for (const id of ids) {
+          const index = devices.findIndex((item) => item.id === id);
+          if (index >= 0) devices.splice(index, 1);
+        }
+      }
+      return { done: ids.length, failed: [] };
+    }),
   };
   return { repository, devices };
 }
@@ -216,6 +225,7 @@ function groupsHarness(groups: Group[]): GroupsRepository {
     createGroup: vi.fn(async () => GROUP),
     updateGroup: vi.fn(async () => GROUP),
     deleteGroup: vi.fn(async () => undefined),
+    bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
     listPools: vi.fn(async () => []),
     createPool: vi.fn(async () => {
       throw new Error("pool is not used in this test");
@@ -237,6 +247,7 @@ function usersHarness(users: User[]): UsersRepository {
     listPending: vi.fn(async () => []),
     approveUser: vi.fn(async () => OWNER),
     rejectUser: vi.fn(async () => OWNER),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 
@@ -606,5 +617,92 @@ describe("ClientsPageVM", () => {
 
     expect(vm).toBeInstanceOf(ClientsPageVM);
     expect(await container.resolve(ClientsPageVM)).toBe(vm);
+  });
+
+  describe("массовые действия", () => {
+    it("удаляет выбранных клиентов одним bulk-запросом", async () => {
+      const confirm = vi.fn(() => true);
+      vi.stubGlobal("confirm", confirm);
+      const { vm, devices, toasts } = setup("admin", [DEVICE, PHONE]);
+      await vm.load();
+      vm.selectedIds = [DEVICE.id, PHONE.id];
+
+      await vm.bulkDelete();
+
+      expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+      expect(devices.repository.bulk).toHaveBeenCalledTimes(1);
+      expect(devices.repository.bulk).toHaveBeenCalledWith("delete", [DEVICE.id, PHONE.id]);
+      expect(devices.repository.listDevices).toHaveBeenCalledTimes(2);
+      expect(vm.devices).toEqual([]);
+      expect(vm.selectedIds).toEqual([]);
+      expect(vm.bulkBusy).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "success",
+        message: "Готово: 2, ошибок: 0",
+      });
+    });
+
+    it("отзывает ссылки одним bulk-запросом", async () => {
+      const { vm, devices, toasts } = setup("admin", [DEVICE, PHONE]);
+      await vm.load();
+      vm.selectedIds = [DEVICE.id, PHONE.id];
+
+      await vm.bulkRevokeShares();
+
+      expect(devices.repository.bulk).toHaveBeenCalledTimes(1);
+      expect(devices.repository.bulk).toHaveBeenCalledWith("revoke_shares", [
+        DEVICE.id,
+        PHONE.id,
+      ]);
+      expect(devices.repository.listShares).not.toHaveBeenCalled();
+      expect(devices.repository.revokeAllShares).not.toHaveBeenCalled();
+      expect(vm.selectedIds).toEqual([]);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "success",
+        message: "Готово: 2, ошибок: 0",
+      });
+    });
+
+    it("показывает ошибку при частичном сбое, но учитывает выполненные", async () => {
+      const { vm, devices, toasts } = setup("admin", [DEVICE, PHONE]);
+      await vm.load();
+      vi.mocked(devices.repository.bulk).mockResolvedValueOnce({
+        done: 1,
+        failed: [{ id: PHONE.id, error: "Устройство занято" }],
+      });
+      vm.selectedIds = [DEVICE.id, PHONE.id];
+
+      await vm.bulkRevokeShares();
+
+      expect(devices.repository.bulk).toHaveBeenCalledTimes(1);
+      expect(vm.selectedIds).toEqual([]);
+      expect(vm.bulkBusy).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "error",
+        message: "Готово: 1, ошибок: 1",
+      });
+    });
+
+    it("не выполняет массовое удаление при отказе от подтверждения", async () => {
+      vi.stubGlobal("confirm", vi.fn(() => false));
+      const { vm, devices } = setup("admin", [DEVICE]);
+      await vm.load();
+      vm.selectedIds = [DEVICE.id];
+
+      await vm.bulkDelete();
+
+      expect(devices.repository.bulk).not.toHaveBeenCalled();
+      expect(vm.selectedIds).toEqual([DEVICE.id]);
+    });
+
+    it("не вызывает bulk без выбранных клиентов", async () => {
+      const { vm, devices } = setup("admin", [DEVICE]);
+      await vm.load();
+
+      await vm.bulkDelete();
+      await vm.bulkRevokeShares();
+
+      expect(devices.repository.bulk).not.toHaveBeenCalled();
+    });
   });
 });

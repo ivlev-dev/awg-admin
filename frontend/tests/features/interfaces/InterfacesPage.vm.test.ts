@@ -9,6 +9,8 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
+import type { BulkFailure, BulkResult } from "@/domain/bulk";
+import type { InterfaceBulkAction } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
@@ -191,6 +193,25 @@ class MemoryInterfacesRepository {
   deleteInterface = vi.fn(async (id: string): Promise<void> => {
     this.items.delete(id);
   });
+
+  bulk = vi.fn(async (action: InterfaceBulkAction, ids: readonly string[]): Promise<BulkResult> => {
+    const failed: BulkFailure[] = [];
+    let done = 0;
+    for (const id of ids) {
+      const current = this.items.get(id);
+      if (!current) {
+        failed.push({ id, error: "not found" });
+        continue;
+      }
+      if (action === "delete") {
+        this.items.delete(id);
+      } else {
+        this.items.set(id, { ...current, enabled: action === "enable" });
+      }
+      done += 1;
+    }
+    return { done, failed };
+  });
 }
 
 class MemoryGroupsRepository {
@@ -219,6 +240,8 @@ class MemoryGroupsRepository {
   });
 
   deletePool = vi.fn(async (): Promise<void> => undefined);
+
+  bulk = vi.fn(async (): Promise<BulkResult> => ({ done: 0, failed: [] }));
 }
 
 class MemoryNodesRepository {
@@ -238,6 +261,8 @@ class MemoryNodesRepository {
   });
 
   deleteNode = vi.fn(async (): Promise<void> => undefined);
+
+  bulk = vi.fn(async (): Promise<BulkResult> => ({ done: 0, failed: [] }));
 }
 
 interface Harness {
@@ -525,6 +550,127 @@ describe("InterfacesPageVM", () => {
 
     expect(harness.interfacesRepo.deleteInterface).not.toHaveBeenCalled();
     expect(harness.vm.interfaces).toHaveLength(1);
+  });
+
+  it("enables only the selected interfaces that are disabled", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", name: "wg0", enabled: false }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", name: "wg1", enabled: true }));
+    harness.interfacesRepo.items.set("i3", iface({ id: "i3", name: "wg2", enabled: false }));
+    await harness.vm.load();
+    const listCalls = harness.interfacesRepo.listInterfaces.mock.calls.length;
+    harness.vm.toggleSelected("i1");
+    harness.vm.toggleSelected("i2");
+
+    await harness.vm.bulkSetEnabled(true);
+
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledTimes(1);
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledWith("enable", ["i1"]);
+    expect(harness.interfacesRepo.updateInterface).not.toHaveBeenCalled();
+    expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.interfaces.find((item) => item.id === "i1")?.enabled).toBe(true);
+    expect(
+      harness.toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 1, ошибок: 0"),
+    ).toBe(true);
+  });
+
+  it("disables only the selected interfaces that are enabled", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", name: "wg0", enabled: true }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", name: "wg1", enabled: false }));
+    await harness.vm.load();
+    harness.vm.toggleSelected("i1");
+    harness.vm.toggleSelected("i2");
+
+    await harness.vm.bulkSetEnabled(false);
+
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledTimes(1);
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledWith("disable", ["i1"]);
+    expect(harness.vm.interfaces.find((item) => item.id === "i1")?.enabled).toBe(false);
+  });
+
+  it("skips the bulk request when the target state is already set", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", enabled: true }));
+    await harness.vm.load();
+    harness.vm.toggleSelected("i1");
+
+    await harness.vm.bulkSetEnabled(true);
+
+    expect(harness.interfacesRepo.bulk).not.toHaveBeenCalled();
+    expect(harness.vm.selectedIds).toEqual(["i1"]);
+  });
+
+  it("deletes all selected interfaces with a single bulk request", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", name: "wg0" }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", name: "wg1" }));
+    harness.interfacesRepo.items.set("i3", iface({ id: "i3", name: "wg2" }));
+    await harness.vm.load();
+    const listCalls = harness.interfacesRepo.listInterfaces.mock.calls.length;
+    harness.vm.toggleSelected("i1");
+    harness.vm.toggleSelected("i2");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledTimes(1);
+    expect(harness.interfacesRepo.bulk).toHaveBeenCalledWith("delete", ["i1", "i2"]);
+    expect(harness.interfacesRepo.deleteInterface).not.toHaveBeenCalled();
+    expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.interfaces.map((item) => item.id)).toEqual(["i3"]);
+    expect(window.confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(
+      harness.toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 2, ошибок: 0"),
+    ).toBe(true);
+  });
+
+  it("shows a partial bulk failure from the response", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", enabled: false }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", enabled: false }));
+    await harness.vm.load();
+    harness.interfacesRepo.bulk.mockResolvedValueOnce({ done: 1, failed: [{ id: "i2", error: "worker offline" }] });
+    harness.vm.toggleSelected("i1");
+    harness.vm.toggleSelected("i2");
+
+    await harness.vm.bulkSetEnabled(true);
+
+    expect(
+      harness.toasts.items.some((item) => item.kind === "error" && item.message === "Готово: 1, ошибок: 1"),
+    ).toBe(true);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.bulkBusy).toBe(false);
+  });
+
+  it("reports a failed bulk request and still reloads", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1" }));
+    await harness.vm.load();
+    const listCalls = harness.interfacesRepo.listInterfaces.mock.calls.length;
+    harness.interfacesRepo.bulk.mockRejectedValueOnce(new Error("unreachable"));
+    harness.vm.toggleSelected("i1");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.toasts.items.some((item) => item.kind === "error" && item.message === "unreachable")).toBe(true);
+    expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.bulkBusy).toBe(false);
+  });
+
+  it("does not bulk delete without confirmation", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1" }));
+    await harness.vm.load();
+    window.confirm = vi.fn(() => false);
+    harness.vm.toggleSelected("i1");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.interfacesRepo.bulk).not.toHaveBeenCalled();
+    expect(harness.vm.selectedIds).toEqual(["i1"]);
   });
 
   it("limits a regular user to the interfaces of the own group", async () => {

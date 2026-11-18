@@ -1,4 +1,5 @@
-import type { NodesRepository } from "@/domain/nodes/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { NodeBulkAction, NodesRepository } from "@/domain/nodes/repository";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { requireId, requireText } from "../guards";
@@ -8,6 +9,7 @@ export interface NodesService {
   createNode(name: string): Promise<NodeCreated>;
   rotateNode(id: string): Promise<NodeRotated>;
   deleteNode(id: string): Promise<void>;
+  bulk(action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult>;
 }
 
 export class DefaultNodesService implements NodesService {
@@ -27,5 +29,9 @@ export class DefaultNodesService implements NodesService {
 
   async deleteNode(id: string): Promise<void> {
     await this.repository.deleteNode(requireId(id, "Нода"));
+  }
+
+  bulk(action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    return this.repository.bulk(action, ids);
   }
 }

@@ -168,21 +168,20 @@ export class TariffsPageVM {
       .map((tariff) => tariff.id);
     if (ids.length === 0) return;
     if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const id of ids) {
-      try {
-        await this.tariffsService.deleteTariff(id);
-        done += 1;
-      } catch {
-        failed += 1;
-      }
+    try {
+      const result = await this.tariffsService.bulk("delete", ids);
+      this.toasts[result.failed.length > 0 ? "error" : "success"](
+        t("bulk.done", { done: result.done, failed: result.failed.length }),
+      );
+      await this.load();
+      this.clearSelection();
+    } catch (error) {
+      this.toasts.error(userMessage(error, "Не удалось удалить тарифы"));
+    } finally {
+      this.bulkBusy = false;
     }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
-    await this.load();
   }
 
   openCreate(): void {

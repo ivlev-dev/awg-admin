@@ -5,6 +5,8 @@ import { ToastStore } from "@/app/toast";
 import { DefaultNodesService } from "@/application/nodes/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { NodesRepository } from "@/domain/nodes/repository";
+import type { BulkFailure, BulkResult } from "@/domain/bulk";
+import type { NodeBulkAction } from "@/domain/nodes/repository";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { AuthSession, NodeInfo, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
@@ -121,6 +123,19 @@ class MemoryNodesRepository {
 
   deleteNode = vi.fn(async (id: string): Promise<void> => {
     this.items.delete(id);
+  });
+
+  bulk = vi.fn(async (action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult> => {
+    const failed: BulkFailure[] = [];
+    let done = 0;
+    for (const id of ids) {
+      if (action === "delete" && this.items.delete(id)) {
+        done += 1;
+      } else {
+        failed.push({ id, error: "not found" });
+      }
+    }
+    return { done, failed };
   });
 }
 
@@ -359,6 +374,78 @@ describe("NodesPageVM", () => {
     expect(harness.vm.interfacesLabel(node({ interfaces: 3 }))).toBe("3 интерфейса");
     expect(harness.vm.interfacesLabel(node({ interfaces: 5 }))).toBe("5 интерфейсов");
     expect(harness.vm.lastSeen(null)).toBe("никогда");
+  });
+
+  it("deletes selected nodes with a single bulk request", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node({ id: "n1", name: "node-1" }));
+    harness.repo.items.set("n2", node({ id: "n2", name: "node-2" }));
+    harness.repo.items.set("n3", node({ id: "n3", name: "node-3" }));
+    await harness.vm.load();
+    const listCalls = harness.repo.listNodes.mock.calls.length;
+    harness.vm.toggleSelected("n1");
+    harness.vm.toggleSelected("n2");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.repo.bulk).toHaveBeenCalledTimes(1);
+    expect(harness.repo.bulk).toHaveBeenCalledWith("delete", ["n1", "n2"]);
+    expect(harness.repo.deleteNode).not.toHaveBeenCalled();
+    expect(harness.repo.listNodes.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.nodes.map((item) => item.id)).toEqual(["n3"]);
+    expect(harness.vm.bulkBusy).toBe(false);
+    expect(window.confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(
+      harness.toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 2, ошибок: 0"),
+    ).toBe(true);
+  });
+
+  it("shows a partial bulk failure from the response", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node({ id: "n1", name: "node-1" }));
+    harness.repo.items.set("n2", node({ id: "n2", name: "node-2" }));
+    await harness.vm.load();
+    harness.repo.bulk.mockResolvedValueOnce({ done: 1, failed: [{ id: "n2", error: "forbidden" }] });
+    harness.vm.toggleSelected("n1");
+    harness.vm.toggleSelected("n2");
+
+    await harness.vm.bulkDelete();
+
+    expect(
+      harness.toasts.items.some((item) => item.kind === "error" && item.message === "Готово: 1, ошибок: 1"),
+    ).toBe(true);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.bulkBusy).toBe(false);
+  });
+
+  it("reports a failed bulk request and still reloads", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node());
+    await harness.vm.load();
+    const listCalls = harness.repo.listNodes.mock.calls.length;
+    harness.repo.bulk.mockRejectedValueOnce(new Error("unreachable"));
+    harness.vm.toggleSelected("n1");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.toasts.items.some((item) => item.kind === "error" && item.message === "unreachable")).toBe(true);
+    expect(harness.repo.listNodes.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.vm.selectedIds).toEqual([]);
+    expect(harness.vm.bulkBusy).toBe(false);
+  });
+
+  it("does not bulk delete without confirmation", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node());
+    await harness.vm.load();
+    window.confirm = vi.fn(() => false);
+    harness.vm.toggleSelected("n1");
+
+    await harness.vm.bulkDelete();
+
+    expect(harness.repo.bulk).not.toHaveBeenCalled();
+    expect(harness.vm.selectedIds).toEqual(["n1"]);
   });
 
   it("is resolved by the DI container", async () => {

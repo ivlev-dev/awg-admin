@@ -5,6 +5,7 @@ import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
+import type { BulkFailure, BulkResult } from "@/domain/bulk";
 import type {
   AuthSessionInfo,
   LoginInput,
@@ -29,7 +30,7 @@ import type {
   User,
 } from "@/domain/types";
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
-import type { UsersRepository } from "@/domain/users/repository";
+import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPageVM, usersFiltersStorage } from "@/features/users/UsersPage.vm";
 
@@ -121,6 +122,7 @@ class MemoryUsersRepository {
   users: User[] = [];
   readonly passwords = new Map<string, string>();
   failure: Error | null = null;
+  bulkResult: BulkResult | null = null;
 
   async listUsers(): Promise<User[]> {
     this.failIfNeeded();
@@ -193,6 +195,26 @@ class MemoryUsersRepository {
     this.passwords.set(id, password);
   }
 
+  async bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    if (this.bulkResult !== null) return this.bulkResult;
+    const failed: BulkFailure[] = [];
+    let done = 0;
+    for (const id of ids) {
+      const user = this.users.find((item) => item.id === id);
+      if (user === undefined) {
+        failed.push({ id, error: `Пользователь ${id} не найден` });
+        continue;
+      }
+      if (action === "delete") {
+        this.users = this.users.filter((item) => item.id !== id);
+      } else {
+        this.replace({ ...user, disabled: action === "disable" });
+      }
+      done += 1;
+    }
+    return { done, failed };
+  }
+
   private find(id: string): User {
     const user = this.users.find((item) => item.id === id);
     if (user === undefined) throw new Error(`Пользователь ${id} не найден`);
@@ -240,6 +262,11 @@ class MemoryTariffsRepository {
   async deleteTariff(id: string): Promise<void> {
     this.tariffs = this.tariffs.filter((item) => item.id !== id);
   }
+
+  async bulk(_action: "delete", ids: readonly string[]) {
+    this.tariffs = this.tariffs.filter((item) => !ids.includes(item.id));
+    return { done: ids.length, failed: [] };
+  }
 }
 
 class MemoryGroupsRepository {
@@ -269,6 +296,11 @@ class MemoryGroupsRepository {
     const group = this.groups.find((item) => item.id === id);
     if (group === undefined) throw new Error(`Группа ${id} не найдена`);
     return { ...group, ...input };
+  }
+
+  async bulk(_action: "delete", ids: readonly string[]) {
+    this.groups = this.groups.filter((item) => !ids.includes(item.id));
+    return { done: ids.length, failed: [] };
   }
 
   async deleteGroup(id: string): Promise<void> {
@@ -929,5 +961,120 @@ describe("UsersPageVM", () => {
     expect(vm.error).toBe("Заявки недоступны");
     expect(vm.pendingError).toBe("Заявки недоступны");
     expect(toastMessages(toasts)).toEqual([]);
+  });
+
+  describe("массовые действия", () => {
+    const CAROL: User = {
+      ...ALICE,
+      id: "u4",
+      login: "carol",
+      email: "carol@example.com",
+      disabled: true,
+    };
+
+    it("отключает выбранных одним bulk-запросом, исключая себя и уже отключённых", async () => {
+      const { vm, usersRepo, toasts } = setup([ADMIN, ALICE, CAROL]);
+      const listUsers = vi.spyOn(usersRepo, "listUsers");
+      await vm.load();
+      const bulk = vi.spyOn(usersRepo, "bulk");
+      vm.selectedIds = [ADMIN.id, ALICE.id, CAROL.id];
+
+      await vm.bulkSetDisabled(true);
+
+      expect(bulk).toHaveBeenCalledTimes(1);
+      expect(bulk).toHaveBeenCalledWith("disable", [ALICE.id]);
+      expect(usersRepo.users.find((user) => user.id === ALICE.id)?.disabled).toBe(true);
+      expect(usersRepo.users.find((user) => user.id === CAROL.id)?.disabled).toBe(true);
+      expect(listUsers).toHaveBeenCalledTimes(2);
+      expect(vm.selectedIds).toEqual([]);
+      expect(vm.bulkBusy).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "success",
+        message: "Готово: 1, ошибок: 0",
+      });
+    });
+
+    it("включает только отключённых пользователей", async () => {
+      const { vm, usersRepo, toasts } = setup([ADMIN, ALICE, CAROL]);
+      await vm.load();
+      const bulk = vi.spyOn(usersRepo, "bulk");
+      vm.selectedIds = [ADMIN.id, ALICE.id, CAROL.id];
+
+      await vm.bulkSetDisabled(false);
+
+      expect(bulk).toHaveBeenCalledTimes(1);
+      expect(bulk).toHaveBeenCalledWith("enable", [CAROL.id]);
+      expect(usersRepo.users.find((user) => user.id === CAROL.id)?.disabled).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "success",
+        message: "Готово: 1, ошибок: 0",
+      });
+    });
+
+    it("удаляет выбранных одним bulk-запросом после подтверждения", async () => {
+      const confirm = stubConfirm(true);
+      const { vm, usersRepo, toasts } = setup([ADMIN, ALICE]);
+      await vm.load();
+      const bulk = vi.spyOn(usersRepo, "bulk");
+      vm.selectedIds = [ADMIN.id, ALICE.id];
+
+      await vm.bulkDelete();
+
+      expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (1)?");
+      expect(bulk).toHaveBeenCalledTimes(1);
+      expect(bulk).toHaveBeenCalledWith("delete", [ALICE.id]);
+      expect(usersRepo.users.map((user) => user.id)).toEqual([ADMIN.id]);
+      expect(vm.selectedIds).toEqual([]);
+      expect(vm.bulkBusy).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "success",
+        message: "Готово: 1, ошибок: 0",
+      });
+    });
+
+    it("показывает ошибку при частичном сбое, но учитывает выполненные", async () => {
+      const { vm, usersRepo, toasts } = setup([ADMIN, ALICE, CAROL]);
+      await vm.load();
+      usersRepo.bulkResult = {
+        done: 1,
+        failed: [{ id: CAROL.id, error: "Недостаточно прав" }],
+      };
+      vm.selectedIds = [ALICE.id, CAROL.id];
+
+      await vm.bulkSetDisabled(true);
+
+      expect(vm.selectedIds).toEqual([]);
+      expect(vm.bulkBusy).toBe(false);
+      expect(toasts.items.at(-1)).toMatchObject({
+        kind: "error",
+        message: "Готово: 1, ошибок: 1",
+      });
+    });
+
+    it("не вызывает bulk без подходящих целей", async () => {
+      const { vm, usersRepo } = setup([ADMIN, ALICE, CAROL]);
+      await vm.load();
+      const bulk = vi.spyOn(usersRepo, "bulk");
+      vm.selectedIds = [ADMIN.id, CAROL.id];
+
+      await vm.bulkSetDisabled(true);
+
+      expect(bulk).not.toHaveBeenCalled();
+      expect(vm.selectedIds).toEqual([ADMIN.id, CAROL.id]);
+    });
+
+    it("не удаляет пользователей при отказе от подтверждения", async () => {
+      stubConfirm(false);
+      const { vm, usersRepo } = setup([ADMIN, ALICE]);
+      await vm.load();
+      const bulk = vi.spyOn(usersRepo, "bulk");
+      vm.selectedIds = [ALICE.id];
+
+      await vm.bulkDelete();
+
+      expect(bulk).not.toHaveBeenCalled();
+      expect(usersRepo.users).toHaveLength(2);
+      expect(vm.selectedIds).toEqual([ALICE.id]);
+    });
   });
 });

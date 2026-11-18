@@ -5,6 +5,7 @@ import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
+import type { InterfaceBulkAction } from "@/domain/interfaces/repository";
 import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
 import { copyText } from "@/domain/clipboard";
@@ -375,39 +376,35 @@ export class InterfacesPageVM {
   }
 
   async bulkSetEnabled(enabled: boolean): Promise<void> {
-    const targets = this.visible.filter(
-      (item) => this.selectedIds.includes(item.id) && item.enabled !== enabled,
-    );
-    if (targets.length === 0) return;
-    await this.runBulk(targets, (item) => this.interfacesService.updateInterface(item.id, { enabled }));
+    const ids = this.selectedIds.filter((id) => {
+      const item = this.interfaces.find((candidate) => candidate.id === id);
+      return item !== undefined && item.enabled !== enabled;
+    });
+    if (ids.length === 0) return;
+    await this.runBulk(enabled ? "enable" : "disable", ids);
   }
 
   async bulkDelete(): Promise<void> {
-    const targets = this.visible.filter((item) => this.selectedIds.includes(item.id));
-    if (targets.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: targets.length }))) return;
-    await this.runBulk(targets, (item) => this.interfacesService.deleteInterface(item.id));
+    const ids = [...this.selectedIds];
+    if (ids.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    await this.runBulk("delete", ids);
   }
 
-  private async runBulk(
-    targets: InterfaceInfo[],
-    action: (item: InterfaceInfo) => Promise<unknown>,
-  ): Promise<void> {
+  private async runBulk(action: InterfaceBulkAction, ids: readonly string[]): Promise<void> {
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const item of targets) {
-      try {
-        await action(item);
-        done += 1;
-      } catch {
-        failed += 1;
-      }
+    try {
+      const result = await this.interfacesService.bulk(action, ids);
+      const failed = result.failed.length;
+      this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
+    } catch (error) {
+      const fallback = action === "delete" ? t("interfaces.error.delete") : t("interfaces.error.update");
+      this.toasts.error(messageOf(error, fallback));
+    } finally {
+      this.bulkBusy = false;
+      this.clearSelection();
+      await this.load();
     }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
-    await this.load();
   }
 
   async rotate(item: InterfaceInfo): Promise<void> {

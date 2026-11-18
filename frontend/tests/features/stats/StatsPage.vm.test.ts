@@ -269,6 +269,7 @@ function devicesHarness(): {
       }),
       revokeShare: vi.fn(async () => undefined),
       revokeAllShares: vi.fn(async () => 0),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     },
   };
 }
@@ -279,6 +280,7 @@ function groupsHarness(): GroupsRepository {
     createGroup: vi.fn(async () => GROUP_A),
     updateGroup: vi.fn(async () => GROUP_A),
     deleteGroup: vi.fn(async () => undefined),
+    bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
     listPools: vi.fn(async () => []),
     createPool: vi.fn(async () => {
       throw new Error("createPool is not used in this test");
@@ -297,6 +299,7 @@ function interfacesHarness(): InterfacesRepository {
     updateInterface: vi.fn(async () => INTERFACE),
     rotateInterface: vi.fn(async () => INTERFACE),
     deleteInterface: vi.fn(async () => undefined),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 
@@ -310,6 +313,7 @@ function usersHarness(): UsersRepository {
     listPending: vi.fn(async () => []),
     approveUser: vi.fn(async () => OWNER),
     rejectUser: vi.fn(async () => OWNER),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 

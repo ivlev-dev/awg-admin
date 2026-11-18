@@ -1,4 +1,5 @@
-import type { UsersRepository } from "@/domain/users/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { ValidationError } from "../errors";
@@ -13,6 +14,7 @@ export interface UsersService {
   resetPassword(id: string, password: string): Promise<void>;
   approveUser(id: string, input: ApproveUserInput): Promise<User>;
   rejectUser(id: string): Promise<User>;
+  bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult>;
 }
 
 export class DefaultUsersService implements UsersService {
@@ -63,5 +65,10 @@ export class DefaultUsersService implements UsersService {
 
   async rejectUser(id: string): Promise<User> {
     return this.repository.rejectUser(requireId(id, "Пользователь"));
+  }
+
+  async bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    const normalized = ids.map((id) => requireId(id, "Пользователь"));
+    return this.repository.bulk(action, normalized);
   }
 }

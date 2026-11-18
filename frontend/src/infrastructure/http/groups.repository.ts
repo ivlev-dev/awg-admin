@@ -1,3 +1,4 @@
+import type { BulkRequest, BulkResult } from "@/domain/bulk";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
@@ -20,6 +21,11 @@ export class HttpGroupsRepository implements GroupsRepository {
 
   async deleteGroup(id: string): Promise<void> {
     await this.client.delete(`/groups/${id}`);
+  }
+
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {
+    const body: BulkRequest<"delete"> = { action, ids };
+    return this.client.post<BulkResult>("/groups/bulk", body);
   }
 
   listPools(groupId: string): Promise<CidrPool[]> {

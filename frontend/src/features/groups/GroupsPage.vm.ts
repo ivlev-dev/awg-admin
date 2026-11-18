@@ -207,29 +207,26 @@ export class GroupsPageVM {
   }
 
   async bulkDelete(): Promise<void> {
-    const targets = this.groups.filter((group) => this.selectedIds.includes(group.id));
-    if (targets.length === 0) return;
-    if (!window.confirm(t("groups.bulk.confirm", { count: targets.length }))) return;
+    const ids = this.groups
+      .filter((group) => this.selectedIds.includes(group.id))
+      .map((group) => group.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(t("groups.bulk.confirm", { count: ids.length }))) return;
 
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
     try {
-      for (const group of targets) {
-        try {
-          await this.groupsService.deleteGroup(group.id);
-          done += 1;
-        } catch {
-          failed += 1;
-        }
-      }
+      const result = await this.groupsService.bulk("delete", ids);
+      this.toasts[result.failed.length > 0 ? "error" : "success"](
+        t("bulk.done", { done: result.done, failed: result.failed.length }),
+      );
+      await this.reload();
+      this.clearSelection();
+    } catch (error) {
+      this.error = messageOf(error, t("groups.error.delete"));
+      this.toasts.error(this.error);
     } finally {
       this.bulkBusy = false;
     }
-
-    await this.reload();
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
   }
 }
 

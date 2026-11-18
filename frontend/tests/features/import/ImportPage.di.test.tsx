@@ -198,6 +198,7 @@ function nodesRepository(): NodesRepository {
       throw new Error("rotateNode is not used in this test");
     }),
     deleteNode: vi.fn(async () => undefined),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 
@@ -219,6 +220,7 @@ function usersRepository(): UsersRepository {
     rejectUser: vi.fn(async () => {
       throw new Error("rejectUser is not used in this test");
     }),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 
@@ -235,6 +237,7 @@ function interfacesRepository(): InterfacesRepository {
       throw new Error("rotateInterface is not used in this test");
     }),
     deleteInterface: vi.fn(async () => undefined),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
   };
 }
 

@@ -9,6 +9,7 @@ import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
+import type { DevicesBulkAction } from "@/domain/devices/repository";
 import type { Device, Group, User } from "@/domain/types";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
@@ -149,29 +150,28 @@ export class ClientsPageVM {
   async bulkDelete(): Promise<void> {
     if (this.selectedIds.length === 0) return;
     if (!window.confirm(t("bulk.confirm.delete", { count: this.selectedIds.length }))) return;
-    await this.runBulk((id) => this.devicesService.deleteDevice(id));
+    await this.runBulk("delete", [...this.selectedIds]);
   }
 
   async bulkRevokeShares(): Promise<void> {
     if (this.selectedIds.length === 0) return;
-    await this.runBulk((id) => this.devicesService.revokeAllShares(id).then(() => undefined));
+    await this.runBulk("revoke_shares", [...this.selectedIds]);
   }
 
-  private async runBulk(action: (id: string) => Promise<void>): Promise<void> {
+  private async runBulk(action: DevicesBulkAction, ids: readonly string[]): Promise<void> {
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const id of this.selectedIds) {
-      try {
-        await action(id);
-        done += 1;
-      } catch {
-        failed += 1;
-      }
+    try {
+      const result = await this.devicesService.bulk(action, ids);
+      this.clearSelection();
+      this.toasts[result.failed.length > 0 ? "error" : "success"](
+        t("bulk.done", { done: result.done, failed: result.failed.length }),
+      );
+    } catch {
+      this.clearSelection();
+      this.toasts.error(t("bulk.done", { done: 0, failed: ids.length }));
+    } finally {
+      this.bulkBusy = false;
     }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
     await this.load();
   }
 

@@ -6,6 +6,7 @@ import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import { DefaultGroupsService } from "@/application/groups/service";
+import type { BulkFailure, BulkResult } from "@/domain/bulk";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
@@ -62,6 +63,19 @@ class MemoryGroupsRepository {
 
   deleteGroup = vi.fn(async (id: string): Promise<void> => {
     this.groups.delete(id);
+  });
+
+  bulk = vi.fn(async (_action: "delete", ids: readonly string[]): Promise<BulkResult> => {
+    const failed: BulkFailure[] = [];
+    let done = 0;
+    for (const id of ids) {
+      if (this.groups.delete(id)) {
+        done += 1;
+      } else {
+        failed.push({ id, error: "Группа не найдена" });
+      }
+    }
+    return { done, failed };
   });
 
   listPools = vi.fn(async (groupId: string): Promise<CidrPool[]> =>
@@ -301,7 +315,7 @@ describe("GroupsPageVM", () => {
     expect(vm.selectedCount).toBe(0);
   });
 
-  it("bulk deletes the selected groups", async () => {
+  it("bulk deletes the selected groups in one request", async () => {
     const repo = new MemoryGroupsRepository();
     repo.groups.set("g1", group());
     repo.groups.set("g2", group({ id: "g2", name: "Склад" }));
@@ -315,8 +329,9 @@ describe("GroupsPageVM", () => {
     await vm.bulkDelete();
 
     expect(confirm).toHaveBeenCalledWith("Удалить выбранные группы (2)?");
-    expect(repo.deleteGroup).toHaveBeenCalledWith("g1");
-    expect(repo.deleteGroup).toHaveBeenCalledWith("g2");
+    expect(repo.bulk).toHaveBeenCalledTimes(1);
+    expect(repo.bulk).toHaveBeenCalledWith("delete", ["g1", "g2"]);
+    expect(repo.deleteGroup).not.toHaveBeenCalled();
     expect(repo.listGroups).toHaveBeenCalledTimes(1);
     expect(vm.groups).toEqual([]);
     expect(vm.selectedIds).toEqual([]);
@@ -330,9 +345,18 @@ describe("GroupsPageVM", () => {
     const repo = new MemoryGroupsRepository();
     repo.groups.set("g1", group());
     repo.groups.set("g2", group({ id: "g2", name: "Склад" }));
-    repo.deleteGroup.mockImplementation(async (id: string): Promise<void> => {
-      if (id === "g2") throw new Error("group still has interfaces");
-      repo.groups.delete(id);
+    repo.bulk.mockImplementationOnce(async (_action, ids): Promise<BulkResult> => {
+      const failed: BulkFailure[] = [];
+      let done = 0;
+      for (const id of ids) {
+        if (id === "g2") {
+          failed.push({ id, error: "group still has interfaces" });
+        } else {
+          repo.groups.delete(id);
+          done += 1;
+        }
+      }
+      return { done, failed };
     });
     const { vm, toasts } = makeVm(repo);
     await vm.load();
@@ -341,7 +365,8 @@ describe("GroupsPageVM", () => {
 
     await vm.bulkDelete();
 
-    expect(repo.deleteGroup).toHaveBeenCalledTimes(2);
+    expect(repo.bulk).toHaveBeenCalledTimes(1);
+    expect(repo.bulk).toHaveBeenCalledWith("delete", ["g1", "g2"]);
     expect(vm.groups.map((item) => item.id)).toEqual(["g2"]);
     expect(vm.selectedIds).toEqual([]);
     expect(
@@ -353,12 +378,13 @@ describe("GroupsPageVM", () => {
     const repo = new MemoryGroupsRepository();
     repo.groups.set("g1", group());
     const { vm } = makeVm(repo);
+    await vm.load();
     vm.toggleSelected("g1");
     window.confirm = vi.fn(() => false);
 
     await vm.bulkDelete();
 
-    expect(repo.deleteGroup).not.toHaveBeenCalled();
+    expect(repo.bulk).not.toHaveBeenCalled();
     expect(vm.selectedIds).toEqual(["g1"]);
   });
 
@@ -371,7 +397,26 @@ describe("GroupsPageVM", () => {
     await vm.bulkDelete();
 
     expect(confirm).not.toHaveBeenCalled();
-    expect(repo.deleteGroup).not.toHaveBeenCalled();
+    expect(repo.bulk).not.toHaveBeenCalled();
+  });
+
+  it("reports a bulk request failure", async () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    repo.bulk.mockRejectedValueOnce(new Error("network down"));
+    const { vm, toasts } = makeVm(repo);
+    await vm.load();
+    vm.toggleSelected("g1");
+    window.confirm = vi.fn(() => true);
+
+    await vm.bulkDelete();
+
+    expect(vm.error).toBe("network down");
+    expect(vm.bulkBusy).toBe(false);
+    expect(vm.selectedIds).toEqual(["g1"]);
+    expect(toasts.items.some((item) => item.kind === "error" && item.message === "network down")).toBe(
+      true,
+    );
   });
 
   it("drops selected ids that disappeared after reload", async () => {

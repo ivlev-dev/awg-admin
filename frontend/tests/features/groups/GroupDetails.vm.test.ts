@@ -4,6 +4,7 @@ import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import { DefaultGroupsService } from "@/application/groups/service";
 import { DefaultInterfacesService } from "@/application/interfaces/service";
+import type { BulkResult } from "@/domain/bulk";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
@@ -92,6 +93,14 @@ class MemoryGroupsRepository {
     this.groups.delete(id);
   });
 
+  bulk = vi.fn(async (_action: "delete", ids: readonly string[]): Promise<BulkResult> => {
+    let done = 0;
+    for (const id of ids) {
+      if (this.groups.delete(id)) done += 1;
+    }
+    return { done, failed: [] };
+  });
+
   listPools = vi.fn(async (groupId: string): Promise<CidrPool[]> =>
     [...this.pools.values()].filter((item) => item.group_id === groupId),
   );
@@ -157,6 +166,8 @@ class MemoryInterfacesRepository {
   deleteInterface = vi.fn(async (id: string): Promise<void> => {
     this.items.delete(id);
   });
+
+  bulk = vi.fn(async (): Promise<BulkResult> => ({ done: 0, failed: [] }));
 }
 
 function makeVm(groupsRepo = new MemoryGroupsRepository()): {

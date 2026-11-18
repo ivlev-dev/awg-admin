@@ -1,3 +1,4 @@
+import type { BulkRequest, BulkResult } from "@/domain/bulk";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
@@ -20,5 +21,10 @@ export class HttpTariffsRepository implements TariffsRepository {
 
   async deleteTariff(id: string): Promise<void> {
     await this.client.delete(`/tariffs/${id}`);
+  }
+
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {
+    const body: BulkRequest<"delete"> = { action, ids };
+    return this.client.post<BulkResult>("/tariffs/bulk", body);
   }
 }

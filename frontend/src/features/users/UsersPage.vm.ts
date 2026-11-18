@@ -13,6 +13,7 @@ import type { TariffsService } from "@/application/tariffs/service";
 import type { UsersService } from "@/application/users/service";
 import { formatBytes, formatPercent } from "@/domain/format";
 import type { Group, Role, Tariff, User } from "@/domain/types";
+import type { UsersBulkAction } from "@/domain/users/repository";
 import { t } from "@/i18n";
 import { formatDateI18n } from "@/i18n/format";
 
@@ -219,47 +220,39 @@ export class UsersPageVM {
   }
 
   async bulkSetDisabled(disabled: boolean): Promise<void> {
-    const targets = this.activeUsers.filter(
-      (user) => this.selectedIds.includes(user.id) && user.id !== this.selfId && user.disabled !== disabled,
-    );
-    if (targets.length === 0) return;
-    this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const user of targets) {
-      try {
-        await this.usersService.updateUser(user.id, { disabled });
-        done += 1;
-      } catch {
-        failed += 1;
-      }
-    }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
-    await this.load();
+    const ids = this.activeUsers
+      .filter(
+        (user) =>
+          this.selectedIds.includes(user.id) && user.id !== this.selfId && user.disabled !== disabled,
+      )
+      .map((user) => user.id);
+    if (ids.length === 0) return;
+    await this.runBulk(disabled ? "disable" : "enable", ids);
   }
 
   async bulkDelete(): Promise<void> {
-    const targets = this.activeUsers.filter(
-      (user) => this.selectedIds.includes(user.id) && user.id !== this.selfId,
-    );
-    if (targets.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: targets.length }))) return;
+    const ids = this.activeUsers
+      .filter((user) => this.selectedIds.includes(user.id) && user.id !== this.selfId)
+      .map((user) => user.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    await this.runBulk("delete", ids);
+  }
+
+  private async runBulk(action: UsersBulkAction, ids: readonly string[]): Promise<void> {
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const user of targets) {
-      try {
-        await this.usersService.deleteUser(user.id);
-        done += 1;
-      } catch {
-        failed += 1;
-      }
+    try {
+      const result = await this.usersService.bulk(action, ids);
+      this.clearSelection();
+      this.toasts[result.failed.length > 0 ? "error" : "success"](
+        t("bulk.done", { done: result.done, failed: result.failed.length }),
+      );
+    } catch {
+      this.clearSelection();
+      this.toasts.error(t("bulk.done", { done: 0, failed: ids.length }));
+    } finally {
+      this.bulkBusy = false;
     }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
     await this.load();
   }
 

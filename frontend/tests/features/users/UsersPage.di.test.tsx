@@ -8,6 +8,7 @@ import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
+import type { BulkResult } from "@/domain/bulk";
 import type {
   AuthSessionInfo,
   LoginInput,
@@ -31,7 +32,7 @@ import type {
   Tariff,
   User,
 } from "@/domain/types";
-import type { UsersRepository } from "@/domain/users/repository";
+import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
 import type { CreateUserInput, UpdateUserInput, ApproveUserInput } from "@/domain/users/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPage } from "@/features/users/UsersPage";
@@ -114,6 +115,10 @@ class StubUsersRepository {
   async deleteUser(_id: string): Promise<void> {}
 
   async resetPassword(_id: string, _password: string): Promise<void> {}
+
+  async bulk(_action: UsersBulkAction, _ids: readonly string[]): Promise<BulkResult> {
+    return { done: 0, failed: [] };
+  }
 }
 
 class StubTariffsRepository {
@@ -130,6 +135,10 @@ class StubTariffsRepository {
   }
 
   async deleteTariff(_id: string): Promise<void> {}
+
+  async bulk(_action: "delete", _ids: readonly string[]) {
+    return { done: 0, failed: [] };
+  }
 }
 
 class StubGroupsRepository {
@@ -146,6 +155,10 @@ class StubGroupsRepository {
   }
 
   async deleteGroup(_id: string): Promise<void> {}
+
+  async bulk(_action: "delete", _ids: readonly string[]) {
+    return { done: 0, failed: [] };
+  }
 
   async listPools(_groupId: string): Promise<CidrPool[]> {
     return [];

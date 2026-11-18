@@ -365,6 +365,7 @@ describe("UsersService", () => {
       resetPassword: vi.fn(async () => undefined),
       approveUser: vi.fn(async () => USER),
       rejectUser: vi.fn(async () => USER),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     };
   }
 
@@ -388,6 +389,18 @@ describe("UsersService", () => {
     await service.deleteUser(" u1 ");
     expect(repo.updateUser).toHaveBeenCalledWith("u1", { disabled: true });
     expect(repo.deleteUser).toHaveBeenCalledWith("u1");
+  });
+
+  it("normalizes ids before a bulk request", async () => {
+    const repo = makeUsers();
+    const service = new DefaultUsersService(repo);
+
+    await expect(service.bulk("disable", [" u1 ", "u2"])).resolves.toEqual({
+      done: 0,
+      failed: [],
+    });
+    expect(repo.bulk).toHaveBeenCalledWith("disable", ["u1", "u2"]);
+    await expect(service.bulk("delete", ["  "])).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("lists pending accounts", async () => {
@@ -430,6 +443,7 @@ describe("TariffsService", () => {
       createTariff: vi.fn(async () => TARIFF),
       updateTariff: vi.fn(async () => TARIFF),
       deleteTariff: vi.fn(async () => undefined),
+      bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
     };
   }
 
@@ -475,6 +489,7 @@ describe("GroupsService", () => {
       createGroup: vi.fn(async () => GROUP),
       updateGroup: vi.fn(async () => GROUP),
       deleteGroup: vi.fn(async () => undefined),
+      bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
       listPools: vi.fn(async () => [POOL]),
       createPool: vi.fn(async () => POOL),
       updatePool: vi.fn(async () => POOL),
@@ -520,6 +535,7 @@ describe("NodesService", () => {
       })),
       rotateNode: vi.fn(async () => ({ node: NODE, token: "rotated-token" })),
       deleteNode: vi.fn(async () => undefined),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     };
   }
 
@@ -553,6 +569,7 @@ describe("InterfacesService", () => {
       updateInterface: vi.fn(async () => INTERFACE),
       rotateInterface: vi.fn(async () => INTERFACE),
       deleteInterface: vi.fn(async () => undefined),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     };
   }
 
@@ -618,6 +635,7 @@ describe("DevicesService", () => {
       })),
       revokeShare: vi.fn(async () => undefined),
       revokeAllShares: vi.fn(async () => 0),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     };
   }
 
@@ -640,6 +658,18 @@ describe("DevicesService", () => {
     await expect(
       service.createShare("d1", { interfaceId: "i1", format: "conf", ttlSecs: 0 }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("normalizes ids before a bulk request", async () => {
+    const repo = makeDevices();
+    const service = new DefaultDevicesService(repo);
+
+    await expect(service.bulk("revoke_shares", [" d1 ", "d2"])).resolves.toEqual({
+      done: 0,
+      failed: [],
+    });
+    expect(repo.bulk).toHaveBeenCalledWith("revoke_shares", ["d1", "d2"]);
+    await expect(service.bulk("delete", ["  "])).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("maps share input to the repository contract", async () => {

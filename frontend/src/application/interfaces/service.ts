@@ -1,4 +1,5 @@
-import type { InterfacesRepository } from "@/domain/interfaces/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { InterfaceBulkAction, InterfacesRepository } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { InterfaceInfo } from "@/domain/types";
 import { requireId, requireMtu, requirePort, requireText } from "../guards";
@@ -9,6 +10,7 @@ export interface InterfacesService {
   updateInterface(id: string, input: InterfaceUpdateInput): Promise<InterfaceInfo>;
   rotateInterface(id: string): Promise<InterfaceInfo>;
   deleteInterface(id: string): Promise<void>;
+  bulk(action: InterfaceBulkAction, ids: readonly string[]): Promise<BulkResult>;
 }
 
 export class DefaultInterfacesService implements InterfacesService {
@@ -53,5 +55,9 @@ export class DefaultInterfacesService implements InterfacesService {
 
   async deleteInterface(id: string): Promise<void> {
     await this.repository.deleteInterface(requireId(id, "Интерфейс"));
+  }
+
+  bulk(action: InterfaceBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    return this.repository.bulk(action, ids);
   }
 }

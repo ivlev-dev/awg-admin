@@ -1,3 +1,4 @@
+import type { BulkResult } from "../bulk";
 import type { Device, Profile, ShareLink } from "../types";
 import type {
   CreateShareInput,
@@ -5,6 +6,8 @@ import type {
   DeviceStats,
   DeviceUpdateInput,
 } from "./types";
+
+export type DevicesBulkAction = "revoke_shares" | "delete";
 
 export interface DevicesRepository {
   listDevices(): Promise<Device[]>;
@@ -19,4 +22,5 @@ export interface DevicesRepository {
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;
   revokeAllShares(id: string): Promise<number>;
+  bulk(action: DevicesBulkAction, ids: readonly string[]): Promise<BulkResult>;
 }

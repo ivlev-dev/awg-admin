@@ -1,4 +1,5 @@
-import type { DevicesRepository } from "@/domain/devices/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { DevicesBulkAction, DevicesRepository } from "@/domain/devices/repository";
 import type {
   CreateShareInput,
   DeviceInput,
@@ -22,6 +23,7 @@ export interface DevicesService {
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;
   revokeAllShares(id: string): Promise<number>;
+  bulk(action: DevicesBulkAction, ids: readonly string[]): Promise<BulkResult>;
 }
 
 export class DefaultDevicesService implements DevicesService {
@@ -111,5 +113,10 @@ export class DefaultDevicesService implements DevicesService {
 
   async revokeAllShares(id: string): Promise<number> {
     return this.repository.revokeAllShares(requireId(id, "Устройство"));
+  }
+
+  async bulk(action: DevicesBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    const normalized = ids.map((id) => requireId(id, "Устройство"));
+    return this.repository.bulk(action, normalized);
   }
 }

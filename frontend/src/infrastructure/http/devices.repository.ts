@@ -1,4 +1,5 @@
-import type { DevicesRepository } from "@/domain/devices/repository";
+import type { BulkRequest, BulkResult } from "@/domain/bulk";
+import type { DevicesBulkAction, DevicesRepository } from "@/domain/devices/repository";
 import type {
   CreateShareInput,
   DeviceInput,
@@ -64,5 +65,10 @@ export class HttpDevicesRepository implements DevicesRepository {
   async revokeAllShares(id: string): Promise<number> {
     const result = await this.client.delete<{ revoked: number }>(`/devices/${id}/shares`);
     return result.revoked;
+  }
+
+  bulk(action: DevicesBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    const body: BulkRequest<DevicesBulkAction> = { action, ids };
+    return this.client.post<BulkResult>("/devices/bulk", body);
   }
 }

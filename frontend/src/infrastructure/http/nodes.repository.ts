@@ -1,4 +1,5 @@
-import type { NodesRepository } from "@/domain/nodes/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { NodeBulkAction, NodesRepository } from "@/domain/nodes/repository";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import type { HttpClient } from "./client";
@@ -20,5 +21,9 @@ export class HttpNodesRepository implements NodesRepository {
 
   async deleteNode(id: string): Promise<void> {
     await this.client.delete(`/nodes/${id}`);
+  }
+
+  bulk(action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    return this.client.post<BulkResult>("/nodes/bulk", { action, ids: [...ids] });
   }
 }

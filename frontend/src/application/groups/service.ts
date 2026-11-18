@@ -1,3 +1,4 @@
+import type { BulkResult } from "@/domain/bulk";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { GroupInput, PoolInput } from "@/domain/groups/types";
 import type { CidrPool, Group } from "@/domain/types";
@@ -10,6 +11,7 @@ export interface GroupsService {
   createGroup(input: GroupInput): Promise<Group>;
   updateGroup(id: string, input: Partial<GroupInput>): Promise<Group>;
   deleteGroup(id: string): Promise<void>;
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult>;
   listPools(groupId: string): Promise<CidrPool[]>;
   createPool(groupId: string, input: PoolInput): Promise<CidrPool>;
   updatePool(id: string, input: Partial<PoolInput> & { enabled?: boolean }): Promise<CidrPool>;
@@ -37,6 +39,11 @@ export class DefaultGroupsService implements GroupsService {
 
   async deleteGroup(id: string): Promise<void> {
     await this.repository.deleteGroup(requireId(id, "Группа"));
+  }
+
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {
+    const targets = ids.map((id) => requireId(id, "Группа"));
+    return this.repository.bulk(action, targets);
   }
 
   listPools(groupId: string): Promise<CidrPool[]> {

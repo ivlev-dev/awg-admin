@@ -1,4 +1,5 @@
-import type { UsersRepository } from "@/domain/users/repository";
+import type { BulkRequest, BulkResult } from "@/domain/bulk";
+import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import type { HttpClient } from "./client";
@@ -36,5 +37,10 @@ export class HttpUsersRepository implements UsersRepository {
 
   async resetPassword(id: string, password: string): Promise<void> {
     await this.client.post<void>(`/users/${id}/password`, { new_password: password });
+  }
+
+  bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    const body: BulkRequest<UsersBulkAction> = { action, ids };
+    return this.client.post<BulkResult>("/users/bulk", body);
   }
 }

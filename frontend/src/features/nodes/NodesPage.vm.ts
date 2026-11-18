@@ -110,23 +110,21 @@ export class NodesPageVM {
   }
 
   async bulkDelete(): Promise<void> {
-    if (this.selectedIds.length === 0) return;
-    if (!window.confirm(t("bulk.confirm.delete", { count: this.selectedIds.length }))) return;
+    const ids = [...this.selectedIds];
+    if (ids.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
     this.bulkBusy = true;
-    let done = 0;
-    let failed = 0;
-    for (const id of this.selectedIds) {
-      try {
-        await this.nodesService.deleteNode(id);
-        done += 1;
-      } catch {
-        failed += 1;
-      }
+    try {
+      const result = await this.nodesService.bulk("delete", ids);
+      const failed = result.failed.length;
+      this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
+    } catch (error) {
+      this.toasts.error(messageOf(error, t("nodes.error.delete")));
+    } finally {
+      this.bulkBusy = false;
+      this.clearSelection();
+      await this.load();
     }
-    this.bulkBusy = false;
-    this.clearSelection();
-    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
-    await this.load();
   }
 
   @computed

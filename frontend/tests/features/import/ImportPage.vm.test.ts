@@ -336,6 +336,7 @@ function nodesHarness(nodes: NodeInfo[]): {
         throw new Error("rotateNode is not used in this test");
       }),
       deleteNode: vi.fn(async () => undefined),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     },
   };
 }
@@ -364,6 +365,7 @@ function usersHarness(users: User[]): {
       rejectUser: vi.fn(async () => {
         throw new Error("rejectUser is not used in this test");
       }),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     },
   };
 }
@@ -387,6 +389,7 @@ function interfacesHarness(items: InterfaceInfo[]): {
         throw new Error("rotateInterface is not used in this test");
       }),
       deleteInterface: vi.fn(async () => undefined),
+      bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     },
   };
 }

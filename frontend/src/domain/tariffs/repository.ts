@@ -1,3 +1,4 @@
+import type { BulkResult } from "../bulk";
 import type { Tariff } from "../types";
 import type { TariffInput } from "./types";
 
@@ -6,4 +7,5 @@ export interface TariffsRepository {
   createTariff(input: TariffInput): Promise<Tariff>;
   updateTariff(id: string, input: Partial<TariffInput>): Promise<Tariff>;
   deleteTariff(id: string): Promise<void>;
+  bulk(action: "delete", ids: readonly string[]): Promise<BulkResult>;
 }

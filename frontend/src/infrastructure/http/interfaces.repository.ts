@@ -1,4 +1,5 @@
-import type { InterfacesRepository } from "@/domain/interfaces/repository";
+import type { BulkResult } from "@/domain/bulk";
+import type { InterfaceBulkAction, InterfacesRepository } from "@/domain/interfaces/repository";
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { InterfaceInfo } from "@/domain/types";
 import type { HttpClient } from "./client";
@@ -24,5 +25,9 @@ export class HttpInterfacesRepository implements InterfacesRepository {
 
   async deleteInterface(id: string): Promise<void> {
     await this.client.delete(`/interfaces/${id}`);
+  }
+
+  bulk(action: InterfaceBulkAction, ids: readonly string[]): Promise<BulkResult> {
+    return this.client.post<BulkResult>("/interfaces/bulk", { action, ids: [...ids] });
   }
 }

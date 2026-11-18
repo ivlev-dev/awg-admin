@@ -1,5 +1,6 @@
 import { ToastStore } from "@/app/toast";
 import { DefaultTariffsService } from "@/application/tariffs/service";
+import type { BulkFailure, BulkResult } from "@/domain/bulk";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
@@ -85,6 +86,21 @@ class MemoryTariffsRepository {
     this.failIfNeeded();
     this.tariffs = this.tariffs.filter((item) => item.id !== id);
   }
+
+  bulk = vi.fn(async (_action: "delete", ids: readonly string[]): Promise<BulkResult> => {
+    this.failIfNeeded();
+    const failed: BulkFailure[] = [];
+    let done = 0;
+    for (const id of ids) {
+      if (this.tariffs.some((item) => item.id === id)) {
+        this.tariffs = this.tariffs.filter((item) => item.id !== id);
+        done += 1;
+      } else {
+        failed.push({ id, error: "Тариф не найден" });
+      }
+    }
+    return { done, failed };
+  });
 
   private failIfNeeded(): void {
     if (this.failure !== null) throw this.failure;
@@ -418,7 +434,7 @@ describe("TariffsPageVM selection", () => {
 });
 
 describe("TariffsPageVM bulk delete", () => {
-  it("deletes the selected tariffs and reloads the list", async () => {
+  it("deletes the selected tariffs in one request and reloads the list", async () => {
     const confirm = stubConfirm(true);
     const { vm, repo, service, toasts } = setup([TARIFF, PRO, PREMIUM]);
     await vm.load();
@@ -429,27 +445,40 @@ describe("TariffsPageVM bulk delete", () => {
     await vm.bulkDelete();
 
     expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(repo.bulk).toHaveBeenCalledTimes(1);
+    expect(repo.bulk).toHaveBeenCalledWith("delete", [TARIFF.id, PRO.id]);
     expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);
     expect(vm.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);
     expect(vm.selectedIds).toEqual([]);
     expect(vm.bulkBusy).toBe(false);
     expect(listSpy).toHaveBeenCalledTimes(1);
+    expect(toasts.items.at(-1)?.kind).toBe("success");
     expect(toastMessages(toasts)).toContain("Готово: 2, ошибок: 0");
   });
 
-  it("reports a partial failure and keeps the selection cleared", async () => {
+  it("reports a partial failure, keeps the failed tariff and clears the selection", async () => {
     stubConfirm(true);
-    const { vm, repo, service, toasts } = setup([TARIFF, PRO, PREMIUM]);
+    const { vm, repo, toasts } = setup([TARIFF, PRO, PREMIUM]);
     await vm.load();
-    vi.spyOn(service, "deleteTariff").mockImplementation(async (id: string) => {
-      if (id === PRO.id) throw new Error("Сервер отклонил запрос");
-      await repo.deleteTariff(id);
+    repo.bulk.mockImplementationOnce(async (_action, ids): Promise<BulkResult> => {
+      const failed: BulkFailure[] = [];
+      let done = 0;
+      for (const id of ids) {
+        if (id === PRO.id) {
+          failed.push({ id, error: "Сервер отклонил запрос" });
+        } else {
+          repo.tariffs = repo.tariffs.filter((item) => item.id !== id);
+          done += 1;
+        }
+      }
+      return { done, failed };
     });
 
     vm.toggleSelectAll();
     await vm.bulkDelete();
 
-    expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PRO.id]);
+    expect(repo.bulk).toHaveBeenCalledTimes(1);
+    expect(repo.bulk).toHaveBeenCalledWith("delete", [TARIFF.id, PRO.id, PREMIUM.id]);
     expect(vm.tariffs.map((tariff) => tariff.id)).toEqual([PRO.id]);
     expect(vm.selectedIds).toEqual([]);
     expect(vm.bulkBusy).toBe(false);
@@ -459,14 +488,13 @@ describe("TariffsPageVM bulk delete", () => {
 
   it("does nothing without a selection", async () => {
     const confirm = stubConfirm(true);
-    const { vm, service } = setup();
+    const { vm, repo } = setup();
     await vm.load();
-    const deleteSpy = vi.spyOn(service, "deleteTariff");
 
     await vm.bulkDelete();
 
     expect(confirm).not.toHaveBeenCalled();
-    expect(deleteSpy).not.toHaveBeenCalled();
+    expect(repo.bulk).not.toHaveBeenCalled();
   });
 
   it("keeps the selection when the confirmation is declined", async () => {
@@ -477,6 +505,7 @@ describe("TariffsPageVM bulk delete", () => {
 
     await vm.bulkDelete();
 
+    expect(repo.bulk).not.toHaveBeenCalled();
     expect(repo.tariffs).toHaveLength(2);
     expect(vm.selectedIds).toEqual([PRO.id]);
   });

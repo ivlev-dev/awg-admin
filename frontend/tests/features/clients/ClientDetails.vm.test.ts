@@ -323,6 +323,7 @@ function devicesHarness(): {
       return { ...share };
     }),
     revokeAllShares: vi.fn(async () => 0),
+    bulk: vi.fn(async () => ({ done: 0, failed: [] })),
     revokeShare: vi.fn(async (token: string) => {
       state.shares = state.shares.filter((share) => share.token !== token);
     }),
@@ -357,6 +358,7 @@ function groupsHarness(groups: Group[]): GroupsRepository {
     createGroup: vi.fn(async () => GROUP),
     updateGroup: vi.fn(async () => GROUP),
     deleteGroup: vi.fn(async () => undefined),
+    bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
     listPools: vi.fn(async () => []),
     createPool: vi.fn(async () => {
       throw new Error("pool is not used in this test");
