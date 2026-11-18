@@ -473,6 +473,128 @@ describe("AuditPageVM", () => {
     expect(repository.calls).toHaveLength(0);
     expect(toasts.items.map((item) => item.message)).toEqual(["Сервис недоступен"]);
   });
+
+  it("не показывает чипы без активных фильтров", () => {
+    const vm = makeVM(new FakeAuditRepository());
+
+    expect(vm.activeFilterChips).toEqual([]);
+  });
+
+  it("строит чипы только по непустым фильтрам", () => {
+    const vm = makeVM(new FakeAuditRepository());
+    vm.action = "DELETE";
+    vm.entity = " devices ";
+    vm.actor = " admin ";
+    vm.status = "404";
+    vm.from = "2024-01-01T10:00";
+    vm.to = "2024-01-02T10:00";
+
+    expect(vm.activeFilterChips).toEqual([
+      { key: "action", label: "Действие: DELETE" },
+      { key: "entity", label: "Объект: devices" },
+      { key: "actor", label: "Актор: admin" },
+      { key: "status", label: "Статус: 404" },
+      { key: "from", label: `С периода: ${formatDateTimeI18n("2024-01-01T10:00")}` },
+      { key: "to", label: `По: ${formatDateTimeI18n("2024-01-02T10:00")}` },
+    ]);
+
+    vm.entity = "   ";
+    vm.actor = "";
+
+    expect(vm.activeFilterChips.map((chip) => chip.key)).toEqual([
+      "action",
+      "status",
+      "from",
+      "to",
+    ]);
+  });
+
+  it("сбрасывает только выбранный фильтр и обновляет журнал", async () => {
+    const repository = new FakeAuditRepository();
+    repository.pages.push({ items: [entry()], next_cursor: null });
+    const vm = makeVM(repository);
+    vm.action = "DELETE";
+    vm.entity = "devices";
+    vm.actor = "admin";
+    vm.status = "404";
+    vm.from = "2024-01-01T10:00";
+    vm.to = "2024-01-02T10:00";
+    vm.expandedId = "e1";
+
+    await vm.clearFilter("action");
+
+    expect(vm.action).toBe("");
+    expect(vm.entity).toBe("devices");
+    expect(vm.actor).toBe("admin");
+    expect(vm.status).toBe("404");
+    expect(vm.from).toBe("2024-01-01T10:00");
+    expect(vm.to).toBe("2024-01-02T10:00");
+    expect(vm.expandedId).toBeNull();
+    expect(repository.calls).toHaveLength(1);
+    expect(repository.calls[0]).toEqual({
+      limit: 50,
+      before: undefined,
+      action: undefined,
+      entity: "devices",
+      actor: "admin",
+      status: 404,
+      from: unix("2024-01-01T10:00"),
+      to: unix("2024-01-02T10:00"),
+    });
+    expect(JSON.parse(localStorage.getItem(auditFiltersStorage.key) ?? "{}")).toEqual({
+      action: "",
+      entity: "devices",
+      actor: "admin",
+      status: "404",
+      from: "2024-01-01T10:00",
+      to: "2024-01-02T10:00",
+    });
+  });
+
+  it("копирует полные детали и показывает тост", async () => {
+    const writeText = vi.fn(async (_value: string) => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const toasts = new ToastStore();
+    const vm = new AuditPageVM(new DefaultAuditService(new FakeAuditRepository()), toasts);
+    const details = `{"payload":"${"y".repeat(200)}"}`;
+    const row = formatAuditRow(entry({ details }));
+
+    await vm.copyDetails(row);
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledWith(details);
+    expect(toasts.items.map((item) => item.message)).toEqual(["Детали скопированы"]);
+  });
+
+  it("не копирует пустые детали", async () => {
+    const writeText = vi.fn(async (_value: string) => undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const toasts = new ToastStore();
+    const vm = new AuditPageVM(new DefaultAuditService(new FakeAuditRepository()), toasts);
+
+    await vm.copyDetails(formatAuditRow(entry({ details: null })));
+    await vm.copyDetails(formatAuditRow(entry({ details: "" })));
+
+    expect(writeText).not.toHaveBeenCalled();
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("показывает error-тост при ошибке копирования", async () => {
+    const writeText = vi.fn(async (_value: string) => {
+      throw new Error("denied");
+    });
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    const toasts = new ToastStore();
+    const vm = new AuditPageVM(new DefaultAuditService(new FakeAuditRepository()), toasts);
+
+    await vm.copyDetails(formatAuditRow(entry({ details: "payload" })));
+
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(toasts.items.map((item) => item.message)).toEqual([
+      "Не удалось скопировать детали",
+    ]);
+    expect(toasts.items[0]?.kind).toBe("error");
+  });
 });
 
 describe("DefaultAuditService", () => {

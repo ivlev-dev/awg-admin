@@ -468,3 +468,107 @@ describe("GroupsPageVM", () => {
     result.dispose();
   });
 });
+
+describe("GroupsPageVM discard guard", () => {
+  beforeEach(() => {
+    window.history.replaceState(null, "", "/groups");
+    confirmMock.askConfirm.mockReset();
+    confirmMock.askConfirm.mockResolvedValue(true);
+  });
+
+  it.each<[string, (vm: GroupsPageVM) => void]>([
+    ["name", (vm) => { vm.formName = "Склад"; }],
+    ["description", (vm) => { vm.formDescription = "Питер"; }],
+    ["base_cidr", (vm) => { vm.formBaseCidr = "10.9.0.0/16"; }],
+    ["forwarding", (vm) => { vm.formForwarding = true; }],
+  ])("tracks changes of %s", (_field, mutate) => {
+    const { vm } = makeVm();
+    vm.openCreate();
+    expect(vm.formDirty).toBe(false);
+
+    mutate(vm);
+
+    expect(vm.formDirty).toBe(true);
+  });
+
+  it("detects changes in the edit form", () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    const { vm } = makeVm(repo);
+    vm.openEdit(group());
+    expect(vm.formDirty).toBe(false);
+
+    vm.formDescription = "Санкт-Петербург";
+
+    expect(vm.formDirty).toBe(true);
+  });
+
+  it("asks for confirmation and closes the modal when the form changed", async () => {
+    const { vm } = makeVm();
+    vm.openCreate();
+    vm.formName = "Офис";
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отменить изменения?",
+      message: "Введённые данные не сохранятся.",
+      confirmLabel: "Не сохранять",
+      tone: "danger",
+    });
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("keeps the modal open when the discard is declined", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm } = makeVm();
+    vm.openCreate();
+    vm.formName = "Офис";
+
+    await vm.closeModal();
+
+    expect(vm.modalOpen).toBe(true);
+    expect(vm.formDirty).toBe(true);
+    expect(vm.formName).toBe("Офис");
+  });
+
+  it("closes without confirmation when the form is untouched", async () => {
+    const { vm } = makeVm();
+    vm.openCreate();
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("does not close while saving", async () => {
+    const { vm } = makeVm();
+    vm.openCreate();
+    vm.formName = "Офис";
+    vm.saving = true;
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(true);
+  });
+
+  it("resets the dirty flag after a successful save", async () => {
+    const { vm } = makeVm();
+    vm.openCreate();
+    vm.formName = "Офис";
+    vm.formBaseCidr = "10.8.0.0/16";
+
+    await vm.save(submit());
+
+    expect(vm.modalOpen).toBe(false);
+    expect(vm.formDirty).toBe(false);
+
+    vm.modalOpen = true;
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(false);
+  });
+});

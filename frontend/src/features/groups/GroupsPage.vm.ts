@@ -25,6 +25,8 @@ export class GroupsPageVM {
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
 
+  private formSnapshot = "";
+
   constructor(
     private readonly groupsService: GroupsService,
     private readonly router: Router,
@@ -111,6 +113,7 @@ export class GroupsPageVM {
     this.formForwarding = false;
     this.formError = null;
     this.modalOpen = true;
+    this.formSnapshot = this.formState();
   }
 
   openEdit(group: Group): void {
@@ -121,10 +124,34 @@ export class GroupsPageVM {
     this.formForwarding = group.forwarding_default;
     this.formError = null;
     this.modalOpen = true;
+    this.formSnapshot = this.formState();
   }
 
-  closeModal(): void {
+  formState(): string {
+    return JSON.stringify([
+      this.formName,
+      this.formDescription,
+      this.formBaseCidr,
+      this.formForwarding,
+    ]);
+  }
+
+  @computed
+  get formDirty(): boolean {
+    return this.modalOpen && this.formState() !== this.formSnapshot;
+  }
+
+  async closeModal(): Promise<void> {
     if (this.saving) return;
+    if (this.formDirty) {
+      const confirmed = await askConfirm({
+        title: t("groups.discard.title"),
+        message: t("groups.discard.message"),
+        confirmLabel: t("groups.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     this.modalOpen = false;
     this.formError = null;
   }
@@ -183,6 +210,7 @@ export class GroupsPageVM {
         this.toasts.success(t("groups.toast.created", { name }));
       }
       this.modalOpen = false;
+      this.formSnapshot = this.formState();
       await this.reload();
     } catch (error) {
       this.formError = messageOf(error, t("groups.error.save"));

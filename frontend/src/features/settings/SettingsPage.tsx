@@ -94,6 +94,14 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
       </Show>
 
       <Show when={this.vm.loaded}>
+        <Show when={this.vm.dirty}>
+          <div class="alert alert--warn alert--with-action" role="status">
+            <span>{t("settings.dirty.text")}</span>
+            <button class="btn btn--sm" type="button" onClick={() => this.vm.reset()}>
+              {t("settings.dirty.reset")}
+            </button>
+          </div>
+        </Show>
         <form class="stack" onSubmit={(event: SubmitEvent) => this.vm.save(event)}>
           <section class="card card--elevated">
             <div class="card__head">
@@ -348,8 +356,8 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
                 </div>
               </div>
             </div>
-            <div class="card__foot actions-bar" style="justify-content:flex-end">
-              <button class="btn" type="button" onClick={() => this.vm.load()} disabled={this.vm.saving}>
+            <div class="card__foot actions-bar settings-actions" style="justify-content:flex-end">
+              <button class="btn" type="button" onClick={() => this.vm.reset()} disabled={this.vm.saving}>
                 {t("common.cancel")}
               </button>
               <button class="btn btn--primary" type="submit" disabled={!this.vm.canSave}>

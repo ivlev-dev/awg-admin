@@ -35,7 +35,7 @@ test.describe("Журнал аудита", () => {
     const initialCount = await rows.count();
     expect(initialCount).toBeGreaterThan(0);
 
-    const actorInput = page.getByLabel("Актор");
+    const actorInput = page.getByRole("textbox", { name: "Актор" });
     await actorInput.fill("admin");
     const filtered = auditResponse(page);
     await page.getByRole("button", { name: "Применить" }).click();

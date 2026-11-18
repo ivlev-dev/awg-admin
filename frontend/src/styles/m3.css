@@ -574,3 +574,24 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
     bottom: calc(56px + env(safe-area-inset-bottom));
   }
 }
+
+.filter-chips { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 0 12px; }
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--shape-pill, 999px);
+  background: var(--md-surface-container-high, var(--md-surface-high));
+  color: var(--md-on-surface-variant);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+}
+.filter-chip button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  padding: 0;
+}

@@ -710,3 +710,14 @@
 }
 .toast__close:hover { background: var(--md-surface-container); color: var(--md-on-surface); }
 .toast__close:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 1px; }
+
+@media (max-width: 1023px) {
+  .settings-actions {
+    position: sticky;
+    bottom: calc(64px + env(safe-area-inset-bottom));
+    z-index: 5;
+    background: color-mix(in oklab, var(--md-surface) 94%, transparent);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--md-outline-variant);
+  }
+}

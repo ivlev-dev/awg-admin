@@ -17,4 +17,7 @@ export const enTariffs = {
   "tariffs.column.quota": "Quota",
   "tariffs.column.actions": "Actions",
   "tariffs.quota.unlimited": "Unlimited",
+  "tariffs.discard.title": "Discard changes?",
+  "tariffs.discard.message": "The entered data will not be saved.",
+  "tariffs.discard.action": "Discard changes",
 };

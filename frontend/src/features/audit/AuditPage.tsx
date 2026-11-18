@@ -155,6 +155,26 @@ export function AuditPage(this: { vm: AuditPageVM }) {
           </div>
         </div>
 
+        <Show when={this.vm.activeFilterChips.length > 0}>
+          <div class="filter-chips">
+            <For each={this.vm.activeFilterChips}>
+              {(chip) => (
+                <span class="filter-chip">
+                  {chip.label}
+                  <button
+                    type="button"
+                    aria-label={t("audit.filter.remove", { label: chip.label })}
+                    title={t("audit.filter.remove", { label: chip.label })}
+                    onClick={() => this.vm.clearFilter(chip.key)}
+                  >
+                    ×
+                  </button>
+                </span>
+              )}
+            </For>
+          </div>
+        </Show>
+
         <Show
           when={!this.vm.loading && this.vm.initialized}
           fallback={
@@ -216,21 +236,34 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                               when={row.hasDetails}
                               fallback={<span class="small muted">{row.detailsPreview}</span>}
                             >
-                              <button
-                                class="audit-details"
-                                type="button"
-                                aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                title={row.details ?? undefined}
-                                onClick={() => this.vm.toggleDetails(row.id)}
-                              >
-                                <span
-                                  class={`audit-details__text ${
-                                    this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                  }`}
+                              <div class="row">
+                                <button
+                                  class="audit-details"
+                                  type="button"
+                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
+                                  title={row.details ?? undefined}
+                                  onClick={() => this.vm.toggleDetails(row.id)}
                                 >
-                                  {row.details ?? row.detailsPreview}
-                                </span>
-                              </button>
+                                  <span
+                                    class={`audit-details__text ${
+                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
+                                    }`}
+                                  >
+                                    {row.details ?? row.detailsPreview}
+                                  </span>
+                                </button>
+                                <Show when={this.vm.expandedId === row.id && row.details !== null}>
+                                  <button
+                                    class="btn btn--sm btn--ghost btn--icon"
+                                    type="button"
+                                    aria-label={t("audit.copy.details")}
+                                    title={t("audit.copy.details")}
+                                    onClick={() => this.vm.copyDetails(row)}
+                                  >
+                                    <Icon name="copy" size={14} class="" />
+                                  </button>
+                                </Show>
+                              </div>
                             </Show>
                           </td>
                         </tr>
@@ -279,21 +312,34 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                                 when={row.hasDetails}
                                 fallback={<span class="small muted">{row.detailsPreview}</span>}
                               >
-                                <button
-                                  class="audit-details"
-                                  type="button"
-                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                  title={row.details ?? undefined}
-                                  onClick={() => this.vm.toggleDetails(row.id)}
-                                >
-                                  <span
-                                    class={`audit-details__text ${
-                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                    }`}
+                                <div class="row">
+                                  <button
+                                    class="audit-details"
+                                    type="button"
+                                    aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
+                                    title={row.details ?? undefined}
+                                    onClick={() => this.vm.toggleDetails(row.id)}
                                   >
-                                    {row.details ?? row.detailsPreview}
-                                  </span>
-                                </button>
+                                    <span
+                                      class={`audit-details__text ${
+                                        this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
+                                      }`}
+                                    >
+                                      {row.details ?? row.detailsPreview}
+                                    </span>
+                                  </button>
+                                  <Show when={row.details !== null}>
+                                    <button
+                                      class="btn btn--sm btn--ghost btn--icon"
+                                      type="button"
+                                      aria-label={t("audit.copy.details")}
+                                      title={t("audit.copy.details")}
+                                      onClick={() => this.vm.copyDetails(row)}
+                                    >
+                                      <Icon name="copy" size={14} class="" />
+                                    </button>
+                                  </Show>
+                                </div>
                               </Show>
                             </dd>
                           </div>

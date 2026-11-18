@@ -17,4 +17,7 @@ export const ruTariffs = {
   "tariffs.column.quota": "Квота",
   "tariffs.column.actions": "Действия",
   "tariffs.quota.unlimited": "Безлимит",
+  "tariffs.discard.title": "Отменить изменения?",
+  "tariffs.discard.message": "Введённые данные не сохранятся.",
+  "tariffs.discard.action": "Не сохранять",
 };

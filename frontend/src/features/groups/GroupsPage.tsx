@@ -59,7 +59,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
 
   const footer = (
     <div class="actions-bar">
-      <button class="btn" type="button" onClick={() => this.vm.closeModal()} disabled={this.vm.saving}>
+      <button class="btn" type="button" onClick={() => { void this.vm.closeModal(); }} disabled={this.vm.saving}>
         {t("common.cancelShort")}
       </button>
       <button class="btn btn--primary" type="submit" form="group-form" disabled={!this.vm.canSave}>
@@ -212,7 +212,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
       <Modal
         open={this.vm.modalOpen}
         title={this.vm.modalTitle}
-        onClose={() => this.vm.closeModal()}
+        onClose={() => { void this.vm.closeModal(); }}
         footer={footer}
       >
         {form}

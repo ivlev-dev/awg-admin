@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { askConfirm } from "@/app/confirm";
 import { density, setDensity, type TableDensity } from "@/app/density";
 import { ToastStore } from "@/app/toast";
 import type { SettingsService } from "@/application/settings/service";
@@ -119,8 +120,21 @@ export class SettingsPageVM {
   @reactive accessor hosts = "";
   @reactive accessor ttlHours = "24";
 
+  @reactive private accessor savedSnapshot = "";
+
+  private readonly handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (!this.dirty) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+
   created(): void {
+    window.addEventListener("beforeunload", this.handleBeforeUnload);
     void this.load();
+  }
+
+  dispose(): void {
+    window.removeEventListener("beforeunload", this.handleBeforeUnload);
   }
 
   @computed
@@ -199,7 +213,33 @@ export class SettingsPageVM {
 
   @computed
   get canSave(): boolean {
-    return this.loaded && !this.loading && !this.saving;
+    return this.loaded && !this.loading && !this.saving && this.dirty;
+  }
+
+  @computed
+  get dirty(): boolean {
+    return this.loaded && this.snapshot() !== this.savedSnapshot;
+  }
+
+  snapshot(): string {
+    return JSON.stringify([
+      this.profile,
+      this.intensity,
+      this.browser,
+      this.mtu,
+      this.jcMin,
+      this.jcMax,
+      this.jminMin,
+      this.jminMax,
+      this.jmaxExtraMin,
+      this.jmaxExtraMax,
+      this.sMin,
+      this.sMax,
+      this.randomTrailers,
+      this.disableCookies,
+      this.hosts,
+      this.ttlHours,
+    ]);
   }
 
   async load(): Promise<void> {
@@ -209,6 +249,7 @@ export class SettingsPageVM {
       const settings = await this.settingsService.getSettings();
       this.apply(settings);
       this.loaded = true;
+      this.savedSnapshot = this.snapshot();
     } catch (error) {
       this.loaded = false;
       this.error = messageOf(error, t("settings.error.load"));
@@ -218,6 +259,19 @@ export class SettingsPageVM {
     }
   }
 
+  async reset(): Promise<void> {
+    if (this.dirty) {
+      const confirmed = await askConfirm({
+        title: t("settings.dirty.confirm.title"),
+        message: t("settings.dirty.confirm.message"),
+        confirmLabel: t("settings.dirty.confirm.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
+    await this.load();
+  }
+
   async save(event?: Event): Promise<void> {
     event?.preventDefault();
     if (!this.canSave) return;
@@ -225,6 +279,7 @@ export class SettingsPageVM {
     try {
       const settings = await this.settingsService.updateSettings(this.buildInput());
       this.apply(settings);
+      this.savedSnapshot = this.snapshot();
       this.toasts.success(t("settings.saved"));
     } catch (error) {
       this.toasts.error(messageOf(error, t("settings.error.save")));

@@ -531,3 +531,103 @@ describe("TariffsPageVM bulk delete", () => {
     expect(vm.selectedIds).toEqual([PRO.id]);
   });
 });
+
+describe("TariffsPageVM discard guard", () => {
+  it.each<[string, (vm: TariffsPageVM) => void]>([
+    ["name", (vm) => { vm.name = "Другой"; }],
+    ["description", (vm) => { vm.description = "Другое"; }],
+    ["max_devices", (vm) => { vm.max_devices = 7; }],
+    ["device_down_kbps", (vm) => { vm.setDeviceDownKbps(300); }],
+    ["device_up_kbps", (vm) => { vm.setDeviceUpKbps(150); }],
+    ["group_down_kbps", (vm) => { vm.setGroupDownKbps(600); }],
+    ["group_up_kbps", (vm) => { vm.setGroupUpKbps(300); }],
+    ["quotaGb", (vm) => { vm.quotaGb = "5"; }],
+  ])("tracks changes of %s", (_field, mutate) => {
+    const { vm } = setup();
+    vm.openCreate();
+    expect(vm.formDirty).toBe(false);
+
+    mutate(vm);
+
+    expect(vm.formDirty).toBe(true);
+  });
+
+  it("detects changes in the edit form", () => {
+    const { vm } = setup();
+    vm.openEdit(PRO);
+    expect(vm.formDirty).toBe(false);
+
+    vm.name = "Pro Max";
+
+    expect(vm.formDirty).toBe(true);
+  });
+
+  it("asks for confirmation and closes the modal when the form changed", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+    vm.name = "Новый тариф";
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отменить изменения?",
+      message: "Введённые данные не сохранятся.",
+      confirmLabel: "Не сохранять",
+      tone: "danger",
+    });
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("keeps the modal open when the discard is declined", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm } = setup();
+    vm.openCreate();
+    vm.name = "Новый тариф";
+
+    await vm.closeModal();
+
+    expect(vm.modalOpen).toBe(true);
+    expect(vm.formDirty).toBe(true);
+    expect(vm.name).toBe("Новый тариф");
+  });
+
+  it("closes without confirmation when the form is untouched", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("does not close while saving", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+    vm.name = "Новый тариф";
+    vm.saving = true;
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(true);
+  });
+
+  it("resets the dirty flag after a successful save", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+    vm.name = "Premium";
+    vm.quotaGb = "2";
+
+    await vm.submit();
+
+    expect(vm.modalOpen).toBe(false);
+    expect(vm.formDirty).toBe(false);
+
+    vm.modalOpen = true;
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.modalOpen).toBe(false);
+  });
+});

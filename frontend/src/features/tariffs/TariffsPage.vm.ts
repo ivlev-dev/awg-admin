@@ -42,6 +42,8 @@ export class TariffsPageVM {
   @reactive accessor group_up_kbps = 0;
   @reactive accessor quotaGb = "";
 
+  private formSnapshot = "";
+
   constructor(
     private readonly tariffsService: TariffsService,
     private readonly toasts: ToastStore,
@@ -203,6 +205,7 @@ export class TariffsPageVM {
     this.quotaGb = "";
     this.formError = null;
     this.modalOpen = true;
+    this.formSnapshot = this.formState();
   }
 
   openEdit(tariff: Tariff): void {
@@ -220,10 +223,38 @@ export class TariffsPageVM {
         : String(tariff.traffic_quota_bytes / 1024 / 1024 / 1024);
     this.formError = null;
     this.modalOpen = true;
+    this.formSnapshot = this.formState();
   }
 
-  closeModal(): void {
+  formState(): string {
+    return JSON.stringify([
+      this.name,
+      this.description,
+      this.max_devices,
+      this.device_down_kbps,
+      this.device_up_kbps,
+      this.group_down_kbps,
+      this.group_up_kbps,
+      this.quotaGb,
+    ]);
+  }
+
+  @computed
+  get formDirty(): boolean {
+    return this.modalOpen && this.formState() !== this.formSnapshot;
+  }
+
+  async closeModal(): Promise<void> {
     if (this.saving) return;
+    if (this.formDirty) {
+      const confirmed = await askConfirm({
+        title: t("tariffs.discard.title"),
+        message: t("tariffs.discard.message"),
+        confirmLabel: t("tariffs.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     this.modalOpen = false;
   }
 
@@ -305,6 +336,7 @@ export class TariffsPageVM {
         this.toasts.success("Тариф создан");
       }
       this.modalOpen = false;
+      this.formSnapshot = this.formState();
       await this.load();
     } catch (error) {
       const message = userMessage(error, "Не удалось сохранить тариф");

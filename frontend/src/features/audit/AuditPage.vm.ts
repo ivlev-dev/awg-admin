@@ -6,6 +6,7 @@ import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import type { AuditService } from "@/application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
+import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
@@ -60,6 +61,13 @@ export interface AuditRowView {
   details: string | null;
   detailsPreview: string;
   hasDetails: boolean;
+}
+
+export type AuditFilterKey = "action" | "entity" | "actor" | "status" | "from" | "to";
+
+export interface AuditFilterChip {
+  key: AuditFilterKey;
+  label: string;
 }
 
 function readInput(event: Event): string {
@@ -219,6 +227,38 @@ export class AuditPageVM {
     );
   }
 
+  @computed
+  get activeFilterChips(): AuditFilterChip[] {
+    const chips: AuditFilterChip[] = [];
+    if (this.action !== "") {
+      chips.push({ key: "action", label: `${t("audit.filter.chip.action")}: ${this.action}` });
+    }
+    const entity = this.entity.trim();
+    if (entity !== "") {
+      chips.push({ key: "entity", label: `${t("audit.filter.chip.entity")}: ${entity}` });
+    }
+    const actor = this.actor.trim();
+    if (actor !== "") {
+      chips.push({ key: "actor", label: `${t("audit.filter.chip.actor")}: ${actor}` });
+    }
+    if (this.status !== "") {
+      chips.push({ key: "status", label: `${t("audit.filter.chip.status")}: ${this.status}` });
+    }
+    if (this.from !== "") {
+      chips.push({
+        key: "from",
+        label: `${t("audit.filter.chip.from")}: ${formatDateTimeI18n(this.from)}`,
+      });
+    }
+    if (this.to !== "") {
+      chips.push({
+        key: "to",
+        label: `${t("audit.filter.chip.to")}: ${formatDateTimeI18n(this.to)}`,
+      });
+    }
+    return chips;
+  }
+
   get canExport(): boolean {
     return this.entries.length > 0;
   }
@@ -282,6 +322,30 @@ export class AuditPageVM {
 
   async refresh(): Promise<void> {
     await this.reload();
+  }
+
+  async clearFilter(key: AuditFilterKey): Promise<void> {
+    if (this.loading || this.loadingMore) return;
+    if (key === "action") this.action = "";
+    if (key === "entity") this.entity = "";
+    if (key === "actor") this.actor = "";
+    if (key === "status") this.status = "";
+    if (key === "from") this.from = "";
+    if (key === "to") this.to = "";
+    this.expandedId = null;
+    this.persistFilters();
+    await this.refresh();
+  }
+
+  async copyDetails(row: AuditRowView): Promise<void> {
+    const details = row.details;
+    if (details === null || details.length === 0) return;
+    try {
+      await copyText(details);
+      this.toasts.success(t("audit.copy.copied"));
+    } catch {
+      this.toasts.error(t("audit.copy.failed"));
+    }
   }
 
   async clearFiltered(): Promise<void> {

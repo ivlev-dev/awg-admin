@@ -226,10 +226,10 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
       <Modal
         open={this.vm.modalOpen}
         title={this.vm.title}
-        onClose={() => this.vm.closeModal()}
+        onClose={() => { void this.vm.closeModal(); }}
         footer={
           <div class="row" style="gap:8px">
-            <button class="btn" type="button" onClick={() => this.vm.closeModal()} disabled={this.vm.saving}>
+            <button class="btn" type="button" onClick={() => { void this.vm.closeModal(); }} disabled={this.vm.saving}>
               Отмена
             </button>
             <button class="btn btn--primary" type="button" onClick={() => this.vm.submit()} disabled={this.vm.saving}>

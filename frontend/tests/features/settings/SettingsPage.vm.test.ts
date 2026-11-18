@@ -8,6 +8,9 @@ import type { ObfuscationSettings, Settings } from "@/domain/types";
 import { setLocale } from "@/i18n";
 import { SettingsPageVM } from "@/features/settings/SettingsPage.vm";
 
+const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_o: unknown) => true) }));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const SETTINGS: Settings = {
   obfuscation: {
     profile: "tls",
@@ -115,6 +118,8 @@ class MemoryStorage {
 
 beforeEach(() => {
   vi.stubGlobal("localStorage", new MemoryStorage());
+  confirmMock.askConfirm.mockReset();
+  confirmMock.askConfirm.mockImplementation(async () => true);
   setLocale("ru");
 });
 
@@ -151,7 +156,8 @@ describe("SettingsPageVM", () => {
     expect(harness.vm.hostsCount).toBe(2);
     expect(harness.vm.ttlHours).toBe("2");
     expect(harness.vm.ttlSeconds).toBe(7200);
-    expect(harness.vm.canSave).toBe(true);
+    expect(harness.vm.dirty).toBe(false);
+    expect(harness.vm.canSave).toBe(false);
   });
 
   it("triggers loading from created", async () => {
@@ -394,6 +400,7 @@ describe("SettingsPageVM", () => {
     harness.repo.saveFailure = new ValidationError(
       "S-паддинг должен быть не меньше 12 при включённой защите заголовков",
     );
+    harness.vm.setNumeric("mtu", valueEvent("1400"));
 
     await harness.vm.save();
 
@@ -411,6 +418,7 @@ describe("SettingsPageVM", () => {
     const harness = makeHarness();
     await harness.vm.load();
     harness.repo.saveFailure = "boom";
+    harness.vm.setNumeric("mtu", valueEvent("1400"));
 
     await harness.vm.save();
 
@@ -445,6 +453,152 @@ describe("SettingsPageVM", () => {
     expect(vm).toBeInstanceOf(SettingsPageVM);
     expect(vm.loading).toBe(true);
     expect(vm.canSave).toBe(false);
+  });
+});
+
+describe("SettingsPageVM unsaved changes", () => {
+  const mutations: Array<[string, (vm: SettingsPageVM) => void]> = [
+    ["profile", (vm) => vm.setProfile("random")],
+    ["intensity", (vm) => vm.setIntensity("low")],
+    ["browser", (vm) => vm.setBrowser("chrome")],
+    ["mtu", (vm) => vm.setNumeric("mtu", valueEvent("1500"))],
+    ["jcMin", (vm) => vm.setNumeric("jcMin", valueEvent("5"))],
+    ["jcMax", (vm) => vm.setNumeric("jcMax", valueEvent("20"))],
+    ["jminMin", (vm) => vm.setNumeric("jminMin", valueEvent("80"))],
+    ["jminMax", (vm) => vm.setNumeric("jminMax", valueEvent("300"))],
+    ["jmaxExtraMin", (vm) => vm.setNumeric("jmaxExtraMin", valueEvent("10"))],
+    ["jmaxExtraMax", (vm) => vm.setNumeric("jmaxExtraMax", valueEvent("150"))],
+    ["sMin", (vm) => vm.setNumeric("sMin", valueEvent("20"))],
+    ["sMax", (vm) => vm.setNumeric("sMax", valueEvent("90"))],
+    ["randomTrailers", (vm) => vm.setRandomTrailers(checkedEvent(false))],
+    ["disableCookies", (vm) => vm.setDisableCookies(checkedEvent(false))],
+    ["hosts", (vm) => vm.setHosts(valueEvent("other.example.com"))],
+    ["ttlHours", (vm) => vm.setTtlHours(valueEvent("3"))],
+  ];
+
+  it.each(mutations)("считает изменение поля %s несохранённым", async (_name, mutate) => {
+    const harness = makeHarness();
+    await harness.vm.load();
+    expect(harness.vm.dirty).toBe(false);
+    expect(harness.vm.canSave).toBe(false);
+
+    mutate(harness.vm);
+
+    expect(harness.vm.dirty).toBe(true);
+    expect(harness.vm.canSave).toBe(true);
+  });
+
+  it("спрашивает подтверждение и перезагружает настройки при отмене изменений", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+    harness.vm.setProfile("random");
+
+    await harness.vm.reset();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отменить изменения?",
+      message: "Несохранённые настройки будут потеряны.",
+      confirmLabel: "Отменить изменения",
+      tone: "danger",
+    });
+    expect(harness.repo.getSettings).toHaveBeenCalledTimes(2);
+    expect(harness.vm.profile).toBe("tls");
+    expect(harness.vm.dirty).toBe(false);
+    expect(harness.vm.canSave).toBe(false);
+  });
+
+  it("оставляет изменения при отказе от подтверждения", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+    confirmMock.askConfirm.mockResolvedValue(false);
+    harness.vm.setProfile("random");
+
+    await harness.vm.reset();
+
+    expect(harness.repo.getSettings).toHaveBeenCalledTimes(1);
+    expect(harness.vm.profile).toBe("random");
+    expect(harness.vm.dirty).toBe(true);
+  });
+
+  it("перезагружает настройки без подтверждения, если изменений нет", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+
+    await harness.vm.reset();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(harness.repo.getSettings).toHaveBeenCalledTimes(2);
+    expect(harness.vm.dirty).toBe(false);
+  });
+
+  it("снимает признак изменений после успешного сохранения", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+    harness.vm.setNumeric("mtu", valueEvent("1500"));
+    expect(harness.vm.dirty).toBe(true);
+
+    await harness.vm.save();
+
+    expect(harness.vm.dirty).toBe(false);
+    expect(harness.vm.canSave).toBe(false);
+  });
+
+  it("сохраняет признак изменений при ошибке сохранения", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+    harness.repo.saveFailure = new Error("boom");
+    harness.vm.setNumeric("mtu", valueEvent("1500"));
+
+    await harness.vm.save();
+
+    expect(harness.vm.dirty).toBe(true);
+    expect(harness.vm.canSave).toBe(true);
+  });
+
+  it("регистрирует и снимает обработчик beforeunload", () => {
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    const harness = makeHarness();
+
+    harness.vm.created();
+
+    const registered = addSpy.mock.calls.find((call) => call[0] === "beforeunload")?.[1];
+    expect(registered).toBeDefined();
+
+    const handler = registered as unknown as (event: BeforeUnloadEvent) => void;
+
+    harness.vm.dispose();
+
+    expect(
+      removeSpy.mock.calls.some(
+        (call) => call[0] === "beforeunload" && call[1] === handler,
+      ),
+    ).toBe(true);
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+
+  it("предотвращает выгрузку страницы только при несохранённых изменениях", async () => {
+    const harness = makeHarness();
+    harness.vm.created();
+    await vi.waitFor(() => expect(harness.vm.loaded).toBe(true));
+
+    const clean = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+
+    harness.vm.setNumeric("mtu", valueEvent("1500"));
+    const dirty = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
+
+    harness.vm.dispose();
+
+    const disposed = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(disposed);
+    expect(disposed.defaultPrevented).toBe(false);
   });
 });
 
