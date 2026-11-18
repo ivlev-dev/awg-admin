@@ -1,9 +1,9 @@
 export const enAuth = {
   "auth.login.eyebrow": "Control panel",
   "auth.login.title": "Sign in",
-  "auth.login.subtitle": "Enter the credentials of an administrator or a user.",
+  "auth.login.subtitle": "Enter your account email and password.",
   "auth.login.username": "Username",
-  "auth.login.identifier": "Email or username",
+  "auth.login.identifier": "Email",
   "auth.login.identifierPlaceholder": "you@example.com",
   "auth.login.password": "Password",
   "auth.login.forgotLink": "Forgot password?",

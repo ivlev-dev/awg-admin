@@ -1,7 +1,7 @@
 import { request, type APIRequestContext, type APIResponse } from "@playwright/test";
 
 export const BASE_URL = process.env.E2E_BASE_URL ?? "http://127.0.0.1:8081";
-export const ADMIN_LOGIN = process.env.E2E_ADMIN_LOGIN ?? "admin";
+export const ADMIN_LOGIN = process.env.E2E_ADMIN_LOGIN ?? "admin@local";
 export const ADMIN_PASSWORD = process.env.E2E_ADMIN_PASSWORD ?? "admin12345";
 export const DEFAULT_USER_PASSWORD = "e2e-pass-12345";
 
@@ -221,13 +221,14 @@ export class E2EApi {
 
   async createUser(input: {
     login: string;
+    email?: string;
     password: string;
     role: "admin" | "user";
     tariffId: string | null;
     groupId: string | null;
   }): Promise<UserAccount> {
     return this.post<UserAccount>("/users", {
-      login: input.login,
+      email: input.email ?? (input.login.includes("@") ? input.login : `${input.login}@example.com`),
       password: input.password,
       role: input.role,
       tariff_id: input.tariffId,
@@ -377,7 +378,7 @@ export async function createWorkspace(
     quotaBytes: options.quotaBytes ?? null,
     maxDevices: options.maxDevices ?? 16,
   });
-  const login = `e2e-user-${suffix}`;
+  const login = `e2e-user-${suffix}@example.com`;
   const user = await api.createUser({
     login,
     password,
@@ -406,7 +407,7 @@ export async function createUserOnly(
   role: "admin" | "user" = "user",
 ): Promise<{ login: string; password: string; userId: string }> {
   const suffix = uniqueSuffix();
-  const login = `e2e-${role}-${suffix}`;
+  const login = `e2e-${role}-${suffix}@example.com`;
   const password = DEFAULT_USER_PASSWORD;
   const user = await api.createUser({
     login,

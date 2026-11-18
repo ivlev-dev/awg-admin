@@ -405,10 +405,10 @@ export class ClientsPageVM {
     this.router.navigate(`/clients/${id}`);
   }
 
-  userLogin(id: string): string {
+  userEmail(id: string): string {
     const user = this.users.find((item) => item.id === id);
-    if (user) return user.login;
-    if (this.session.user?.id === id) return this.session.user.login;
+    if (user) return user.email ?? user.login;
+    if (this.session.user?.id === id) return this.session.user.email ?? this.session.user.login;
     return "—";
   }
 

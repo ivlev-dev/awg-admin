@@ -8,6 +8,12 @@ import { t } from "@/i18n";
 
 export type LoginStep = "credentials" | "totp";
 
+const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+$/;
+
+function validEmail(value: string): boolean {
+  return EMAIL_PATTERN.test(value.trim());
+}
+
 function validTotpCode(value: string): boolean {
   const code = value.trim();
   return /^\d{6}$/.test(code) || /^[A-Za-z0-9-]{6,}$/.test(code);
@@ -57,10 +63,20 @@ export class LoginVM {
   }
 
   @computed
+  get emailValid(): boolean {
+    return validEmail(this.login);
+  }
+
+  @computed
+  get emailInvalid(): boolean {
+    return this.login.trim().length > 0 && !this.emailValid;
+  }
+
+  @computed
   get canSubmit(): boolean {
     if (this.busy) return false;
     if (this.step === "totp") return validTotpCode(this.totpCode);
-    return this.login.trim().length > 0 && this.password.length > 0;
+    return this.emailValid && this.password.length > 0;
   }
 
   @computed

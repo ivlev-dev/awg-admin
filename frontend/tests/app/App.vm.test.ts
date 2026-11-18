@@ -29,7 +29,7 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "admin@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -41,6 +41,7 @@ const PLAIN: User = {
   ...ADMIN,
   id: "u2",
   login: "alice",
+  email: null,
   role: "user",
 };
 
@@ -366,9 +367,16 @@ describe("AppVM navigation filtering", () => {
   it("exposes the current user and initials", () => {
     const harness = makeHarness({ user: ADMIN });
 
-    expect(harness.vm.name).toBe("admin");
+    expect(harness.vm.name).toBe("admin@example.com");
     expect(harness.vm.userInitial).toBe("A");
     expect(harness.vm.user).toEqual(ADMIN);
+  });
+
+  it("falls back to the login when the email is missing", () => {
+    const harness = makeHarness({ user: PLAIN });
+
+    expect(harness.vm.name).toBe("alice");
+    expect(harness.vm.userInitial).toBe("A");
   });
 
   it("falls back to a guest identity without a session", () => {

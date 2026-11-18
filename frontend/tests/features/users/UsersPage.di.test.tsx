@@ -375,6 +375,10 @@ describe("UsersPageVM constructor DI", () => {
     expect(quotaCell?.querySelector(".user-quota")).not.toBeNull();
     expect(quotaCell?.textContent).toContain("%");
 
+    const emailCell = root.querySelector("td[data-label='Email']");
+    expect(emailCell?.textContent).toContain(ADMIN.email ?? ADMIN.login);
+    expect(root.querySelector("#users-search")?.getAttribute("placeholder")).toBe("Поиск по email");
+
     const nodeCell = root.querySelector("td[data-label='Тариф/нода']");
     expect(nodeCell?.textContent).toContain("Node 1");
     expect(root.querySelector("#users-node")).not.toBeNull();

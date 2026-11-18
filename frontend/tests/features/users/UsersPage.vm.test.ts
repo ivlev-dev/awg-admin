@@ -42,7 +42,7 @@ const ADMIN: User = {
   tariff_id: null,
   group_id: null,
   node_id: null,
-  email: null,
+  email: "admin@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -166,12 +166,12 @@ class MemoryUsersRepository {
     this.failIfNeeded();
     const user: User = {
       id: `u${this.users.length + 1}`,
-      login: input.login,
+      login: input.email,
+      email: input.email,
       role: input.role,
       tariff_id: input.tariff_id,
       node_id: input.node_id,
       group_id: input.group_id ?? null,
-      email: null,
       status: "active",
       totp_enabled: false,
       disabled: false,
@@ -586,7 +586,7 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, toasts, services } = setup();
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
-    vm.login = "  bob  ";
+    vm.email = "  bob@example.com  ";
     vm.password = "secret123";
     vm.role = "admin";
     vm.tariffId = "t1";
@@ -595,14 +595,18 @@ describe("UsersPageVM", () => {
     await vm.submit();
 
     expect(createSpy).toHaveBeenCalledWith({
-      login: "bob",
+      email: "bob@example.com",
       password: "secret123",
       role: "admin",
       tariff_id: "t1",
       node_id: "n1",
     });
-    expect(usersRepo.users.map((user) => user.login)).toEqual(["admin", "alice", "bob"]);
-    expect(usersRepo.users.find((user) => user.login === "bob")?.node_id).toBe("n1");
+    expect(usersRepo.users.map((user) => user.email)).toEqual([
+      "admin@example.com",
+      "alice@example.com",
+      "bob@example.com",
+    ]);
+    expect(usersRepo.users.find((user) => user.email === "bob@example.com")?.node_id).toBe("n1");
     expect(usersRepo.passwords.get("u3")).toBe("secret123");
     expect(vm.modalOpen).toBe(false);
     expect(vm.formError).toBeNull();
@@ -613,25 +617,25 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, services } = setup();
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
-    vm.login = "bob";
+    vm.email = "bob@example.com";
     vm.password = "secret123";
 
     await vm.submit();
 
     expect(createSpy).toHaveBeenCalledWith({
-      login: "bob",
+      email: "bob@example.com",
       password: "secret123",
       role: "user",
       tariff_id: null,
       node_id: null,
     });
-    expect(usersRepo.users.find((user) => user.login === "bob")?.node_id).toBeNull();
+    expect(usersRepo.users.find((user) => user.email === "bob@example.com")?.node_id).toBeNull();
   });
 
   it("rejects a short password before creating", async () => {
     const { vm, usersRepo, toasts } = setup();
     vm.openCreate();
-    vm.login = "bob";
+    vm.email = "bob@example.com";
     vm.password = "123";
     await vm.load();
 
@@ -650,7 +654,9 @@ describe("UsersPageVM", () => {
     expect(vm.title).toBe("Редактировать пользователя");
     expect(vm.tariffId).toBe("t1");
     expect(vm.nodeId).toBe("n1");
+    expect(vm.email).toBe("alice@example.com");
 
+    vm.email = "alice.updated@example.com";
     vm.role = "admin";
     vm.disabled = true;
     vm.tariffId = "";
@@ -660,6 +666,7 @@ describe("UsersPageVM", () => {
     const updated = usersRepo.users.find((user) => user.id === ALICE.id);
     expect(updated).toEqual({
       ...ALICE,
+      email: "alice.updated@example.com",
       role: "admin",
       disabled: true,
       tariff_id: null,
@@ -673,7 +680,7 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, toasts } = setup();
     usersRepo.failure = new Error("Сервер недоступен");
     vm.openCreate();
-    vm.login = "bob";
+    vm.email = "bob@example.com";
     vm.password = "secret123";
 
     await vm.submit();
@@ -715,7 +722,7 @@ describe("UsersPageVM", () => {
     await vm.remove(ALICE);
 
     expect(confirmMock.askConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({ message: "Удалить пользователя alice?" }),
+      expect.objectContaining({ message: "Удалить пользователя alice@example.com?" }),
     );
     expect(usersRepo.users.map((user) => user.id)).toEqual([ADMIN.id]);
     expect(toastMessages(toasts)).toContain("Пользователь удалён");
@@ -844,6 +851,55 @@ describe("UsersPageVM", () => {
     expect(vm.pendingCountLabel).toBe("Найдено 1 из 1");
   });
 
+  it("ищет пользователей по email", async () => {
+    const { vm } = setup([ADMIN, ALICE, PENDING]);
+    await vm.load();
+
+    vm.query = "alice@example.com";
+    vm.appliedQuery = "alice@example.com";
+
+    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
+    expect(vm.filteredPending).toEqual([]);
+  });
+
+  it("сортирует по email с tie-break по id", async () => {
+    const SAME_A: User = { ...ALICE, id: "u10", email: "same@example.com" };
+    const SAME_B: User = { ...ALICE, id: "u2", email: "same@example.com" };
+    const FIRST: User = { ...ALICE, id: "u20", email: "aaa@example.com" };
+    const { vm } = setup([SAME_A, SAME_B, FIRST]);
+    await vm.load();
+
+    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual(["u20", "u10", "u2"]);
+
+    vm.sortBy("email");
+
+    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual(["u2", "u10", "u20"]);
+    expect(vm.sortMark("email")).not.toBe("");
+  });
+
+  it("не отправляет форму с некорректным email", async () => {
+    const { vm, usersRepo, services } = setup();
+    const createSpy = vi.spyOn(services.users, "createUser");
+    vm.openCreate();
+    vm.email = "not-an-email";
+    vm.password = "secret123";
+
+    await vm.submit();
+
+    expect(createSpy).not.toHaveBeenCalled();
+    expect(usersRepo.users).toHaveLength(2);
+    expect(vm.formError).toBe("Введите корректный email");
+    expect(vm.modalOpen).toBe(true);
+  });
+
+  it("показывает email в модалке сброса пароля", () => {
+    const { vm } = setup();
+
+    vm.openReset(ALICE);
+
+    expect(vm.resetTargetEmail()).toBe("alice@example.com");
+  });
+
   it("фильтрует активных пользователей по ноде", async () => {
     const { vm } = setup([ADMIN, ALICE, PENDING]);
     await vm.load();
@@ -864,7 +920,7 @@ describe("UsersPageVM", () => {
     await vm.load();
     vm.nodeFilter = NODE.id;
 
-    vm.sortBy("login");
+    vm.sortBy("email");
     vm.sortBy("role");
     vm.sortBy("status");
 
@@ -898,13 +954,13 @@ describe("UsersPageVM", () => {
     vm.setTab("active");
     vm.openCreate();
     vm.setPassword({ target: { value: "secret123" } } as unknown as Event);
-    vm.setLogin({ target: { value: "bob" } } as unknown as Event);
+    vm.setEmail({ target: { value: "bob@example.com" } } as unknown as Event);
 
     const raw = localStorage.getItem(usersFiltersStorage.key);
     expect(raw).not.toBeNull();
     expect(Object.keys(JSON.parse(raw ?? "{}")).sort()).toEqual(["query", "tab"]);
     expect(raw).not.toContain("secret123");
-    expect(raw).not.toContain("bob");
+    expect(raw).not.toContain("bob@example.com");
   });
 
   it("requires a tariff before approving a pending account", async () => {

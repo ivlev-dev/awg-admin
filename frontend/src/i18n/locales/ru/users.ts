@@ -2,6 +2,8 @@ export const ruUsers = {
   "users.tab.active": "Активные",
   "users.tab.pending": "Заявки",
   "users.column.email": "Email",
+  "users.filter.email": "Поиск по email",
+  "users.form.email": "Email",
   "users.filter.role": "Роль",
   "users.filter.allRoles": "Все роли",
   "users.filter.status": "Статус",

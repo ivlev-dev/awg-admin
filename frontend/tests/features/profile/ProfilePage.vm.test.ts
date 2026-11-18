@@ -28,7 +28,7 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "admin@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -306,7 +306,7 @@ describe("ProfilePageVM", () => {
   it("shows the current user profile", () => {
     const harness = makeHarness();
 
-    expect(harness.vm.login).toBe("admin");
+    expect(harness.vm.email).toBe("admin@example.com");
     expect(harness.vm.userInitial).toBe("A");
     expect(harness.vm.userId).toBe("u1");
     expect(harness.vm.createdAtLabel).not.toBe("—");
@@ -319,7 +319,7 @@ describe("ProfilePageVM", () => {
     const harness = makeHarness();
     harness.session.user = null;
 
-    expect(harness.vm.login).toBe("Гость");
+    expect(harness.vm.email).toBe("Гость");
     expect(harness.vm.userId).toBe("—");
     expect(harness.vm.createdAtLabel).toBe("—");
     expect(harness.vm.isAdmin).toBe(false);
@@ -1077,7 +1077,7 @@ describe("ProfilePageVM", () => {
 
     expect(vm).toBeInstanceOf(ProfilePageVM);
     expect(await container.resolve(ProfilePageVM)).toBe(vm);
-    expect(vm.login).toBe("admin");
+    expect(vm.email).toBe("admin@example.com");
   });
 
   it("auto-wires the session, theme and toast stores without explicit bindings", async () => {
@@ -1086,7 +1086,7 @@ describe("ProfilePageVM", () => {
     const vm = await container.resolve<ProfilePageVM>(ProfilePageVM);
 
     expect(vm).toBeInstanceOf(ProfilePageVM);
-    expect(vm.login).toBe("Гость");
+    expect(vm.email).toBe("Гость");
     expect(vm.effectiveTheme).toBe("light");
     expect(vm.themeOptions).toHaveLength(3);
   });

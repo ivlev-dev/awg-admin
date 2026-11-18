@@ -6,7 +6,7 @@ import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { t } from "@/i18n";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 const COOLDOWN_SECONDS = 60;
 
 export class RegisterVM {
@@ -17,7 +17,6 @@ export class RegisterVM {
   ) {}
 
   @reactive accessor email = "";
-  @reactive accessor login = "";
   @reactive accessor password = "";
   @reactive accessor repeatPassword = "";
   @reactive accessor showPassword = false;
@@ -73,10 +72,6 @@ export class RegisterVM {
     this.error = null;
   }
 
-  setLogin(event: Event): void {
-    this.login = (event.target as HTMLInputElement).value;
-  }
-
   setPassword(event: Event): void {
     this.password = (event.target as HTMLInputElement).value;
   }
@@ -107,11 +102,9 @@ export class RegisterVM {
     this.error = null;
     this.submitting = true;
     try {
-      const login = this.login.trim();
       await this.auth.register({
         email: this.email.trim(),
         password: this.password,
-        ...(login ? { login } : {}),
       });
       this.registeredEmail = this.email.trim();
       this.sent = true;

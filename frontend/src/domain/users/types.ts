@@ -1,7 +1,7 @@
 import type { Role } from "../types";
 
 export interface CreateUserInput {
-  login: string;
+  email: string;
   password: string;
   role: Role;
   tariff_id: string | null;
@@ -10,6 +10,7 @@ export interface CreateUserInput {
 }
 
 export interface UpdateUserInput {
+  email?: string;
   role?: Role;
   tariff_id?: string | null;
   node_id?: string | null;

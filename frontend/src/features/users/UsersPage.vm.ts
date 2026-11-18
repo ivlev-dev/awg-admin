@@ -7,7 +7,7 @@ import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
-import { validatePassword } from "@/application/guards";
+import { validateEmail, validatePassword } from "@/application/guards";
 import type { QuotaService, UserQuotaSnapshot } from "@/application/quota/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -54,7 +54,7 @@ export class UsersPageVM {
   @reactive accessor nodeFilter = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
-  @reactive accessor sort: SortState<"login" | "role" | "status"> | null = { key: "login", direction: "asc" };
+  @reactive accessor sort: SortState<"email" | "role" | "status"> | null = { key: "email", direction: "asc" };
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -65,7 +65,7 @@ export class UsersPageVM {
   @reactive accessor saving = false;
   @reactive accessor formError: string | null = null;
 
-  @reactive accessor login = "";
+  @reactive accessor email = "";
   @reactive accessor password = "";
   @reactive accessor role: Role = "user";
   @reactive accessor tariffId = "";
@@ -175,17 +175,20 @@ export class UsersPageVM {
     if (sort === null) return users;
     const direction = sort.direction;
     return [...users].sort((left, right) => {
-      if (sort.key === "login") return compareText(left.login, right.login, direction);
+      if (sort.key === "email") {
+        const byEmail = compareText(this.userEmail(left), this.userEmail(right), direction);
+        return byEmail !== 0 ? byEmail : compareText(left.id, right.id, direction);
+      }
       if (sort.key === "role") return compareText(left.role, right.role, direction);
       return compareText(this.statusLabel(left), this.statusLabel(right), direction);
     });
   }
 
-  sortBy(key: "login" | "role" | "status"): void {
+  sortBy(key: "email" | "role" | "status"): void {
     this.sort = nextSort(this.sort, key);
   }
 
-  sortMark(key: "login" | "role" | "status"): string {
+  sortMark(key: "email" | "role" | "status"): string {
     return sortIndicator(this.sort, key);
   }
 
@@ -315,8 +318,22 @@ export class UsersPageVM {
     this.persistFilters();
   }
 
+  userEmail(user: User): string {
+    return user.email ?? user.login;
+  }
+
   emailLabel(user: User): string {
     return user.email ?? "—";
+  }
+
+  resetTargetEmail(): string {
+    const target = this.resetTarget;
+    return target === null ? "" : this.userEmail(target);
+  }
+
+  approveTargetEmail(): string {
+    const target = this.approveTarget;
+    return target === null ? "" : this.userEmail(target);
   }
 
   statusLabel(user: User): string {
@@ -391,7 +408,7 @@ export class UsersPageVM {
 
   openCreate(): void {
     this.editingId = null;
-    this.login = "";
+    this.email = "";
     this.password = "";
     this.role = "user";
     this.tariffId = "";
@@ -403,7 +420,7 @@ export class UsersPageVM {
 
   openEdit(user: User): void {
     this.editingId = user.id;
-    this.login = user.login;
+    this.email = this.userEmail(user);
     this.password = "";
     this.role = user.role;
     this.tariffId = user.tariff_id ?? "";
@@ -418,8 +435,8 @@ export class UsersPageVM {
     this.modalOpen = false;
   }
 
-  setLogin(event: Event): void {
-    this.login = (event.target as HTMLInputElement).value;
+  setEmail(event: Event): void {
+    this.email = (event.target as HTMLInputElement).value;
   }
 
   setPassword(event: Event): void {
@@ -443,11 +460,18 @@ export class UsersPageVM {
   }
 
   async submit(): Promise<void> {
+    try {
+      validateEmail(this.email);
+    } catch (error) {
+      this.formError = userMessage(error, "Введите корректный email");
+      return;
+    }
     this.saving = true;
     this.formError = null;
     try {
       if (this.editingId) {
         await this.usersService.updateUser(this.editingId, {
+          email: this.email.trim(),
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
           node_id: this.nodeId ? this.nodeId : null,
@@ -462,7 +486,7 @@ export class UsersPageVM {
           return;
         }
         await this.usersService.createUser({
-          login: this.login.trim(),
+          email: this.email.trim(),
           password: this.password,
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
@@ -529,7 +553,7 @@ export class UsersPageVM {
     }
     const confirmed = await askConfirm({
       title: t("users.confirm.delete.title"),
-      message: t("users.confirm.delete", { login: user.login }),
+      message: t("users.confirm.delete", { login: this.userEmail(user) }),
       confirmLabel: t("common.delete"),
     });
     if (!confirmed) return;
@@ -593,7 +617,7 @@ export class UsersPageVM {
   }
 
   async reject(user: User): Promise<void> {
-    const login = user.email ?? user.login;
+    const login = this.userEmail(user);
     const confirmed = await askConfirm({
       title: t("users.pending.rejectTitle"),
       message: t("users.pending.rejectConfirm", { login }),
@@ -617,8 +641,7 @@ export class UsersPageVM {
 function matchesQuery(user: User, query: string): boolean {
   const normalized = query.trim().toLowerCase();
   if (!normalized) return true;
-  if (user.login.toLowerCase().includes(normalized)) return true;
-  return (user.email ?? "").toLowerCase().includes(normalized);
+  return (user.email ?? user.login).toLowerCase().includes(normalized);
 }
 
 function validateUsersFilters(value: unknown): UsersFilters | null {

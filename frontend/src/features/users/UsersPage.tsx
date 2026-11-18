@@ -106,7 +106,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   id="users-search"
                   type="search"
                   aria-label={t("filters.search")}
-                  placeholder={t("filters.search.users")}
+                  placeholder={t("users.filter.email")}
                   value={this.vm.query}
                   onInput={(event: Event) => this.vm.setQuery(event)}
                 />
@@ -203,9 +203,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           onChange={() => this.vm.toggleSelectAll()}
                         />
                       </th>
-                      <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "login")}>
-                        <button type="button" onClick={() => this.vm.sortBy("login")}>
-                          Логин <span class="sort-indicator">{this.vm.sortMark("login")}</span>
+                      <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "email")}>
+                        <button type="button" onClick={() => this.vm.sortBy("email")}>
+                          {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
                         </button>
                       </th>
                       <th class="is-sortable" style="width:140px" aria-sort={ariaSort(this.vm.sort, "role")}>
@@ -230,18 +230,17 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <td class="cell-select">
                             <input
                               type="checkbox"
-                              aria-label={user.login}
+                              aria-label={this.vm.userEmail(user)}
                               checked={this.vm.isSelected(user.id)}
                               onChange={() => this.vm.toggleSelected(user.id)}
                             />
                           </td>
-                          <td data-label="Логин">
+                          <td data-label={t("users.column.email")}>
                             <div class="cell-name">
-                              <span class="cell-avatar">{user.login.slice(0, 1).toUpperCase()}</span>
+                              <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
                               <span class="cell-name__text">
-                                <span class="strong" title={user.login}>{user.login}</span>
-                                <span class="cell-sub xs muted" title={this.vm.emailLabel(user)}>
-                                  {this.vm.emailLabel(user)}
+                                <span class="strong" title={this.vm.userEmail(user)}>
+                                  {this.vm.userEmail(user)}
                                 </span>
                               </span>
                             </div>
@@ -324,16 +323,15 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <label class="check">
                             <input
                               type="checkbox"
-                              aria-label={user.login}
+                              aria-label={this.vm.userEmail(user)}
                               checked={this.vm.isSelected(user.id)}
                               onChange={() => this.vm.toggleSelected(user.id)}
                             />
                             <span><Icon name="check" size={12} class="" /></span>
                           </label>
-                          <span class="cell-avatar">{user.login.slice(0, 1).toUpperCase()}</span>
+                          <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
                           <div class="entity-card__title">
-                            <span class="entity-card__name">{user.login}</span>
-                            <span class="entity-card__sub">{this.vm.emailLabel(user)}</span>
+                            <span class="entity-card__name">{this.vm.userEmail(user)}</span>
                           </div>
                           <span class={statusChipClass(user)}>
                             <span class="status-chip__dot"></span>
@@ -451,7 +449,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   id="users-pending-search"
                   type="search"
                   aria-label={t("filters.search")}
-                  placeholder={t("filters.search.users")}
+                  placeholder={t("users.filter.email")}
                   value={this.vm.query}
                   onInput={(event: Event) => this.vm.setQuery(event)}
                 />
@@ -494,10 +492,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 <table class="table table--cards table--users-pending table--fixed table--desktop">
                   <thead>
                     <tr>
-                      <th>{t("users.column.email")}</th>
-                      <th class="is-sortable" style="width:180px" aria-sort={ariaSort(this.vm.sort, "login")}>
-                        <button type="button" onClick={() => this.vm.sortBy("login")}>
-                          Логин <span class="sort-indicator">{this.vm.sortMark("login")}</span>
+                      <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "email")}>
+                        <button type="button" onClick={() => this.vm.sortBy("email")}>
+                          {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
                         </button>
                       </th>
                       <th style="width:160px">{t("users.pending.createdAt")}</th>
@@ -511,17 +508,15 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <td data-label={t("users.column.email")}>
                             <div class="cell-name">
                               <span class="cell-avatar">
-                                {(user.email ?? user.login).slice(0, 1).toUpperCase()}
+                                {this.vm.userEmail(user).slice(0, 1).toUpperCase()}
                               </span>
                               <span class="cell-name__text">
-                                <span class="strong" title={this.vm.emailLabel(user)}>
-                                  {this.vm.emailLabel(user)}
+                                <span class="strong" title={this.vm.userEmail(user)}>
+                                  {this.vm.userEmail(user)}
                                 </span>
-                                <span class="cell-sub">{user.login}</span>
                               </span>
                             </div>
                           </td>
-                          <td data-label="Логин">{user.login}</td>
                           <td data-label={t("users.pending.createdAt")}>{this.vm.requestDateLabel(user)}</td>
                           <td class="cell-actions">
                             <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openApprove(user)}>
@@ -541,10 +536,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     {(user) => (
                       <article class="entity-card">
                         <div class="entity-card__head">
-                          <span class="cell-avatar">{(user.email ?? user.login).slice(0, 1).toUpperCase()}</span>
+                          <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
                           <div class="entity-card__title">
-                            <span class="entity-card__name">{this.vm.emailLabel(user)}</span>
-                            <span class="entity-card__sub">{user.login}</span>
+                            <span class="entity-card__name">{this.vm.userEmail(user)}</span>
                           </div>
                           <span class={statusChipClass(user)}>
                             <span class="status-chip__dot"></span>
@@ -636,8 +630,17 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         <div class="stack">
           <div class="grid grid--2">
             <div class="field">
-              <label>Логин</label>
-              <input class="input" type="text" value={this.vm.login} disabled={!!this.vm.editingId} onInput={(event: Event) => this.vm.setLogin(event)} />
+              <label for="users-form-email">{t("users.form.email")}</label>
+              <input
+                id="users-form-email"
+                class="input"
+                type="email"
+                autocomplete="email"
+                required
+                placeholder={t("auth.register.emailPlaceholder")}
+                value={this.vm.email}
+                onInput={(event: Event) => this.vm.setEmail(event)}
+              />
             </div>
             <div class="field">
               <label>Роль</label>
@@ -713,8 +716,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       >
         <div class="stack">
           <div class="field">
-            <label>Пользователь</label>
-            <input class="input" type="text" value={this.vm.resetTarget?.login ?? ""} disabled />
+            <label>{t("users.column.email")}</label>
+            <input class="input" type="email" value={this.vm.resetTargetEmail()} disabled />
           </div>
           <div class="field">
             <label>Новый пароль</label>
@@ -745,7 +748,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         <div class="stack">
           <div class="field">
             <label>{t("users.column.email")}</label>
-            <input class="input" type="text" value={this.vm.approveTarget?.email ?? ""} disabled />
+            <input class="input" type="email" value={this.vm.approveTargetEmail()} disabled />
           </div>
           <div class="grid grid--2">
             <div class="field">

@@ -302,7 +302,7 @@ export class AppVM {
 
   @computed
   get userInitial(): string {
-    return initials(this.user?.login ?? "?");
+    return initials(this.user?.email ?? this.user?.login ?? "?");
   }
 
   @computed
@@ -320,7 +320,7 @@ export class AppVM {
   }
 
   get name(): string {
-    return this.user?.login ?? t("common.guest");
+    return this.user?.email ?? this.user?.login ?? t("common.guest");
   }
 
   @computed

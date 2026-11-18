@@ -3,7 +3,7 @@ import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { ValidationError } from "../errors";
-import { requireId, requireText, validatePassword } from "../guards";
+import { requireId, validateEmail, validatePassword } from "../guards";
 
 export interface UsersService {
   listUsers(): Promise<User[]>;
@@ -30,7 +30,7 @@ export class DefaultUsersService implements UsersService {
 
   async createUser(input: CreateUserInput): Promise<User> {
     return this.repository.createUser({
-      login: requireText(input.login, "Логин"),
+      email: validateEmail(input.email),
       password: validatePassword(input.password),
       role: input.role,
       tariff_id: input.tariff_id,
@@ -39,8 +39,12 @@ export class DefaultUsersService implements UsersService {
     });
   }
 
-  updateUser(id: string, input: UpdateUserInput): Promise<User> {
-    return this.repository.updateUser(requireId(id, "Пользователь"), input);
+  async updateUser(id: string, input: UpdateUserInput): Promise<User> {
+    const email = input.email === undefined ? undefined : validateEmail(input.email);
+    return this.repository.updateUser(requireId(id, "Пользователь"), {
+      ...input,
+      ...(email === undefined ? {} : { email }),
+    });
   }
 
   async deleteUser(id: string): Promise<void> {

@@ -137,11 +137,10 @@ describe("RegisterVM", () => {
     expect(harness.register).not.toHaveBeenCalled();
   });
 
-  it("registers with an optional login and shows the email confirmation screen", async () => {
+  it("registers without a login and shows the email confirmation screen", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
     harness.vm.setEmail(valueEvent(" user@example.com "));
-    harness.vm.setLogin(valueEvent(" user "));
     harness.vm.setPassword(valueEvent("secret123"));
     harness.vm.setRepeatPassword(valueEvent("secret123"));
 
@@ -151,26 +150,11 @@ describe("RegisterVM", () => {
     expect(harness.register).toHaveBeenCalledWith({
       email: "user@example.com",
       password: "secret123",
-      login: "user",
     });
     expect(harness.vm.sent).toBe(true);
     expect(harness.vm.registeredEmail).toBe("user@example.com");
     expect(harness.vm.cooldown).toBe(60);
     expect(harness.vm.resendNotice).toBeNull();
-  });
-
-  it("omits an empty login on registration", async () => {
-    const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret123"));
-    harness.vm.setRepeatPassword(valueEvent("secret123"));
-
-    await harness.vm.submit(submitEvent());
-
-    expect(harness.register).toHaveBeenCalledWith({
-      email: "user@example.com",
-      password: "secret123",
-    });
   });
 
   it("reports a registration failure and keeps the form", async () => {

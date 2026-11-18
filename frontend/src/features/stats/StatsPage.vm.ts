@@ -207,7 +207,7 @@ export class StatsVM {
   @computed
   get entityOptions(): EntityOption[] {
     if (this.scope === "user") {
-      return this.users.map((user) => ({ id: user.id, label: user.login }));
+      return this.users.map((user) => ({ id: user.id, label: user.email ?? user.login }));
     }
     if (this.scope === "group") {
       return this.groups.map((group) => ({ id: group.id, label: group.name }));

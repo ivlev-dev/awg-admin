@@ -263,7 +263,7 @@ export class ImportVM {
     for (const user of this.owners) {
       options.push({
         value: user.id,
-        label: user.email ? `${user.login} · ${user.email}` : user.login,
+        label: user.email ?? user.login,
       });
     }
     return options;

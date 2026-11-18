@@ -38,12 +38,10 @@ test.describe("Регистрация и подтверждение почты",
   }) => {
     const suffix = uniqueSuffix();
     const email = `e2e-reg-${suffix}@example.com`;
-    const login = `e2e-reg-${suffix}`;
     const password = DEFAULT_USER_PASSWORD;
 
     await page.goto("/register");
     await page.getByLabel("Email", { exact: true }).fill(email);
-    await page.getByLabel("Логин (необязательно)").fill(login);
     await page.getByLabel("Пароль", { exact: true }).fill(password);
     await page.getByLabel("Повторите пароль").fill(password);
     await page.getByRole("button", { name: "Зарегистрироваться" }).click();
@@ -69,7 +67,7 @@ test.describe("Регистрация и подтверждение почты",
     await expect(page.getByRole("button", { name: "Перейти ко входу" })).toBeVisible();
 
     await page.goto("/login");
-    await page.getByLabel("Email или логин").fill(email);
+    await page.getByLabel("Email", { exact: true }).fill(email);
     await page.getByLabel("Пароль", { exact: true }).fill(password);
     await page.getByRole("button", { name: "Войти" }).click();
 
@@ -85,7 +83,7 @@ test.describe("Регистрация и подтверждение почты",
 
     await loginViaUi(
       page,
-      process.env.E2E_ADMIN_LOGIN ?? "admin",
+      process.env.E2E_ADMIN_LOGIN ?? "admin@local",
       process.env.E2E_ADMIN_PASSWORD ?? "admin12345",
     );
     await expect(page.locator(".topbar__title")).toHaveText("Обзор");

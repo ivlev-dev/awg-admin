@@ -311,13 +311,14 @@ export class ProfilePageVM {
   }
 
   @computed
-  get login(): string {
-    return this.session.user?.login ?? t("common.guest");
+  get email(): string {
+    const user = this.session.user;
+    return user?.email ?? user?.login ?? t("common.guest");
   }
 
   @computed
   get userInitial(): string {
-    return initials(this.login);
+    return initials(this.email);
   }
 
   @computed

@@ -206,7 +206,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         <Show when={this.vm.isAdmin}>
                           <td class="col-owner" data-label={t("clients.column.owner")}>
                             <div class="cell-name__text cell-stack">
-                              <span class="small strong">{this.vm.userLogin(device.user_id)}</span>
+                              <span class="small strong">{this.vm.userEmail(device.user_id)}</span>
                             </div>
                           </td>
                         </Show>
@@ -302,7 +302,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         </div>
                         <div>
                           <dt>{t("clients.column.owner")}</dt>
-                          <dd>{this.vm.userLogin(device.user_id)}</dd>
+                          <dd>{this.vm.userEmail(device.user_id)}</dd>
                         </div>
                       </dl>
                       <div class="entity-card__foot">
@@ -387,7 +387,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 <Select
                   id="client-user"
                   value={this.vm.formUserId}
-                  options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.login }))]}
+                  options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.email ?? user.login }))]}
                   onChange={(value) => this.vm.setFormUser(value)}
                   ariaLabel={t("clients.form.user")}
                 />

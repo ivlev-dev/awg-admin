@@ -796,8 +796,8 @@ describe("ClientsPageVM", () => {
     const { vm } = setup("admin");
     await vm.load();
 
-    expect(vm.userLogin("u2")).toBe("owner");
-    expect(vm.userLogin("unknown")).toBe("—");
+    expect(vm.userEmail("u2")).toBe("owner");
+    expect(vm.userEmail("unknown")).toBe("—");
     expect(vm.interfaceSummary(DEVICE)).toBe("wg0 · node-1");
     expect(vm.interfaceSummary({ ...DEVICE, interface_name: "", node_name: "" })).toBe("—");
     expect(vm.peersLabel(DEVICE)).toBe("2 пира");

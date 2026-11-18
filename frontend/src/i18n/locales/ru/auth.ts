@@ -1,9 +1,9 @@
 export const ruAuth = {
   "auth.login.eyebrow": "Панель управления",
   "auth.login.title": "Вход в систему",
-  "auth.login.subtitle": "Введите учётные данные администратора или пользователя.",
+  "auth.login.subtitle": "Введите email и пароль от учётной записи.",
   "auth.login.username": "Логин",
-  "auth.login.identifier": "Email или логин",
+  "auth.login.identifier": "Email",
   "auth.login.identifierPlaceholder": "you@example.com",
   "auth.login.password": "Пароль",
   "auth.login.forgotLink": "Забыли пароль?",

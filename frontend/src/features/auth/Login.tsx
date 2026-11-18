@@ -45,16 +45,19 @@ export function Login(this: { vm: LoginVM }) {
           <form class="stack" onSubmit={(event: Event) => this.vm.submit(event)}>
             <Show when={this.vm.step === "credentials"}>
               <div class="field">
-                <label for="login">{t("auth.login.identifier")}</label>
+                <label for="email">{t("auth.login.identifier")}</label>
                 <input
-                  id="login"
-                  class="input"
-                  type="text"
-                  autocomplete="username"
+                  id="email"
+                  class={`input ${this.vm.emailInvalid ? "is-invalid" : ""}`}
+                  type="email"
+                  autocomplete="email"
                   placeholder={t("auth.login.identifierPlaceholder")}
                   value={this.vm.login}
                   onInput={(event: Event) => this.vm.setLogin(event)}
                 />
+                <Show when={this.vm.emailInvalid}>
+                  <div class="hint" style="color:var(--red)">{t("auth.register.error.email")}</div>
+                </Show>
               </div>
               <div class="field">
                 <label for="password">{t("auth.login.password")}</label>

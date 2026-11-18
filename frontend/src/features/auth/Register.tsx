@@ -97,19 +97,6 @@ export function Register(this: { vm: RegisterVM }) {
               </div>
 
               <div class="field">
-                <label for="register-login">{t("auth.register.loginOptional")}</label>
-                <input
-                  id="register-login"
-                  class="input"
-                  type="text"
-                  autocomplete="username"
-                  value={this.vm.login}
-                  onInput={(event: Event) => this.vm.setLogin(event)}
-                />
-                <div class="hint">{t("auth.register.loginHint")}</div>
-              </div>
-
-              <div class="field">
                 <label for="register-password">{t("auth.register.password")}</label>
                 <div class="auth__password">
                   <input

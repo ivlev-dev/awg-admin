@@ -5,7 +5,7 @@ import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { t } from "@/i18n";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 const COOLDOWN_SECONDS = 60;
 
 export class ForgotPasswordVM {

@@ -2,6 +2,8 @@ export const enUsers = {
   "users.tab.active": "Active",
   "users.tab.pending": "Requests",
   "users.column.email": "Email",
+  "users.filter.email": "Search by email",
+  "users.form.email": "Email",
   "users.filter.role": "Role",
   "users.filter.allRoles": "All roles",
   "users.filter.status": "Status",

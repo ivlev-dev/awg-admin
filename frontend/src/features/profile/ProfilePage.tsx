@@ -30,7 +30,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 </span>
                 <div class="grow">
                   <div class="row wrap" style="gap:8px">
-                    <div class="strong" style="font-size:var(--t-lg)">{this.vm.login}</div>
+                    <div class="strong" style="font-size:var(--t-lg)">{this.vm.email}</div>
                     <span class={this.vm.roleBadgeClass}>{this.vm.roleLabel}</span>
                   </div>
                   <div class="xs muted">
@@ -378,16 +378,16 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
           </div>
           <form class="card__body stack" onSubmit={(event: SubmitEvent) => this.vm.savePassword(event)}>
             <div class="field">
-              <label for="profile-login">{t("profile.account.login")}</label>
+              <label for="profile-email">{t("profile.account.email")}</label>
               <input
-                id="profile-login"
+                id="profile-email"
                 class="input"
-                type="text"
-                value={this.vm.login}
+                type="email"
+                value={this.vm.email}
                 readonly
-                autocomplete="username"
+                autocomplete="email"
               />
-              <div class="hint">{t("profile.account.loginHint")}</div>
+              <div class="hint">{t("profile.account.emailHint")}</div>
             </div>
 
             <hr class="divider" />

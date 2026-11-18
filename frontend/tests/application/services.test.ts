@@ -379,12 +379,48 @@ describe("UsersService", () => {
     const service = new DefaultUsersService(makeUsers());
     await expect(
       service.createUser({
-        login: "user",
+        email: "user@example.com",
         password: "123",
         role: "user",
         tariff_id: null,
         node_id: null,
         group_id: null,
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("normalizes emails on create and update", async () => {
+    const repo = makeUsers();
+    const service = new DefaultUsersService(repo);
+
+    await service.createUser({
+      email: " user@example.com ",
+      password: "secret123",
+      role: "user",
+      tariff_id: null,
+      node_id: null,
+    });
+    expect(repo.createUser).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "secret123",
+      role: "user",
+      tariff_id: null,
+      node_id: null,
+    });
+
+    await service.updateUser(" u1 ", { email: " new@example.com " });
+    expect(repo.updateUser).toHaveBeenCalledWith("u1", { email: "new@example.com" });
+
+    await expect(
+      service.updateUser("u1", { email: "nope" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+    await expect(
+      service.createUser({
+        email: "nope",
+        password: "secret123",
+        role: "user",
+        tariff_id: null,
+        node_id: null,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });

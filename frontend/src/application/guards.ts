@@ -45,7 +45,7 @@ export function validatePassword(value: string): string {
 
 export function validateEmail(value: string): string {
   const trimmed = value.trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+  if (!/^[^\s@]+@[^\s@]+$/.test(trimmed)) {
     throw new ValidationError("Введите корректный email");
   }
   return trimmed;
