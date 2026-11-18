@@ -1,5 +1,6 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
+import { density, setDensity, type TableDensity } from "@/app/density";
 import { ToastStore } from "@/app/toast";
 import type { SettingsService } from "@/application/settings/service";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
@@ -42,6 +43,16 @@ export type NumericField =
   | "sMax";
 
 const S_FLOOR = 12;
+
+interface DensityOptionDefinition {
+  value: TableDensity;
+  labelKey: TranslationKey;
+}
+
+const DENSITY_OPTIONS: DensityOptionDefinition[] = [
+  { value: "comfortable", labelKey: "settings.interface.density.comfortable" },
+  { value: "compact", labelKey: "settings.interface.density.compact" },
+];
 
 const PROFILE_OPTIONS: ChoiceDefinition<ObfuscationProfile>[] = [
   { value: "http3", labelKey: "settings.profile.http3.label", descriptionKey: "settings.profile.http3.description" },
@@ -157,6 +168,23 @@ export class SettingsPageVM {
 
   setLanguage(value: string): void {
     if (isLocale(value)) setLocale(value);
+  }
+
+  @computed
+  get tableDensity(): TableDensity {
+    return density();
+  }
+
+  get densityOptions(): Choice<TableDensity>[] {
+    return DENSITY_OPTIONS.map((option) => ({
+      value: option.value,
+      label: t(option.labelKey),
+      description: "",
+    }));
+  }
+
+  setTableDensity(value: string): void {
+    if (value === "comfortable" || value === "compact") setDensity(value);
   }
 
   @computed

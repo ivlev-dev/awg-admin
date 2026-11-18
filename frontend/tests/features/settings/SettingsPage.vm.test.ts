@@ -1,4 +1,5 @@
 import { createAppContainer } from "@/app/di";
+import { setDensity } from "@/app/density";
 import { ToastStore } from "@/app/toast";
 import { ValidationError } from "@/application/errors";
 import { DefaultSettingsService } from "@/application/settings/service";
@@ -444,5 +445,50 @@ describe("SettingsPageVM", () => {
     expect(vm).toBeInstanceOf(SettingsPageVM);
     expect(vm.loading).toBe(true);
     expect(vm.canSave).toBe(false);
+  });
+});
+
+describe("SettingsPageVM table density", () => {
+  beforeEach(() => {
+    setDensity("comfortable");
+  });
+
+  afterEach(() => {
+    setDensity("comfortable");
+  });
+
+  it("reads the current browser density", () => {
+    const harness = makeHarness();
+    setDensity("compact");
+
+    expect(harness.vm.tableDensity).toBe("compact");
+  });
+
+  it("changes the density signal and the document attribute", () => {
+    const harness = makeHarness();
+
+    harness.vm.setTableDensity("compact");
+
+    expect(harness.vm.tableDensity).toBe("compact");
+    expect(document.documentElement.getAttribute("data-density")).toBe("compact");
+
+    harness.vm.setTableDensity("comfortable");
+
+    expect(harness.vm.tableDensity).toBe("comfortable");
+    expect(document.documentElement.hasAttribute("data-density")).toBe(false);
+  });
+
+  it("ignores unknown density values", () => {
+    const harness = makeHarness();
+
+    harness.vm.setTableDensity("dense");
+
+    expect(harness.vm.tableDensity).toBe("comfortable");
+  });
+
+  it("exposes both density options", () => {
+    const harness = makeHarness();
+
+    expect(harness.vm.densityOptions.map((option) => option.value)).toEqual(["comfortable", "compact"]);
   });
 });

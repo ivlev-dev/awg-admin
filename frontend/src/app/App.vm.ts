@@ -1,6 +1,7 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
+import { initDensity } from "@/app/density";
 import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -97,6 +98,7 @@ export class AppVM {
     private readonly toastStore: ToastStore,
   ) {
     this.connection.listen();
+    initDensity();
   }
 
   async created(): Promise<void> {

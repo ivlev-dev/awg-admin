@@ -51,6 +51,28 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
         </div>
       </section>
 
+      <section class="card card--elevated">
+        <div class="card__head">
+          <div>
+            <div class="card__title">{t("settings.interface.title")}</div>
+            <div class="card__sub">{t("settings.interface.subtitle")}</div>
+          </div>
+        </div>
+        <div class="card__body">
+          <div class="field" style="max-width:320px">
+            <label for="ui-density">{t("settings.interface.density")}</label>
+            <Select
+              id="ui-density"
+              value={this.vm.tableDensity}
+              options={this.vm.densityOptions.map((option) => ({ value: option.value, label: option.label }))}
+              onChange={(value) => this.vm.setTableDensity(value)}
+              ariaLabel={t("settings.interface.density")}
+            />
+            <div class="hint">{t("settings.interface.density.hint")}</div>
+          </div>
+        </div>
+      </section>
+
       <Show when={this.vm.loading}>
         <div class="stack">
           <div class="skeleton" style="height:280px"></div>
