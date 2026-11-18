@@ -1,4 +1,5 @@
 export const ruCommon = {
+  "common.selectValue": "Выберите значение",
   "common.refresh": "Обновить",
   "common.retry": "Повторить",
   "common.open": "Открыть",

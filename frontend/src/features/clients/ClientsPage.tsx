@@ -245,7 +245,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             </span>
                           </div>
                         </td>
-                        <td class="col-address" data-label={t("clients.column.addresses")}>
+                        <td class="col-address cell-addresses" data-label={t("clients.column.addresses")}>
                           <Show
                             when={device.addresses.length > 0}
                             fallback={<span class="muted">—</span>}
@@ -263,7 +263,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             </span>
                           </div>
                         </td>
-                        <td class="col-status" data-label={t("clients.column.status")}>
+                        <td class="col-status cell-status" data-label={t("clients.column.status")}>
                           <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
                             <span class="status-chip__dot"></span>
                             {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}

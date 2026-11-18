@@ -1,4 +1,6 @@
-import { formatBytes, formatPercent } from "@/domain/format";
+import { formatPercent } from "@/domain/format";
+import { t } from "@/i18n";
+import { formatBytesI18n } from "@/i18n/format";
 
 import type { QuotaUsageView } from "./service";
 
@@ -22,12 +24,12 @@ export function quotaDisplay(usage: QuotaUsageView | null): QuotaDisplay {
   return {
     hasQuota,
     exceeded,
-    usedLabel: formatBytes(usage?.usedBytes ?? 0),
-    limitLabel: hasQuota ? formatBytes(quotaBytes ?? 0) : "Без ограничения",
+    usedLabel: formatBytesI18n(usage?.usedBytes ?? 0),
+    limitLabel: hasQuota ? formatBytesI18n(quotaBytes ?? 0) : t("common.unlimited"),
     remainingLabel:
       usage?.remainingBytes === null || usage?.remainingBytes === undefined
-        ? "Без ограничения"
-        : formatBytes(usage.remainingBytes),
+        ? t("common.unlimited")
+        : formatBytesI18n(usage.remainingBytes),
     percentLabel: hasQuota ? formatPercent(percent) : "—",
     progress: hasQuota ? Math.min(100, Math.max(0, percent ?? 0)) : 0,
     progressClass: !hasQuota
@@ -37,6 +39,10 @@ export function quotaDisplay(usage: QuotaUsageView | null): QuotaDisplay {
         : (percent ?? 0) >= 80
           ? "progress__bar progress__bar--warn"
           : "progress__bar",
-    statusLabel: exceeded ? "Квота исчерпана" : hasQuota ? "В норме" : "Без ограничения",
+    statusLabel: exceeded
+      ? t("quota.status.exceeded")
+      : hasQuota
+        ? t("quota.status.ok")
+        : t("common.unlimited"),
   };
 }

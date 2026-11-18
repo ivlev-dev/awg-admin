@@ -1,3 +1,4 @@
+import { t } from "@/i18n";
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 export interface SelectOption {
@@ -34,7 +35,7 @@ export class SelectVM extends ViewModel<SelectProps> {
 
   @computed
   get label(): string {
-    return this.selected?.label ?? this.props.placeholder ?? "Выберите значение";
+    return this.selected?.label ?? this.props.placeholder ?? t("common.selectValue");
   }
 
   @computed

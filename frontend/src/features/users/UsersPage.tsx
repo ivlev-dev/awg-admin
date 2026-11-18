@@ -303,7 +303,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                                 </div>
                               </Show>
                             </td>
-                            <td class="col-status" data-label={t("users.column.status")}>
+                            <td class="col-status cell-status" data-label={t("users.column.status")}>
                               <span class={statusChipClass(user)}>
                                 <span class="status-chip__dot"></span>
                                 {this.vm.statusLabel(user)}

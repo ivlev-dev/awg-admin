@@ -380,7 +380,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   .card__body { padding: 14px 16px 16px; }
   .table--cards tr:has(td.cell-select) { padding-top: 16px; padding-inline: 14px; }
   .table--cards tr:has(td.cell-select) td:nth-child(2) { padding-right: 108px; }
-  .table--cards tr:has(td.cell-select) td[data-label="Статус"] {
+  .table--cards tr:has(td.cell-select) td.cell-status {
     position: absolute;
     top: 12px;
     right: 12px;
@@ -391,7 +391,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
     border: 0;
     text-align: right;
   }
-  .table--cards tr:has(td.cell-select) td[data-label="Статус"]::before { display: none; }
+  .table--cards tr:has(td.cell-select) td.cell-status::before { display: none; }
   .table--cards td.cell-actions {
     margin-top: 6px;
     padding-top: 10px;
@@ -409,7 +409,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 
 @media (max-width: 767px) {
   .table--cards .mono, .table--cards .cell-quota { white-space: nowrap; }
-  .table--cards td[data-label="Адрес"], .table--cards td[data-label="Адреса"] { white-space: nowrap; }
+  .table--cards td.cell-addresses { white-space: nowrap; }
 }
 
 .actions-bar { column-gap: 16px; row-gap: 8px; }

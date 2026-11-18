@@ -1,4 +1,5 @@
 export const enCommon = {
+  "common.selectValue": "Select a value",
   "common.refresh": "Refresh",
   "common.retry": "Retry",
   "common.open": "Open",
