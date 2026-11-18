@@ -383,6 +383,7 @@ describe("UsersService", () => {
         password: "123",
         role: "user",
         tariff_id: null,
+        node_id: null,
         group_id: null,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
@@ -425,6 +426,7 @@ describe("UsersService", () => {
 
     expect(repo.approveUser).toHaveBeenCalledWith("u2", {
       tariff_id: "t1",
+      node_id: null,
       group_id: "g1",
     });
     await expect(

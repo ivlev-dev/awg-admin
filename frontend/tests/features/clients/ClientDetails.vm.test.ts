@@ -1,7 +1,6 @@
 import { createComponent, flushSync } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
-import { DefaultGroupsService } from "@/application/groups/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
@@ -10,10 +9,9 @@ import { ToastStore } from "@/app/toast";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
 import type { CreateShareInput, DeviceStats } from "@/domain/devices/types";
-import type { GroupsRepository } from "@/domain/groups/repository";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, UserQuota } from "@/domain/quota/types";
-import type { Device, Group, Profile, Role, ShareLink, User } from "@/domain/types";
+import type { Device, Profile, Role, ShareLink, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { ClientDetails } from "@/features/clients/ClientDetails";
 import { ClientDetailsVM } from "@/features/clients/ClientDetails.vm";
@@ -47,18 +45,6 @@ const OWNER: User = {
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
-};
-
-const GROUP: Group = {
-  id: "g1",
-  name: "Main",
-  description: "",
-  base_cidr: "10.0.0.0/24",
-  forwarding_default: false,
-  created_at: "2020-01-01T00:00:00Z",
-  updated_at: "2020-01-01T00:00:00Z",
-  interfaces: 1,
-  devices: 2,
 };
 
 const DEVICE: Device = {
@@ -375,24 +361,6 @@ function quotaHarness(
   };
 }
 
-function groupsHarness(groups: Group[]): GroupsRepository {
-  return {
-    listGroups: vi.fn(async () => [...groups]),
-    createGroup: vi.fn(async () => GROUP),
-    updateGroup: vi.fn(async () => GROUP),
-    deleteGroup: vi.fn(async () => undefined),
-    bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
-    listPools: vi.fn(async () => []),
-    createPool: vi.fn(async () => {
-      throw new Error("pool is not used in this test");
-    }),
-    updatePool: vi.fn(async () => {
-      throw new Error("pool is not used in this test");
-    }),
-    deletePool: vi.fn(async () => undefined),
-  };
-}
-
 function setup(
   role: Role = "admin",
   quotaState: QuotaState = QUOTA,
@@ -401,17 +369,14 @@ function setup(
 ) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness(profiles);
-  const groups = groupsHarness([GROUP]);
   const quota = quotaHarness(quotaState, quotaUsers);
   const devicesService = new DefaultDevicesService(devices.repository);
-  const groupsService = new DefaultGroupsService(groups);
   const session = makeSession(user);
   window.history.replaceState(null, "", "/clients/d1");
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new ClientDetailsVM(
     devicesService,
-    groupsService,
     quota.service,
     session,
     router,
@@ -422,8 +387,6 @@ function setup(
     repository: devices.repository,
     state: devices.state,
     devicesService,
-    groupsService,
-    groups,
     quota,
     session,
     router,
@@ -442,8 +405,8 @@ describe("ClientDetailsVM", () => {
     vi.unstubAllGlobals();
   });
 
-  it("загружает устройство, профили, ссылки, статистику и группы", async () => {
-    const { vm, repository, groups } = setup("admin");
+  it("загружает устройство, профили, ссылки и статистику", async () => {
+    const { vm, repository } = setup("admin");
 
     await vm.load();
 
@@ -452,7 +415,6 @@ describe("ClientDetailsVM", () => {
     expect(repository.listShares).toHaveBeenCalledWith("d1");
     expect(repository.deviceStats).toHaveBeenCalledWith("d1");
     expect(repository.listDevices).toHaveBeenCalledTimes(1);
-    expect(groups.listGroups).toHaveBeenCalledTimes(1);
 
     expect(vm.device?.name).toBe("laptop");
     expect(vm.profiles.map((profile) => profile.interface_id)).toEqual(["i1", "i2"]);
@@ -460,7 +422,6 @@ describe("ClientDetailsVM", () => {
     expect(vm.activeProfile?.vpn_link).toBe("vpn://profile-1");
     expect(vm.shares).toHaveLength(1);
     expect(vm.stats?.device_id).toBe("d1");
-    expect(vm.groups).toEqual([GROUP]);
     expect(vm.loading).toBe(false);
     expect(vm.error).toBeNull();
   });
@@ -476,7 +437,6 @@ describe("ClientDetailsVM", () => {
     expect(vm.forwardingMode).toBe("off");
     expect(vm.forwardingSelected).toEqual([]);
     expect(vm.forwardingSymmetric).toBe(true);
-    expect(vm.groupLabel).toBe("Main");
     expect(vm.interfaceLabel).toBe("wg0");
     expect(vm.nodeLabel).toBe("node-1");
     expect(vm.downLabel).toBe("1 Мбит/с");
@@ -491,15 +451,15 @@ describe("ClientDetailsVM", () => {
     expect(vm.otherDevices.map((device) => device.id)).toEqual(["d2"]);
   });
 
-  it("не запрашивает группы и показывает группу пользователя для обычного клиента", async () => {
-    const { vm, groups } = setup("user");
+  it("показывает интерфейс и ноду для обычного клиента", async () => {
+    const { vm, repository } = setup("user");
 
     await vm.load();
 
-    expect(groups.listGroups).not.toHaveBeenCalled();
-    expect(vm.groups).toEqual([]);
+    expect(repository.listDevices).toHaveBeenCalledTimes(1);
     expect(vm.isAdmin).toBe(false);
-    expect(vm.groupLabel).toBe("Ваша группа");
+    expect(vm.interfaceLabel).toBe("wg0");
+    expect(vm.nodeLabel).toBe("node-1");
   });
 
   it("переключает активный профиль", async () => {
@@ -567,11 +527,10 @@ describe("ClientDetailsVM", () => {
   });
 
   it("не загружает данные без идентификатора устройства", async () => {
-    const { repository, groupsService } = setup("admin");
+    const { repository } = setup("admin");
     window.history.replaceState(null, "", "/clients");
     const vm = new ClientDetailsVM(
       new DefaultDevicesService(repository),
-      groupsService,
       new DefaultQuotaService({ me: async () => QUOTA, users: async () => [USER_QUOTA] }),
       makeSession(ADMIN),
       new Router(),
@@ -1331,10 +1290,9 @@ describe("ClientDetailsVM", () => {
   });
 
   it("открывает модалки QR из share-ссылки и профиля", async () => {
-    const { devicesService, groupsService, quota, session, router, toasts } = setup("admin");
+    const { devicesService, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
-    container.bind(DefaultGroupsService, () => groupsService);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
@@ -1389,10 +1347,9 @@ describe("ClientDetailsVM", () => {
   });
 
   it("резолвит VM через DI и монтирует представление с внедрёнными зависимостями", async () => {
-    const { devicesService, groupsService, quota, session, router, toasts } = setup("admin");
+    const { devicesService, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
-    container.bind(DefaultGroupsService, () => groupsService);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);
@@ -1426,7 +1383,7 @@ describe("ClientDetailsVM", () => {
   });
 
   it("рендерит единственный профиль интерфейса", async () => {
-    const { devicesService, groupsService, quota, session, router, toasts } = setup(
+    const { devicesService, quota, session, router, toasts } = setup(
       "admin",
       QUOTA,
       [USER_QUOTA],
@@ -1434,7 +1391,6 @@ describe("ClientDetailsVM", () => {
     );
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => devicesService);
-    container.bind(DefaultGroupsService, () => groupsService);
     container.bind(DefaultQuotaService, () => quota.service);
     container.bind(Session, () => session);
     container.bind(Router, () => router);

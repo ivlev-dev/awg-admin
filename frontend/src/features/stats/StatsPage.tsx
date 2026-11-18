@@ -323,7 +323,7 @@ export function StatsPage(this: { vm: StatsVM }) {
                                 <button
                                   class="btn btn--text btn--sm"
                                   type="button"
-                                  aria-label={t("stats.devices.open")}
+                                  aria-label={t("stats.devices.open")} title={t("stats.devices.open")}
                                   onClick={() => this.vm.openDevice(row.id)}
                                 >
                                   {t("stats.devices.open")} <Icon name="chevron" size={14} class="" />

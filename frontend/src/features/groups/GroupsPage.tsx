@@ -213,7 +213,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                       <button
                         class="btn btn--sm btn--ghost btn--icon"
                         type="button"
-                        aria-label={t("groups.action.editAria")}
+                        aria-label={t("groups.action.editAria")} title={t("groups.action.editAria")}
                         onClick={() => this.vm.openEdit(group)}
                       >
                         <Icon name="edit" size={14} class="" />
@@ -221,7 +221,7 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                       <button
                         class="btn btn--sm btn--ghost btn--icon"
                         type="button"
-                        aria-label={t("groups.action.deleteAria")}
+                        aria-label={t("groups.action.deleteAria")} title={t("groups.action.deleteAria")}
                         onClick={() => this.vm.remove(group)}
                       >
                         <Icon name="trash" size={14} class="" />

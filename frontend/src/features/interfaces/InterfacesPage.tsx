@@ -173,8 +173,8 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                                   <span class="xs muted"> · {item.label}</span>
                                 </Show>
                               </span>
-                              <span class="cell-sub xs muted" title={`${item.group_name} · ${item.node_name}`}>
-                                {item.group_name} · {item.node_name}
+                              <span class="cell-sub xs muted" title={item.node_name}>
+                                {item.node_name}
                               </span>
                             </span>
                           </div>
@@ -286,8 +286,8 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                               <span class="xs muted"> · {item.label}</span>
                             </Show>
                           </span>
-                          <span class="entity-card__sub xs muted" title={`${item.group_name} · ${item.node_name}`}>
-                            {item.group_name} · {item.node_name}
+                          <span class="entity-card__sub xs muted" title={item.node_name}>
+                            {item.node_name}
                           </span>
                         </div>
                         <span class={`status-chip ${item.enabled ? "status-chip--ok" : "status-chip--warn"}`}>
@@ -330,8 +330,8 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                           </dd>
                         </div>
                         <div>
-                          <dt>{t("interfaces.filter.group")} / {t("interfaces.filter.node")}</dt>
-                          <dd>{item.group_name} · {item.node_name}</dd>
+                          <dt>{t("interfaces.filter.node")}</dt>
+                          <dd>{item.node_name}</dd>
                         </div>
                       </dl>
                       <div class="entity-card__foot">
@@ -413,14 +413,16 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
           </Show>
           <div class="grid grid--2">
             <div class="field">
-              <label for="iface-form-group">{t("interfaces.form.group")}</label>
-              <Select
-                id="iface-form-group"
-                value={this.vm.formGroupId}
-                options={this.vm.groups.map((group) => ({ value: group.id, label: group.name }))}
-                onChange={(value) => this.vm.setFormGroup(value)}
-                ariaLabel={t("interfaces.form.group")}
-              />
+              <Show when={this.vm.groups.length > 1}>
+                <label for="iface-form-group">{t("interfaces.form.group")}</label>
+                <Select
+                  id="iface-form-group"
+                  value={this.vm.formGroupId}
+                  options={this.vm.groups.map((group) => ({ value: group.id, label: group.name }))}
+                  onChange={(value) => this.vm.setFormGroup(value)}
+                  ariaLabel={t("interfaces.form.group")}
+                />
+              </Show>
             </div>
             <div class="field">
               <label for="iface-form-node">{t("interfaces.form.node")}</label>

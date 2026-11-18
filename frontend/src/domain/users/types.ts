@@ -5,17 +5,20 @@ export interface CreateUserInput {
   password: string;
   role: Role;
   tariff_id: string | null;
-  group_id: string | null;
+  node_id: string | null;
+  group_id?: string | null;
 }
 
 export interface UpdateUserInput {
   role?: Role;
   tariff_id?: string | null;
+  node_id?: string | null;
   group_id?: string | null;
   disabled?: boolean;
 }
 
 export interface ApproveUserInput {
   tariff_id: string;
+  node_id?: string | null;
   group_id?: string | null;
 }

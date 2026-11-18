@@ -362,7 +362,7 @@ function clientsBlock(vm: ImportVM, draft: InterfaceDraft, interfaceIndex: numbe
                     <button
                       class="btn btn--sm btn--ghost btn--icon"
                       type="button"
-                      aria-label={t("import.interface.removeClient")}
+                      aria-label={t("import.interface.removeClient")} title={t("import.interface.removeClient")}
                       onClick={() => vm.removeClient(interfaceIndex, clientIndex())}
                     >
                       <Icon name="trash" size={16} class="" />
@@ -411,7 +411,7 @@ function interfaceCard(vm: ImportVM, draft: InterfaceDraft, index: number) {
             class="btn btn--sm btn--danger"
             type="button"
             disabled={vm.interfaces.length <= 1}
-            aria-label={t("import.interfaces.remove")}
+            aria-label={t("import.interfaces.remove")} title={t("import.interfaces.remove")}
             onClick={() => vm.removeInterface(index)}
           >
             <Icon name="trash" size={14} class="" />
@@ -1156,7 +1156,7 @@ function clientsFormStep(vm: ImportVM) {
                       <button
                         class="btn btn--sm btn--ghost btn--icon"
                         type="button"
-                        aria-label={t("import.interface.removeClient")}
+                        aria-label={t("import.interface.removeClient")} title={t("import.interface.removeClient")}
                         onClick={() => vm.removeClientsImport(index())}
                       >
                         <Icon name="trash" size={16} class="" />

@@ -172,8 +172,6 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <dl class="kv">
                       <dt>{t("clients.details.field.name")}</dt>
                       <dd>{this.vm.device?.name ?? "—"}</dd>
-                      <dt>{t("clients.details.field.group")}</dt>
-                      <dd>{this.vm.groupLabel}</dd>
                       <dt>{t("clients.details.interface")}</dt>
                       <dd>{this.vm.interfaceLabel}</dd>
                       <dt>{t("clients.details.node")}</dt>
@@ -579,7 +577,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                   class="btn btn--sm"
                                   type="button"
                                   disabled={!this.vm.canShowVpnQr}
-                                  aria-label={t("clients.details.qr.openVpn")}
+                                  aria-label={t("clients.details.qr.openVpn")} title={t("clients.details.qr.openVpn")}
                                   onClick={() => this.vm.openVpnQr()}
                                 >
                                   <Icon name="qr" size={14} class="" /> {t("clients.details.qr.button")}
@@ -605,7 +603,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     class="btn btn--sm btn--danger"
                     type="button"
                     disabled={!this.vm.hasActiveShares || this.vm.shareBusy}
-                    aria-label={t("clients.details.share.revokeAllAria")}
+                    aria-label={t("clients.details.share.revokeAllAria")} title={t("clients.details.share.revokeAllAria")}
                     onClick={() => { void this.vm.revokeAllShares(); }}
                   >
                     <Icon name="trash" size={14} class="" /> {t("clients.details.share.revokeAll")}
@@ -734,7 +732,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button
                                   class="btn btn--sm"
                                   type="button"
-                                  aria-label={t("clients.details.qr.openShare")}
+                                  aria-label={t("clients.details.qr.openShare")} title={t("clients.details.qr.openShare")}
                                   onClick={() => this.vm.openShareQr(share)}
                                 >
                                   <Icon name="qr" size={14} class="" />
@@ -742,7 +740,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button
                                   class="btn btn--sm"
                                   type="button"
-                                  aria-label={t("clients.details.share.copyAria")}
+                                  aria-label={t("clients.details.share.copyAria")} title={t("clients.details.share.copyAria")}
                                   onClick={() => { void this.vm.copyText(share.url, t("clients.details.share.copyLabel")); }}
                                 >
                                   <Icon name="copy" size={14} class="" />
@@ -751,7 +749,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                   class="btn btn--sm btn--danger"
                                   type="button"
                                   disabled={this.vm.shareBusy}
-                                  aria-label={t("clients.details.share.revokeAria")}
+                                  aria-label={t("clients.details.share.revokeAria")} title={t("clients.details.share.revokeAria")}
                                   onClick={() => { void this.vm.revokeShare(share.token); }}
                                 >
                                   <Icon name="trash" size={14} class="" />

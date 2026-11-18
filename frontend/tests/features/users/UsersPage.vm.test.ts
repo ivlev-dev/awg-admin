@@ -1,6 +1,6 @@
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
@@ -16,16 +16,14 @@ import type {
   TotpToggleResult,
   VerifyEmailResult,
 } from "@/domain/auth/types";
-import type { GroupInput, PoolInput } from "@/domain/groups/types";
-import type { GroupsRepository } from "@/domain/groups/repository";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type {
   AuthSession,
-  CidrPool,
-  Group,
+  NodeInfo,
   Tariff,
   User,
 } from "@/domain/types";
@@ -43,6 +41,7 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  node_id: null,
   email: null,
   status: "active",
   totp_enabled: false,
@@ -57,6 +56,7 @@ const ALICE: User = {
   role: "user",
   tariff_id: "t1",
   group_id: "g1",
+  node_id: "n1",
   email: "alice@example.com",
   status: "active",
   totp_enabled: false,
@@ -73,6 +73,7 @@ const PENDING: User = {
   status: "pending_approval",
   tariff_id: null,
   group_id: null,
+  node_id: null,
   created_at: "2020-02-01T00:00:00Z",
 };
 
@@ -92,16 +93,14 @@ const TARIFF: Tariff = {
   updated_at: "2020-01-01T00:00:00Z",
 };
 
-const GROUP: Group = {
-  id: "g1",
-  name: "Main",
-  description: "",
-  base_cidr: "10.0.0.0/24",
-  forwarding_default: false,
-  created_at: "2020-01-01T00:00:00Z",
-  updated_at: "2020-01-01T00:00:00Z",
+const NODE: NodeInfo = {
+  id: "n1",
+  name: "Node 1",
+  status: "online",
+  online: true,
+  last_seen: null,
+  version: null,
   interfaces: 0,
-  devices: 0,
 };
 
 const QUOTAS: UserQuota[] = [
@@ -148,6 +147,7 @@ class MemoryUsersRepository {
       ...user,
       status: "active",
       tariff_id: input.tariff_id,
+      node_id: input.node_id ?? null,
       group_id: input.group_id ?? null,
     };
     this.replace(next);
@@ -169,7 +169,8 @@ class MemoryUsersRepository {
       login: input.login,
       role: input.role,
       tariff_id: input.tariff_id,
-      group_id: input.group_id,
+      node_id: input.node_id,
+      group_id: input.group_id ?? null,
       email: null,
       status: "active",
       totp_enabled: false,
@@ -275,71 +276,42 @@ class MemoryTariffsRepository {
   }
 }
 
-class MemoryGroupsRepository {
-  groups: Group[] = [];
-  readonly pools: CidrPool[] = [];
+class MemoryNodesRepository {
+  nodes: NodeInfo[] = [];
   failure: Error | null = null;
 
-  async listGroups(): Promise<Group[]> {
+  async listNodes(): Promise<NodeInfo[]> {
     if (this.failure !== null) throw this.failure;
-    return [...this.groups];
+    return [...this.nodes];
   }
 
-  async createGroup(input: GroupInput): Promise<Group> {
-    const group: Group = {
-      id: `g${this.groups.length + 1}`,
-      ...input,
-      created_at: "2020-01-02T00:00:00Z",
-      updated_at: "2020-01-02T00:00:00Z",
+  async createNode(name: string): Promise<NodeCreated> {
+    const node: NodeInfo = {
+      id: `n${this.nodes.length + 1}`,
+      name,
+      status: "offline",
+      online: false,
+      last_seen: null,
+      version: null,
       interfaces: 0,
-      devices: 0,
     };
-    this.groups.push(group);
-    return group;
+    this.nodes.push(node);
+    return { node: { id: node.id, name: node.name, created_at: "2020-01-02T00:00:00Z" }, token: "token" };
   }
 
-  async updateGroup(id: string, input: Partial<GroupInput>): Promise<Group> {
-    const group = this.groups.find((item) => item.id === id);
-    if (group === undefined) throw new Error(`Группа ${id} не найдена`);
-    return { ...group, ...input };
+  async rotateNode(id: string): Promise<NodeRotated> {
+    const node = this.nodes.find((item) => item.id === id);
+    if (node === undefined) throw new Error(`Нода ${id} не найдена`);
+    return { node, token: "rotated" };
+  }
+
+  async deleteNode(id: string): Promise<void> {
+    this.nodes = this.nodes.filter((node) => node.id !== id);
   }
 
   async bulk(_action: "delete", ids: readonly string[]) {
-    this.groups = this.groups.filter((item) => !ids.includes(item.id));
+    this.nodes = this.nodes.filter((node) => !ids.includes(node.id));
     return { done: ids.length, failed: [] };
-  }
-
-  async deleteGroup(id: string): Promise<void> {
-    this.groups = this.groups.filter((item) => item.id !== id);
-  }
-
-  async listPools(groupId: string): Promise<CidrPool[]> {
-    return this.pools.filter((pool) => pool.group_id === groupId);
-  }
-
-  async createPool(groupId: string, input: PoolInput): Promise<CidrPool> {
-    const pool: CidrPool = {
-      id: `p${this.pools.length + 1}`,
-      group_id: groupId,
-      ...input,
-      enabled: true,
-    };
-    this.pools.push(pool);
-    return pool;
-  }
-
-  async updatePool(
-    id: string,
-    input: Partial<PoolInput> & { enabled?: boolean },
-  ): Promise<CidrPool> {
-    const pool = this.pools.find((item) => item.id === id);
-    if (pool === undefined) throw new Error(`Пул ${id} не найден`);
-    return { ...pool, ...input };
-  }
-
-  async deletePool(id: string): Promise<void> {
-    const index = this.pools.findIndex((pool) => pool.id === id);
-    if (index >= 0) this.pools.splice(index, 1);
   }
 }
 
@@ -469,14 +441,14 @@ interface SetupResult {
   vm: UsersPageVM;
   usersRepo: MemoryUsersRepository;
   tariffsRepo: MemoryTariffsRepository;
-  groupsRepo: MemoryGroupsRepository;
+  nodesRepo: MemoryNodesRepository;
   quotaRepo: MemoryQuotaRepository;
   toasts: ToastStore;
   session: Session;
   services: {
     users: DefaultUsersService;
     tariffs: DefaultTariffsService;
-    groups: DefaultGroupsService;
+    nodes: DefaultNodesService;
     quota: DefaultQuotaService;
   };
 }
@@ -489,14 +461,14 @@ function setup(
   usersRepo.users = [...seed];
   const tariffsRepo = new MemoryTariffsRepository();
   tariffsRepo.tariffs = [TARIFF];
-  const groupsRepo = new MemoryGroupsRepository();
-  groupsRepo.groups = [GROUP];
+  const nodesRepo = new MemoryNodesRepository();
+  nodesRepo.nodes = [NODE];
   const quotaRepo = new MemoryQuotaRepository();
   quotaRepo.quotas = quotaSeed.map((quota) => ({ ...quota }));
   const services = {
     users: new DefaultUsersService(usersRepo),
     tariffs: new DefaultTariffsService(tariffsRepo),
-    groups: new DefaultGroupsService(groupsRepo),
+    nodes: new DefaultNodesService(nodesRepo),
     quota: new DefaultQuotaService(quotaRepo),
   };
   const session = new Session(new FakeAuthRepository(), new MemoryTokenStore());
@@ -505,12 +477,12 @@ function setup(
   const vm = new UsersPageVM(
     services.users,
     services.tariffs,
-    services.groups,
+    services.nodes,
     services.quota,
     session,
     toasts,
   );
-  return { vm, usersRepo, tariffsRepo, groupsRepo, quotaRepo, toasts, session, services };
+  return { vm, usersRepo, tariffsRepo, nodesRepo, quotaRepo, toasts, session, services };
 }
 
 function toastMessages(toasts: ToastStore): string[] {
@@ -528,7 +500,7 @@ beforeEach(() => {
 });
 
 describe("UsersPageVM", () => {
-  it("loads users, tariffs and groups", async () => {
+  it("loads users, tariffs and nodes", async () => {
     const { vm } = setup();
     await vm.load();
 
@@ -536,11 +508,12 @@ describe("UsersPageVM", () => {
     expect(vm.error).toBeNull();
     expect(vm.users.map((user) => user.login)).toEqual(["admin", "alice"]);
     expect(vm.tariffs).toEqual([TARIFF]);
-    expect(vm.groups).toEqual([GROUP]);
+    expect(vm.nodes).toEqual([NODE]);
     expect(vm.tariffName("t1")).toBe("Basic");
-    expect(vm.groupName("g1")).toBe("Main");
+    expect(vm.nodeName("n1")).toBe("Node 1");
     expect(vm.tariffName(null)).toBe("Не задан");
-    expect(vm.groupName(null)).toBe("Не задана");
+    expect(vm.nodeName(null)).toBe("—");
+    expect(vm.nodeName(undefined)).toBe("—");
     expect(vm.selfId).toBe(ADMIN.id);
   });
 
@@ -617,7 +590,7 @@ describe("UsersPageVM", () => {
     vm.password = "secret123";
     vm.role = "admin";
     vm.tariffId = "t1";
-    vm.groupId = "g1";
+    vm.setNode("n1");
 
     await vm.submit();
 
@@ -626,13 +599,33 @@ describe("UsersPageVM", () => {
       password: "secret123",
       role: "admin",
       tariff_id: "t1",
-      group_id: "g1",
+      node_id: "n1",
     });
     expect(usersRepo.users.map((user) => user.login)).toEqual(["admin", "alice", "bob"]);
+    expect(usersRepo.users.find((user) => user.login === "bob")?.node_id).toBe("n1");
     expect(usersRepo.passwords.get("u3")).toBe("secret123");
     expect(vm.modalOpen).toBe(false);
     expect(vm.formError).toBeNull();
     expect(toastMessages(toasts)).toContain("Пользователь создан");
+  });
+
+  it("creates a user without a node", async () => {
+    const { vm, usersRepo, services } = setup();
+    const createSpy = vi.spyOn(services.users, "createUser");
+    vm.openCreate();
+    vm.login = "bob";
+    vm.password = "secret123";
+
+    await vm.submit();
+
+    expect(createSpy).toHaveBeenCalledWith({
+      login: "bob",
+      password: "secret123",
+      role: "user",
+      tariff_id: null,
+      node_id: null,
+    });
+    expect(usersRepo.users.find((user) => user.login === "bob")?.node_id).toBeNull();
   });
 
   it("rejects a short password before creating", async () => {
@@ -656,11 +649,12 @@ describe("UsersPageVM", () => {
 
     expect(vm.title).toBe("Редактировать пользователя");
     expect(vm.tariffId).toBe("t1");
-    expect(vm.groupId).toBe("g1");
+    expect(vm.nodeId).toBe("n1");
 
     vm.role = "admin";
     vm.disabled = true;
     vm.tariffId = "";
+    vm.setNode("");
     await vm.submit();
 
     const updated = usersRepo.users.find((user) => user.id === ALICE.id);
@@ -669,7 +663,7 @@ describe("UsersPageVM", () => {
       role: "admin",
       disabled: true,
       tariff_id: null,
-      group_id: "g1",
+      node_id: null,
     });
     expect(vm.modalOpen).toBe(false);
     expect(toastMessages(toasts)).toContain("Пользователь обновлён");
@@ -850,6 +844,35 @@ describe("UsersPageVM", () => {
     expect(vm.pendingCountLabel).toBe("Найдено 1 из 1");
   });
 
+  it("фильтрует активных пользователей по ноде", async () => {
+    const { vm } = setup([ADMIN, ALICE, PENDING]);
+    await vm.load();
+
+    vm.nodeFilter = NODE.id;
+
+    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
+    expect(vm.hasActiveFilters).toBe(true);
+
+    vm.resetFilters();
+
+    expect(vm.nodeFilter).toBe("all");
+    expect(vm.filteredActiveUsers).toHaveLength(2);
+  });
+
+  it("сортирует список с фильтром по ноде без ошибок", async () => {
+    const { vm } = setup([ADMIN, ALICE]);
+    await vm.load();
+    vm.nodeFilter = NODE.id;
+
+    vm.sortBy("login");
+    vm.sortBy("role");
+    vm.sortBy("status");
+
+    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
+    expect(vm.sortMark("status")).not.toBe("");
+    expect(vm.nodeName("missing")).toBe("—");
+  });
+
   it("сбрасывает поиск и очищает storage", async () => {
     const { vm } = setup();
     await vm.load();
@@ -898,23 +921,36 @@ describe("UsersPageVM", () => {
     expect(toastMessages(toasts)).not.toContain("Заявка подтверждена");
   });
 
-  it("approves a pending account with a tariff and group", async () => {
+  it("approves a pending account with a tariff and node", async () => {
     const { vm, usersRepo, toasts } = setup([ADMIN, PENDING]);
     await vm.load();
 
     vm.openApprove(PENDING);
     vm.setApproveTariff(TARIFF.id);
-    vm.setApproveGroup(GROUP.id);
+    vm.setApproveNode(NODE.id);
     await vm.submitApprove();
 
     const approved = usersRepo.users.find((user) => user.id === PENDING.id);
     expect(approved?.status).toBe("active");
     expect(approved?.tariff_id).toBe(TARIFF.id);
-    expect(approved?.group_id).toBe(GROUP.id);
+    expect(approved?.node_id).toBe(NODE.id);
     expect(vm.approveOpen).toBe(false);
     expect(vm.approveTarget).toBeNull();
     expect(vm.pending).toHaveLength(0);
     expect(toastMessages(toasts)).toContain("Заявка подтверждена");
+  });
+
+  it("approves a pending account without a node", async () => {
+    const { vm, usersRepo } = setup([ADMIN, PENDING]);
+    await vm.load();
+
+    vm.openApprove(PENDING);
+    vm.setApproveTariff(TARIFF.id);
+    vm.setApproveNode("");
+    await vm.submitApprove();
+
+    const approved = usersRepo.users.find((user) => user.id === PENDING.id);
+    expect(approved?.node_id).toBeNull();
   });
 
   it("reports an approval failure", async () => {

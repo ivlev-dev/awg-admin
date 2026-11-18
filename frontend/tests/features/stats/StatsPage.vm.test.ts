@@ -497,24 +497,21 @@ describe("StatsPageVM", () => {
     await vm.created();
     vi.mocked(stats.series).mockClear();
 
-    vm.setScope("group");
+    vm.setScope("interface");
 
-    expect(vm.scope).toBe("group");
-    expect(vm.entityId).toBe(GROUP_A.id);
+    expect(vm.scope).toBe("interface");
+    expect(vm.entityId).toBe(INTERFACE.id);
     expect(vm.requiresEntity).toBe(true);
-    expect(vm.entityLabel).toBe("Группа");
-    expect(vm.entityOptions).toEqual([
-      { id: "g1", label: "Main" },
-      { id: "g2", label: "Second" },
-    ]);
+    expect(vm.entityLabel).toBe("Интерфейс");
+    expect(vm.entityOptions).toEqual([{ id: INTERFACE.id, label: "node-1 · awg0" }]);
     await vi.waitFor(() => {
-      expect(stats.series).toHaveBeenLastCalledWith("group", GROUP_A.id, expect.any(Number), expect.any(Number));
+      expect(stats.series).toHaveBeenLastCalledWith("interface", INTERFACE.id, expect.any(Number), expect.any(Number));
     });
 
-    vm.setEntity(GROUP_B.id);
-    expect(vm.entityId).toBe(GROUP_B.id);
+    vm.setEntity(INTERFACE.id);
+    expect(vm.entityId).toBe(INTERFACE.id);
     await vi.waitFor(() => {
-      expect(stats.series).toHaveBeenLastCalledWith("group", GROUP_B.id, expect.any(Number), expect.any(Number));
+      expect(stats.series).toHaveBeenLastCalledWith("interface", INTERFACE.id, expect.any(Number), expect.any(Number));
     });
 
     vm.setRange("7d");
@@ -523,8 +520,8 @@ describe("StatsPageVM", () => {
     expect(vm.rangeSeconds).toBe(7 * 24 * 3600);
     await vi.waitFor(() => {
       const call = stats.series.mock.calls.at(-1);
-      expect(call?.[0]).toBe("group");
-      expect(call?.[1]).toBe(GROUP_B.id);
+      expect(call?.[0]).toBe("interface");
+      expect(call?.[1]).toBe(INTERFACE.id);
       const from = typeof call?.[2] === "number" ? call[2] : 0;
       const to = typeof call?.[3] === "number" ? call[3] : 0;
       expect(to - from).toBe(7 * 24 * 3600);
@@ -609,8 +606,8 @@ describe("StatsPageVM", () => {
   it("требует выбранную сущность для Live-режима", async () => {
     const { vm, toasts } = setup("admin");
     await vm.created();
-    vm.setScope("group");
-    await vi.waitFor(() => expect(vm.entityId).toBe(GROUP_A.id));
+    vm.setScope("interface");
+    await vi.waitFor(() => expect(vm.entityId).toBe(INTERFACE.id));
     vm.setEntity("");
 
     vm.toggleLive();
@@ -630,11 +627,11 @@ describe("StatsPageVM", () => {
     const first = FakeWebSocket.instances[0]!;
     first.open();
 
-    vm.setScope("group");
+    vm.setScope("interface");
 
     expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[1]!.url).toContain("scope=group");
-    expect(FakeWebSocket.instances[1]!.url).toContain(`id=${GROUP_A.id}`);
+    expect(FakeWebSocket.instances[1]!.url).toContain("scope=interface");
+    expect(FakeWebSocket.instances[1]!.url).toContain(`id=${INTERFACE.id}`);
   });
 
   it("отключает live при размонтировании", async () => {

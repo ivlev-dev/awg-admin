@@ -9,11 +9,11 @@ import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { validatePassword } from "@/application/guards";
 import type { QuotaService, UserQuotaSnapshot } from "@/application/quota/service";
-import type { GroupsService } from "@/application/groups/service";
+import type { NodesService } from "@/application/nodes/service";
 import type { TariffsService } from "@/application/tariffs/service";
 import type { UsersService } from "@/application/users/service";
 import { formatBytes, formatPercent } from "@/domain/format";
-import type { Group, Role, Tariff, User } from "@/domain/types";
+import type { NodeInfo, Role, Tariff, User } from "@/domain/types";
 import type { UsersBulkAction } from "@/domain/users/repository";
 import { t } from "@/i18n";
 import { formatDateI18n } from "@/i18n/format";
@@ -40,7 +40,7 @@ export class UsersPageVM {
   @reactive accessor users: User[] = [];
   @reactive accessor pending: User[] = [];
   @reactive accessor tariffs: Tariff[] = [];
-  @reactive accessor groups: Group[] = [];
+  @reactive accessor nodes: NodeInfo[] = [];
   @reactive accessor quotas: UserQuotaSnapshot[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
@@ -51,6 +51,7 @@ export class UsersPageVM {
   @reactive accessor appliedQuery = "";
   @reactive accessor roleFilter: "all" | Role = "all";
   @reactive accessor statusFilter: "all" | "active" | "disabled" = "all";
+  @reactive accessor nodeFilter = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
   @reactive accessor sort: SortState<"login" | "role" | "status"> | null = { key: "login", direction: "asc" };
@@ -68,7 +69,7 @@ export class UsersPageVM {
   @reactive accessor password = "";
   @reactive accessor role: Role = "user";
   @reactive accessor tariffId = "";
-  @reactive accessor groupId = "";
+  @reactive accessor nodeId = "";
   @reactive accessor disabled = false;
 
   @reactive accessor resetOpen = false;
@@ -78,14 +79,14 @@ export class UsersPageVM {
   @reactive accessor approveOpen = false;
   @reactive accessor approveTarget: User | null = null;
   @reactive accessor approveTariffId = "";
-  @reactive accessor approveGroupId = "";
+  @reactive accessor approveNodeId = "";
   @reactive accessor approveSaving = false;
   @reactive accessor approveError: string | null = null;
 
   constructor(
     private readonly usersService: UsersService,
     private readonly tariffsService: TariffsService,
-    private readonly groupsService: GroupsService,
+    private readonly nodesService: NodesService,
     private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly toasts: ToastStore,
@@ -109,11 +110,11 @@ export class UsersPageVM {
     this.pendingLoading = true;
     this.error = null;
     this.pendingError = null;
-    const [usersResult, pendingResult, tariffsResult, groupsResult, quotaResult] = await Promise.allSettled([
+    const [usersResult, pendingResult, tariffsResult, nodesResult, quotaResult] = await Promise.allSettled([
       this.usersService.listUsers(),
       this.usersService.listPending(),
       this.tariffsService.listTariffs(),
-      this.groupsService.listGroups(),
+      this.nodesService.listNodes(),
       this.quotaService.users(),
     ]);
     this.quotas = quotaResult.status === "fulfilled" ? quotaResult.value : [];
@@ -127,10 +128,10 @@ export class UsersPageVM {
     try {
       if (usersResult.status === "rejected") throw usersResult.reason;
       if (tariffsResult.status === "rejected") throw tariffsResult.reason;
-      if (groupsResult.status === "rejected") throw groupsResult.reason;
+      if (nodesResult.status === "rejected") throw nodesResult.reason;
       this.users = usersResult.value;
       this.tariffs = tariffsResult.value;
-      this.groups = groupsResult.value;
+      this.nodes = nodesResult.value;
     } catch (error) {
       this.error = userMessage(error, "Не удалось загрузить пользователей");
     } finally {
@@ -167,6 +168,7 @@ export class UsersPageVM {
       if (this.roleFilter !== "all" && user.role !== this.roleFilter) return false;
       if (this.statusFilter === "active" && user.disabled) return false;
       if (this.statusFilter === "disabled" && !user.disabled) return false;
+      if (this.nodeFilter !== "all" && (user.node_id ?? null) !== this.nodeFilter) return false;
       return true;
     });
     const sort = this.sort;
@@ -271,7 +273,8 @@ export class UsersPageVM {
   get hasActiveFilters(): boolean {
     return this.appliedQuery.trim().length > 0
       || this.roleFilter !== "all"
-      || this.statusFilter !== "all";
+      || this.statusFilter !== "all"
+      || this.nodeFilter !== "all";
   }
 
   @computed
@@ -307,6 +310,7 @@ export class UsersPageVM {
     this.appliedQuery = "";
     this.roleFilter = "all";
     this.statusFilter = "all";
+    this.nodeFilter = "all";
     this.clearSelection();
     this.persistFilters();
   }
@@ -345,9 +349,9 @@ export class UsersPageVM {
     return this.tariffs.find((tariff) => tariff.id === id)?.name ?? "—";
   }
 
-  groupName(id: string | null): string {
-    if (!id) return "Не задана";
-    return this.groups.find((group) => group.id === id)?.name ?? "—";
+  nodeName(id: string | null | undefined): string {
+    if (!id) return "—";
+    return this.nodes.find((node) => node.id === id)?.name ?? "—";
   }
 
   quotaFor(userId: string): UserQuotaSnapshot | null {
@@ -391,7 +395,7 @@ export class UsersPageVM {
     this.password = "";
     this.role = "user";
     this.tariffId = "";
-    this.groupId = "";
+    this.nodeId = "";
     this.disabled = false;
     this.formError = null;
     this.modalOpen = true;
@@ -403,7 +407,7 @@ export class UsersPageVM {
     this.password = "";
     this.role = user.role;
     this.tariffId = user.tariff_id ?? "";
-    this.groupId = user.group_id ?? "";
+    this.nodeId = user.node_id ?? "";
     this.disabled = user.disabled;
     this.formError = null;
     this.modalOpen = true;
@@ -430,8 +434,8 @@ export class UsersPageVM {
     this.tariffId = value;
   }
 
-  setGroup(value: string): void {
-    this.groupId = value;
+  setNode(value: string): void {
+    this.nodeId = value;
   }
 
   setDisabled(event: Event): void {
@@ -446,7 +450,7 @@ export class UsersPageVM {
         await this.usersService.updateUser(this.editingId, {
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
-          group_id: this.groupId ? this.groupId : null,
+          node_id: this.nodeId ? this.nodeId : null,
           disabled: this.disabled,
         });
         this.toasts.success("Пользователь обновлён");
@@ -462,7 +466,7 @@ export class UsersPageVM {
           password: this.password,
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
-          group_id: this.groupId ? this.groupId : null,
+          node_id: this.nodeId ? this.nodeId : null,
         });
         this.toasts.success("Пользователь создан");
       }
@@ -541,7 +545,7 @@ export class UsersPageVM {
   openApprove(user: User): void {
     this.approveTarget = user;
     this.approveTariffId = "";
-    this.approveGroupId = "";
+    this.approveNodeId = "";
     this.approveError = null;
     this.approveOpen = true;
   }
@@ -558,8 +562,8 @@ export class UsersPageVM {
     this.approveError = null;
   }
 
-  setApproveGroup(value: string): void {
-    this.approveGroupId = value;
+  setApproveNode(value: string): void {
+    this.approveNodeId = value;
   }
 
   async submitApprove(): Promise<void> {
@@ -573,7 +577,7 @@ export class UsersPageVM {
     try {
       await this.usersService.approveUser(this.approveTarget.id, {
         tariff_id: this.approveTariffId,
-        group_id: this.approveGroupId ? this.approveGroupId : null,
+        node_id: this.approveNodeId ? this.approveNodeId : null,
       });
       this.toasts.success(t("users.pending.approved"));
       this.approveOpen = false;

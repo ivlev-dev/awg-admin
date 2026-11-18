@@ -12,6 +12,7 @@ export interface User {
   role: Role;
   tariff_id: string | null;
   group_id: string | null;
+  node_id?: string | null;
   disabled: boolean;
   created_at: string;
   updated_at: string;

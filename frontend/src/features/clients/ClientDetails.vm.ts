@@ -3,7 +3,6 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
 import type { DevicesService } from "@/application/devices/service";
-import type { GroupsService } from "@/application/groups/service";
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -13,7 +12,6 @@ import type { DeviceStats } from "@/domain/devices/types";
 import type {
   Device,
   Forwarding,
-  Group,
   PeerInfo,
   Profile,
   ShareFormat,
@@ -70,7 +68,6 @@ export interface ClientEditState {
 export class ClientDetailsVM {
   constructor(
     private readonly devicesService: DevicesService,
-    private readonly groupsService: GroupsService,
     private readonly quotaService: QuotaService,
     private readonly session: Session,
     private readonly router: Router,
@@ -82,7 +79,6 @@ export class ClientDetailsVM {
   @reactive accessor shares: ShareLink[] = [];
   @reactive accessor stats: DeviceStats | null = null;
   @reactive accessor allDevices: Device[] = [];
-  @reactive accessor groups: Group[] = [];
   @reactive accessor ownerQuota: QuotaUsageView | null = null;
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
@@ -147,18 +143,6 @@ export class ClientDetailsVM {
   @computed
   get addresses(): string[] {
     return this.device?.addresses ?? [];
-  }
-
-  @computed
-  get groupLabel(): string {
-    const device = this.device;
-    if (!device || !device.group_id) return t("clients.group.none");
-    if (!this.isAdmin) {
-      return device.group_id === this.session.user?.group_id
-        ? t("clients.details.group.own")
-        : device.group_id;
-    }
-    return this.groups.find((group) => group.id === device.group_id)?.name ?? device.group_id;
   }
 
   @computed
@@ -411,7 +395,6 @@ export class ClientDetailsVM {
     this.stats = null;
     this.allDevices = [];
     this.forwardingRows = [];
-    this.groups = [];
     this.ownerQuota = null;
     this.activeProfileId = "";
     this.shareInterfaceId = "";
@@ -422,28 +405,23 @@ export class ClientDetailsVM {
     this.qrTitle = "";
     this.qrCopyLabel = "";
     try {
-      const groupsPromise: Promise<Group[]> = this.isAdmin
-        ? this.groupsService.listGroups()
-        : Promise.resolve([]);
       const devicePromise: Promise<Device> = this.devicesService.getDevice(id);
       const profilesPromise: Promise<Profile[]> = this.devicesService.listProfiles(id);
       const sharesPromise: Promise<ShareLink[]> = this.devicesService.listShares(id);
       const statsPromise: Promise<DeviceStats> = this.devicesService.deviceStats(id);
       const devicesPromise: Promise<Device[]> = this.devicesService.listDevices();
-      const [device, profiles, shares, stats, devices, groups] = await Promise.all([
+      const [device, profiles, shares, stats, devices] = await Promise.all([
         devicePromise,
         profilesPromise,
         sharesPromise,
         statsPromise,
         devicesPromise,
-        groupsPromise,
       ]);
       this.device = device;
       this.profiles = profiles;
       this.shares = shares;
       this.stats = stats;
       this.allDevices = devices;
-      this.groups = groups;
       this.buildForwardingRows(device);
       this.hydrateForm(device);
       await this.loadOwnerQuota(device);

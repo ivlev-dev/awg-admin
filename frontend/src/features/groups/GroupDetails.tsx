@@ -288,7 +288,7 @@ export function GroupDetails(this: { vm: GroupDetailsVM }) {
                                 <button
                                   class="btn btn--sm btn--ghost btn--icon"
                                   type="button"
-                                  aria-label={t("groups.details.pools.editAria")}
+                                  aria-label={t("groups.details.pools.editAria")} title={t("groups.details.pools.editAria")}
                                   onClick={() => this.vm.openPoolForm(pool)}
                                 >
                                   <Icon name="edit" size={14} class="" />
@@ -296,7 +296,7 @@ export function GroupDetails(this: { vm: GroupDetailsVM }) {
                                 <button
                                   class="btn btn--sm btn--ghost btn--icon"
                                   type="button"
-                                  aria-label={t("groups.details.pools.deleteAria")}
+                                  aria-label={t("groups.details.pools.deleteAria")} title={t("groups.details.pools.deleteAria")}
                                   onClick={() => this.vm.removePool(pool)}
                                 >
                                   <Icon name="trash" size={14} class="" />

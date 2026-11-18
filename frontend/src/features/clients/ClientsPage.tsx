@@ -256,7 +256,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           <button
                             class="btn btn--text btn--sm"
                             type="button"
-                            aria-label={t("common.open")}
+                            aria-label={t("common.open")} title={t("common.open")}
                             onClick={() => this.vm.openDevice(device.id)}
                           >
                             {t("common.open")} <Icon name="chevron" size={14} class="" />
@@ -321,7 +321,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         <button
                           class="btn btn--text btn--sm"
                           type="button"
-                          aria-label={t("common.open")}
+                          aria-label={t("common.open")} title={t("common.open")}
                           onClick={() => this.vm.openDevice(device.id)}
                         >
                           {t("common.open")} <Icon name="chevron" size={14} class="" />

@@ -26,6 +26,7 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  node_id: null,
   email: null,
   status: "active",
   totp_enabled: false,
@@ -40,12 +41,20 @@ const OWNER: User = {
   role: "user",
   tariff_id: null,
   group_id: "g1",
+  node_id: "n1",
   email: null,
   status: "active",
   totp_enabled: false,
   disabled: false,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
+};
+
+const MEMBER: User = {
+  ...OWNER,
+  id: "u3",
+  login: "member",
+  node_id: "n2",
 };
 
 const GROUP: Group = {
@@ -321,11 +330,12 @@ function setup(
   role: Role = "admin",
   seed: Device[] = [DEVICE],
   items: InterfaceInfo[] = [INTERFACE, INTERFACE_2],
+  accounts: User[] = [ADMIN, OWNER],
 ) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness(seed);
   const interfaces = interfacesHarness(items);
-  const users = usersHarness([ADMIN, OWNER]);
+  const users = usersHarness(accounts);
   const session = makeSession(user);
   window.history.replaceState(null, "", "/clients");
   const router = new Router();
@@ -383,6 +393,7 @@ describe("ClientsPageVM", () => {
     expect(vm.interfaces).toHaveLength(2);
     expect(vm.users).toEqual([]);
     expect(vm.isAdmin).toBe(false);
+    expect(vm.formInterfaceOptions).toEqual([{ value: "i1", label: "wg0 · node-1" }]);
   });
 
   it("показывает ошибку загрузки и сбрасывает состояние загрузки", async () => {
@@ -465,11 +476,8 @@ describe("ClientsPageVM", () => {
     );
   });
 
-  it("ограничивает интерфейсы формы группой выбранного пользователя", async () => {
-    const { vm } = setup("admin", [DEVICE], [
-      INTERFACE,
-      { ...INTERFACE_2, group_id: "g2", group_name: "Second" },
-    ]);
+  it("ограничивает интерфейсы формы нодой выбранного пользователя", async () => {
+    const { vm } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_2], [ADMIN, OWNER, MEMBER]);
     await vm.load();
 
     vm.openCreate();
@@ -477,6 +485,34 @@ describe("ClientsPageVM", () => {
 
     vm.setFormUser(OWNER.id);
     expect(vm.formInterfaceOptions).toEqual([{ value: "i1", label: "wg0 · node-1" }]);
+
+    vm.setFormUser(MEMBER.id);
+    expect(vm.formInterfaceOptions).toEqual([{ value: "i2", label: "wg1 · node-2" }]);
+
+    vm.setFormUser(ADMIN.id);
+    expect(vm.formInterfaceOptions).toHaveLength(2);
+  });
+
+  it("показывает все интерфейсы, если нода пользователя не задана", async () => {
+    const { vm } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_2], [ADMIN, { ...OWNER, node_id: null }]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.setFormUser(OWNER.id);
+
+    expect(vm.formInterfaceOptions).toHaveLength(2);
+  });
+
+  it("сбрасывает интерфейс другой ноды при смене пользователя", async () => {
+    const { vm } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_2], [ADMIN, OWNER, MEMBER]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.setFormUser(MEMBER.id);
+    expect(vm.formInterfaceId).toBe(INTERFACE_2.id);
+
+    vm.setFormUser(OWNER.id);
+    expect(vm.formInterfaceId).toBe(INTERFACE.id);
   });
 
   it("создаёт устройство для собственного аккаунта обычного пользователя", async () => {
@@ -485,8 +521,9 @@ describe("ClientsPageVM", () => {
 
     vm.openCreate();
     expect(vm.formUserId).toBe(OWNER.id);
+    expect(vm.formInterfaceId).toBe(INTERFACE.id);
     vm.formName = "Phone";
-    vm.setFormInterface(INTERFACE_2.id);
+    vm.setFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -494,7 +531,7 @@ describe("ClientsPageVM", () => {
       expect.objectContaining({
         user_id: OWNER.id,
         group_id: GROUP.id,
-        interface_id: INTERFACE_2.id,
+        interface_id: INTERFACE.id,
         name: "Phone",
       }),
     );
@@ -502,13 +539,18 @@ describe("ClientsPageVM", () => {
   });
 
   it("не создаёт устройство без выбранного интерфейса", async () => {
-    const { vm, devices, toasts } = setup("admin");
+    const { vm, devices, toasts } = setup("admin", [DEVICE], [
+      INTERFACE,
+      { ...INTERFACE_2, node_id: "n1", node_name: "node-1" },
+    ]);
     await vm.load();
 
     vm.openCreate();
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
 
+    expect(vm.formInterfaceOptions).toHaveLength(2);
+    expect(vm.formInterfaceId).toBe("");
     expect(vm.canCreate).toBe(false);
     await vm.create();
 
@@ -519,7 +561,7 @@ describe("ClientsPageVM", () => {
     });
   });
 
-  it("подставляет единственный интерфейс группы пользователя", async () => {
+  it("подставляет единственный интерфейс ноды пользователя", async () => {
     const { vm, devices } = setup("admin", [DEVICE], [INTERFACE]);
     await vm.load();
 

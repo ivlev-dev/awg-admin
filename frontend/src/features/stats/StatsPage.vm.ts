@@ -187,7 +187,6 @@ export class StatsVM {
       return [
         { value: "global", label: t("stats.scope.global") },
         { value: "user", label: t("stats.scope.user") },
-        { value: "group", label: t("stats.scope.group") },
         { value: "interface", label: t("stats.scope.interface") },
         { value: "device", label: t("stats.scope.device") },
       ];

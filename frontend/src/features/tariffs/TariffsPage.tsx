@@ -203,10 +203,10 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                         </td>
                         <td class="cell-actions">
                           <div class="row" style="gap:6px">
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label="Редактировать">
+                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label="Редактировать" title="Редактировать">
                               <Icon name="edit" size={14} class="" />
                             </button>
-                            <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => this.vm.remove(tariff.id)} aria-label="Удалить">
+                            <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => this.vm.remove(tariff.id)} aria-label="Удалить" title="Удалить">
                               <Icon name="trash" size={14} class="" />
                             </button>
                           </div>
@@ -293,14 +293,14 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
             />
             <RateField
               id="tariff-group-down"
-              label="Группа скачивание"
+              label="Интерфейс скачивание"
               value={this.vm.group_down_kbps}
               hint="0 — без лимита"
               onChange={(kbps) => this.vm.setGroupDownKbps(kbps)}
             />
             <RateField
               id="tariff-group-up"
-              label="Группа отдача"
+              label="Интерфейс отдача"
               value={this.vm.group_up_kbps}
               hint="0 — без лимита"
               onChange={(kbps) => this.vm.setGroupUpKbps(kbps)}

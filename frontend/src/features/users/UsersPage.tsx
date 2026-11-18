@@ -49,7 +49,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       <div class="page-head">
         <div class="page-head__eyebrow">Доступ</div>
         <h1>Пользователи</h1>
-        <p>Учётки панели, роли, тарифы и привязка к группам интерфейсов.</p>
+        <p>Учётки панели, роли, тарифы и привязка к нодам.</p>
       </div>
 
       <Show when={this.vm.error}>
@@ -139,6 +139,19 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   ariaLabel={t("users.filter.status")}
                 />
               </div>
+              <div class="field">
+                <label for="users-node">{t("users.filter.node")}</label>
+                <Select
+                  id="users-node"
+                  value={this.vm.nodeFilter}
+                  options={[
+                    { value: "all", label: t("users.filter.allNodes") },
+                    ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name })),
+                  ]}
+                  onChange={(value) => { this.vm.nodeFilter = value; }}
+                  ariaLabel={t("users.filter.node")}
+                />
+              </div>
               <Show when={this.vm.hasActiveFilters}>
                 <button class="btn btn--text btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                   <Icon name="close" size={14} class="" /> {t("filters.reset")}
@@ -200,7 +213,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           Роль <span class="sort-indicator">{this.vm.sortMark("role")}</span>
                         </button>
                       </th>
-                      <th style="width:128px">Тариф/группа</th>
+                      <th style="width:128px">Тариф/нода</th>
                       <th style="width:126px">Квота</th>
                       <th class="is-sortable" style="width:120px" aria-sort={ariaSort(this.vm.sort, "status")}>
                         <button type="button" onClick={() => this.vm.sortBy("status")}>
@@ -238,13 +251,13 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                               {user.role === "admin" ? "Администратор" : "Пользователь"}
                             </span>
                           </td>
-                          <td data-label="Тариф/группа">
+                          <td data-label="Тариф/нода">
                             <div class="cell-name__text cell-stack">
                               <span class="small strong" title={this.vm.tariffName(user.tariff_id)}>
                                 {this.vm.tariffName(user.tariff_id)}
                               </span>
-                              <span class="xs muted" title={this.vm.groupName(user.group_id)}>
-                                {this.vm.groupName(user.group_id)}
+                              <span class="xs muted" title={this.vm.nodeName(user.node_id)}>
+                                {this.vm.nodeName(user.node_id)}
                               </span>
                             </div>
                           </td>
@@ -272,13 +285,20 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             </span>
                           </td>
                           <td class="cell-actions">
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label="Редактировать">
+                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label="Редактировать" title="Редактировать">
                               <Icon name="edit" size={14} class="" />
                             </button>
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label="Сбросить пароль">
+                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label="Сбросить пароль" title="Сбросить пароль">
                               <Icon name="shield" size={14} class="" />
                             </button>
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.toggleDisabled(user)} aria-label="Включить или отключить">
+                            <button
+                              class="btn btn--sm btn--ghost btn--icon"
+                              type="button"
+                              disabled={user.id === this.vm.selfId}
+                              title={user.id === this.vm.selfId ? t("users.selfDisable") : user.disabled ? t("users.action.enable") : t("users.action.disable")}
+                              onClick={() => this.vm.toggleDisabled(user)}
+                              aria-label="Включить или отключить"
+                            >
                               <Icon name={user.disabled ? "check" : "warning"} size={14} class="" />
                             </button>
                             <button
@@ -286,7 +306,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                               type="button"
                               disabled={user.id === this.vm.selfId}
                               onClick={() => this.vm.remove(user)}
-                              aria-label="Удалить"
+                              aria-label="Удалить" title="Удалить"
                             >
                               <Icon name="trash" size={14} class="" />
                             </button>
@@ -334,8 +354,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             <dd>{this.vm.tariffName(user.tariff_id)}</dd>
                           </div>
                           <div>
-                            <dt>Группа</dt>
-                            <dd>{this.vm.groupName(user.group_id)}</dd>
+                            <dt>{t("users.column.node")}</dt>
+                            <dd>{this.vm.nodeName(user.node_id)}</dd>
                           </div>
                           <div>
                             <dt>Квота</dt>
@@ -362,7 +382,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <button
                             class="btn btn--text btn--sm"
                             type="button"
-                            aria-label="Редактировать"
+                            aria-label="Редактировать" title="Редактировать"
                             onClick={() => this.vm.openEdit(user)}
                           >
                             Редактировать
@@ -370,7 +390,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <button
                             class="btn btn--text btn--sm"
                             type="button"
+                            disabled={user.id === this.vm.selfId}
                             aria-label="Включить или отключить"
+                            title={user.id === this.vm.selfId ? t("users.selfDisable") : user.disabled ? t("users.action.enable") : t("users.action.disable")}
                             onClick={() => this.vm.toggleDisabled(user)}
                           >
                             {user.disabled ? "Разблокировать" : "Блокировать"}
@@ -543,8 +565,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             <dd>{this.vm.tariffName(user.tariff_id)}</dd>
                           </div>
                           <div>
-                            <dt>Группа</dt>
-                            <dd>{this.vm.groupName(user.group_id)}</dd>
+                            <dt>{t("users.column.node")}</dt>
+                            <dd>{this.vm.nodeName(user.node_id)}</dd>
                           </div>
                           <div>
                             <dt>Квота</dt>
@@ -571,7 +593,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <button
                             class="btn btn--sm btn--primary"
                             type="button"
-                            aria-label={t("users.pending.approve")}
+                            aria-label={t("users.pending.approve")} title={t("users.pending.approve")}
                             onClick={() => this.vm.openApprove(user)}
                           >
                             {t("users.pending.approve")}
@@ -579,7 +601,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                           <button
                             class="btn btn--sm btn--danger"
                             type="button"
-                            aria-label={t("users.pending.reject")}
+                            aria-label={t("users.pending.reject")} title={t("users.pending.reject")}
                             onClick={() => this.vm.reject(user)}
                           >
                             {t("users.pending.reject")}
@@ -647,20 +669,28 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               />
             </div>
             <div class="field">
-              <label>Группа интерфейсов</label>
+              <label>{t("users.form.node")}</label>
               <Select
-                value={this.vm.groupId}
-                options={[{ value: "", label: "Не задана" }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
-                onChange={(value) => this.vm.setGroup(value)}
-                ariaLabel="Группа интерфейсов"
+                value={this.vm.nodeId}
+                options={[{ value: "", label: t("users.form.nodeOptional") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
+                onChange={(value) => this.vm.setNode(value)}
+                ariaLabel={t("users.form.node")}
               />
             </div>
           </div>
 
           <Show when={!!this.vm.editingId}>
             <label class="checkbox">
-              <input type="checkbox" checked={this.vm.disabled} onChange={(event: Event) => this.vm.setDisabled(event)} />
+              <input
+                type="checkbox"
+                checked={this.vm.disabled}
+                disabled={this.vm.editingId === this.vm.selfId}
+                onChange={(event: Event) => this.vm.setDisabled(event)}
+              />
               Учётная запись отключена
+              <Show when={this.vm.editingId === this.vm.selfId}>
+                <span class="hint">{t("users.selfDisable")}</span>
+              </Show>
             </label>
           </Show>
 
@@ -731,15 +761,15 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               />
             </div>
             <div class="field">
-              <label>{t("users.pending.group")}</label>
+              <label>{t("users.pending.node")}</label>
               <Select
-                value={this.vm.approveGroupId}
+                value={this.vm.approveNodeId}
                 options={[
-                  { value: "", label: t("users.pending.groupOptional") },
-                  ...this.vm.groups.map((group) => ({ value: group.id, label: group.name })),
+                  { value: "", label: t("users.form.nodeOptional") },
+                  ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name })),
                 ]}
-                onChange={(value) => this.vm.setApproveGroup(value)}
-                ariaLabel={t("users.pending.group")}
+                onChange={(value) => this.vm.setApproveNode(value)}
+                ariaLabel={t("users.pending.node")}
               />
             </div>
           </div>

@@ -121,7 +121,7 @@ export function Register(this: { vm: RegisterVM }) {
                     value={this.vm.password}
                     onInput={(event: Event) => this.vm.setPassword(event)}
                   />
-                  <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")}>
+                  <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")} title={t("auth.login.showPassword")}>
                     <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
                   </button>
                 </div>

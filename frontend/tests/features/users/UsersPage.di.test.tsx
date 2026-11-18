@@ -3,7 +3,7 @@ import { createComponent } from "@ivlev-dev/silent-core";
 import { createAppContainer } from "@/app/di";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
-import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultNodesService } from "@/application/nodes/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
@@ -19,16 +19,15 @@ import type {
   TotpToggleResult,
   VerifyEmailResult,
 } from "@/domain/auth/types";
-import type { GroupsRepository } from "@/domain/groups/repository";
-import type { GroupInput, PoolInput } from "@/domain/groups/types";
+import type { NodesRepository } from "@/domain/nodes/repository";
+import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState, UserQuota } from "@/domain/quota/types";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type {
   AuthSession,
-  CidrPool,
-  Group,
+  NodeInfo,
   Tariff,
   User,
 } from "@/domain/types";
@@ -44,6 +43,7 @@ const ADMIN: User = {
   role: "admin",
   tariff_id: null,
   group_id: null,
+  node_id: "n1",
   email: null,
   status: "active",
   totp_enabled: false,
@@ -68,16 +68,14 @@ const TARIFF: Tariff = {
   updated_at: "2020-01-01T00:00:00Z",
 };
 
-const GROUP: Group = {
-  id: "g1",
-  name: "Main",
-  description: "",
-  base_cidr: "10.0.0.0/24",
-  forwarding_default: false,
-  created_at: "2020-01-01T00:00:00Z",
-  updated_at: "2020-01-01T00:00:00Z",
+const NODE: NodeInfo = {
+  id: "n1",
+  name: "Node 1",
+  status: "online",
+  online: true,
+  last_seen: null,
+  version: null,
   interfaces: 0,
-  devices: 0,
 };
 
 const QUOTA: UserQuota = {
@@ -143,50 +141,24 @@ class StubTariffsRepository {
   }
 }
 
-class StubGroupsRepository {
-  async listGroups(): Promise<Group[]> {
-    return [GROUP];
+class StubNodesRepository {
+  async listNodes(): Promise<NodeInfo[]> {
+    return [NODE];
   }
 
-  async createGroup(_input: GroupInput): Promise<Group> {
-    return GROUP;
+  async createNode(name: string): Promise<NodeCreated> {
+    return { node: { id: "n2", name, created_at: "2020-01-01T00:00:00Z" }, token: "token" };
   }
 
-  async updateGroup(_id: string, _input: Partial<GroupInput>): Promise<Group> {
-    return GROUP;
+  async rotateNode(_id: string): Promise<NodeRotated> {
+    return { node: NODE, token: "rotated" };
   }
 
-  async deleteGroup(_id: string): Promise<void> {}
+  async deleteNode(_id: string): Promise<void> {}
 
   async bulk(_action: "delete", _ids: readonly string[]) {
     return { done: 0, failed: [] };
   }
-
-  async listPools(_groupId: string): Promise<CidrPool[]> {
-    return [];
-  }
-
-  async createPool(groupId: string, input: PoolInput): Promise<CidrPool> {
-    return { id: "p1", group_id: groupId, ...input, enabled: true };
-  }
-
-  async updatePool(
-    id: string,
-    input: Partial<PoolInput> & { enabled?: boolean },
-  ): Promise<CidrPool> {
-    return {
-      id,
-      group_id: GROUP.id,
-      name: "pool",
-      cidr: "10.0.1.0/24",
-      mode: "auto",
-      gateway: null,
-      enabled: true,
-      ...input,
-    };
-  }
-
-  async deletePool(_id: string): Promise<void> {}
 }
 
 class StubQuotaRepository {
@@ -319,7 +291,7 @@ function stubApi(): void {
       if (url.endsWith("/quota/users")) return jsonResponse([QUOTA]);
       if (url.endsWith("/users")) return jsonResponse([ADMIN]);
       if (url.endsWith("/tariffs")) return jsonResponse([TARIFF]);
-      if (url.endsWith("/groups")) return jsonResponse([GROUP]);
+      if (url.endsWith("/nodes")) return jsonResponse([NODE]);
       return jsonResponse([]);
     }),
   );
@@ -337,7 +309,7 @@ describe("UsersPageVM constructor DI", () => {
     const container = createAppContainer();
     container.bind(DefaultUsersService, () => new DefaultUsersService(new StubUsersRepository()));
     container.bind(DefaultTariffsService, () => new DefaultTariffsService(new StubTariffsRepository()));
-    container.bind(DefaultGroupsService, () => new DefaultGroupsService(new StubGroupsRepository()));
+    container.bind(DefaultNodesService, () => new DefaultNodesService(new StubNodesRepository()));
     container.bind(DefaultQuotaService, () => new DefaultQuotaService(new StubQuotaRepository()));
     container.bind(Session, () => session);
     container.bind(ToastStore, () => toasts);
@@ -353,7 +325,7 @@ describe("UsersPageVM constructor DI", () => {
     expect(vm.error).toBeNull();
     expect(vm.users).toEqual([ADMIN]);
     expect(vm.tariffs).toEqual([TARIFF]);
-    expect(vm.groups).toEqual([GROUP]);
+    expect(vm.nodes).toEqual([NODE]);
     expect(vm.quotas).toEqual([
       expect.objectContaining({ userId: ADMIN.id, percent: 50, quotaBytes: 2048 }),
     ]);
@@ -376,7 +348,7 @@ describe("UsersPageVM constructor DI", () => {
     expect(vm.error).toBeNull();
     expect(vm.users).toEqual([ADMIN]);
     expect(vm.tariffs).toEqual([TARIFF]);
-    expect(vm.groups).toEqual([GROUP]);
+    expect(vm.nodes).toEqual([NODE]);
     expect(vm.quotaPercentLabel(ADMIN.id)).toBe("50.0 %");
     result.dispose();
   });
@@ -402,6 +374,15 @@ describe("UsersPageVM constructor DI", () => {
     const quotaCell = root.querySelector("td[data-label='Квота']");
     expect(quotaCell?.querySelector(".user-quota")).not.toBeNull();
     expect(quotaCell?.textContent).toContain("%");
+
+    const nodeCell = root.querySelector("td[data-label='Тариф/нода']");
+    expect(nodeCell?.textContent).toContain("Node 1");
+    expect(root.querySelector("#users-node")).not.toBeNull();
+
+    const cardMeta = root.querySelector(".entity-card__meta");
+    expect(cardMeta?.textContent).toContain("Нода");
+    expect(cardMeta?.textContent).toContain("Node 1");
+    expect(cardMeta?.textContent).not.toContain("Группа");
 
     const actions = root.querySelector("td.cell-actions");
     expect(actions?.querySelectorAll("button")).toHaveLength(4);

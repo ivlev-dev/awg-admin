@@ -113,11 +113,7 @@ export class ClientsPageVM {
 
   @computed
   get formInterfaceOptions(): InterfaceOption[] {
-    const groupId = this.userGroupId(this.formUserId);
-    const items = groupId.length > 0
-      ? this.interfaces.filter((item) => item.group_id === groupId)
-      : this.interfaces;
-    return items.map((item) => ({
+    return this.interfacesForNode(this.userNodeId(this.formUserId)).map((item) => ({
       value: item.id,
       label: interfaceLabel(item),
     }));
@@ -231,7 +227,7 @@ export class ClientsPageVM {
   get selectedInterfaceId(): string {
     const explicit = this.interfaces.find((item) => item.id === this.formInterfaceId);
     if (explicit) return explicit.id;
-    return this.singleInterfaceForGroup(this.userGroupId(this.formUserId));
+    return this.singleInterfaceForNode(this.userNodeId(this.formUserId));
   }
 
   @computed
@@ -311,10 +307,10 @@ export class ClientsPageVM {
 
   setFormUser(value: string): void {
     this.formUserId = value;
-    const groupId = this.userGroupId(value);
+    const nodeId = this.userNodeId(value);
     const current = this.interfaces.find((item) => item.id === this.formInterfaceId);
-    if (!current || current.group_id !== groupId) {
-      this.formInterfaceId = this.singleInterfaceForGroup(groupId);
+    if (!current || !isInterfaceOnNode(current, nodeId)) {
+      this.formInterfaceId = this.singleInterfaceForNode(nodeId);
     }
   }
 
@@ -336,9 +332,13 @@ export class ClientsPageVM {
 
   openCreate(): void {
     const userId = this.isAdmin ? "" : this.session.user?.id ?? "";
+    const nodeId = this.userNodeId(userId);
+    const preferred = this.interfaces.find((item) => item.id === this.interfaceFilter);
     this.formName = "";
     this.formUserId = userId;
-    this.formInterfaceId = this.interfaceFilter || this.singleInterfaceForGroup(this.userGroupId(userId));
+    this.formInterfaceId = preferred && isInterfaceOnNode(preferred, nodeId)
+      ? preferred.id
+      : this.singleInterfaceForNode(nodeId);
     this.formDownKbps = 0;
     this.formUpKbps = 0;
     this.formForwarding = false;
@@ -379,7 +379,7 @@ export class ClientsPageVM {
     try {
       const device = await this.devicesService.createDevice({
         user_id: userId,
-        group_id: this.formInterfaceGroupId ?? (this.isAdmin ? null : this.session.user?.group_id ?? null),
+        group_id: this.formInterfaceGroupId,
         interface_id: interfaceId,
         name,
         down_kbps: this.formDownKbps,
@@ -428,14 +428,19 @@ export class ClientsPageVM {
     return names.length > 0 ? names.join(", ") : "—";
   }
 
-  private userGroupId(userId: string): string {
-    if (!this.isAdmin) return this.session.user?.group_id ?? "";
-    return this.users.find((user) => user.id === userId)?.group_id ?? "";
+  private userNodeId(userId: string): string {
+    if (!this.isAdmin) return this.session.user?.node_id ?? "";
+    return this.users.find((user) => user.id === userId)?.node_id ?? "";
   }
 
-  private singleInterfaceForGroup(groupId: string): string {
-    if (groupId.length === 0) return "";
-    const matches = this.interfaces.filter((item) => item.group_id === groupId);
+  private interfacesForNode(nodeId: string): InterfaceInfo[] {
+    if (nodeId.length === 0) return this.interfaces;
+    return this.interfaces.filter((item) => isInterfaceOnNode(item, nodeId));
+  }
+
+  private singleInterfaceForNode(nodeId: string): string {
+    if (nodeId.length === 0) return "";
+    const matches = this.interfacesForNode(nodeId);
     return matches.length === 1 ? matches[0]?.id ?? "" : "";
   }
 
@@ -449,6 +454,10 @@ export class ClientsPageVM {
 
 function interfaceLabel(item: InterfaceInfo): string {
   return item.node_name.length > 0 ? `${item.name} · ${item.node_name}` : item.name;
+}
+
+function isInterfaceOnNode(item: InterfaceInfo, nodeId: string): boolean {
+  return nodeId.length === 0 || item.node_id === nodeId;
 }
 
 function validateClientsFilters(value: unknown): ClientsFilters | null {

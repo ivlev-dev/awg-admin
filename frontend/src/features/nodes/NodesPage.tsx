@@ -403,7 +403,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                             class="btn btn--text btn--sm"
                             type="button"
                             disabled={this.vm.busy}
-                            aria-label={t("nodes.rotate.aria", { name: node.name })}
+                            aria-label={t("nodes.rotate.aria", { name: node.name })} title={t("nodes.rotate.aria", { name: node.name })}
                             onClick={() => this.vm.rotate(node)}
                           >
                             <Icon name="shield" size={14} class="" /> {t("nodes.rotate")}
@@ -412,7 +412,7 @@ export function NodesPage(this: { vm: NodesPageVM }) {
                             class="btn btn--danger btn--sm"
                             type="button"
                             disabled={this.vm.busy}
-                            aria-label={t("common.delete")}
+                            aria-label={t("common.delete")} title={t("common.delete")}
                             onClick={() => this.vm.remove(node)}
                           >
                             <Icon name="trash" size={14} class="" /> {t("common.delete")}

@@ -34,6 +34,7 @@ export class DefaultUsersService implements UsersService {
       password: validatePassword(input.password),
       role: input.role,
       tariff_id: input.tariff_id,
+      node_id: input.node_id,
       group_id: input.group_id,
     });
   }
@@ -59,6 +60,7 @@ export class DefaultUsersService implements UsersService {
     }
     return this.repository.approveUser(requireId(id, "Пользователь"), {
       tariff_id: input.tariff_id.trim(),
+      node_id: input.node_id ? input.node_id : null,
       group_id: input.group_id ? input.group_id : null,
     });
   }
