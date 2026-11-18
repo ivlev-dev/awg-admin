@@ -27,6 +27,7 @@ pub struct NewUser {
     pub role: Role,
     pub tariff_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+    pub node_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone)]
@@ -48,6 +49,7 @@ pub struct UserChanges {
     pub role: Option<Role>,
     pub tariff_id: Option<Option<Uuid>>,
     pub group_id: Option<Option<Uuid>>,
+    pub node_id: Option<Option<Uuid>>,
     pub disabled: Option<bool>,
 }
 
@@ -120,6 +122,7 @@ impl IdentityService {
             role: Role::Admin,
             tariff_id: None,
             group_id: None,
+            node_id: None,
         })?;
         Ok(Some(user))
     }
@@ -241,6 +244,7 @@ impl IdentityService {
             role: input.role,
             tariff_id: input.tariff_id,
             group_id: input.group_id,
+            node_id: input.node_id,
             disabled: false,
             email: None,
             status: UserStatus::Active,
@@ -283,6 +287,7 @@ impl IdentityService {
             role: Role::User,
             tariff_id: None,
             group_id: None,
+            node_id: None,
             disabled: false,
             email: Some(email.clone()),
             status: UserStatus::PendingEmail,
@@ -426,7 +431,7 @@ impl IdentityService {
         &self,
         id: Uuid,
         tariff_id: Uuid,
-        group_id: Option<Uuid>,
+        node_id: Option<Uuid>,
     ) -> CoreResult<User> {
         let mut user = self.find(id)?;
         if user.status != UserStatus::PendingApproval {
@@ -434,7 +439,8 @@ impl IdentityService {
         }
         user.status = UserStatus::Active;
         user.tariff_id = Some(tariff_id);
-        user.group_id = group_id;
+        user.group_id = None;
+        user.node_id = node_id;
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         Ok(user)
@@ -604,6 +610,9 @@ impl IdentityService {
         }
         if let Some(group_id) = changes.group_id {
             user.group_id = group_id;
+        }
+        if let Some(node_id) = changes.node_id {
+            user.node_id = node_id;
         }
         if let Some(disabled) = changes.disabled {
             user.disabled = disabled;

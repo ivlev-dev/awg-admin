@@ -34,7 +34,7 @@
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
 | GET | `/users` | admin | — | `UserView[]` |
 | GET | `/users/pending` | admin | — | `UserView[]` (pending approval) |
-| POST | `/users/{id}/approve` | admin | `{tariff_id,group_id?}` | `UserView` |
+| POST | `/users/{id}/approve` | admin | `{tariff_id,node_id?,group_id?}` | `UserView` |
 | POST | `/users/{id}/reject` | admin | — | `UserView` |
 | POST | `/users` | admin | `CreateUserRequest` | `UserView` |
 | GET | `/users/{id}` | admin | — | `UserView` |
@@ -106,6 +106,24 @@
 | GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
 | POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
 
+## Пользователи и привязка к ноде
+
+`UserView` (ответы `/auth/me`, `/auth/login`, `/auth/refresh`, `/users*`)
+содержит обычные поля пользователя и:
+
+- `node_id: string|null` — нода, к интерфейсам которой привязываются новые
+  устройства пользователя; `null` — нода не задана;
+- `group_id: string|null` — устаревшее поле (deprecated), сохранено для
+  совместимости и квот; новые интеграции используют `node_id`.
+
+`CreateUserRequest` принимает `node_id?: string|null` и по-прежнему принимает
+`group_id?: string`. `UpdateUserRequest` принимает `node_id` как double option:
+поле отсутствует — привязка не меняется, `null` — очистить, строка — привязать
+к ноде. `POST /users/{id}/approve` принимает `node_id?: string|null`;
+`group_id` в этом запросе считается устаревшим, но если он передан, он
+записывается пользователю для совместимости. Несуществующая нода даёт
+`404 not_found`.
+
 ## Тарифы и привязка к интерфейсу
 
 `TariffView` (ответ `GET/POST/PATCH /tariffs`) содержит обычные поля тарифа и:
@@ -127,17 +145,24 @@
 - `node_id` — нода интерфейса;
 - `node_name` — имя ноды.
 
-`CreateDeviceRequest` принимает `interface_id?: string`. Интерфейс выбирается в
-таком порядке:
+`CreateDeviceRequest` принимает `interface_id?: string` и необязательный
+`group_id?: string` (устаревший; используется только если у пользователя нет
+ноды и интерфейс не выбран тарифом или запросом). Интерфейс выбирается в таком
+порядке:
 
 1. `interface_id` тарифа пользователя;
 2. `interface_id` из запроса;
-3. единственный включённый интерфейс группы.
+3. единственный включённый интерфейс ноды пользователя (`node_id`);
+4. единственный включённый интерфейс устаревшей группы пользователя
+   (`group_id`).
 
-Если ни один вариант не дал интерфейса (в группе нет включённых интерфейсов или
-их несколько) — `400 bad_request`. Явно выбранный интерфейс другой группы или
-тариф, привязанный к другой группе пользователя, — `403 forbidden`; выключенный
-интерфейс — `409 conflict`.
+Если у ноды нет включённых интерфейсов — `400 bad_request`
+(`node has no enabled interfaces`), если их несколько — `400 bad_request`
+(`node has multiple enabled interfaces; interface_id is required`). Если не
+заданы ни нода, ни группа, ни интерфейс тарифа/запроса — `400 bad_request`.
+Интерфейс другой ноды пользователя или другой группы — `403 forbidden`;
+выключенный явно выбранный интерфейс — `409 conflict`. `group_id` устройства
+всегда равен группе выбранного интерфейса.
 
 Устройство создаётся ровно с одним пиром — на выбранном интерфейсе. `PATCH
 /devices/{id}` интерфейс не меняет. `GET /devices/{id}/profiles` всегда
@@ -654,8 +679,9 @@ refresh, повтор refresh, заблокированный или удалё�
 2. `POST /auth/verify-email` `{"token":"…"}` →
    `{"status":"pending_approval"}`. Повторный вызов — `400 bad_request`.
 3. `GET /users/pending` (admin) → `UserView[]` со статусом `pending_approval`.
-4. `POST /users/{id}/approve` `{"tariff_id":"…","group_id":"…"}` (admin) →
-   `UserView` со статусом `active`.
+4. `POST /users/{id}/approve` `{"tariff_id":"…","node_id":"…"}` (admin) →
+   `UserView` со статусом `active`; `group_id` в запросе устарел, но
+   принимается для совместимости.
 5. `POST /users/{id}/reject` (admin) → `UserView` со статусом `rejected`.
 
 `POST /auth/resend-verification` `{"email":"…"}` всегда отвечает
@@ -669,7 +695,8 @@ refresh, повтор refresh, заблокированный или удалё�
 созданные администратором, сразу `active`.
 
 `UserView` дополнен полями `email`, `status` (`pending_email`,
-`pending_approval`, `active`, `rejected`) и `totp_enabled`.
+`pending_approval`, `active`, `rejected`), `totp_enabled` и `node_id` (нода
+пользователя; `group_id` — устаревшее поле).
 
 TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 

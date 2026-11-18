@@ -115,7 +115,6 @@ async fn registration_verification_and_approval_flow() {
         .unwrap()
         .unwrap();
     let tariff_id = Uuid::new_v4();
-    let group_id = Uuid::new_v4();
 
     let user = register(&harness, " New.User@Example.COM ", None).await;
     assert_eq!(user.status, UserStatus::PendingEmail);
@@ -150,13 +149,14 @@ async fn registration_verification_and_approval_flow() {
     assert_eq!(pending[0].id, user.id);
     assert!(pending.iter().all(|item| item.id != admin.id));
 
+    let node_id = Uuid::new_v4();
     let approved = harness
         .service
-        .approve_user(user.id, tariff_id, Some(group_id))
+        .approve_user(user.id, tariff_id, Some(node_id))
         .unwrap();
     assert_eq!(approved.status, UserStatus::Active);
     assert_eq!(approved.tariff_id, Some(tariff_id));
-    assert_eq!(approved.group_id, Some(group_id));
+    assert_eq!(approved.node_id, Some(node_id));
 
     let by_email = harness
         .service

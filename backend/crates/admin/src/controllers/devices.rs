@@ -66,27 +66,10 @@ pub async fn create(
         .tariff_for(&owner)
         .map_err(ApiError::from)?
         .unwrap_or_else(unlimited_tariff);
-    let group_id = match request.group_id.or(owner.group_id) {
-        Some(id) => id,
-        None => match tariff.interface_id {
-            Some(interface_id) => {
-                state
-                    .network
-                    .get_interface(interface_id)
-                    .map_err(ApiError::from)?
-                    .group_id
-            }
-            None => {
-                return Err(ApiError::BadRequest(
-                    "user has no group assigned and tariff has no interface".into(),
-                ));
-            }
-        },
-    };
-    let group = state.network.get_group(group_id).map_err(ApiError::from)?;
+    let group_id = request.group_id.or(owner.group_id);
     let settings = state.settings.get().map_err(ApiError::from)?;
     let forwarding = request.forwarding.unwrap_or(Forwarding {
-        to_own_devices: group.forwarding_default,
+        to_own_devices: forwarding_default(&state, &owner, &tariff, request.interface_id, group_id),
         allowed_devices: vec![],
     });
     let device = state
@@ -353,6 +336,34 @@ fn assemble_view(
         .unwrap_or_default();
     let node_name = node_names.get(&node_id).cloned().unwrap_or_default();
     DeviceView::build(device, peers, &names, &interface_name, node_id, &node_name)
+}
+
+fn forwarding_default(
+    state: &AppState,
+    owner: &awg_identity::User,
+    tariff: &Tariff,
+    requested: Option<Uuid>,
+    group_id: Option<Uuid>,
+) -> bool {
+    let interface = tariff
+        .interface_id
+        .and_then(|id| state.network.get_interface(id).ok())
+        .or_else(|| requested.and_then(|id| state.network.get_interface(id).ok()))
+        .or_else(|| {
+            owner
+                .node_id
+                .and_then(|node_id| state.network.interfaces_by_node(node_id).ok())
+                .and_then(|interfaces| interfaces.into_iter().next())
+        })
+        .or_else(|| {
+            group_id
+                .and_then(|group_id| state.network.interfaces_by_group(group_id).ok())
+                .and_then(|interfaces| interfaces.into_iter().next())
+        });
+    interface
+        .and_then(|interface| state.network.get_group(interface.group_id).ok())
+        .map(|group| group.forwarding_default)
+        .unwrap_or(false)
 }
 
 fn unlimited_tariff() -> Tariff {

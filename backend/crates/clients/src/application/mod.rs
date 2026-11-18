@@ -27,7 +27,7 @@ use crate::domain::{
 #[derive(Debug, Clone)]
 pub struct NewDevice {
     pub user_id: Uuid,
-    pub group_id: Uuid,
+    pub group_id: Option<Uuid>,
     pub interface_id: Option<Uuid>,
     pub name: String,
     pub down_kbps: u32,
@@ -102,12 +102,14 @@ impl DeviceService {
     ) -> CoreResult<Device> {
         user.ensure_active()?;
         validate_device_name(&input.name)?;
-        let group_id = user.group_id.unwrap_or(input.group_id);
-        if user.group_id.is_some() && user.group_id != Some(input.group_id) {
+        if let (Some(own), Some(requested)) = (user.group_id, input.group_id)
+            && own != requested
+        {
             return Err(CoreError::Forbidden(
                 "user may only create devices in their own group".into(),
             ));
         }
+        let group_id = input.group_id.or(user.group_id);
         let interface = self.resolve_interface(user, group_id, tariff, input.interface_id)?;
         let group = self.network.get_group(interface.group_id)?;
         let existing = self.devices.by_user(user.id)?;
@@ -196,33 +198,63 @@ impl DeviceService {
     fn resolve_interface(
         &self,
         user: &User,
-        group_id: Uuid,
+        group_id: Option<Uuid>,
         tariff: &Tariff,
         requested: Option<Uuid>,
     ) -> CoreResult<awg_network::Interface> {
-        if let Some(interface_id) = tariff.interface_id {
-            let interface = self.network.get_interface(interface_id)?;
-            if interface.group_id == group_id {
-                return self.ensure_interface_enabled(interface);
-            }
-            if user.group_id.is_some() {
-                return Err(CoreError::Forbidden(
-                    "tariff interface belongs to another group".into(),
-                ));
-            }
-            return self.ensure_interface_enabled(interface);
+        let interface = if let Some(interface_id) = tariff.interface_id {
+            self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?
+        } else if let Some(interface_id) = requested {
+            self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?
+        } else if let Some(node_id) = user.node_id {
+            self.interface_for_node(node_id)?
+        } else if let Some(group_id) = group_id {
+            self.interface_for_group(group_id)?
+        } else {
+            return Err(CoreError::Invalid(
+                "user has no node assigned; interface_id is required".into(),
+            ));
+        };
+        if let Some(node_id) = user.node_id
+            && interface.node_id != node_id
+        {
+            return Err(CoreError::Forbidden(
+                "interface belongs to another node".into(),
+            ));
         }
-        if let Some(interface_id) = requested {
-            let interface = self.network.get_interface(interface_id)?;
-            if interface.group_id != group_id {
-                return Err(CoreError::Forbidden(
-                    "interface belongs to another group".into(),
-                ));
-            }
-            return self.ensure_interface_enabled(interface);
+        if let Some(group_id) = group_id
+            && interface.group_id != group_id
+        {
+            return Err(CoreError::Forbidden(
+                "interface belongs to another group".into(),
+            ));
         }
-        let interfaces = self.network.interfaces_by_group(group_id)?;
-        let enabled: Vec<awg_network::Interface> = interfaces
+        Ok(interface)
+    }
+
+    fn interface_for_node(&self, node_id: Uuid) -> CoreResult<awg_network::Interface> {
+        let enabled: Vec<awg_network::Interface> = self
+            .network
+            .interfaces_by_node(node_id)?
+            .into_iter()
+            .filter(|interface| interface.enabled)
+            .collect();
+        match enabled.len() {
+            0 => Err(CoreError::Invalid("node has no enabled interfaces".into())),
+            1 => enabled
+                .into_iter()
+                .next()
+                .ok_or_else(|| CoreError::Invalid("interface is missing".into())),
+            _ => Err(CoreError::Invalid(
+                "node has multiple enabled interfaces; interface_id is required".into(),
+            )),
+        }
+    }
+
+    fn interface_for_group(&self, group_id: Uuid) -> CoreResult<awg_network::Interface> {
+        let enabled: Vec<awg_network::Interface> = self
+            .network
+            .interfaces_by_group(group_id)?
             .into_iter()
             .filter(|interface| interface.enabled)
             .collect();

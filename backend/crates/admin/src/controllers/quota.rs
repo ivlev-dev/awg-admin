@@ -128,6 +128,7 @@ mod tests {
             role: Role::User,
             tariff_id,
             group_id: None,
+            node_id: None,
             disabled: false,
             email: None,
             status: awg_identity::UserStatus::Active,

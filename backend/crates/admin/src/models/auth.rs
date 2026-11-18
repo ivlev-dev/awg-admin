@@ -43,6 +43,8 @@ pub struct ApproveUserRequest {
     pub tariff_id: Uuid,
     #[serde(default)]
     pub group_id: Option<Uuid>,
+    #[serde(default)]
+    pub node_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]

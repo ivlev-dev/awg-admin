@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -31,6 +31,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 3,
         to: 4,
         apply: v4_device_interfaces,
+    },
+    MigrationStep {
+        from: 4,
+        to: 5,
+        apply: v5_user_nodes,
     },
 ];
 
@@ -165,6 +170,52 @@ fn v4_device_interfaces(txn: &WriteTransaction) -> Result<()> {
             table.remove(key.as_str())?;
         }
         for (key, value) in replacement_peers {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
+    }
+    Ok(())
+}
+
+fn v5_user_nodes(txn: &WriteTransaction) -> Result<()> {
+    let mut nodes_by_group: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    for (_, value) in read_values(txn, Table::Interfaces)? {
+        let (Some(group_id), Some(node_id)) = (
+            value.get("group_id").and_then(Value::as_str),
+            value.get("node_id").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        nodes_by_group
+            .entry(group_id.to_string())
+            .or_insert_with(|| node_id.to_string());
+    }
+    if nodes_by_group.is_empty() {
+        return Ok(());
+    }
+
+    let mut updated: Vec<(String, Value)> = Vec::new();
+    for (key, mut user) in read_values(txn, Table::Users)? {
+        if user
+            .get("node_id")
+            .is_some_and(|node_id| !node_id.is_null())
+        {
+            continue;
+        }
+        let Some(group_id) = user.get("group_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(node_id) = nodes_by_group.get(group_id) else {
+            continue;
+        };
+        user["node_id"] = json!(node_id);
+        updated.push((key, user));
+    }
+
+    if !updated.is_empty() {
+        let mut table = txn.open_table(Table::Users.definition())?;
+        for (key, value) in updated {
             let bytes = serde_json::to_vec(&value)?;
             table.insert(key.as_str(), bytes.as_slice())?;
         }
@@ -519,7 +570,7 @@ mod tests {
             let meta = txn.open_table(Table::Meta.definition()).unwrap();
             assert_eq!(
                 meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
-                b"4".as_slice()
+                b"5".as_slice()
             );
         }
     }
@@ -677,6 +728,107 @@ mod tests {
         let raw = devices.get("device-1").unwrap().unwrap();
         let value: Value = serde_json::from_slice(raw.value()).unwrap();
         assert!(value.get("interface_id").is_none());
+    }
+
+    #[test]
+    fn migration_v5_binds_users_to_the_node_of_the_first_group_interface() {
+        let db = in_memory();
+        seed_legacy(&db, Some(4));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut interfaces = txn.open_table(Table::Interfaces.definition()).unwrap();
+            for (key, group_id, node_id) in [
+                ("iface-1", "group-1", "node-1"),
+                ("iface-2", "group-1", "node-2"),
+                ("iface-3", "group-2", "node-3"),
+            ] {
+                interfaces
+                    .insert(
+                        key,
+                        format!(
+                            r#"{{"id":"{key}","group_id":"{group_id}","node_id":"{node_id}","enabled":true}}"#
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            for (key, group_id, node_id) in [
+                ("user-1", "group-1", None),
+                ("user-2", "group-2", None),
+                ("user-3", "", None),
+                ("user-4", "group-1", Some("node-9")),
+            ] {
+                let group = if group_id.is_empty() {
+                    "null".to_string()
+                } else {
+                    format!("\"{group_id}\"")
+                };
+                let node = match node_id {
+                    Some(node_id) => format!("\"{node_id}\""),
+                    None => "null".to_string(),
+                };
+                users
+                    .insert(
+                        key,
+                        format!(
+                            r#"{{"id":"{key}","login":"{key}","group_id":{group},"node_id":{node}}}"#
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 4, 5).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(5));
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let node_of = |key: &str| {
+            let raw = users.get(key).unwrap().unwrap();
+            let value: Value = serde_json::from_slice(raw.value()).unwrap();
+            value
+                .get("node_id")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        };
+        assert_eq!(node_of("user-1"), Some("node-1".to_string()));
+        assert_eq!(node_of("user-2"), Some("node-3".to_string()));
+        assert_eq!(node_of("user-3"), None);
+        assert_eq!(node_of("user-4"), Some("node-9".to_string()));
+        drop(users);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v5_user_nodes(&txn).unwrap();
+        txn.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v5_leaves_users_without_group_interfaces() {
+        let db = in_memory();
+        seed_legacy(&db, Some(4));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            users
+                .insert(
+                    "user-1",
+                    br#"{"id":"user-1","login":"alice","group_id":"group-1"}"#.as_slice(),
+                )
+                .unwrap();
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 4, 5).unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let raw = users.get("user-1").unwrap().unwrap();
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert_eq!(value.get("node_id"), None);
     }
 
     #[test]

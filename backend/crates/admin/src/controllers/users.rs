@@ -15,6 +15,13 @@ use crate::publish::publish_user_groups;
 use crate::state::AppState;
 use crate::views::UserView;
 
+fn ensure_node(state: &AppState, node_id: Option<Uuid>) -> ApiResult<()> {
+    if let Some(node_id) = node_id {
+        state.network.get_node(node_id).map_err(ApiError::from)?;
+    }
+    Ok(())
+}
+
 pub async fn list(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -30,6 +37,7 @@ pub async fn create(
     Json(request): Json<CreateUserRequest>,
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
+    ensure_node(&state, request.node_id)?;
     let created = state
         .identity
         .create(NewUser {
@@ -38,6 +46,7 @@ pub async fn create(
             role: request.role,
             tariff_id: request.tariff_id,
             group_id: request.group_id,
+            node_id: request.node_id,
         })
         .map_err(ApiError::from)?;
     Ok(Json(UserView::from(&created)))
@@ -60,6 +69,12 @@ pub async fn update(
     Json(request): Json<UpdateUserRequest>,
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
+    if user.id() == id && request.disabled == Some(true) {
+        return Err(ApiError::Conflict("cannot disable your own account".into()));
+    }
+    if let Some(Some(node_id)) = request.node_id {
+        ensure_node(&state, Some(node_id))?;
+    }
     let updated = state
         .identity
         .update(
@@ -68,6 +83,7 @@ pub async fn update(
                 role: request.role,
                 tariff_id: request.tariff_id,
                 group_id: request.group_id,
+                node_id: request.node_id,
                 disabled: request.disabled,
             },
         )
@@ -119,10 +135,26 @@ pub async fn approve(
     Json(request): Json<ApproveUserRequest>,
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
-    let approved = state
+    ensure_node(&state, request.node_id)?;
+    let mut approved = state
         .identity
-        .approve_user(id, request.tariff_id, request.group_id)
+        .approve_user(id, request.tariff_id, request.node_id)
         .map_err(ApiError::from)?;
+    if let Some(group_id) = request.group_id {
+        approved = state
+            .identity
+            .update(
+                approved.id,
+                UserChanges {
+                    role: None,
+                    tariff_id: None,
+                    group_id: Some(Some(group_id)),
+                    node_id: None,
+                    disabled: None,
+                },
+            )
+            .map_err(ApiError::from)?;
+    }
     Ok(Json(UserView::from(&approved)))
 }
 

@@ -45,6 +45,8 @@ pub struct User {
     pub role: Role,
     pub tariff_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+    #[serde(default)]
+    pub node_id: Option<Uuid>,
     pub disabled: bool,
     #[serde(default)]
     pub email: Option<String>,

@@ -116,6 +116,7 @@ fn fixture() -> Fixture {
         role: Role::User,
         tariff_id: Some(tariff.id),
         group_id: Some(group.id),
+        node_id: None,
         disabled: false,
         email: None,
         status: awg_identity::UserStatus::Active,
@@ -131,7 +132,7 @@ fn fixture() -> Fixture {
             &tariff,
             NewDevice {
                 user_id: owner.id,
-                group_id: group.id,
+                group_id: Some(group.id),
                 interface_id: None,
                 name: "phone".into(),
                 down_kbps: 1_000,

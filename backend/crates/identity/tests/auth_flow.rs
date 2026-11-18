@@ -68,6 +68,7 @@ fn create_user(service: &IdentityService, login: &str) -> awg_identity::User {
             role: Role::User,
             tariff_id: None,
             group_id: None,
+            node_id: None,
         })
         .unwrap()
 }
@@ -231,12 +232,73 @@ fn password_change_and_role_update() {
                 role: Some(Role::Admin),
                 tariff_id: None,
                 group_id: None,
+                node_id: None,
                 disabled: Some(false),
             },
         )
         .unwrap();
     assert_eq!(updated.role, Role::Admin);
     assert!(service.list().unwrap().iter().any(|u| u.id == admin.id));
+}
+
+#[test]
+fn create_and_update_bind_users_to_a_node() {
+    let service = service();
+    let node_id = Uuid::new_v4();
+    let user = service
+        .create(NewUser {
+            login: "node-user".into(),
+            password: "password123".into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            node_id: Some(node_id),
+        })
+        .unwrap();
+    assert_eq!(user.node_id, Some(node_id));
+
+    let untouched = service
+        .update(
+            user.id,
+            UserChanges {
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(untouched.node_id, Some(node_id));
+
+    let cleared = service
+        .update(
+            user.id,
+            UserChanges {
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: Some(None),
+                disabled: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(cleared.node_id, None);
+
+    let another = Uuid::new_v4();
+    let rebound = service
+        .update(
+            user.id,
+            UserChanges {
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: Some(Some(another)),
+                disabled: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(rebound.node_id, Some(another));
 }
 
 #[test]
@@ -253,6 +315,7 @@ fn disabled_user_cannot_log_in_and_loses_sessions() {
                 role: None,
                 tariff_id: None,
                 group_id: None,
+                node_id: None,
                 disabled: Some(true),
             },
         )
@@ -344,6 +407,7 @@ fn prune_removes_expired_records() {
         role: Role::User,
         tariff_id: None,
         group_id: None,
+        node_id: None,
         disabled: false,
         email: None,
         status: awg_identity::UserStatus::Active,
