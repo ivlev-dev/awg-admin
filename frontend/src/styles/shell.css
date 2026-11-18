@@ -181,8 +181,8 @@
   grid-template-columns: repeat(5, 1fr);
   gap: 2px;
   padding: 6px max(8px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
-  background: color-mix(in oklab, var(--surface) 92%, transparent);
-  backdrop-filter: blur(16px);
+  background: var(--surface);
+  backdrop-filter: none;
   border-top: var(--hairline) solid var(--border);
 }
 

@@ -152,7 +152,8 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 .status-pill--offline { background: var(--md-error-container); color: var(--md-on-error-container); }
 .content { max-width: 1440px; padding: 32px 32px 96px; }
 .mobile-nav {
-  background: color-mix(in oklab, var(--md-surface-container) 96%, transparent);
+  background: var(--md-surface-container);
+  backdrop-filter: none;
   border-top: 1px solid var(--md-outline-variant);
   box-shadow: none;
   padding: 8px max(8px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
