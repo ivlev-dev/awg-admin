@@ -174,6 +174,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       <dd>{this.vm.device?.name ?? "—"}</dd>
                       <dt>{t("clients.details.field.group")}</dt>
                       <dd>{this.vm.groupLabel}</dd>
+                      <dt>{t("clients.details.interface")}</dt>
+                      <dd>{this.vm.interfaceLabel}</dd>
+                      <dt>{t("clients.details.node")}</dt>
+                      <dd>{this.vm.nodeLabel}</dd>
                       <dt>{t("clients.details.field.limitDown")}</dt>
                       <dd>{this.vm.downLabel}</dd>
                       <dt>{t("clients.details.field.limitUp")}</dt>
@@ -256,6 +260,16 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     </div>
                   </div>
                   <div class="card__body stack">
+                    <div class="grid grid--2">
+                      <div class="field">
+                        <div class="xs muted">{t("clients.details.interface")}</div>
+                        <div class="small strong">{this.vm.interfaceLabel}</div>
+                      </div>
+                      <div class="field">
+                        <div class="xs muted">{t("clients.details.node")}</div>
+                        <div class="small strong">{this.vm.nodeLabel}</div>
+                      </div>
+                    </div>
                     <div class="field">
                       <label for="device-name">{t("clients.details.field.name")}</label>
                       <input

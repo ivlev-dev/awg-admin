@@ -86,6 +86,8 @@ const TARIFF: Tariff = {
   group_down_kbps: 200,
   group_up_kbps: 100,
   traffic_quota_bytes: null,
+  interface_id: null,
+  interface_name: null,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
 };
@@ -247,6 +249,7 @@ class MemoryTariffsRepository {
     const tariff: Tariff = {
       id: `t${this.tariffs.length + 1}`,
       ...input,
+      interface_name: null,
       created_at: "2020-01-02T00:00:00Z",
       updated_at: "2020-01-02T00:00:00Z",
     };

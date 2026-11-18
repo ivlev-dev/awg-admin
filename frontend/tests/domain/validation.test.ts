@@ -18,6 +18,8 @@ function makeTariff(overrides: Partial<Tariff> = {}): Tariff {
     group_down_kbps: 200,
     group_up_kbps: 100,
     traffic_quota_bytes: null,
+  interface_id: null,
+  interface_name: null,
     created_at: "2020-01-01T00:00:00Z",
     updated_at: "2020-01-01T00:00:00Z",
     ...overrides,

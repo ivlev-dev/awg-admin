@@ -21,7 +21,15 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   createDevice(input: DeviceInput): Promise<Device> {
-    return this.client.post<Device>("/devices", input);
+    return this.client.post<Device>("/devices", {
+      user_id: input.user_id,
+      group_id: input.group_id,
+      ...(input.interface_id ? { interface_id: input.interface_id } : {}),
+      name: input.name,
+      down_kbps: input.down_kbps,
+      up_kbps: input.up_kbps,
+      forwarding: input.forwarding,
+    });
   }
 
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device> {

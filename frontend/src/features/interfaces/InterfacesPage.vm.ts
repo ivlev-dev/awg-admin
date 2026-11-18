@@ -1,6 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
+import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
@@ -91,6 +92,10 @@ export class InterfacesPageVM {
     return this.session.isAdmin;
   }
 
+  get groupFilterEnabled(): boolean {
+    return GROUPS_SECTION_ENABLED;
+  }
+
   get ownGroupId(): string | null {
     return this.session.user?.group_id ?? null;
   }
@@ -98,7 +103,7 @@ export class InterfacesPageVM {
   @computed
   get visible(): InterfaceInfo[] {
     const query = this.search.trim().toLowerCase();
-    const groupId = this.isAdmin ? this.groupFilter : this.ownGroupId ?? "";
+    const groupId = this.isAdmin ? this.activeGroupFilter : this.ownGroupId ?? "";
     const filtered = this.interfaces.filter((item) => {
       if (!this.isAdmin && (!this.ownGroupId || item.group_id !== this.ownGroupId)) return false;
       if (groupId && item.group_id !== groupId) return false;
@@ -141,7 +146,11 @@ export class InterfacesPageVM {
 
   @computed
   get filtersActive(): boolean {
-    return this.search.trim().length > 0 || this.groupFilter.length > 0 || this.nodeFilter.length > 0;
+    return (
+      this.search.trim().length > 0 ||
+      (this.groupFilterEnabled && this.groupFilter.length > 0) ||
+      this.nodeFilter.length > 0
+    );
   }
 
   @computed
@@ -263,6 +272,7 @@ export class InterfacesPageVM {
   }
 
   setGroupFilter(value: string): void {
+    if (!this.groupFilterEnabled) return;
     this.groupFilter = value;
   }
 
@@ -654,12 +664,16 @@ export class InterfacesPageVM {
   }
 
   private syncFilters(): void {
-    if (this.groupFilter && !this.groups.some((group) => group.id === this.groupFilter)) {
+    if (!this.groupFilterEnabled || (this.groupFilter && !this.groups.some((group) => group.id === this.groupFilter))) {
       this.groupFilter = "";
     }
     if (this.nodeFilter && !this.nodes.some((node) => node.id === this.nodeFilter)) {
       this.nodeFilter = "";
     }
+  }
+
+  private get activeGroupFilter(): string {
+    return this.groupFilterEnabled ? this.groupFilter : "";
   }
 
   private replace(item: InterfaceInfo): void {

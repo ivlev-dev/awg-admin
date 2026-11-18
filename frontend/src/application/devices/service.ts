@@ -41,6 +41,7 @@ export class DefaultDevicesService implements DevicesService {
     return this.repository.createDevice({
       user_id: input.user_id,
       group_id: input.group_id,
+      ...(input.interface_id ? { interface_id: input.interface_id } : {}),
       name: requireText(input.name, "Имя устройства"),
       down_kbps: requireRate(input.down_kbps, "Скорость скачивания"),
       up_kbps: requireRate(input.up_kbps, "Скорость отдачи"),

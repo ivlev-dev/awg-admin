@@ -713,6 +713,25 @@ describe("InterfacesPageVM", () => {
     expect(harness.vm.visible).toHaveLength(2);
   });
 
+  it("не показывает и не применяет фильтр группы при скрытом разделе", async () => {
+    const harness = makeVm();
+    harness.groupsRepo.groups.set("g1", GROUP);
+    harness.groupsRepo.groups.set("g2", { ...GROUP, id: "g2", name: "Дом" });
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", group_id: "g1" }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", group_id: "g2" }));
+    await harness.vm.load();
+
+    expect(harness.vm.groupFilterEnabled).toBe(false);
+    harness.vm.setGroupFilter("g1");
+    expect(harness.vm.groupFilter).toBe("");
+    expect(harness.vm.filtersActive).toBe(false);
+    expect(harness.vm.visible.map((item) => item.id).sort()).toEqual(["i1", "i2"]);
+
+    harness.vm.groupFilter = "g1";
+    expect(harness.vm.visible.map((item) => item.id).sort()).toEqual(["i1", "i2"]);
+    expect(harness.vm.filtersActive).toBe(false);
+  });
+
   it("formats the endpoint, peers and obfuscation strings", () => {
     const harness = makeVm();
 

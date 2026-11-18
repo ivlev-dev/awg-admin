@@ -65,7 +65,7 @@ export function Overview(this: { vm: OverviewVM }) {
         </div>
       </Show>
 
-      <div class="grid grid--4">
+      <div class={`grid ${this.vm.groupsEnabled ? "grid--4" : "grid--3"}`}>
         <div class="stat">
           <div class="stat__top">
             <div class="stat__icon">
@@ -141,18 +141,20 @@ export function Overview(this: { vm: OverviewVM }) {
           <div class="stat__hint">{t("overview.state.clientsHint")}</div>
         </div>
 
-        <div class="stat">
-          <div class="stat__top">
-            <div class="stat__icon">
-              <Icon name="groups" size={20} class="" />
+        <Show when={this.vm.groupsEnabled}>
+          <div class="stat">
+            <div class="stat__top">
+              <div class="stat__icon">
+                <Icon name="groups" size={20} class="" />
+              </div>
             </div>
+            <div>
+              <div class="stat__label">{t("overview.state.groups")}</div>
+              <div class="stat__value">{this.vm.groups}</div>
+            </div>
+            <div class="stat__hint">{t("overview.state.groupsHint")}</div>
           </div>
-          <div>
-            <div class="stat__label">{t("overview.state.groups")}</div>
-            <div class="stat__value">{this.vm.groups}</div>
-          </div>
-          <div class="stat__hint">{t("overview.state.groupsHint")}</div>
-        </div>
+        </Show>
       </div>
 
       <div class="grid grid--2" style="align-items:start">

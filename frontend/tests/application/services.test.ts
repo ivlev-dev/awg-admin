@@ -75,6 +75,8 @@ const TARIFF: Tariff = {
   group_down_kbps: 200,
   group_up_kbps: 100,
   traffic_quota_bytes: null,
+  interface_id: null,
+  interface_name: null,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
 };
@@ -144,6 +146,10 @@ const DEVICE: Device = {
   id: "d1",
   user_id: "u1",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "laptop",
   down_kbps: 100,
   up_kbps: 50,
@@ -459,6 +465,7 @@ describe("TariffsService", () => {
         group_down_kbps: 0,
         group_up_kbps: 0,
         traffic_quota_bytes: null,
+        interface_id: null,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -475,9 +482,45 @@ describe("TariffsService", () => {
       group_down_kbps: 200,
       group_up_kbps: 100,
       traffic_quota_bytes: null,
+      interface_id: " if1 ",
     });
     expect(repo.createTariff).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "Basic", description: "plan" }),
+      expect.objectContaining({ name: "Basic", description: "plan", interface_id: "if1" }),
+    );
+  });
+
+  it("sends an interface binding on create and clears it on update", async () => {
+    const repo = makeTariffs();
+    const service = new DefaultTariffsService(repo);
+
+    await service.updateTariff("t1", { interface_id: "if1" });
+    expect(repo.updateTariff).toHaveBeenLastCalledWith("t1", { interface_id: "if1" });
+
+    await service.updateTariff("t1", { interface_id: null });
+    expect(repo.updateTariff).toHaveBeenLastCalledWith("t1", { interface_id: null });
+
+    await service.updateTariff("t1", { name: "Basic" });
+    expect(repo.updateTariff).toHaveBeenLastCalledWith("t1", { name: "Basic" });
+  });
+
+  it("turns a blank interface id into null", async () => {
+    const repo = makeTariffs();
+    const service = new DefaultTariffsService(repo);
+
+    await service.createTariff({
+      name: "Basic",
+      description: "",
+      max_devices: 2,
+      device_down_kbps: 0,
+      device_up_kbps: 0,
+      group_down_kbps: 0,
+      group_up_kbps: 0,
+      traffic_quota_bytes: null,
+      interface_id: "   ",
+    });
+
+    expect(repo.createTariff).toHaveBeenCalledWith(
+      expect.objectContaining({ interface_id: null }),
     );
   });
 });
@@ -651,6 +694,25 @@ describe("DevicesService", () => {
         forwarding: null,
       }),
     ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("passes the interface id when creating a device", async () => {
+    const repo = makeDevices();
+    const service = new DefaultDevicesService(repo);
+
+    await service.createDevice({
+      user_id: "u1",
+      group_id: "g1",
+      interface_id: "i1",
+      name: "laptop",
+      down_kbps: 10,
+      up_kbps: 5,
+      forwarding: null,
+    });
+
+    expect(repo.createDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ interface_id: "i1", group_id: "g1" }),
+    );
   });
 
   it("rejects a non-positive share TTL", async () => {

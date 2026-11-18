@@ -1,4 +1,5 @@
 import { createAppContainer } from "@/app/di";
+import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { DefaultQuotaService } from "@/application/quota/service";
@@ -255,6 +256,16 @@ describe("OverviewVM", () => {
     expect(vm.txRate).toBe("1.0 КБ/с");
     expect(vm.spark).toEqual([3072, 1024]);
     expect(vm.live).toBe(false);
+  });
+
+  it("скрывает карточку групп при выключенном флаге", async () => {
+    const { vm } = setup("admin");
+
+    await vm.load();
+
+    expect(GROUPS_SECTION_ENABLED).toBe(false);
+    expect(vm.groupsEnabled).toBe(false);
+    expect(vm.groups).toBe(1);
   });
 
   it("показывает топ устройств и роли", async () => {

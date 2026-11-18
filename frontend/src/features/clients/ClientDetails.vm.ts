@@ -162,6 +162,16 @@ export class ClientDetailsVM {
   }
 
   @computed
+  get interfaceLabel(): string {
+    return this.device?.interface_name || "—";
+  }
+
+  @computed
+  get nodeLabel(): string {
+    return this.device?.node_name || "—";
+  }
+
+  @computed
   get downLabel(): string {
     return formatRateI18n(this.device?.down_kbps ?? 0);
   }

@@ -67,16 +67,18 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
               />
             </div>
             <Show when={this.vm.isAdmin}>
-              <div class="field">
-                <label for="iface-group">{t("interfaces.filter.group")}</label>
-                <Select
-                  id="iface-group"
-                  value={this.vm.groupFilter}
-                  options={[{ value: "", label: t("interfaces.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
-                  onChange={(value) => this.vm.setGroupFilter(value)}
-                  ariaLabel={t("interfaces.filter.group")}
-                />
-              </div>
+              <Show when={this.vm.groupFilterEnabled}>
+                <div class="field">
+                  <label for="iface-group">{t("interfaces.filter.group")}</label>
+                  <Select
+                    id="iface-group"
+                    value={this.vm.groupFilter}
+                    options={[{ value: "", label: t("interfaces.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
+                    onChange={(value) => this.vm.setGroupFilter(value)}
+                    ariaLabel={t("interfaces.filter.group")}
+                  />
+                </div>
+              </Show>
               <div class="field">
                 <label for="iface-node">{t("interfaces.filter.node")}</label>
                 <Select

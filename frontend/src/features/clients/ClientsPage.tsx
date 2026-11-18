@@ -80,15 +80,15 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 onInput={(event: Event) => this.vm.setQuery(event)}
               />
             </div>
-            <Show when={this.vm.isAdmin}>
+            <Show when={this.vm.interfaceOptions.length > 0}>
               <div class="field">
-                <label for="clients-group">{t("clients.filter.group")}</label>
+                <label for="clients-interface">{t("clients.filter.interface")}</label>
                 <Select
-                  id="clients-group"
-                  value={this.vm.groupFilter}
-                  options={[{ value: "", label: t("clients.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
-                  onChange={(value) => this.vm.setGroupFilter(value)}
-                  ariaLabel={t("clients.filter.group")}
+                  id="clients-interface"
+                  value={this.vm.interfaceFilter}
+                  options={[{ value: "", label: t("clients.filter.allInterfaces") }, ...this.vm.interfaceOptions]}
+                  onChange={(value) => this.vm.setInterfaceFilter(value)}
+                  ariaLabel={t("clients.filter.interface")}
                 />
               </div>
             </Show>
@@ -116,7 +116,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
         <div class="data-scroll table-wrap--cards" aria-busy={this.vm.loading ? "true" : "false"}>
           <Show
             when={!this.vm.loading}
-            fallback={<SkeletonTable rows={5} columns={this.vm.isAdmin ? 7 : 6} />}
+            fallback={<SkeletonTable rows={5} columns={this.vm.isAdmin ? 8 : 7} />}
           >
             <Show
               when={this.vm.filteredDevices.length > 0}
@@ -167,6 +167,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                     <Show when={this.vm.isAdmin}>
                       <th class="col-owner">{t("clients.column.owner")}</th>
                     </Show>
+                    <th class="col-interface">{t("clients.column.interface")}</th>
                     <th class="col-address">{t("clients.column.addresses")}</th>
                     <th class="col-limits">{t("clients.column.limits")}</th>
                     <th class="col-peers">{t("clients.column.peers")}</th>
@@ -200,9 +201,6 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                             <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
                             <span class="cell-name__text">
                               <span class="strong" title={device.name}>{device.name}</span>
-                              <Show when={!this.vm.isAdmin}>
-                                <span class="cell-sub">{this.vm.groupName(device.group_id)}</span>
-                              </Show>
                             </span>
                           </div>
                         </td>
@@ -210,10 +208,15 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           <td class="col-owner" data-label={t("clients.column.owner")}>
                             <div class="cell-name__text cell-stack">
                               <span class="small strong">{this.vm.userLogin(device.user_id)}</span>
-                              <span class="xs muted">{this.vm.groupName(device.group_id)}</span>
                             </div>
                           </td>
                         </Show>
+                        <td class="col-interface" data-label={t("clients.column.interface")}>
+                          <div class="cell-name__text">
+                            <span class="small strong">{device.interface_name || "—"}</span>
+                            <span class="xs muted">{device.node_name || "—"}</span>
+                          </div>
+                        </td>
                         <td class="col-address" data-label={t("clients.column.addresses")}>
                           <Show
                             when={device.addresses.length > 0}
@@ -281,7 +284,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
                         <div class="entity-card__title">
                           <span class="entity-card__name">{device.name}</span>
-                          <span class="entity-card__sub">{this.vm.groupName(device.group_id)} · {this.vm.userLogin(device.user_id)}</span>
+                          <span class="entity-card__sub">{this.vm.interfaceSummary(device)}</span>
                         </div>
                         <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
                           <span class="status-chip__dot"></span>
@@ -289,6 +292,14 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         </span>
                       </div>
                       <dl class="entity-card__meta">
+                        <div>
+                          <dt>{t("clients.column.interface")}</dt>
+                          <dd>{device.interface_name || "—"}</dd>
+                        </div>
+                        <div>
+                          <dt>{t("clients.details.node")}</dt>
+                          <dd>{device.node_name || "—"}</dd>
+                        </div>
                         <div>
                           <dt>{t("clients.column.addresses")}</dt>
                           <dd class="mono">{device.addresses.length > 0 ? device.addresses.join(", ") : "—"}</dd>
@@ -381,8 +392,8 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
             />
           </div>
 
-          <Show when={this.vm.isAdmin}>
-            <div class="grid grid--2">
+          <div class={this.vm.isAdmin ? "grid grid--2" : "stack"}>
+            <Show when={this.vm.isAdmin}>
               <div class="field">
                 <label for="client-user">{t("clients.form.user")}</label>
                 <Select
@@ -393,18 +404,19 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   ariaLabel={t("clients.form.user")}
                 />
               </div>
-              <div class="field">
-                <label for="client-group">{t("clients.form.group")}</label>
-                <Select
-                  id="client-group"
-                  value={this.vm.formGroupId}
-                  options={[{ value: "", label: t("clients.form.groupNone") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
-                  onChange={(value) => this.vm.setFormGroup(value)}
-                  ariaLabel={t("clients.form.group")}
-                />
-              </div>
+            </Show>
+            <div class="field">
+              <label for="client-interface">{t("clients.form.interface")}</label>
+              <Select
+                id="client-interface"
+                value={this.vm.formInterfaceId}
+                options={[{ value: "", label: t("clients.form.interfaceNone") }, ...this.vm.formInterfaceOptions]}
+                onChange={(value) => this.vm.setFormInterface(value)}
+                ariaLabel={t("clients.form.interface")}
+              />
+              <div class="hint">{t("clients.form.interfaceHint")}</div>
             </div>
-          </Show>
+          </div>
 
           <Show when={!this.vm.isAdmin}>
             <div class="alert alert--info">

@@ -3,6 +3,7 @@ import type { Forwarding, ShareFormat } from "../types";
 export interface DeviceInput {
   user_id: string | null;
   group_id: string | null;
+  interface_id?: string;
   name: string;
   down_kbps: number;
   up_kbps: number;

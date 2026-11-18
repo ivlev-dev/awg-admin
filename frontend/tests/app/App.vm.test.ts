@@ -16,6 +16,7 @@ import { DefaultUsersService } from "@/application/users/service";
 import { LiveStats } from "@/infrastructure/stats";
 import { AppVM } from "@/app/App.vm";
 import { createAppContainer } from "@/app/di";
+import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ThemeStore } from "@/app/theme";
@@ -274,6 +275,23 @@ describe("AppVM access guard", () => {
     expect(harness.vm.booting).toBe(false);
     expect(harness.router.path).toBe("/login");
   });
+
+  it("перенаправляет скрытый раздел групп на интерфейсы", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/groups" });
+    expect(GROUPS_SECTION_ENABLED).toBe(false);
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/interfaces");
+  });
+
+  it("перенаправляет карточку группы на интерфейсы", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/groups/g1" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/interfaces");
+  });
 });
 
 describe("AppVM navigation filtering", () => {
@@ -284,7 +302,6 @@ describe("AppVM navigation filtering", () => {
       "/",
       "/nodes",
       "/interfaces",
-      "/groups",
       "/clients",
       "/import",
     ]);
@@ -308,7 +325,6 @@ describe("AppVM navigation filtering", () => {
       "Overview",
       "Nodes",
       "Interfaces",
-      "Groups",
       "Clients",
       "Import",
     ]);
@@ -321,6 +337,20 @@ describe("AppVM navigation filtering", () => {
 
     expect(harness.vm.nav[0]?.title).toBe("Обзор");
     expect(harness.vm.roleLabel).toBe("Администратор");
+  });
+
+  it("скрывает раздел групп во всех меню и палитре команд", () => {
+    const harness = makeHarness({ user: ADMIN });
+
+    expect(GROUPS_SECTION_ENABLED).toBe(false);
+    expect(harness.vm.nav.map((item) => item.path)).not.toContain("/groups");
+    expect(harness.vm.accountNav.map((item) => item.path)).not.toContain("/groups");
+    expect(harness.vm.mobileNav.map((item) => item.path)).not.toContain("/groups");
+    expect(harness.vm.moreManagementNav.map((item) => item.path)).not.toContain("/groups");
+    expect(harness.vm.moreAccountNav.map((item) => item.path)).not.toContain("/groups");
+    expect(harness.vm.commandItems.map((item) => item.id)).not.toContain("nav:/groups");
+    expect(harness.vm.nav.map((item) => item.path)).toContain("/nodes");
+    expect(harness.vm.nav.map((item) => item.path)).toContain("/interfaces");
   });
 
   it("скрывает админские разделы у обычного пользователя", () => {
@@ -454,7 +484,6 @@ describe("AppVM actions", () => {
     ]);
     expect(harness.vm.moreManagementNav.map((item) => item.path)).toEqual([
       "/nodes",
-      "/groups",
       "/import",
     ]);
     expect(harness.vm.moreAccountNav.map((item) => item.path)).toContain("/settings");
@@ -613,6 +642,28 @@ describe("AppVM constructor DI", () => {
 
     expect(router.path).toBe("/");
     expect(mountedApp?.routeName).toBe("overview");
+
+    result.dispose();
+  });
+
+  it("уводит со скрытого раздела групп на интерфейсы", async () => {
+    const session = makeSession(ADMIN);
+    const router = new Router();
+    const container = createAppContainer();
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ThemeStore, () => new ThemeStore());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const result = createComponent(AppProbe, {}, { container });
+    await result.ready;
+    await whenIdle();
+
+    router.navigate("/groups");
+    await vi.waitFor(() => {
+      expect(router.path).toBe("/interfaces");
+    });
+    expect(mountedApp?.routeName).toBe("interfaces");
 
     result.dispose();
   });

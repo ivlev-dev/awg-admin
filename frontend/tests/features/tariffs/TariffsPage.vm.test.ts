@@ -1,9 +1,10 @@
 import { ToastStore } from "@/app/toast";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
 import { DefaultTariffsService } from "@/application/tariffs/service";
 import type { BulkFailure, BulkResult } from "@/domain/bulk";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { TariffInput } from "@/domain/tariffs/types";
-import type { Tariff } from "@/domain/types";
+import type { InterfaceInfo, Tariff } from "@/domain/types";
 import { TariffsPageVM } from "@/features/tariffs/TariffsPage.vm";
 
 const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
@@ -19,6 +20,8 @@ const TARIFF: Tariff = {
   group_down_kbps: 200,
   group_up_kbps: 100,
   traffic_quota_bytes: null,
+  interface_id: "if1",
+  interface_name: "awgpanel0",
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
 };
@@ -33,6 +36,8 @@ const PRO: Tariff = {
   group_down_kbps: 1000,
   group_up_kbps: 500,
   traffic_quota_bytes: 10 * 1024 * 1024 * 1024,
+  interface_id: null,
+  interface_name: null,
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
 };
@@ -47,15 +52,79 @@ const PREMIUM: Tariff = {
   group_down_kbps: 2000,
   group_up_kbps: 1000,
   traffic_quota_bytes: 50 * 1024 * 1024 * 1024,
+  interface_id: "if2",
+  interface_name: "awgpanel1",
   created_at: "2020-01-01T00:00:00Z",
   updated_at: "2020-01-01T00:00:00Z",
 };
+
+const INTERFACES: InterfaceInfo[] = [
+  {
+    id: "if1",
+    group_id: "g1",
+    group_name: "VPN Pilot",
+    node_id: "n1",
+    node_name: "vpn-host",
+    name: "awgpanel0",
+    label: "Главный",
+    endpoint_host: "vpn.example.com",
+    endpoint_port: 51820,
+    listen_port: 51820,
+    mtu: 1420,
+    public_key: "pub1",
+    obf: {
+      h1: { lo: 1, hi: 2 },
+      h2: { lo: 3, hi: 4 },
+      h3: { lo: 5, hi: 6 },
+      h4: { lo: 7, hi: 8 },
+      s1: 10,
+      s2: 20,
+      s3: 30,
+      s4: 40,
+      header_protection_key: "key1",
+      random_trailers: false,
+    },
+    enabled: true,
+    peers: 3,
+  },
+  {
+    id: "if2",
+    group_id: "g2",
+    group_name: "Офис",
+    node_id: "n2",
+    node_name: "office-host",
+    name: "awgpanel1",
+    label: "",
+    endpoint_host: "office.example.com",
+    endpoint_port: 51821,
+    listen_port: 51821,
+    mtu: 1420,
+    public_key: "pub2",
+    obf: {
+      h1: { lo: 1, hi: 2 },
+      h2: { lo: 3, hi: 4 },
+      h3: { lo: 5, hi: 6 },
+      h4: { lo: 7, hi: 8 },
+      s1: 10,
+      s2: 20,
+      s3: 30,
+      s4: 40,
+      header_protection_key: "key2",
+      random_trailers: false,
+    },
+    enabled: true,
+    peers: 0,
+  },
+];
 
 class MemoryTariffsRepository {
   tariffs: Tariff[];
   failure: Error | null = null;
 
-  constructor(seed: Tariff[]) {
+  constructor(
+    seed: Tariff[],
+    private readonly interfaces: InterfaceInfo[] = INTERFACES,
+  ) {
     this.tariffs = [...seed];
   }
 
@@ -69,6 +138,7 @@ class MemoryTariffsRepository {
     const tariff: Tariff = {
       id: `t${this.tariffs.length + 1}`,
       ...input,
+      interface_name: this.interfaceName(input.interface_id),
       created_at: "2020-01-02T00:00:00Z",
       updated_at: "2020-01-02T00:00:00Z",
     };
@@ -81,6 +151,9 @@ class MemoryTariffsRepository {
     const tariff = this.tariffs.find((item) => item.id === id);
     if (tariff === undefined) throw new Error(`Тариф ${id} не найден`);
     const next: Tariff = { ...tariff, ...input };
+    if (input.interface_id !== undefined) {
+      next.interface_name = this.interfaceName(input.interface_id);
+    }
     this.tariffs = this.tariffs.map((item) => (item.id === id ? next : item));
     return next;
   }
@@ -105,24 +178,65 @@ class MemoryTariffsRepository {
     return { done, failed };
   });
 
+  private interfaceName(id: string | null): string | null {
+    if (id === null) return null;
+    return this.interfaces.find((item) => item.id === id)?.name ?? null;
+  }
+
   private failIfNeeded(): void {
     if (this.failure !== null) throw this.failure;
+  }
+}
+
+class MemoryInterfacesRepository {
+  failure: Error | null = null;
+  listCalls = 0;
+
+  constructor(private readonly items: InterfaceInfo[] = INTERFACES) {}
+
+  async listInterfaces(): Promise<InterfaceInfo[]> {
+    this.listCalls += 1;
+    if (this.failure !== null) throw this.failure;
+    return [...this.items];
+  }
+
+  async createInterface(): Promise<InterfaceInfo> {
+    throw new Error("Не используется");
+  }
+
+  async updateInterface(): Promise<InterfaceInfo> {
+    throw new Error("Не используется");
+  }
+
+  async rotateInterface(): Promise<InterfaceInfo> {
+    throw new Error("Не используется");
+  }
+
+  async deleteInterface(): Promise<void> {
+    throw new Error("Не используется");
+  }
+
+  async bulk(): Promise<BulkResult> {
+    throw new Error("Не используется");
   }
 }
 
 interface SetupResult {
   vm: TariffsPageVM;
   repo: MemoryTariffsRepository;
+  interfacesRepo: MemoryInterfacesRepository;
   service: DefaultTariffsService;
   toasts: ToastStore;
 }
 
 function setup(seed: Tariff[] = [TARIFF, PRO]): SetupResult {
   const repo = new MemoryTariffsRepository(seed);
+  const interfacesRepo = new MemoryInterfacesRepository();
   const service = new DefaultTariffsService(repo);
+  const interfacesService = new DefaultInterfacesService(interfacesRepo);
   const toasts = new ToastStore();
-  const vm = new TariffsPageVM(service, toasts);
-  return { vm, repo, service, toasts };
+  const vm = new TariffsPageVM(service, interfacesService, toasts);
+  return { vm, repo, interfacesRepo, service, toasts };
 }
 
 function toastMessages(toasts: ToastStore): string[] {
@@ -142,6 +256,102 @@ describe("TariffsPageVM", () => {
     expect(vm.loading).toBe(false);
     expect(vm.error).toBeNull();
     expect(vm.tariffs.map((tariff) => tariff.name)).toEqual(["Basic", "Pro"]);
+  });
+
+  it("loads interfaces in parallel with tariffs", async () => {
+    const { vm, interfacesRepo } = setup();
+    await vm.load();
+
+    expect(interfacesRepo.listCalls).toBe(1);
+    expect(vm.interfaces.map((iface) => iface.name)).toEqual(["awgpanel0", "awgpanel1"]);
+    expect(vm.interfaceOptions).toEqual([
+      { value: "", label: "Не привязан" },
+      { value: "if1", label: "awgpanel0 · VPN Pilot · vpn-host" },
+      { value: "if2", label: "awgpanel1 · Офис · office-host" },
+    ]);
+  });
+
+  it("reports an interface loading error", async () => {
+    const { vm, interfacesRepo } = setup();
+    interfacesRepo.failure = new Error("Интерфейсы недоступны");
+
+    await vm.load();
+
+    expect(vm.error).toBe("Интерфейсы недоступны");
+    expect(vm.loading).toBe(false);
+  });
+
+  it("creates a tariff bound to an interface", async () => {
+    const { vm, repo, toasts } = setup();
+    await vm.load();
+    vm.openCreate();
+
+    expect(vm.formInterfaceId).toBe("");
+
+    vm.name = "Bound";
+    vm.setFormInterface("if1");
+    await vm.submit();
+
+    expect(repo.tariffs[2]).toEqual(
+      expect.objectContaining({ interface_id: "if1", interface_name: "awgpanel0" }),
+    );
+    expect(vm.modalOpen).toBe(false);
+    expect(toastMessages(toasts)).toContain("Тариф создан");
+  });
+
+  it("creates a tariff without an interface", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openCreate();
+    vm.name = "Free";
+
+    await vm.submit();
+
+    expect(repo.tariffs[2]?.interface_id).toBeNull();
+    expect(repo.tariffs[2]?.interface_name).toBeNull();
+  });
+
+  it("preselects the bound interface on edit and can clear it", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openEdit(TARIFF);
+
+    expect(vm.formInterfaceId).toBe("if1");
+
+    vm.setFormInterface("");
+    await vm.submit();
+
+    const updated = repo.tariffs.find((tariff) => tariff.id === TARIFF.id);
+    expect(updated?.interface_id).toBeNull();
+    expect(updated?.interface_name).toBeNull();
+  });
+
+  it("rebinds a tariff to another interface", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openEdit(PRO);
+
+    vm.setFormInterface("if2");
+    await vm.submit();
+
+    const updated = repo.tariffs.find((tariff) => tariff.id === PRO.id);
+    expect(updated).toEqual(
+      expect.objectContaining({ interface_id: "if2", interface_name: "awgpanel1" }),
+    );
+  });
+
+  it("rejects an interface that is not in the loaded list", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openCreate();
+    vm.name = "Broken";
+    vm.setFormInterface("missing");
+
+    await vm.submit();
+
+    expect(vm.formError).toBe("Выбранный интерфейс не найден");
+    expect(vm.modalOpen).toBe(true);
+    expect(repo.tariffs).toHaveLength(2);
   });
 
   it("reports a load error", async () => {
@@ -307,6 +517,19 @@ describe("TariffsPageVM sorting", () => {
     expect(vm.sort).toEqual({ key: "name", direction: "asc" });
     expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Basic", "Pro"]);
     expect(vm.sortMark("name")).toBe("▲");
+  });
+
+  it("sorts by interface name and puts unbound tariffs first", async () => {
+    const { vm } = setup([PREMIUM, TARIFF, PRO]);
+    await vm.load();
+
+    vm.sortBy("interface_name");
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([PRO.id, TARIFF.id, PREMIUM.id]);
+    expect(vm.sortMark("interface_name")).toBe("▲");
+
+    vm.sortBy("interface_name");
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([PREMIUM.id, TARIFF.id, PRO.id]);
+    expect(vm.sortMark("interface_name")).toBe("▼");
   });
 
   it("sorts by a numeric field and toggles the direction", async () => {
@@ -542,6 +765,7 @@ describe("TariffsPageVM discard guard", () => {
     ["group_down_kbps", (vm) => { vm.setGroupDownKbps(600); }],
     ["group_up_kbps", (vm) => { vm.setGroupUpKbps(300); }],
     ["quotaGb", (vm) => { vm.quotaGb = "5"; }],
+    ["formInterfaceId", (vm) => { vm.setFormInterface("if1"); }],
   ])("tracks changes of %s", (_field, mutate) => {
     const { vm } = setup();
     vm.openCreate();
@@ -560,6 +784,17 @@ describe("TariffsPageVM discard guard", () => {
     vm.name = "Pro Max";
 
     expect(vm.formDirty).toBe(true);
+  });
+
+  it("asks for confirmation when only the interface changed", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+    vm.setFormInterface("if1");
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
+    expect(vm.modalOpen).toBe(false);
   });
 
   it("asks for confirmation and closes the modal when the form changed", async () => {

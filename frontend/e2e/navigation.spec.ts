@@ -14,7 +14,6 @@ const SECTIONS: Section[] = [
   { path: "/", nav: "Обзор", title: "Обзор", heading: "Обзор" },
   { path: "/nodes", nav: "Ноды", title: "Ноды", heading: "Ноды" },
   { path: "/interfaces", nav: "Интерфейсы", title: "Интерфейсы", heading: "Интерфейсы" },
-  { path: "/groups", nav: "Группы", title: "Группы", heading: "Группы" },
   { path: "/clients", nav: "Клиенты", title: "Клиенты", heading: "Клиенты" },
   { path: "/import", nav: "Импорт", title: "Импорт", heading: "Импорт конфигурации" },
   { path: "/tariffs", nav: "Тарифы", title: "Тарифы", heading: "Тарифы" },
@@ -72,5 +71,15 @@ test.describe("Навигация по разделам", () => {
 
     expect(pageErrors, `JS-ошибки: ${pageErrors.join("; ")}`).toEqual([]);
     expect(failedAssets, `Ошибки загрузки чанков: ${failedAssets.join("; ")}`).toEqual([]);
+  });
+
+  test("скрытый раздел групп недоступен и редиректит на интерфейсы", async ({ page }) => {
+    const auth = await api.login();
+    await seedSession(page, auth);
+    await page.goto("/interfaces");
+
+    await expect(page.locator(".sidebar .nav-item").filter({ hasText: /^Группы$/ })).toHaveCount(0);
+    await page.goto("/groups");
+    await expect.poll(() => pathOf(page)).toBe("/interfaces");
   });
 });

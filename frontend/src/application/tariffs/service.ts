@@ -52,6 +52,9 @@ export class DefaultTariffsService implements TariffsService {
     if (input.traffic_quota_bytes !== undefined && input.traffic_quota_bytes !== null) {
       patch.traffic_quota_bytes = requireRate(input.traffic_quota_bytes, "Квота трафика");
     }
+    if (input.interface_id !== undefined) {
+      patch.interface_id = normalizeInterfaceId(input.interface_id);
+    }
     return this.repository.updateTariff(requireId(id, "Тариф"), patch);
   }
 
@@ -78,5 +81,12 @@ function normalizeTariff(input: TariffInput): TariffInput {
       input.traffic_quota_bytes === null
         ? null
         : requireRate(input.traffic_quota_bytes, "Квота трафика"),
+    interface_id: normalizeInterfaceId(input.interface_id),
   };
+}
+
+function normalizeInterfaceId(value: string | null): string | null {
+  if (value === null) return null;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
 }

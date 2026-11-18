@@ -34,6 +34,8 @@ export interface Tariff {
   group_down_kbps: number;
   group_up_kbps: number;
   traffic_quota_bytes: number | null;
+  interface_id: string | null;
+  interface_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -130,6 +132,10 @@ export interface Device {
   id: string;
   user_id: string;
   group_id: string;
+  interface_id: string;
+  interface_name: string;
+  node_id: string;
+  node_name: string;
   name: string;
   down_kbps: number;
   up_kbps: number;

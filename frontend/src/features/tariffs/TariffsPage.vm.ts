@@ -3,15 +3,17 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 import { askConfirm } from "@/app/confirm";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
+import type { InterfacesService } from "@/application/interfaces/service";
 import type { TariffsService } from "@/application/tariffs/service";
 import { compareNumber, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import type { TariffInput } from "@/domain/tariffs/types";
-import type { Tariff } from "@/domain/types";
+import type { InterfaceInfo, Tariff } from "@/domain/types";
 import { validateTariff } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export type TariffsSortKey =
   | "name"
+  | "interface_name"
   | "max_devices"
   | "device_down_kbps"
   | "device_up_kbps"
@@ -21,6 +23,7 @@ export type TariffsSortKey =
 
 export class TariffsPageVM {
   @reactive accessor tariffs: Tariff[] = [];
+  @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
   @reactive accessor search = "";
@@ -41,11 +44,13 @@ export class TariffsPageVM {
   @reactive accessor group_down_kbps = 0;
   @reactive accessor group_up_kbps = 0;
   @reactive accessor quotaGb = "";
+  @reactive accessor formInterfaceId = "";
 
   private formSnapshot = "";
 
   constructor(
     private readonly tariffsService: TariffsService,
+    private readonly interfacesService: InterfacesService,
     private readonly toasts: ToastStore,
   ) {}
 
@@ -57,12 +62,29 @@ export class TariffsPageVM {
     this.loading = true;
     this.error = null;
     try {
-      this.tariffs = await this.tariffsService.listTariffs();
+      const [tariffs, interfaces] = await Promise.all([
+        this.tariffsService.listTariffs(),
+        this.interfacesService.listInterfaces(),
+      ]);
+      this.tariffs = tariffs;
+      this.interfaces = interfaces;
     } catch (error) {
       this.error = userMessage(error, "Не удалось загрузить тарифы");
     } finally {
       this.loading = false;
     }
+  }
+
+  @computed
+  get interfaceOptions(): Array<{ value: string; label: string }> {
+    const options = [{ value: "", label: t("tariffs.form.interfaceNone") }];
+    for (const iface of this.interfaces) {
+      options.push({
+        value: iface.id,
+        label: `${iface.name} · ${iface.group_name} · ${iface.node_name}`,
+      });
+    }
+    return options;
   }
 
   @computed
@@ -88,6 +110,9 @@ export class TariffsPageVM {
     const direction = sort.direction;
     return [...filtered].sort((left, right) => {
       if (sort.key === "name") return compareText(left.name, right.name, direction);
+      if (sort.key === "interface_name") {
+        return compareText(left.interface_name ?? "", right.interface_name ?? "", direction);
+      }
       if (sort.key === "max_devices") {
         return compareNumber(left.max_devices, right.max_devices, direction);
       }
@@ -203,6 +228,7 @@ export class TariffsPageVM {
     this.group_down_kbps = 0;
     this.group_up_kbps = 0;
     this.quotaGb = "";
+    this.formInterfaceId = "";
     this.formError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
@@ -221,6 +247,7 @@ export class TariffsPageVM {
       tariff.traffic_quota_bytes === null
         ? ""
         : String(tariff.traffic_quota_bytes / 1024 / 1024 / 1024);
+    this.formInterfaceId = tariff.interface_id ?? "";
     this.formError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
@@ -236,6 +263,7 @@ export class TariffsPageVM {
       this.group_down_kbps,
       this.group_up_kbps,
       this.quotaGb,
+      this.formInterfaceId,
     ]);
   }
 
@@ -291,6 +319,15 @@ export class TariffsPageVM {
     this.quotaGb = (event.target as HTMLInputElement).value;
   }
 
+  setFormInterface(value: string): void {
+    this.formInterfaceId = value;
+  }
+
+  private interfaceValid(): boolean {
+    if (this.formInterfaceId === "") return true;
+    return this.interfaces.some((iface) => iface.id === this.formInterfaceId);
+  }
+
   private buildInput(): TariffInput {
     const quota = this.quotaGb.trim();
     const bytes =
@@ -306,20 +343,23 @@ export class TariffsPageVM {
       group_down_kbps: this.group_down_kbps,
       group_up_kbps: this.group_up_kbps,
       traffic_quota_bytes: bytes,
+      interface_id: this.formInterfaceId === "" ? null : this.formInterfaceId,
     };
   }
 
   async submit(): Promise<void> {
+    if (!this.interfaceValid()) {
+      this.formError = "Выбранный интерфейс не найден";
+      return;
+    }
     const input = this.buildInput();
     const validationError = validateTariff({
       name: input.name,
-      description: input.description,
       max_devices: input.max_devices,
       device_down_kbps: input.device_down_kbps,
       device_up_kbps: input.device_up_kbps,
       group_down_kbps: input.group_down_kbps,
       group_up_kbps: input.group_up_kbps,
-      traffic_quota_bytes: input.traffic_quota_bytes,
     });
     if (validationError) {
       this.formError = validationError;

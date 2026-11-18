@@ -101,11 +101,22 @@ describe("Router", () => {
 
   it("navigate with replace", async () => {
     const router = new Router();
-    router.navigate("/groups/x", { replace: true });
-    expect(router.path).toBe("/groups/x");
+    router.navigate("/clients/11", { replace: true });
+    expect(router.path).toBe("/clients/11");
     await vi.waitFor(() => {
-      expect(window.location.pathname).toBe("/groups/x");
+      expect(window.location.pathname).toBe("/clients/11");
     });
+  });
+
+  it("redirects the hidden groups section to interfaces", async () => {
+    const router = new Router();
+
+    await router.core.navigate("/groups");
+    expect(router.core.route?.fullPath).toBe("/interfaces");
+    expect(window.location.pathname).toBe("/interfaces");
+
+    await router.core.navigate("/groups/g1");
+    expect(router.core.route?.fullPath).toBe("/interfaces");
   });
 
   it("same path is no-op", () => {

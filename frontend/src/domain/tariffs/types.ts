@@ -7,4 +7,5 @@ export interface TariffInput {
   group_down_kbps: number;
   group_up_kbps: number;
   traffic_quota_bytes: number | null;
+  interface_id: string | null;
 }

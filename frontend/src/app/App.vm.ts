@@ -2,6 +2,7 @@ import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
 import { density, initDensity, setDensity } from "@/app/density";
+import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { type CommandItem } from "@/app/command";
 import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
 import { Router } from "@/app/router";
@@ -61,6 +62,10 @@ const MOBILE_NAV: NavDefinition[] = [
 
 const MOBILE_PATHS: ReadonlySet<string> = new Set(MOBILE_NAV.map((item) => item.path));
 
+const HIDDEN_NAV_PATHS: ReadonlySet<string> = GROUPS_SECTION_ENABLED ? new Set<string>() : new Set(["/groups"]);
+
+const GROUP_ROUTE_NAMES: ReadonlySet<string> = new Set(["groups", "group"]);
+
 const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
   overview: "route.overview",
   nodes: "route.nodes",
@@ -90,6 +95,11 @@ function localize(definitions: NavDefinition[]): NavItem[] {
     title: t(item.titleKey),
     icon: item.icon,
   }));
+}
+
+function visible(items: NavItem[]): NavItem[] {
+  if (HIDDEN_NAV_PATHS.size === 0) return items;
+  return items.filter((item) => !HIDDEN_NAV_PATHS.has(item.path));
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {
@@ -207,17 +217,17 @@ export class AppVM {
 
   @computed
   get nav(): NavItem[] {
-    return localize(this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path)));
+    return visible(localize(this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path))));
   }
 
   @computed
   get accountNav(): NavItem[] {
-    return localize(this.isAdmin ? ACCOUNT : ACCOUNT.filter((item) => item.path === "/profile" || item.path === "/stats"));
+    return visible(localize(this.isAdmin ? ACCOUNT : ACCOUNT.filter((item) => item.path === "/profile" || item.path === "/stats")));
   }
 
   @computed
   get mobileNav(): NavItem[] {
-    return localize(MOBILE_NAV);
+    return visible(localize(MOBILE_NAV));
   }
 
   @computed
@@ -461,6 +471,10 @@ export class AppVM {
     }
     if (route.name === "login") {
       this.router.replace("/");
+      return;
+    }
+    if (!GROUPS_SECTION_ENABLED && GROUP_ROUTE_NAMES.has(route.name)) {
+      this.router.replace("/interfaces");
       return;
     }
     if (route.adminOnly && !this.session.isAdmin) {

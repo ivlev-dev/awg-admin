@@ -1,7 +1,7 @@
 import { createComponent } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
-import { DefaultGroupsService } from "@/application/groups/service";
+import { DefaultInterfacesService } from "@/application/interfaces/service";
 import { DefaultUsersService } from "@/application/users/service";
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
@@ -9,9 +9,9 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
-import type { GroupsRepository } from "@/domain/groups/repository";
+import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { UsersRepository } from "@/domain/users/repository";
-import type { Device, Group, Role, User } from "@/domain/types";
+import type { Device, Group, InterfaceInfo, Role, User } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { setLocale } from "@/i18n";
 import { ClientsPage } from "@/features/clients/ClientsPage";
@@ -60,10 +60,52 @@ const GROUP: Group = {
   devices: 1,
 };
 
+const INTERFACE: InterfaceInfo = {
+  id: "i1",
+  group_id: "g1",
+  group_name: "Main",
+  node_id: "n1",
+  node_name: "node-1",
+  name: "wg0",
+  label: "",
+  endpoint_host: "vpn.example.com",
+  endpoint_port: 51820,
+  listen_port: 51820,
+  mtu: 1420,
+  public_key: "pub-1",
+  obf: {
+    h1: { lo: 1, hi: 2 },
+    h2: { lo: 3, hi: 4 },
+    h3: { lo: 5, hi: 6 },
+    h4: { lo: 7, hi: 8 },
+    s1: 1,
+    s2: 2,
+    s3: 3,
+    s4: 4,
+    header_protection_key: "key",
+    random_trailers: false,
+  },
+  enabled: true,
+  peers: 1,
+};
+
+const INTERFACE_2: InterfaceInfo = {
+  ...INTERFACE,
+  id: "i2",
+  node_id: "n2",
+  node_name: "node-2",
+  name: "wg1",
+  public_key: "pub-2",
+};
+
 const DEVICE: Device = {
   id: "d1",
   user_id: "u2",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "laptop",
   down_kbps: 1000,
   up_kbps: 500,
@@ -91,6 +133,10 @@ const PHONE: Device = {
   ...DEVICE,
   id: "d2",
   name: "phone",
+  interface_id: "i2",
+  interface_name: "wg1",
+  node_id: "n2",
+  node_name: "node-2",
   addresses: ["10.0.0.3"],
   peers: [],
 };
@@ -166,6 +212,10 @@ function devicesHarness(initial: Device[]): {
         id: `d${devices.length + 1}`,
         user_id: input.user_id ?? "",
         group_id: input.group_id ?? "",
+        interface_id: input.interface_id ?? "",
+        interface_name: input.interface_id === "i2" ? "wg1" : "wg0",
+        node_id: input.interface_id === "i2" ? "n2" : "n1",
+        node_name: input.interface_id === "i2" ? "node-2" : "node-1",
         name: input.name,
         down_kbps: input.down_kbps,
         up_kbps: input.up_kbps,
@@ -222,21 +272,14 @@ function devicesHarness(initial: Device[]): {
   return { repository, devices };
 }
 
-function groupsHarness(groups: Group[]): GroupsRepository {
+function interfacesHarness(items: InterfaceInfo[]): InterfacesRepository {
   return {
-    listGroups: vi.fn(async () => [...groups]),
-    createGroup: vi.fn(async () => GROUP),
-    updateGroup: vi.fn(async () => GROUP),
-    deleteGroup: vi.fn(async () => undefined),
+    listInterfaces: vi.fn(async () => [...items]),
+    createInterface: vi.fn(async () => INTERFACE),
+    updateInterface: vi.fn(async () => INTERFACE),
+    rotateInterface: vi.fn(async () => INTERFACE),
+    deleteInterface: vi.fn(async () => undefined),
     bulk: vi.fn(async (_action, ids) => ({ done: ids.length, failed: [] })),
-    listPools: vi.fn(async () => []),
-    createPool: vi.fn(async () => {
-      throw new Error("pool is not used in this test");
-    }),
-    updatePool: vi.fn(async () => {
-      throw new Error("pool is not used in this test");
-    }),
-    deletePool: vi.fn(async () => undefined),
   };
 }
 
@@ -274,10 +317,14 @@ class MemoryStorage {
   }
 }
 
-function setup(role: Role = "admin", seed: Device[] = [DEVICE]) {
+function setup(
+  role: Role = "admin",
+  seed: Device[] = [DEVICE],
+  items: InterfaceInfo[] = [INTERFACE, INTERFACE_2],
+) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness(seed);
-  const groups = groupsHarness([GROUP]);
+  const interfaces = interfacesHarness(items);
   const users = usersHarness([ADMIN, OWNER]);
   const session = makeSession(user);
   window.history.replaceState(null, "", "/clients");
@@ -285,13 +332,13 @@ function setup(role: Role = "admin", seed: Device[] = [DEVICE]) {
   const toasts = new ToastStore();
   const vm = new ClientsPageVM(
     new DefaultDevicesService(devices.repository),
-    new DefaultGroupsService(groups),
+    new DefaultInterfacesService(interfaces),
     new DefaultUsersService(users),
     session,
     router,
     toasts,
   );
-  return { vm, devices, groups, users, session, router, toasts };
+  return { vm, devices, interfaces, users, session, router, toasts };
 }
 
 describe("ClientsPageVM", () => {
@@ -307,29 +354,33 @@ describe("ClientsPageVM", () => {
     vi.unstubAllGlobals();
   });
 
-  it("загружает устройства, группы и пользователей для администратора", async () => {
-    const { vm, devices, groups, users } = setup("admin");
+  it("загружает устройства, интерфейсы и пользователей для администратора", async () => {
+    const { vm, devices, interfaces, users } = setup("admin");
 
     await vm.load();
 
     expect(devices.repository.listDevices).toHaveBeenCalledTimes(1);
-    expect(groups.listGroups).toHaveBeenCalledTimes(1);
+    expect(interfaces.listInterfaces).toHaveBeenCalledTimes(1);
     expect(users.listUsers).toHaveBeenCalledTimes(1);
     expect(vm.devices).toHaveLength(1);
-    expect(vm.groups).toEqual([GROUP]);
+    expect(vm.interfaces).toEqual([INTERFACE, INTERFACE_2]);
+    expect(vm.interfaceOptions).toEqual([
+      { value: "i1", label: "wg0 · node-1" },
+      { value: "i2", label: "wg1 · node-2" },
+    ]);
     expect(vm.users).toHaveLength(2);
     expect(vm.loading).toBe(false);
     expect(vm.countLabel).toBe("Найдено 1 из 1");
   });
 
-  it("не запрашивает группы и пользователей для обычного пользователя", async () => {
-    const { vm, groups, users } = setup("user");
+  it("не запрашивает пользователей, но загружает интерфейсы для обычного пользователя", async () => {
+    const { vm, interfaces, users } = setup("user");
 
     await vm.load();
 
-    expect(groups.listGroups).not.toHaveBeenCalled();
+    expect(interfaces.listInterfaces).toHaveBeenCalledTimes(1);
     expect(users.listUsers).not.toHaveBeenCalled();
-    expect(vm.groups).toEqual([]);
+    expect(vm.interfaces).toHaveLength(2);
     expect(vm.users).toEqual([]);
     expect(vm.isAdmin).toBe(false);
   });
@@ -367,7 +418,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = " Pixel ";
     vm.setFormUser(OWNER.id);
-    vm.setFormGroup(GROUP.id);
+    vm.setFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500);
     vm.setFormUpKbps(750);
     vm.formForwarding = true;
@@ -377,6 +428,7 @@ describe("ClientsPageVM", () => {
     expect(devices.repository.createDevice).toHaveBeenCalledWith({
       user_id: "u2",
       group_id: "g1",
+      interface_id: "i1",
       name: "Pixel",
       down_kbps: 1500,
       up_kbps: 750,
@@ -399,6 +451,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Round";
     vm.setFormUser(OWNER.id);
+    vm.setFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500.4);
     vm.setFormUpKbps(-10);
 
@@ -412,6 +465,20 @@ describe("ClientsPageVM", () => {
     );
   });
 
+  it("ограничивает интерфейсы формы группой выбранного пользователя", async () => {
+    const { vm } = setup("admin", [DEVICE], [
+      INTERFACE,
+      { ...INTERFACE_2, group_id: "g2", group_name: "Second" },
+    ]);
+    await vm.load();
+
+    vm.openCreate();
+    expect(vm.formInterfaceOptions).toHaveLength(2);
+
+    vm.setFormUser(OWNER.id);
+    expect(vm.formInterfaceOptions).toEqual([{ value: "i1", label: "wg0 · node-1" }]);
+  });
+
   it("создаёт устройство для собственного аккаунта обычного пользователя", async () => {
     const { vm, devices, toasts } = setup("user");
     await vm.load();
@@ -419,6 +486,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     expect(vm.formUserId).toBe(OWNER.id);
     vm.formName = "Phone";
+    vm.setFormInterface(INTERFACE_2.id);
 
     await vm.create();
 
@@ -426,10 +494,47 @@ describe("ClientsPageVM", () => {
       expect.objectContaining({
         user_id: OWNER.id,
         group_id: GROUP.id,
+        interface_id: INTERFACE_2.id,
         name: "Phone",
       }),
     );
     expect(toasts.items.at(-1)).toMatchObject({ kind: "success" });
+  });
+
+  it("не создаёт устройство без выбранного интерфейса", async () => {
+    const { vm, devices, toasts } = setup("admin");
+    await vm.load();
+
+    vm.openCreate();
+    vm.formName = "Pixel";
+    vm.setFormUser(OWNER.id);
+
+    expect(vm.canCreate).toBe(false);
+    await vm.create();
+
+    expect(devices.repository.createDevice).not.toHaveBeenCalled();
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Выберите интерфейс для устройства",
+    });
+  });
+
+  it("подставляет единственный интерфейс группы пользователя", async () => {
+    const { vm, devices } = setup("admin", [DEVICE], [INTERFACE]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.formName = "Pixel";
+    vm.setFormUser(OWNER.id);
+
+    expect(vm.formInterfaceId).toBe(INTERFACE.id);
+    expect(vm.canCreate).toBe(true);
+
+    await vm.create();
+
+    expect(devices.repository.createDevice).toHaveBeenCalledWith(
+      expect.objectContaining({ interface_id: INTERFACE.id }),
+    );
   });
 
   it("показывает ошибку создания и оставляет форму открытой", async () => {
@@ -442,6 +547,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
+    vm.setFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -539,6 +645,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
+    vm.setFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -546,44 +653,58 @@ describe("ClientsPageVM", () => {
     expect(vm.formDirty).toBe(false);
   });
 
-  it("фильтрует устройства по запросу и группе", async () => {
+  it("фильтрует устройства по запросу и интерфейсу", async () => {
     const { vm } = setup("admin", [DEVICE, PHONE]);
     await vm.load();
 
-    vm.groupFilter = "g1";
+    vm.interfaceFilter = "i1";
     vm.query = "10.0.1.2";
     vm.appliedQuery = "10.0.1.2";
     expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
     expect(vm.hasActiveFilters).toBe(true);
+
+    vm.query = "";
+    vm.appliedQuery = "";
+    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+
+    vm.setInterfaceFilter("i2");
+    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d2"]);
+
+    vm.query = "10.0.1.2";
+    vm.appliedQuery = "10.0.1.2";
+    expect(vm.filteredDevices).toEqual([]);
+
+    vm.setInterfaceFilter("");
+    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
 
     vm.query = "missing";
     vm.appliedQuery = "missing";
     expect(vm.filteredDevices).toEqual([]);
   });
 
-  it("восстанавливает поиск и группу из storage", () => {
+  it("восстанавливает поиск и интерфейс из storage", () => {
     localStorage.setItem(
       clientsFiltersStorage.key,
-      JSON.stringify({ query: "phone", groupFilter: "g1" }),
+      JSON.stringify({ query: "phone", interfaceFilter: "i2" }),
     );
 
     const { vm } = setup("admin", [DEVICE, PHONE]);
 
     expect(vm.query).toBe("phone");
     expect(vm.appliedQuery).toBe("phone");
-    expect(vm.groupFilter).toBe("g1");
+    expect(vm.interfaceFilter).toBe("i2");
   });
 
-  it("не применяет сохранённую группу для обычного пользователя", async () => {
+  it("не применяет сохранённый интерфейс, если он не выбран", async () => {
     localStorage.setItem(
       clientsFiltersStorage.key,
-      JSON.stringify({ query: "", groupFilter: "g1" }),
+      JSON.stringify({ query: "", interfaceFilter: "" }),
     );
 
     const { vm } = setup("user", [DEVICE, PHONE]);
     await vm.load();
 
-    expect(vm.groupFilter).toBe("");
+    expect(vm.interfaceFilter).toBe("");
     expect(vm.filteredDevices).toHaveLength(2);
   });
 
@@ -598,7 +719,7 @@ describe("ClientsPageVM", () => {
       expect(vm.query).toBe("phone");
       expect(vm.filteredDevices).toHaveLength(2);
       expect(localStorage.getItem(clientsFiltersStorage.key)).toBe(
-        JSON.stringify({ query: "phone", groupFilter: "" }),
+        JSON.stringify({ query: "phone", interfaceFilter: "" }),
       );
 
       vi.advanceTimersByTime(249);
@@ -616,28 +737,27 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.setQuery({ target: { value: "phone" } } as unknown as Event);
-    vm.setGroupFilter("g1");
+    vm.setInterfaceFilter("i2");
     expect(localStorage.getItem(clientsFiltersStorage.key)).not.toBeNull();
 
     vm.resetFilters();
 
     expect(vm.query).toBe("");
     expect(vm.appliedQuery).toBe("");
-    expect(vm.groupFilter).toBe("");
+    expect(vm.interfaceFilter).toBe("");
     expect(vm.hasActiveFilters).toBe(false);
     expect(localStorage.getItem(clientsFiltersStorage.key)).toBeNull();
     expect(vm.filteredDevices).toHaveLength(2);
   });
 
-  it("подставляет логин, имя группы и пиров", async () => {
+  it("подставляет логин, интерфейс, ноду и пиров", async () => {
     const { vm } = setup("admin");
     await vm.load();
 
     expect(vm.userLogin("u2")).toBe("owner");
     expect(vm.userLogin("unknown")).toBe("—");
-    expect(vm.groupName(null)).toBe("Без группы");
-    expect(vm.groupName("g1")).toBe("Main");
-    expect(vm.groupName("g9")).toBe("g9");
+    expect(vm.interfaceSummary(DEVICE)).toBe("wg0 · node-1");
+    expect(vm.interfaceSummary({ ...DEVICE, interface_name: "", node_name: "" })).toBe("—");
     expect(vm.peersLabel(DEVICE)).toBe("2 пира");
     expect(vm.interfaceNames(DEVICE)).toBe("wg0, wg1");
   });
@@ -646,7 +766,7 @@ describe("ClientsPageVM", () => {
     const devices = devicesHarness([DEVICE]);
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
-    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesHarness([INTERFACE, INTERFACE_2])));
     container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
     container.bind(Session, () => makeSession(ADMIN));
     container.bind(Router, () => new Router());
@@ -677,7 +797,7 @@ describe("ClientsPageVM", () => {
     const devices = devicesHarness([DEVICE]);
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
-    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesHarness([INTERFACE, INTERFACE_2])));
     container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
     container.bind(Session, () => makeSession(ADMIN));
     container.bind(Router, () => new Router());
@@ -701,8 +821,13 @@ describe("ClientsPageVM", () => {
     );
     expect(labels).toContain("Устройство");
     expect(labels).toContain("Владелец");
+    expect(labels).toContain("Интерфейс");
     expect(labels).toContain("Статус");
     expect(root.querySelector("td[data-label='Владелец'] .cell-stack")).not.toBeNull();
+    expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("wg0");
+    expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("node-1");
+    expect(root.querySelector(".entity-card__sub")?.textContent).toContain("wg0 · node-1");
+    expect(root.querySelector(".entity-card__meta")?.textContent).toContain("node-1");
     expect(root.querySelector("tbody tr td.cell-actions button")).not.toBeNull();
 
     result.dispose();
@@ -712,7 +837,7 @@ describe("ClientsPageVM", () => {
     const devices = devicesHarness([DEVICE, PHONE]);
     const container = createAppContainer();
     container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
-    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesHarness([INTERFACE, INTERFACE_2])));
     container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
     container.bind(Session, () => makeSession(ADMIN));
     const router = new Router();

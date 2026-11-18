@@ -1,5 +1,6 @@
 import { computed, reactive, watch } from "@ivlev-dev/silent-core";
 
+import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { userMessage } from "@/application/errors";
@@ -57,6 +58,10 @@ export class OverviewVM {
 
   get isAdmin(): boolean {
     return this.session.isAdmin;
+  }
+
+  get groupsEnabled(): boolean {
+    return GROUPS_SECTION_ENABLED;
   }
 
   @computed

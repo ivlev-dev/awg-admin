@@ -5,6 +5,7 @@ import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { RateField } from "@/components/RateField";
+import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
 import { formatBytes, formatRate } from "@/domain/format";
 import type { SortState } from "@/domain/table-sort";
@@ -47,7 +48,7 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
           when={!this.vm.loading}
           fallback={
             <div class="card__body">
-              <SkeletonTable rows={5} columns={8} />
+              <SkeletonTable rows={5} columns={9} />
             </div>
           }
         >
@@ -119,6 +120,11 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                         {t("tariffs.column.name")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
                       </button>
                     </th>
+                    <th class="is-sortable" style="width:170px" aria-sort={ariaSort(this.vm.sort, "interface_name")}>
+                      <button type="button" onClick={() => this.vm.sortBy("interface_name")}>
+                        {t("tariffs.column.interface")} <span class="sort-indicator">{this.vm.sortMark("interface_name")}</span>
+                      </button>
+                    </th>
                     <th class="is-sortable" style="width:110px" aria-sort={ariaSort(this.vm.sort, "max_devices")}>
                       <button type="button" onClick={() => this.vm.sortBy("max_devices")}>
                         {t("tariffs.column.maxDevices")} <span class="sort-indicator">{this.vm.sortMark("max_devices")}</span>
@@ -173,6 +179,9 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                               </Show>
                             </span>
                           </div>
+                        </td>
+                        <td data-label={t("tariffs.column.interface")}>
+                          {tariff.interface_name ?? "—"}
                         </td>
                         <td data-label={t("tariffs.column.maxDevices")} class="mono">{tariff.max_devices}</td>
                         <td data-label={t("tariffs.column.deviceDown")} class="mono">
@@ -251,6 +260,17 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
               <label>Макс. устройств</label>
               <input class="input" type="number" min="1" value={this.vm.max_devices} onInput={(event: Event) => this.vm.setMaxDevices(event)} />
             </div>
+          </div>
+          <div class="field">
+            <label for="tariff-interface">{t("tariffs.form.interface")}</label>
+            <Select
+              id="tariff-interface"
+              value={this.vm.formInterfaceId}
+              options={this.vm.interfaceOptions}
+              onChange={(value: string) => this.vm.setFormInterface(value)}
+              ariaLabel={t("tariffs.form.interface")}
+            />
+            <div class="hint">{t("tariffs.form.interfaceHint")}</div>
           </div>
           <div class="field">
             <label>Описание</label>

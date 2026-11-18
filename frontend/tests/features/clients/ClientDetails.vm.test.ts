@@ -65,6 +65,10 @@ const DEVICE: Device = {
   id: "d1",
   user_id: "u2",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "laptop",
   down_kbps: 1000,
   up_kbps: 500,
@@ -86,6 +90,10 @@ const SIBLING: Device = {
   id: "d2",
   user_id: "u2",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "phone",
   down_kbps: 0,
   up_kbps: 0,
@@ -100,6 +108,10 @@ const TABLET: Device = {
   id: "d3",
   user_id: "u2",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "tablet",
   down_kbps: 0,
   up_kbps: 0,
@@ -114,6 +126,10 @@ const REVOKED: Device = {
   id: "d4",
   user_id: "u2",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "old-laptop",
   down_kbps: 0,
   up_kbps: 0,
@@ -128,6 +144,10 @@ const FOREIGN: Device = {
   id: "d5",
   user_id: "u9",
   group_id: "g1",
+  interface_id: "i1",
+  interface_name: "wg0",
+  node_id: "n1",
+  node_name: "node-1",
   name: "stranger",
   down_kbps: 0,
   up_kbps: 0,
@@ -261,13 +281,13 @@ interface DevicesState {
   stats: DeviceStats;
 }
 
-function devicesHarness(): {
+function devicesHarness(profiles: Profile[] = [PROFILE_1, PROFILE_2]): {
   repository: DevicesRepository;
   state: DevicesState;
 } {
   const state: DevicesState = {
     devices: [{ ...DEVICE }, { ...SIBLING }],
-    profiles: [{ ...PROFILE_1 }, { ...PROFILE_2 }],
+    profiles: profiles.map((profile) => ({ ...profile })),
     shares: [{ ...SHARE }],
     stats: { ...STATS },
   };
@@ -377,9 +397,10 @@ function setup(
   role: Role = "admin",
   quotaState: QuotaState = QUOTA,
   quotaUsers: UserQuota[] = [USER_QUOTA],
+  profiles: Profile[] = [PROFILE_1, PROFILE_2],
 ) {
   const user = role === "admin" ? ADMIN : OWNER;
-  const devices = devicesHarness();
+  const devices = devicesHarness(profiles);
   const groups = groupsHarness([GROUP]);
   const quota = quotaHarness(quotaState, quotaUsers);
   const devicesService = new DefaultDevicesService(devices.repository);
@@ -456,6 +477,8 @@ describe("ClientDetailsVM", () => {
     expect(vm.forwardingSelected).toEqual([]);
     expect(vm.forwardingSymmetric).toBe(true);
     expect(vm.groupLabel).toBe("Main");
+    expect(vm.interfaceLabel).toBe("wg0");
+    expect(vm.nodeLabel).toBe("node-1");
     expect(vm.downLabel).toBe("1 Мбит/с");
     expect(vm.upLabel).toBe("500 Кбит/с");
     expect(vm.forwardingLabel).toBe("Выключено");
@@ -489,6 +512,18 @@ describe("ClientDetailsVM", () => {
     expect(vm.activeProfile?.interface_name).toBe("wg1");
     expect(vm.interfaceName("i2")).toBe("wg1");
     expect(vm.interfaceName("i9")).toBe("i9");
+  });
+
+  it("работает с единственным профилем интерфейса", async () => {
+    const { vm } = setup("admin", QUOTA, [USER_QUOTA], [PROFILE_1]);
+
+    await vm.load();
+
+    expect(vm.profiles).toHaveLength(1);
+    expect(vm.activeProfileId).toBe("i1");
+    expect(vm.activeProfile?.interface_name).toBe("wg0");
+    expect(vm.shareInterfaceId).toBe("i1");
+    expect(vm.canShowVpnQr).toBe(true);
   });
 
   it("получает отдельный профиль через DevicesService", async () => {
@@ -1372,6 +1407,8 @@ describe("ClientDetailsVM", () => {
     expect(result.node.textContent).toContain("Матрица forwarding");
     expect(result.node.textContent).toContain("Симметрично");
     expect(result.node.textContent).toContain("Только выбранные");
+    expect(result.node.textContent).toContain("wg0");
+    expect(result.node.textContent).toContain("node-1");
     const root = result.node as Element;
     expect(root.querySelector(".client-subnav")).not.toBeNull();
     expect(root.querySelectorAll(".client-section")).toHaveLength(6);
@@ -1386,5 +1423,38 @@ describe("ClientDetailsVM", () => {
     expect(root.querySelectorAll(".matrix-table input[type=checkbox]").length).toBeGreaterThan(0);
 
     result.dispose();
+  });
+
+  it("рендерит единственный профиль интерфейса", async () => {
+    const { devicesService, groupsService, quota, session, router, toasts } = setup(
+      "admin",
+      QUOTA,
+      [USER_QUOTA],
+      [PROFILE_1],
+    );
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => devicesService);
+    container.bind(DefaultGroupsService, () => groupsService);
+    container.bind(DefaultQuotaService, () => quota.service);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(ClientDetails, {}, { container });
+    await result.ready;
+    const root = result.node as Element;
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain("laptop");
+    });
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".tabs .tab")).toHaveLength(1);
+    });
+
+    expect(root.querySelector(".tabs .tab")?.textContent).toBe("wg0");
+    expect(root.querySelector("#share-interface")).not.toBeNull();
+    expect(root.textContent).toContain("node-1");
+
+    result.dispose();
+    document.body.replaceChildren();
   });
 });

@@ -1,7 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import type { DevicesService } from "@/application/devices/service";
-import type { GroupsService } from "@/application/groups/service";
+import type { InterfacesService } from "@/application/interfaces/service";
 import type { UsersService } from "@/application/users/service";
 import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
@@ -11,40 +11,46 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { DevicesBulkAction } from "@/domain/devices/repository";
-import type { Device, Group, User } from "@/domain/types";
+import type { Device, InterfaceInfo, User } from "@/domain/types";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
 
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
-const GROUP_ID_LIMIT = 100;
+const FILTER_ID_LIMIT = 100;
 
 export interface ClientsFilters {
   query: string;
-  groupFilter: string;
+  interfaceFilter: string;
+}
+
+export interface InterfaceOption {
+  readonly value: string;
+  readonly label: string;
 }
 
 export interface ClientFormState {
   readonly name: string;
   readonly userId: string;
-  readonly groupId: string;
+  readonly interfaceId: string;
   readonly downKbps: number;
   readonly upKbps: number;
   readonly forwarding: boolean;
 }
 
-const EMPTY_FILTERS: ClientsFilters = { query: "", groupFilter: "" };
+const EMPTY_FILTERS: ClientsFilters = { query: "", interfaceFilter: "" };
 
 export const clientsFiltersStorage = persistedSignal<ClientsFilters>(
   "awg.ui.clients.filters",
   EMPTY_FILTERS,
   validateClientsFilters,
+  { version: 2 },
 );
 
 export class ClientsPageVM {
   constructor(
     private readonly devicesService: DevicesService,
-    private readonly groupsService: GroupsService,
+    private readonly interfacesService: InterfacesService,
     private readonly usersService: UsersService,
     private readonly session: Session,
     private readonly router: Router,
@@ -53,16 +59,16 @@ export class ClientsPageVM {
     const stored = clientsFiltersStorage.read();
     this.query = stored.query;
     this.appliedQuery = stored.query;
-    this.groupFilter = this.isAdmin ? stored.groupFilter : "";
+    this.interfaceFilter = stored.interfaceFilter;
   }
 
   @reactive accessor devices: Device[] = [];
-  @reactive accessor groups: Group[] = [];
+  @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor users: User[] = [];
   @reactive accessor loading = true;
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
-  @reactive accessor groupFilter = "";
+  @reactive accessor interfaceFilter = "";
   @reactive accessor statusFilter: "all" | "active" | "revoked" = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
@@ -77,7 +83,7 @@ export class ClientsPageVM {
 
   @reactive accessor formName = "";
   @reactive accessor formUserId = "";
-  @reactive accessor formGroupId = "";
+  @reactive accessor formInterfaceId = "";
   @reactive accessor formDownKbps = 0;
   @reactive accessor formUpKbps = 0;
   @reactive accessor formForwarding = false;
@@ -98,11 +104,31 @@ export class ClientsPageVM {
   }
 
   @computed
+  get interfaceOptions(): InterfaceOption[] {
+    return this.interfaces.map((item) => ({
+      value: item.id,
+      label: interfaceLabel(item),
+    }));
+  }
+
+  @computed
+  get formInterfaceOptions(): InterfaceOption[] {
+    const groupId = this.userGroupId(this.formUserId);
+    const items = groupId.length > 0
+      ? this.interfaces.filter((item) => item.group_id === groupId)
+      : this.interfaces;
+    return items.map((item) => ({
+      value: item.id,
+      label: interfaceLabel(item),
+    }));
+  }
+
+  @computed
   get filteredDevices(): Device[] {
     const query = this.appliedQuery.trim().toLowerCase();
-    const group = this.isAdmin ? this.groupFilter : "";
+    const interfaceId = this.interfaceFilter;
     const filtered = this.devices.filter((device) => {
-      if (group && device.group_id !== group) return false;
+      if (interfaceId && device.interface_id !== interfaceId) return false;
       if (this.statusFilter === "active" && device.revoked) return false;
       if (this.statusFilter === "revoked" && !device.revoked) return false;
       if (!query) return true;
@@ -128,7 +154,7 @@ export class ClientsPageVM {
   @computed
   get hasActiveFilters(): boolean {
     return this.appliedQuery.trim().length > 0
-      || (this.isAdmin && this.groupFilter.length > 0)
+      || this.interfaceFilter.length > 0
       || this.statusFilter !== "all";
   }
 
@@ -202,9 +228,22 @@ export class ClientsPageVM {
   }
 
   @computed
+  get selectedInterfaceId(): string {
+    const explicit = this.interfaces.find((item) => item.id === this.formInterfaceId);
+    if (explicit) return explicit.id;
+    return this.singleInterfaceForGroup(this.userGroupId(this.formUserId));
+  }
+
+  @computed
+  get formInterfaceGroupId(): string | null {
+    return this.interfaces.find((item) => item.id === this.selectedInterfaceId)?.group_id ?? null;
+  }
+
+  @computed
   get canCreate(): boolean {
     if (this.submitting || this.formName.trim().length === 0) return false;
-    return !this.isAdmin || this.formUserId.length > 0;
+    if (this.isAdmin && this.formUserId.length === 0) return false;
+    return this.selectedInterfaceId.length > 0;
   }
 
   @computed
@@ -218,7 +257,7 @@ export class ClientsPageVM {
     return {
       name: this.formName,
       userId: this.formUserId,
-      groupId: this.formGroupId,
+      interfaceId: this.formInterfaceId,
       downKbps: this.formDownKbps,
       upKbps: this.formUpKbps,
       forwarding: this.formForwarding,
@@ -228,15 +267,17 @@ export class ClientsPageVM {
   async load(): Promise<void> {
     this.loading = true;
     try {
-      const groupsPromise = this.isAdmin ? this.groupsService.listGroups() : Promise.resolve<Group[]>([]);
+      const interfacesPromise: Promise<InterfaceInfo[]> = this.isAdmin
+        ? this.interfacesService.listInterfaces()
+        : this.interfacesService.listInterfaces().catch(() => []);
       const usersPromise = this.isAdmin ? this.usersService.listUsers() : Promise.resolve<User[]>([]);
-      const [devices, groups, users] = await Promise.all([
+      const [devices, interfaces, users] = await Promise.all([
         this.devicesService.listDevices(),
-        groupsPromise,
+        interfacesPromise,
         usersPromise,
       ]);
       this.devices = devices;
-      this.groups = groups;
+      this.interfaces = interfaces;
       this.users = users;
     } catch (error) {
       this.toasts.error(messageOf(error, t("clients.error.load")));
@@ -251,8 +292,8 @@ export class ClientsPageVM {
     this.persistFilters();
   }
 
-  setGroupFilter(value: string): void {
-    this.groupFilter = value;
+  setInterfaceFilter(value: string): void {
+    this.interfaceFilter = value;
     this.persistFilters();
   }
 
@@ -260,7 +301,7 @@ export class ClientsPageVM {
     this.applyQuery.cancel();
     this.query = "";
     this.appliedQuery = "";
-    this.groupFilter = "";
+    this.interfaceFilter = "";
     clientsFiltersStorage.clear();
   }
 
@@ -270,10 +311,15 @@ export class ClientsPageVM {
 
   setFormUser(value: string): void {
     this.formUserId = value;
+    const groupId = this.userGroupId(value);
+    const current = this.interfaces.find((item) => item.id === this.formInterfaceId);
+    if (!current || current.group_id !== groupId) {
+      this.formInterfaceId = this.singleInterfaceForGroup(groupId);
+    }
   }
 
-  setFormGroup(value: string): void {
-    this.formGroupId = value;
+  setFormInterface(value: string): void {
+    this.formInterfaceId = value;
   }
 
   setFormDownKbps(value: number): void {
@@ -289,9 +335,10 @@ export class ClientsPageVM {
   }
 
   openCreate(): void {
+    const userId = this.isAdmin ? "" : this.session.user?.id ?? "";
     this.formName = "";
-    this.formUserId = this.isAdmin ? "" : this.session.user?.id ?? "";
-    this.formGroupId = this.isAdmin ? this.groupFilter : "";
+    this.formUserId = userId;
+    this.formInterfaceId = this.interfaceFilter || this.singleInterfaceForGroup(this.userGroupId(userId));
     this.formDownKbps = 0;
     this.formUpKbps = 0;
     this.formForwarding = false;
@@ -315,18 +362,26 @@ export class ClientsPageVM {
   }
 
   async create(): Promise<void> {
-    if (!this.canCreate) return;
+    if (this.submitting) return;
+    const name = this.formName.trim();
+    if (name.length === 0) return;
     const userId = this.isAdmin ? this.formUserId : this.session.user?.id ?? "";
-    if (!userId) {
+    if (userId.length === 0) {
       this.toasts.error(t("clients.error.user"));
+      return;
+    }
+    const interfaceId = this.selectedInterfaceId;
+    if (interfaceId.length === 0) {
+      this.toasts.error(t("clients.error.interface"));
       return;
     }
     this.submitting = true;
     try {
       const device = await this.devicesService.createDevice({
         user_id: userId,
-        group_id: this.isAdmin ? this.formGroupId || null : this.session.user?.group_id ?? null,
-        name: this.formName.trim(),
+        group_id: this.formInterfaceGroupId ?? (this.isAdmin ? null : this.session.user?.group_id ?? null),
+        interface_id: interfaceId,
+        name,
         down_kbps: this.formDownKbps,
         up_kbps: this.formUpKbps,
         forwarding: {
@@ -356,9 +411,11 @@ export class ClientsPageVM {
     return "—";
   }
 
-  groupName(id: string | null): string {
-    if (!id) return t("clients.group.none");
-    return this.groups.find((item) => item.id === id)?.name ?? id;
+  interfaceSummary(device: Device): string {
+    if (!device.interface_name) return "—";
+    return device.node_name
+      ? `${device.interface_name} · ${device.node_name}`
+      : device.interface_name;
   }
 
   peersLabel(device: Device): string {
@@ -371,20 +428,35 @@ export class ClientsPageVM {
     return names.length > 0 ? names.join(", ") : "—";
   }
 
+  private userGroupId(userId: string): string {
+    if (!this.isAdmin) return this.session.user?.group_id ?? "";
+    return this.users.find((user) => user.id === userId)?.group_id ?? "";
+  }
+
+  private singleInterfaceForGroup(groupId: string): string {
+    if (groupId.length === 0) return "";
+    const matches = this.interfaces.filter((item) => item.group_id === groupId);
+    return matches.length === 1 ? matches[0]?.id ?? "" : "";
+  }
+
   private persistFilters(): void {
     clientsFiltersStorage.write({
       query: this.query,
-      groupFilter: this.isAdmin ? this.groupFilter : "",
+      interfaceFilter: this.interfaceFilter,
     });
   }
+}
+
+function interfaceLabel(item: InterfaceInfo): string {
+  return item.node_name.length > 0 ? `${item.name} · ${item.node_name}` : item.name;
 }
 
 function validateClientsFilters(value: unknown): ClientsFilters | null {
   if (!isRecord(value)) return null;
   const query = stringField(value, "query", QUERY_LIMIT);
-  const groupFilter = stringField(value, "groupFilter", GROUP_ID_LIMIT);
-  if (query === null || groupFilter === null) return null;
-  return { query, groupFilter };
+  const interfaceFilter = stringField(value, "interfaceFilter", FILTER_ID_LIMIT);
+  if (query === null || interfaceFilter === null) return null;
+  return { query, interfaceFilter };
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -399,7 +471,7 @@ function sameClientForm(left: ClientFormState, right: ClientFormState): boolean 
   return (
     left.name === right.name &&
     left.userId === right.userId &&
-    left.groupId === right.groupId &&
+    left.interfaceId === right.interfaceId &&
     left.downKbps === right.downKbps &&
     left.upKbps === right.upKbps &&
     left.forwarding === right.forwarding

@@ -30,7 +30,17 @@ export function validateGroupSum(tariff: Tariff, devices: Limits[]): string | nu
   return null;
 }
 
-export function validateTariff(tariff: Omit<Tariff, "id" | "created_at" | "updated_at">): string | null {
+export type TariffValidationTarget = Pick<
+  Tariff,
+  | "name"
+  | "max_devices"
+  | "device_down_kbps"
+  | "device_up_kbps"
+  | "group_down_kbps"
+  | "group_up_kbps"
+>;
+
+export function validateTariff(tariff: TariffValidationTarget): string | null {
   if (!tariff.name.trim()) return "Название тарифа обязательно";
   if (tariff.max_devices <= 0) return "Тариф должен разрешать хотя бы одно устройство";
   if (
