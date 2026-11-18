@@ -170,7 +170,6 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                     <th class="col-interface">{t("clients.column.interface")}</th>
                     <th class="col-address">{t("clients.column.addresses")}</th>
                     <th class="col-limits">{t("clients.column.limits")}</th>
-                    <th class="col-peers">{t("clients.column.peers")}</th>
                     <th class="is-sortable">
                       <button type="button" onClick={() => this.vm.sortBy("status")}>
                         {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
@@ -234,17 +233,6 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                               <span class="muted">↑</span> {rateLabel(device.up_kbps)}
                             </span>
                           </div>
-                        </td>
-                        <td class="col-peers" data-label={t("clients.column.peers")}>
-                          <Show
-                            when={device.peers.length > 0}
-                            fallback={<span class="muted">—</span>}
-                          >
-                            <div class="cell-name__text">
-                              <span class="small strong">{this.vm.peersLabel(device)}</span>
-                              <span class="xs muted">{this.vm.interfaceNames(device)}</span>
-                            </div>
-                          </Show>
                         </td>
                         <td class="col-status" data-label={t("clients.column.status")}>
                           <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>

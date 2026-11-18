@@ -228,12 +228,13 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 .table--fixed .cell-name__text .strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .table--fixed .cell-avatar { flex: none; }
 .table--fixed .cell-select { overflow: visible; text-overflow: clip; }
-.table--clients .col-owner { width: 180px; }
-.table--clients .col-address { width: 130px; }
-.table--clients .col-limits { width: 130px; }
-.table--clients .col-peers { width: 170px; }
-.table--clients .col-status { width: 110px; }
-.table--clients .col-actions { width: 104px; }
+.table--clients .col-owner { width: 120px; }
+.table--clients .col-address { width: 120px; }
+.table--clients .col-limits { width: 100px; }
+.table--clients .col-interface { width: 140px; }
+.table--clients .col-status { width: 100px; }
+.table--clients .col-actions { width: 112px; }
+.table--fixed th.cell-actions, .table--fixed td.cell-actions { overflow: visible; }
 .table--audit .col-time { width: 170px; }
 .table--audit .col-actor { width: 150px; }
 .table--audit .col-action { width: 104px; }
