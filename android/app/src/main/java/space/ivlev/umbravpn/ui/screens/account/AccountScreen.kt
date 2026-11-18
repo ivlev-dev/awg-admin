@@ -30,7 +30,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.dokar.sonner.ToastType
-import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
@@ -65,7 +64,7 @@ import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 
 @Composable
 fun AccountScreen(
-    viewModel: AccountViewModel = koinViewModel(),
+    viewModel: AccountViewModel = koinActivityViewModel(),
     sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
     val navController = LocalNavController.current
@@ -104,6 +103,7 @@ fun AccountScreen(
                 state = state,
                 onRetry = viewModel::retry,
                 onConfigureServer = { navController.push(Route.Onboarding) },
+                onSignOut = viewModel::logout,
             )
         else -> ProfileContent(state = state, viewModel = viewModel)
     }
@@ -186,6 +186,7 @@ private fun ErrorContent(
     state: AccountUiState,
     onRetry: () -> Unit,
     onConfigureServer: () -> Unit,
+    onSignOut: () -> Unit,
 ) {
     Column(
         modifier = Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 32.dp),
@@ -201,8 +202,18 @@ private fun ErrorContent(
             onClick = onRetry,
             loading = state.isLoading,
         )
-        TextButton(onClick = onConfigureServer) {
-            Text(stringResource(R.string.account_change_server))
+        AccountSecondaryButton(
+            text = stringResource(R.string.account_change_server),
+            onClick = onConfigureServer,
+        )
+        TextButton(
+            onClick = onSignOut,
+            modifier = Modifier.align(Alignment.CenterHorizontally),
+        ) {
+            Text(
+                text = stringResource(R.string.account_logout),
+                color = MaterialTheme.colorScheme.error,
+            )
         }
     }
 }

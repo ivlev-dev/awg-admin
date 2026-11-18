@@ -54,6 +54,9 @@ internal class FakeAccountSettingsRepository(rawUrl: String = TEST_SERVER_URL) :
     private val urlState = MutableStateFlow(normalizeServerUrl(rawUrl))
     private val termsState = MutableStateFlow(false)
     private val managedProvisionedState = MutableStateFlow(false)
+    var cachedSnapshotState: String? = null
+    private val manualDisconnectState = MutableStateFlow(false)
+    private val autoConnectOnStartupState = MutableStateFlow(true)
 
     override val serverUrlFlow: Flow<String> = urlState
 
@@ -75,6 +78,24 @@ internal class FakeAccountSettingsRepository(rawUrl: String = TEST_SERVER_URL) :
 
     override suspend fun setManagedProvisioned(provisioned: Boolean) {
         managedProvisionedState.value = provisioned
+    }
+
+    override suspend fun cachedSnapshot(): String? = cachedSnapshotState
+
+    override suspend fun setCachedSnapshot(json: String?) {
+        cachedSnapshotState = json
+    }
+
+    override suspend fun manualDisconnect(): Boolean = manualDisconnectState.value
+
+    override suspend fun setManualDisconnect(value: Boolean) {
+        manualDisconnectState.value = value
+    }
+
+    override suspend fun autoConnectOnStartup(): Boolean = autoConnectOnStartupState.value
+
+    override suspend fun setAutoConnectOnStartup(enabled: Boolean) {
+        autoConnectOnStartupState.value = enabled
     }
 }
 

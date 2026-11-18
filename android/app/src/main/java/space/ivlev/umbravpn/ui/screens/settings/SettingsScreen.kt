@@ -14,6 +14,7 @@ import androidx.compose.material.icons.outlined.Android
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.outlined.PowerSettingsNew
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.SettingsBackupRestore
 import androidx.compose.material.icons.outlined.Tune
@@ -39,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.text.intl.Locale
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.viewmodel.koinActivityViewModel
@@ -48,6 +50,7 @@ import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.PreferenceTrailing
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.SwitchWithDivider
@@ -80,8 +83,12 @@ fun SettingsScreen(
     val locale = Locale.current.platformLocale
 
     val uiState by viewModel.collectAsState()
+    val autoConnectOnStartup by sharedViewModel.autoConnectOnStartup.collectAsStateWithLifecycle()
 
-    if (uiState.isLoading) return
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val focusRequester = remember { FocusRequester() }
 
@@ -249,6 +256,21 @@ fun SettingsScreen(
             GroupLabel(
                 stringResource(R.string.general),
                 modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.PowerSettingsNew, contentDescription = null) },
+                title = stringResource(R.string.account_auto_connect_title),
+                description = {
+                    DescriptionText(stringResource(R.string.account_auto_connect_desc))
+                },
+                trailing = { modifier ->
+                    SwitchWithDivider(
+                        checked = autoConnectOnStartup,
+                        onClick = sharedViewModel::setAutoConnectOnStartup,
+                        modifier = modifier,
+                    )
+                },
+                onClick = { sharedViewModel.setAutoConnectOnStartup(!autoConnectOnStartup) },
             )
             SurfaceRow(
                 leading = {

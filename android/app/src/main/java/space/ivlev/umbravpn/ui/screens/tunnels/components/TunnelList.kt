@@ -50,6 +50,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
@@ -74,9 +76,8 @@ import space.ivlev.umbravpn.ui.state.TunnelListRow
 import space.ivlev.umbravpn.ui.state.TunnelsUiState
 import space.ivlev.umbravpn.ui.state.applyDisplayedOrder
 import space.ivlev.umbravpn.ui.state.buildTunnelListRows
-import space.ivlev.umbravpn.ui.theme.AlertRed
-import space.ivlev.umbravpn.ui.theme.SilverTree
-import space.ivlev.umbravpn.ui.theme.Straw
+import space.ivlev.umbravpn.ui.theme.LocalStatusColors
+import space.ivlev.umbravpn.ui.theme.StatusKind
 import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -196,6 +197,7 @@ fun TunnelList(
                                 uiState.reorderLatencies[it.tunnel.id]
                             }
                         val latencyLabel = latency?.let { pingLatencyLabel(it) }
+                        val latencyColor = latency?.let { pingLatencyColor(it) }
                         val title = buildAnnotatedString {
                             when (row) {
                                 is TunnelListRow.GroupHeader -> {
@@ -212,9 +214,13 @@ fun TunnelList(
                                 }
                                 is TunnelListRow.TunnelRow -> {
                                     append(row.tunnel.name)
-                                    if (latency != null && latencyLabel != null) {
+                                    if (
+                                        latency != null &&
+                                            latencyLabel != null &&
+                                            latencyColor != null
+                                    ) {
                                         append(" - ")
-                                        withStyle(SpanStyle(color = pingLatencyColor(latency))) {
+                                        withStyle(SpanStyle(color = latencyColor)) {
                                             append(latencyLabel)
                                         }
                                     }
@@ -419,23 +425,27 @@ private fun ListRow(
             val activeTunnel = uiState.backendStatus.activeTunnels[tunnel.id] ?: ActiveTunnel()
             val displayState = remember(activeTunnel) { DisplayTunnelState.from(activeTunnel) }
             val isRunning = uiState.backendStatus.activeTunnels.containsKey(tunnel.id)
+            val statusLabel = stringResource(displayState.labelRes())
+            val statusColors = LocalStatusColors.current
             val selected =
                 remember(uiState.selectedTunnels) {
                     uiState.selectedTunnels.any { it.id == tunnel.id }
                 }
             SurfaceRow(
                 modifier =
-                    modifier.then(if (row.grouped) Modifier.padding(start = 24.dp) else Modifier),
+                    modifier
+                        .then(if (row.grouped) Modifier.padding(start = 24.dp) else Modifier)
+                        .semantics { stateDescription = statusLabel },
                 leading = {
                     Icon(
                         Icons.Rounded.Circle,
-                        contentDescription = stringResource(R.string.tunnel_monitoring),
-                        tint = remember(displayState) { displayState.asColor() },
+                        contentDescription = null,
+                        tint = statusColors.colorFor(displayState.statusKind()),
                         modifier = Modifier.size(14.dp),
                     )
                 },
                 title = tunnel.name,
-                description = tunnelRowDescription(tunnel, uiState),
+                description = tunnelRowDescription(tunnel, uiState, displayState),
                 onClick = {
                     when {
                         uiState.isReorderMode -> Unit
@@ -484,14 +494,36 @@ private fun ListRow(
 private fun tunnelRowDescription(
     tunnel: TunnelConfig,
     uiState: TunnelsUiState,
+    displayState: DisplayTunnelState? = null,
 ): (@Composable () -> Unit)? {
     val entryName =
         tunnel.entryTunnelId?.let { id -> uiState.tunnels.firstOrNull { it.id == id }?.name }
     val latency = uiState.pingLatencies[tunnel.id]
     val managed = tunnel.id in uiState.managedTunnelIds
-    if (!managed && entryName == null && latency == null) return null
+    val showStatus = displayState != null && displayState != DisplayTunnelState.Disconnected
+    if (!managed && entryName == null && latency == null && !showStatus) return null
     return {
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (showStatus) {
+                val statusColors = LocalStatusColors.current
+                val state = displayState
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        Icons.Rounded.Circle,
+                        contentDescription = null,
+                        tint = statusColors.colorFor(state.statusKind()),
+                        modifier = Modifier.size(8.dp),
+                    )
+                    Text(
+                        text = stringResource(state.labelRes()),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = statusColors.colorFor(state.statusKind()),
+                    )
+                }
+            }
             if (managed) {
                 ManagedTunnelBadge()
             }
@@ -544,11 +576,15 @@ private fun pingLatencyLabel(latency: Double): String {
     else "${latency.toInt()}ms"
 }
 
+@Composable
 private fun pingLatencyColor(latency: Double): Color {
-    return when {
-        latency == Double.MAX_VALUE -> AlertRed
-        latency <= 50.0 -> SilverTree
-        latency <= 150.0 -> Straw
-        else -> AlertRed
-    }
+    val statusColors = LocalStatusColors.current
+    return statusColors.colorFor(
+        when {
+            latency == Double.MAX_VALUE -> StatusKind.ERROR
+            latency <= 50.0 -> StatusKind.SUCCESS
+            latency <= 150.0 -> StatusKind.WARNING
+            else -> StatusKind.ERROR
+        },
+    )
 }

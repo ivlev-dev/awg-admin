@@ -31,6 +31,7 @@ import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.SwitchWithDivider
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
@@ -53,7 +54,10 @@ fun AdvancedScreen(
     val navController = LocalNavController.current
     val sharedUiState by sharedViewModel.collectAsState()
     val uiState by viewModel.collectAsState()
-    if (uiState.isLoading) return
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val strictSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
     val strictApplies = sharedUiState.tunnelMode == TunnelMode.VPN

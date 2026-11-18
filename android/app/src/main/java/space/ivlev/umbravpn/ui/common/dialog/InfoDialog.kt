@@ -1,6 +1,7 @@
 package space.ivlev.umbravpn.ui.common.dialog
 
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -23,6 +24,7 @@ fun InfoDialog(
     confirmEnabled: Boolean = true,
     dismissText: String = stringResource(R.string.cancel),
     onDismissButton: () -> Unit = onDismiss,
+    destructive: Boolean = false,
 ) {
     MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy()) {
         Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp) {
@@ -30,7 +32,18 @@ fun InfoDialog(
                 modifier = modifier,
                 onDismissRequest = { onDismiss() },
                 confirmButton = {
-                    TextButton(onClick = { onAttest() }, enabled = confirmEnabled) {
+                    TextButton(
+                        onClick = { onAttest() },
+                        enabled = confirmEnabled,
+                        colors =
+                            if (destructive) {
+                                ButtonDefaults.textButtonColors(
+                                    contentColor = MaterialTheme.colorScheme.error,
+                                )
+                            } else {
+                                ButtonDefaults.textButtonColors()
+                            },
+                    ) {
                         Text(text = confirmText)
                     }
                 },

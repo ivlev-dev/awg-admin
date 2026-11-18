@@ -1,24 +1,30 @@
 package space.ivlev.umbravpn.ui.screens.tunnels.splittunnel
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularWavyProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
+import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.dialog.rememberRestartToApplyChanges
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.components.SelectTunnelModal
@@ -45,6 +51,26 @@ fun SplitTunnelScreen(
     }
 
     var showSelectionDialog by rememberSaveable { mutableStateOf(false) }
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(uiState.isDirty) { sharedViewModel.setScreenDirty(uiState.isDirty) }
+    DisposableEffect(Unit) { onDispose { sharedViewModel.setScreenDirty(false) } }
+    BackHandler(enabled = uiState.isDirty) { showDiscardDialog = true }
+
+    if (showDiscardDialog) {
+        InfoDialog(
+            onDismiss = { showDiscardDialog = false },
+            onAttest = {
+                showDiscardDialog = false
+                navController.pop()
+            },
+            title = stringResource(R.string.discard_changes_title),
+            body = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmText = stringResource(R.string.discard_changes_confirm),
+            destructive = true,
+        )
+    }
+
     val requestApply =
         rememberRestartToApplyChanges(
             needsRestart = uiState.needsRestart,
@@ -54,6 +80,8 @@ fun SplitTunnelScreen(
     sharedViewModel.collectSideEffect { sideEffect ->
         when (sideEffect) {
             is LocalSideEffect.SaveChanges -> requestApply()
+            is LocalSideEffect.RequestBack ->
+                if (uiState.isDirty) showDiscardDialog = true else navController.pop()
             is LocalSideEffect.Modal.SelectTunnel -> showSelectionDialog = true
             else -> Unit
         }

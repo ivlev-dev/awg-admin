@@ -32,8 +32,9 @@ internal sealed interface DecodedBackup {
 }
 
 /**
- * A new backup is a zip of `manifest.json` and the SQLite file. Password protection encrypts only
- * the database entry, using [BackupCipher], so a file saved by the old library still restores.
+ * A new backup is a zip of `manifest.json` and the encrypted SQLite file. Encryption is mandatory
+ * for new backups because the database contains private VPN keys. Plain zips and `.sqlite3.aes`
+ * files saved by the old library still restore.
  */
 internal object BackupArchive {
     const val PLATFORM_ANDROID = "android"
@@ -47,17 +48,18 @@ internal object BackupArchive {
         out: OutputStream,
         database: ByteArray,
         manifest: BackupManifest,
-        password: String?,
+        password: String,
     ) {
-        val secret = password?.takeIf { it.isNotBlank() }
+        require(password.isNotBlank()) { "backup password is required" }
+        require(password.length >= BackupCipher.MIN_PASSWORD_LENGTH) {
+            "backup password must be at least ${BackupCipher.MIN_PASSWORD_LENGTH} characters"
+        }
         ZipOutputStream(out).use { zip ->
             zip.putNextEntry(ZipEntry(MANIFEST))
-            zip.write(manifest.copy(encrypted = secret != null).toJson().encodeToByteArray())
+            zip.write(manifest.copy(encrypted = true).toJson().encodeToByteArray())
             zip.closeEntry()
-            val entry = if (secret == null) DATABASE else DATABASE_AES
-            val payload = if (secret == null) database else BackupCipher.encrypt(database, secret)
-            zip.putNextEntry(ZipEntry(entry))
-            zip.write(payload)
+            zip.putNextEntry(ZipEntry(DATABASE_AES))
+            zip.write(BackupCipher.encrypt(database, password))
             zip.closeEntry()
         }
     }

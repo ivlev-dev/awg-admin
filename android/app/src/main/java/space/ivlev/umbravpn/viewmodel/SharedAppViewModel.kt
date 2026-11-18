@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.orbitmvi.orbit.OrbitContainerHost
 import org.orbitmvi.orbit.viewmodel.orbitContainer
@@ -34,6 +35,7 @@ import space.ivlev.umbravpn.core.tunnel.StrictSplitDefaults
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.TunnelGroup
+import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AppStateRepository
 import space.ivlev.umbravpn.domain.repository.GeneralSettingRepository
 import space.ivlev.umbravpn.domain.repository.GlobalEffectRepository
@@ -84,9 +86,31 @@ class SharedAppViewModel(
     private val networkUtils: NetworkUtils,
     private val appLockManager: AppLockManager,
     private val strictSplitDefaults: StrictSplitDefaults,
+    private val accountSettingsRepository: AccountSettingsRepository,
 ) : OrbitContainerHost<GlobalAppUiState, GlobalAppUiState, LocalSideEffect>, ViewModel() {
 
     val globalSideEffect = globalEffectRepository.flow
+
+    private val _screenDirty = MutableStateFlow(false)
+    val screenDirty: kotlinx.coroutines.flow.StateFlow<Boolean> = _screenDirty.asStateFlow()
+
+    fun setScreenDirty(dirty: Boolean) {
+        _screenDirty.value = dirty
+    }
+
+    val autoConnectOnStartup =
+        accountSettingsRepository.autoConnectOnStartupFlow.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            true,
+        )
+
+    fun setAutoConnectOnStartup(enabled: Boolean) {
+        viewModelScope.launch {
+            accountSettingsRepository.setAutoConnectOnStartup(enabled)
+            if (enabled) accountSettingsRepository.setManualDisconnect(false)
+        }
+    }
 
     private val _supportAutoUpdateRequests = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
     val supportAutoUpdateRequests = _supportAutoUpdateRequests.asSharedFlow()

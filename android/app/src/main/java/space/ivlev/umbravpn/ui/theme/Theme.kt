@@ -153,7 +153,21 @@ fun UmbraVpnTheme(theme: Theme = Theme.AUTOMATIC, content: @Composable () -> Uni
                     ),
         )
 
-    CompositionLocalProvider(LocalRippleConfiguration provides rippleConfig) {
+    val statusPalette =
+        when (theme) {
+            Theme.AMOLED,
+            Theme.AMOLED_DYNAMIC -> StatusPalettes.Amoled
+            Theme.DARK,
+            Theme.DARKER -> StatusPalettes.Dark
+            Theme.LIGHT -> StatusPalettes.Light
+            Theme.AUTOMATIC,
+            Theme.DYNAMIC -> if (isDark) StatusPalettes.Dark else StatusPalettes.Light
+        }
+
+    CompositionLocalProvider(
+        LocalRippleConfiguration provides rippleConfig,
+        LocalStatusColors provides StatusColors.from(statusPalette),
+    ) {
         MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
     }
 }

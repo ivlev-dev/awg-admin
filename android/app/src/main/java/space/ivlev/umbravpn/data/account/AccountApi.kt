@@ -28,6 +28,7 @@ import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.StoredSession
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 
@@ -89,6 +90,9 @@ class AccountApi(
     }
 
     suspend fun verifyEmail(token: String): AccountResult<Unit> {
+        if (sessionManager.state.value is SessionState.Active) {
+            return AccountResult.Success(Unit)
+        }
         val result =
             executeUnit(
                 authenticated = false,
@@ -98,7 +102,9 @@ class AccountApi(
                 contentType(ContentType.Application.Json)
                 setBody(VerifyEmailRequestDto(token = token))
             }
-        if (result is AccountResult.Success) sessionManager.markPendingApproval()
+        if (result is AccountResult.Success && sessionManager.state.value !is SessionState.Active) {
+            sessionManager.markPendingApproval()
+        }
         return result
     }
 

@@ -4,7 +4,9 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
+import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
 import space.ivlev.umbravpn.data.account.AccountApi
+import space.ivlev.umbravpn.data.account.AccountSnapshotCache
 import space.ivlev.umbravpn.data.account.SessionManager
 import space.ivlev.umbravpn.data.network.AccountHttpClientFactory
 import space.ivlev.umbravpn.data.network.ServerProbe
@@ -17,7 +19,9 @@ import space.ivlev.umbravpn.data.sync.defaultManagedDeviceName
 import space.ivlev.umbravpn.domain.account.AccountAccessCleanup
 import space.ivlev.umbravpn.domain.account.AccountActions
 import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.account.PendingSignupCache
+import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AccountRepository
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
@@ -48,7 +52,15 @@ val accountModule = module {
     single<AuthRepository> { KtorAuthRepository(get(), get()) }
     single<AccountRepository> { KtorAccountRepository(get()) }
     single { PendingSignupCache() }
-    single { AuthActions(get(), get(), get<SessionManager>()::markBlocked) }
+    single { AccountSnapshotCache(get()) }
+    single {
+        AuthActions(
+            authRepository = get(),
+            pendingSignupCache = get(),
+            onAccessBlocked = get<SessionManager>()::markBlocked,
+            isSessionActive = { get<SessionManager>().state.value is SessionState.Active },
+        )
+    }
     single { AccountActions(get()) }
     single { ServerProbe(get(named(ACCOUNT_HTTP_CLIENT))) }
     single<ManagedTunnelCleanup> { ManagedTunnelCleaner(get(), get()) }
@@ -58,6 +70,16 @@ val accountModule = module {
             tunnelCleanup = get(),
             resetAutoConnect = get<ManagedTunnelAutoConnector>()::reset,
             settingsRepository = settings,
+            stopTunnels = { get<TunnelCoordinator>().stopActiveTunnels() },
+        )
+    }
+    single {
+        LogoutCoordinator(
+            stopTunnels = { get<TunnelCoordinator>().stopActiveTunnels() },
+            tunnelCleanup = get(),
+            resetAutoConnect = get<ManagedTunnelAutoConnector>()::reset,
+            settingsRepository = get(),
+            authActions = get(),
         )
     }
     single<ManagedTunnelSyncService> {

@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.settings.dns
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -23,7 +24,10 @@ import androidx.compose.material.icons.outlined.Router
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -48,9 +52,12 @@ import space.ivlev.umbravpn.domain.enums.ForeignDnsPolicy
 import space.ivlev.umbravpn.domain.enums.TunnelDnsMode
 import space.ivlev.umbravpn.domain.enums.TunnelDnsProtocol
 import space.ivlev.umbravpn.domain.enums.TunnelMode
+import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.banner.InfoNotice
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
+import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.dialog.rememberRestartToApplyChanges
 import space.ivlev.umbravpn.ui.common.label.GroupLabel
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
@@ -72,6 +79,7 @@ fun DnsSettingsScreen(
     sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
     val context = LocalContext.current
+    val navController = LocalNavController.current
     val uiState by viewModel.collectAsState()
     val sharedUiState by sharedViewModel.collectAsState()
     var showAppModeSheet by rememberSaveable { mutableStateOf(false) }
@@ -79,8 +87,15 @@ fun DnsSettingsScreen(
     var showProtocolSheet by rememberSaveable { mutableStateOf(false) }
     var showTransitPolicySheet by rememberSaveable { mutableStateOf(false) }
     var showSplitSuffixTargetSheet by rememberSaveable { mutableStateOf(false) }
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
 
-    if (uiState.isLoading) return
+    LaunchedEffect(uiState.isDirty) { sharedViewModel.setScreenDirty(uiState.isDirty) }
+    DisposableEffect(Unit) { onDispose { sharedViewModel.setScreenDirty(false) } }
+
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val requestApply =
         rememberRestartToApplyChanges(
@@ -91,8 +106,26 @@ fun DnsSettingsScreen(
     sharedViewModel.collectSideEffect { effect ->
         when (effect) {
             is LocalSideEffect.SaveChanges -> requestApply()
+            is LocalSideEffect.RequestBack ->
+                if (uiState.isDirty) showDiscardDialog = true else navController.pop()
             else -> Unit
         }
+    }
+
+    BackHandler(enabled = uiState.isDirty) { showDiscardDialog = true }
+
+    if (showDiscardDialog) {
+        InfoDialog(
+            onDismiss = { showDiscardDialog = false },
+            onAttest = {
+                showDiscardDialog = false
+                navController.pop()
+            },
+            title = stringResource(R.string.discard_changes_title),
+            body = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmText = stringResource(R.string.discard_changes_confirm),
+            destructive = true,
+        )
     }
 
     if (showAppModeSheet) {

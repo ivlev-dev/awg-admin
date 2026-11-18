@@ -74,4 +74,6 @@ data class EmailVerificationUiState(
     val feedback: AccountMessage? = null,
     val isApproved: Boolean = false,
     val resendCooldownSeconds: Int = 0,
+    /** Token from a `umbravpn://verify` deep link waiting for explicit user confirmation. */
+    val pendingDeepLinkToken: String? = null,
 )

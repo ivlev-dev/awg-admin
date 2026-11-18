@@ -47,14 +47,16 @@ class DnsViewModel(
                     tunnelCoordinator.backendStatus,
                 ) { dnsSettings, globalTunnelConfig, connectivity, backendStatus ->
                     if (state.isLoading) {
+                        val globalDns = globalTunnelConfig?.getConfig()?.`interface`?.dns.orEmpty()
                         state.copy(
                             dnsSettings = dnsSettings,
                             globalTunnelConfig = globalTunnelConfig,
-                            globalDnsServers =
-                                globalTunnelConfig?.getConfig()?.`interface`?.dns.orEmpty(),
+                            globalDnsServers = globalDns,
                             systemDnsInfo = connectivity?.underlyingDnsInfo,
                             isLoading = false,
                             hasActiveTunnel = backendStatus.activeTunnels.isNotEmpty(),
+                            savedDnsSettings = dnsSettings,
+                            savedGlobalDnsServers = globalDns,
                         )
                     } else {
                         state.copy(
@@ -96,6 +98,15 @@ class DnsViewModel(
     }
 
     fun save(restart: Boolean = false) = intent {
+        if (!state.isDirty) {
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.save_disabled_no_changes),
+                    ToastType.Info,
+                ),
+            )
+            return@intent
+        }
         if (!saveGlobalDnsServers()) return@intent
         val settings = state.dnsSettings
 
@@ -208,6 +219,13 @@ class DnsViewModel(
         dnsSettingsRepository.upsert(updated)
         dnsSettingsCoordinator.appyDnsSettings(updated)
         if (restart) tunnelCoordinator.restartActiveTunnels()
+        reduce {
+            state.copy(
+                dnsSettings = updated,
+                savedDnsSettings = updated,
+                savedGlobalDnsServers = state.globalDnsServers,
+            )
+        }
         postSideEffect(GlobalSideEffect.PopBackStack)
         postSideEffect(
             GlobalSideEffect.Snackbar(

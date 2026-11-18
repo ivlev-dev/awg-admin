@@ -19,9 +19,11 @@ import org.junit.Test
 import org.orbitmvi.orbit.Orbit
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnectPort
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
+import space.ivlev.umbravpn.data.account.AccountSnapshotCache
 import space.ivlev.umbravpn.domain.account.AccountActions
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.account.PendingSignupCache
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.account.AccountError
@@ -341,10 +343,17 @@ class AccountViewModelTunnelTest {
             authRepository = FakeAuthRepository(),
             settingsRepository = FakeAccountSettingsRepository(),
             accountActions = AccountActions(repository),
-            authActions = AuthActions(FakeAuthRepository(), PendingSignupCache()),
             syncService = syncService,
-            tunnelCleaner = cleaner,
+            logoutCoordinator =
+                LogoutCoordinator(
+                    stopTunnels = {},
+                    tunnelCleanup = cleaner,
+                    resetAutoConnect = {},
+                    settingsRepository = FakeAccountSettingsRepository(),
+                    authActions = AuthActions(FakeAuthRepository(), PendingSignupCache()),
+                ),
             autoConnector = autoConnector,
+            snapshotCache = AccountSnapshotCache(FakeAccountSettingsRepository()),
         )
     }
 }

@@ -64,6 +64,8 @@ configure<ApplicationExtension> {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
+
+        buildConfigField("boolean", "ALLOW_HTTP_SERVER_URL", "false")
     }
 
     signingConfigs {
@@ -105,6 +107,8 @@ configure<ApplicationExtension> {
             applicationIdSuffix = ".debug"
             resValue("string", "app_name", "Umbra VPN Debug")
             isDebuggable = true
+            // Plain HTTP panels are only allowed while debugging, never in release builds.
+            buildConfigField("boolean", "ALLOW_HTTP_SERVER_URL", "true")
             manifestPlaceholders["providerAuthority"] = "${Constants.APP_NAME}.provider.debug"
             buildConfigField(
                 "String",

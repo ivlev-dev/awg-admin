@@ -15,11 +15,18 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.IntentCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
 import org.koin.core.qualifier.named
@@ -48,6 +55,7 @@ class PinGateActivity : ComponentActivity() {
     private val shortcutCoordinator: ShortcutCoordinator by inject()
     private val notificationActionCoordinator: NotificationActionCoordinator by inject()
     private val applicationScope: CoroutineScope by inject(named(Scope.APPLICATION))
+    private val pinLockGuard: PinLockGuard by inject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,33 +80,57 @@ class PinGateActivity : ComponentActivity() {
             PinManager.initialize(context = this@PinGateActivity)
             setContent {
                 UmbraVpnTheme(theme = theme) {
+                    var lockedSeconds by remember {
+                        mutableLongStateOf(pinLockGuard.remainingSeconds())
+                    }
+                    LaunchedEffect(lockedSeconds) {
+                        if (lockedSeconds <= 0) return@LaunchedEffect
+                        delay(PIN_LOCKOUT_TICK_MS)
+                        lockedSeconds = pinLockGuard.remainingSeconds()
+                    }
                     Box(
                         modifier =
                             Modifier.fillMaxSize()
                                 .background(MaterialTheme.colorScheme.surface)
                                 .safeDrawingPadding(),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        PinLock(
-                            title = {
-                                Text(
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    text = stringResource(R.string.enter_pin),
-                                )
-                            },
-                            onPinCorrect = {
-                                appLockManager.unlock()
-                                runAndFinish(action)
-                            },
-                            onPinIncorrect = {
-                                Toast.makeText(
-                                        this@PinGateActivity,
-                                        R.string.incorrect_pin,
-                                        Toast.LENGTH_SHORT,
+                        if (lockedSeconds > 0) {
+                            Text(
+                                text = stringResource(R.string.pin_locked_out, lockedSeconds),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        } else {
+                            PinLock(
+                                title = {
+                                    Text(
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                        text = stringResource(R.string.enter_pin),
                                     )
-                                    .show()
-                            },
-                            onPinCreated = { finish() },
-                        )
+                                },
+                                onPinCorrect = {
+                                    pinLockGuard.onSuccess()
+                                    appLockManager.unlock()
+                                    runAndFinish(action)
+                                },
+                                onPinIncorrect = {
+                                    pinLockGuard.onFailure()
+                                    lockedSeconds = pinLockGuard.remainingSeconds()
+                                    if (lockedSeconds == 0L) {
+                                        Toast.makeText(
+                                                this@PinGateActivity,
+                                                R.string.incorrect_pin,
+                                                Toast.LENGTH_SHORT,
+                                            )
+                                            .show()
+                                    }
+                                },
+                                onPinCreated = {
+                                    pinLockGuard.onSuccess()
+                                    finish()
+                                },
+                            )
+                        }
                     }
                 }
             }
@@ -119,6 +151,7 @@ class PinGateActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val PIN_LOCKOUT_TICK_MS = 1_000L
         private const val EXTRA_ACTION = "pin_gate_action"
         private const val EXTRA_FORWARDED = "pin_gate_forwarded"
 

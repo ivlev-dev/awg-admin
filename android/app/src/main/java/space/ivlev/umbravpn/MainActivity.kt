@@ -108,7 +108,7 @@ import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.data.backup.BackupWriteResult
 import space.ivlev.umbravpn.data.backup.DatabaseBackup
 import space.ivlev.umbravpn.data.backup.RestoreResult
-import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.enums.StrictSplitNotice
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.model.TunnelConfig
@@ -178,9 +178,8 @@ import space.ivlev.umbravpn.ui.screens.tunnels.settings.ipv6.IPv6Screen
 import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.SplitTunnelScreen
 import space.ivlev.umbravpn.ui.theme.AlertRed
 import space.ivlev.umbravpn.ui.theme.Heart
+import space.ivlev.umbravpn.ui.theme.LocalStatusColors
 import space.ivlev.umbravpn.ui.theme.OffWhite
-import space.ivlev.umbravpn.ui.theme.SilverTree
-import space.ivlev.umbravpn.ui.theme.Straw
 import space.ivlev.umbravpn.ui.theme.UmbraVpnTheme
 import space.ivlev.umbravpn.util.FileUtils
 import space.ivlev.umbravpn.util.StringValue
@@ -203,7 +202,7 @@ class MainActivity : AppCompatActivity() {
     private val appLockManager: AppLockManager by inject()
     private val accountSettingsRepository: AccountSettingsRepository by inject()
     private val authRepository: AuthRepository by inject()
-    private val authActions: AuthActions by inject()
+    private val logoutCoordinator: LogoutCoordinator by inject()
     private val autoConnector: ManagedTunnelAutoConnector by inject()
 
     val viewModel by viewModel<SharedAppViewModel>()
@@ -415,8 +414,31 @@ class MainActivity : AppCompatActivity() {
                 if (!uiState.isAppLoaded) return@LaunchedEffect
                 for (token in verifyDeepLinkChannel) {
                     pendingVerifyDeepLink = false
-                    verificationViewModel.verify(token)
-                    navController.resetTo(Route.VerifyPending())
+                    if (token.isBlank()) continue
+                    when (authRepository.session.value) {
+                        is SessionState.Active ->
+                            viewModel.postSideEffect(
+                                GlobalSideEffect.Snackbar(
+                                    StringValue.StringResource(R.string.account_already_active),
+                                    ToastType.Info,
+                                ),
+                            )
+                        is SessionState.Blocked,
+                        is SessionState.Expired ->
+                            viewModel.postSideEffect(
+                                GlobalSideEffect.Snackbar(
+                                    StringValue.StringResource(
+                                        R.string.account_verify_link_ignored,
+                                    ),
+                                    ToastType.Warning,
+                                ),
+                            )
+                        else -> {
+                            // The link only selects the screen. Verifying needs an explicit tap.
+                            verificationViewModel.offerDeepLink(token)
+                            navController.resetTo(Route.Login, Route.VerifyPending())
+                        }
+                    }
                 }
             }
 
@@ -458,8 +480,30 @@ class MainActivity : AppCompatActivity() {
                     pendingAutoConnectPermission = true
                 }
                 autoConnector.events.collect { event ->
-                    if (event is AutoConnectEvent.NeedsPermission) {
-                        pendingAutoConnectPermission = true
+                    when (event) {
+                        is AutoConnectEvent.NeedsPermission -> {
+                            pendingAutoConnectPermission = true
+                            viewModel.postSideEffect(
+                                GlobalSideEffect.Snackbar(
+                                    StringValue.StringResource(R.string.auto_connect_connecting),
+                                    ToastType.Info,
+                                ),
+                            )
+                        }
+                        is AutoConnectEvent.Connected ->
+                            viewModel.postSideEffect(
+                                GlobalSideEffect.Snackbar(
+                                    StringValue.StringResource(R.string.auto_connect_connected),
+                                    ToastType.Success,
+                                ),
+                            )
+                        is AutoConnectEvent.Failed ->
+                            viewModel.postSideEffect(
+                                GlobalSideEffect.Snackbar(
+                                    StringValue.StringResource(R.string.auto_connect_failed),
+                                    ToastType.Error,
+                                ),
+                            )
                     }
                 }
             }
@@ -710,12 +754,14 @@ class MainActivity : AppCompatActivity() {
                             val currentTab by remember {
                                 derivedStateOf { Tab.fromRoute(currentRoute ?: Route.Tunnels) }
                             }
+                            val screenDirty by viewModel.screenDirty.collectAsStateWithLifecycle()
                             val navState by
                                 currentRouteAsNavbarState(
                                     uiState,
                                     viewModel,
                                     currentRoute,
                                     navController,
+                                    screenDirty,
                                 )
 
                             Box(modifier = Modifier.fillMaxSize()) {
@@ -806,7 +852,7 @@ class MainActivity : AppCompatActivity() {
                                                             email = blocked?.email,
                                                             onSwitchAccount = {
                                                                 lifecycleScope.launch {
-                                                                    authActions.logout()
+                                                                    logoutCoordinator.logout()
                                                                     navController.resetTo(
                                                                         Route.Login,
                                                                     )
@@ -993,6 +1039,7 @@ class MainActivity : AppCompatActivity() {
                                             }
                                         },
                                         iconSlot = { toast ->
+                                            val statusColors = LocalStatusColors.current
                                             val (icon, color) =
                                                 (toast.icon as? ImageVector)?.let {
                                                     it to MaterialTheme.colorScheme.primary
@@ -1000,11 +1047,13 @@ class MainActivity : AppCompatActivity() {
                                                     ?: when (toast.type) {
                                                         ToastType.Success ->
                                                             Icons.Outlined.CheckCircleOutline to
-                                                                SilverTree
+                                                                statusColors.success
                                                         ToastType.Error ->
-                                                            Icons.Outlined.ErrorOutline to AlertRed
+                                                            Icons.Outlined.ErrorOutline to
+                                                                statusColors.error
                                                         ToastType.Warning ->
-                                                            Icons.Outlined.WarningAmber to Straw
+                                                            Icons.Outlined.WarningAmber to
+                                                                statusColors.warning
                                                         ToastType.Info ->
                                                             Icons.Outlined.Info to
                                                                 MaterialTheme.colorScheme.onSurface
@@ -1059,9 +1108,13 @@ class MainActivity : AppCompatActivity() {
         if (intent?.action != Intent.ACTION_VIEW) return false
         val uri = intent.data ?: return false
         if (uri.scheme != "umbravpn" || uri.host != "verify") return false
+        val path = uri.path
+        if (path != null && path.isNotEmpty() && path != "/" && path != "/verify") return false
+        val token = uri.getQueryParameter("token")?.trim().orEmpty()
+        if (token.isEmpty()) return false
 
         pendingVerifyDeepLink = true
-        verifyDeepLinkChannel.trySend(uri.getQueryParameter("token").orEmpty())
+        verifyDeepLinkChannel.trySend(token)
         return true
     }
 
@@ -1114,6 +1167,8 @@ class MainActivity : AppCompatActivity() {
                 is BackupWriteResult.SavedToDownloads ->
                     StringValue.StringResource(R.string.backup_saved_downloads, result.fileName) to
                         ToastType.Success
+                BackupWriteResult.PasswordRequired ->
+                    StringValue.StringResource(R.string.backup_password_required) to ToastType.Error
                 BackupWriteResult.Failed ->
                     StringValue.StringResource(R.string.backup_failed) to ToastType.Error
             }

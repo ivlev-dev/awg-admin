@@ -15,4 +15,11 @@ data class DnsUiState(
     val localSuffixesError: DnsValidationError? = null,
     val systemDnsInfo: DnsInfo? = null,
     val hasActiveTunnel: Boolean = false,
-)
+    val savedDnsSettings: DnsSettings = DnsSettings(),
+    val savedGlobalDnsServers: String = "",
+) {
+    val isDirty: Boolean
+        get() =
+            dnsSettings != savedDnsSettings ||
+                globalDnsServers.trim() != savedGlobalDnsServers.trim()
+}

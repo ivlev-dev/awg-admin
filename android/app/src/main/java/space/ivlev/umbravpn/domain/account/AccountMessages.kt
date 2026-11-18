@@ -18,6 +18,7 @@ enum class AccountMessage {
     ServerUrlEmpty,
     ServerUrlInvalid,
     ServerUrlUnsupportedScheme,
+    ServerUrlInsecure,
     InvalidCredentials,
     TotpRequired,
     TotpInvalid,
@@ -89,6 +90,9 @@ object AccountMessages {
         when (error) {
             ServerUrlError.Empty -> AccountMessage.ServerUrlEmpty
             ServerUrlError.MissingHost -> AccountMessage.ServerUrlInvalid
+            ServerUrlError.InsecureScheme -> AccountMessage.ServerUrlInsecure
+            ServerUrlError.UserInfoNotAllowed,
+            ServerUrlError.FragmentNotAllowed -> AccountMessage.ServerUrlUnsupportedScheme
             ServerUrlError.UnsupportedScheme,
             ServerUrlError.InvalidFormat -> AccountMessage.ServerUrlUnsupportedScheme
         }

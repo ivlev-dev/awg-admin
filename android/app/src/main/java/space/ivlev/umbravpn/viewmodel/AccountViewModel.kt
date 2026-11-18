@@ -6,18 +6,19 @@ import kotlinx.coroutines.flow.combine
 import org.orbitmvi.orbit.OrbitContainerHost
 import org.orbitmvi.orbit.syntax.Syntax
 import org.orbitmvi.orbit.viewmodel.orbitContainer
+import space.ivlev.umbravpn.BuildConfig
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
+import space.ivlev.umbravpn.data.account.AccountSnapshotCache
 import space.ivlev.umbravpn.domain.account.AccountActions
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.account.AccountMessages
 import space.ivlev.umbravpn.domain.account.ActionResult
-import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
-import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
 import space.ivlev.umbravpn.ui.state.AccountDialog
 import space.ivlev.umbravpn.ui.state.AccountSideEffect
@@ -29,10 +30,10 @@ class AccountViewModel(
     private val authRepository: AuthRepository,
     private val settingsRepository: AccountSettingsRepository,
     private val accountActions: AccountActions,
-    private val authActions: AuthActions,
     private val syncService: ManagedTunnelSyncService,
-    private val tunnelCleaner: ManagedTunnelCleanup,
+    private val logoutCoordinator: LogoutCoordinator,
     private val autoConnector: ManagedTunnelAutoConnector,
+    private val snapshotCache: AccountSnapshotCache,
 ) : OrbitContainerHost<AccountUiState, AccountUiState, AccountSideEffect>, ViewModel() {
 
     override val container =
@@ -346,9 +347,8 @@ class AccountViewModel(
     fun logout() = intent {
         if (state.isActionInProgress) return@intent
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
-        authActions.logout()
-        tunnelCleaner.clear()
-        settingsRepository.setManagedProvisioned(false)
+        logoutCoordinator.logout()
+        snapshotCache.clear()
         reduce {
             state.copy(
                 isActionInProgress = false,
@@ -365,7 +365,7 @@ class AccountViewModel(
 
     fun changeServer(url: String) = intent {
         if (state.isActionInProgress) return@intent
-        val validation = validateServerUrl(url)
+        val validation = validateServerUrl(url, allowHttp = BuildConfig.ALLOW_HTTP_SERVER_URL)
         if (validation is ServerUrlValidation.Invalid) {
             reduce { state.copy(dialogError = AccountMessages.ofServerUrl(validation.error)) }
             return@intent
@@ -373,10 +373,9 @@ class AccountViewModel(
         validation as ServerUrlValidation.Valid
 
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
+        logoutCoordinator.logout()
+        snapshotCache.clear()
         settingsRepository.setServerUrl(validation.url)
-        authActions.logout()
-        tunnelCleaner.clear()
-        settingsRepository.setManagedProvisioned(false)
         reduce {
             state.copy(
                 isActionInProgress = false,
@@ -425,7 +424,8 @@ class AccountViewModel(
     private suspend fun Syntax<AccountUiState, AccountSideEffect>.loadNow(silent: Boolean) {
         reduce { state.copy(isLoading = !silent, isRefreshing = silent, error = null) }
         when (val outcome = accountActions.bootstrap()) {
-            is ActionResult.Success ->
+            is ActionResult.Success -> {
+                snapshotCache.save(outcome.value)
                 reduce {
                     state.copy(
                         snapshot = outcome.value,
@@ -434,14 +434,23 @@ class AccountViewModel(
                         error = null,
                     )
                 }
-            is ActionResult.Failure ->
+            }
+            is ActionResult.Failure -> {
+                val cached =
+                    if (outcome.message == AccountMessage.Network && state.snapshot == null) {
+                        snapshotCache.load()
+                    } else {
+                        null
+                    }
                 reduce {
                     state.copy(
+                        snapshot = cached ?: state.snapshot,
                         isLoading = false,
                         isRefreshing = false,
                         error = outcome.message,
                     )
                 }
+            }
         }
     }
 

@@ -1,7 +1,12 @@
+@file:UseSerializers(InstantIsoSerializer::class)
+
 package space.ivlev.umbravpn.domain.model.account
 
 import java.time.Instant
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 
+@Serializable
 data class AccountSnapshot(
     val user: AuthUser,
     val tariff: AccountTariff?,
@@ -12,6 +17,7 @@ data class AccountSnapshot(
     val access: AccountAccess = AccountAccess(),
 )
 
+@Serializable
 data class AccountInterface(
     val id: String,
     val name: String,
@@ -19,6 +25,7 @@ data class AccountInterface(
     val nodeName: String = "",
 )
 
+@Serializable
 data class AccountTariff(
     val id: String,
     val name: String,
@@ -29,6 +36,7 @@ data class AccountTariff(
     val trafficQuotaBytes: Long?,
 )
 
+@Serializable
 data class AccountQuota(
     val usedBytes: Long,
     val quotaBytes: Long?,
@@ -40,6 +48,7 @@ data class AccountQuota(
     val resetAt: Instant?,
 )
 
+@Serializable
 data class AccountDevice(
     val id: String,
     val userId: String,
@@ -58,6 +67,7 @@ data class AccountDevice(
     val createdAt: Instant?,
 )
 
+@Serializable
 data class DevicePeer(
     val interfaceId: String,
     val interfaceName: String,
@@ -67,6 +77,7 @@ data class DevicePeer(
     val label: String = "",
 )
 
+@Serializable
 data class DeviceConfig(
     val interfaceId: String,
     val interfaceName: String,
@@ -79,6 +90,7 @@ data class DeviceConfig(
     val label: String = "",
 )
 
+@Serializable
 data class CreatedDevice(
     val device: AccountDevice,
     val config: DeviceConfig,

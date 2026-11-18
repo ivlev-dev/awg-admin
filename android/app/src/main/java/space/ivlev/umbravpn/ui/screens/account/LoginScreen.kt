@@ -25,6 +25,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -50,6 +53,7 @@ import space.ivlev.umbravpn.viewmodel.LoginViewModel
 fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
     val navController = LocalNavController.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val state by viewModel.collectAsState()
 
     viewModel.collectSideEffect { effect ->
@@ -81,6 +85,9 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
             error = state.emailError,
             keyboardOptions =
                 KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            contentType = ContentType.EmailAddress,
         )
 
         AccountFormField(
@@ -91,9 +98,15 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
             keyboardOptions =
                 KeyboardOptions(
                     keyboardType = KeyboardType.Password,
-                    imeAction = ImeAction.Done,
+                    imeAction = if (state.showTotp) ImeAction.Next else ImeAction.Done,
                 ),
-            keyboardActions = KeyboardActions(onDone = { viewModel.submit() }),
+            keyboardActions =
+                if (state.showTotp) {
+                    KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+                } else {
+                    KeyboardActions(onDone = { viewModel.submit() })
+                },
+            contentType = ContentType.Password,
             visualTransformation =
                 if (state.passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),
@@ -124,6 +137,7 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
                         imeAction = ImeAction.Done,
                     ),
                 keyboardActions = KeyboardActions(onDone = { viewModel.submit() }),
+                contentType = ContentType.SmsOtpCode,
             )
         }
 

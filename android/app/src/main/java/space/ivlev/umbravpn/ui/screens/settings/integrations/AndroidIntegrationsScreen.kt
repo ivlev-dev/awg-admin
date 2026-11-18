@@ -39,6 +39,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
 import space.ivlev.umbravpn.ui.common.functions.rememberClipboardHelper
@@ -54,7 +55,10 @@ fun AndroidIntegrationsScreen(viewModel: SettingsViewModel = koinViewModel()) {
 
     val settingsState by viewModel.collectAsState()
 
-    if (settingsState.isLoading) return
+    if (settingsState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val clipboard = rememberClipboardHelper()
 
@@ -190,7 +194,7 @@ fun AndroidIntegrationsScreen(viewModel: SettingsViewModel = koinViewModel()) {
                                 }
                             }
                         },
-                        onClick = { clipboard.copy(key) },
+                        onClick = { clipboard.copy(key, sensitive = true) },
                     )
                 }
             }

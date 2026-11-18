@@ -16,6 +16,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.data.backup.BackupCipher
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.textbox.CustomTextField
@@ -26,10 +27,12 @@ fun BackupEncryptionDialog(
     onConfirm: (encrypt: Boolean, password: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var encrypt by remember { mutableStateOf(false) }
+    // New backups are always encrypted: the archive contains private VPN keys.
+    var encrypt by remember(isRestore) { mutableStateOf(true) }
     var password by remember { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
     var showPasswordError by remember { mutableStateOf(false) }
+    var showLengthError by remember { mutableStateOf(false) }
     var passwordVisible by remember { mutableStateOf(false) }
     var confirmPasswordVisible by remember { mutableStateOf(false) }
 
@@ -47,11 +50,16 @@ fun BackupEncryptionDialog(
                 stringResource(R.string.backup)
             },
         onAttest = {
-            if (!isRestore && encrypt && password != confirmPassword) {
-                showPasswordError = true
+            if (!isRestore && encrypt && password.length < BackupCipher.MIN_PASSWORD_LENGTH) {
+                showLengthError = true
                 return@InfoDialog
             }
             if (encrypt && password.isBlank()) {
+                showLengthError = true
+                return@InfoDialog
+            }
+            if (!isRestore && encrypt && password != confirmPassword) {
+                showPasswordError = true
                 return@InfoDialog
             }
 
@@ -64,13 +72,27 @@ fun BackupEncryptionDialog(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(stringResource(R.string.encrypted))
-                    ThemedSwitch(checked = encrypt, onClick = { encrypt = it })
+                Text(
+                    text = stringResource(R.string.backup_encryption_warning),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+
+                if (isRestore) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(stringResource(R.string.encrypted))
+                        ThemedSwitch(
+                            checked = encrypt,
+                            onClick = {
+                                encrypt = it
+                                showLengthError = false
+                            },
+                        )
+                    }
                 }
 
                 if (encrypt) {
@@ -79,6 +101,7 @@ fun BackupEncryptionDialog(
                         onValueChange = {
                             password = it
                             showPasswordError = false
+                            showLengthError = false
                         },
                         containerColor = MaterialTheme.colorScheme.surface,
                         label = { Text(stringResource(R.string.password)) },
@@ -97,6 +120,7 @@ fun BackupEncryptionDialog(
                                 )
                             }
                         },
+                        isError = showLengthError,
                         modifier = Modifier.fillMaxWidth(),
                     )
 
@@ -129,6 +153,18 @@ fun BackupEncryptionDialog(
                             containerColor = MaterialTheme.colorScheme.surface,
                             modifier = Modifier.fillMaxWidth(),
                             isError = showPasswordError,
+                        )
+                    }
+
+                    if (showLengthError) {
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.backup_password_too_short,
+                                    BackupCipher.MIN_PASSWORD_LENGTH,
+                                ),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
                         )
                     }
 

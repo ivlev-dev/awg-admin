@@ -30,9 +30,7 @@ import space.ivlev.umbravpn.domain.account.AccountFormat
 import space.ivlev.umbravpn.domain.model.account.AccountSubscription
 import space.ivlev.umbravpn.domain.model.account.SubscriptionStatus
 import space.ivlev.umbravpn.domain.model.account.UserStatus
-import space.ivlev.umbravpn.ui.theme.AlertRed
-import space.ivlev.umbravpn.ui.theme.SilverTree
-import space.ivlev.umbravpn.ui.theme.Straw
+import space.ivlev.umbravpn.ui.theme.LocalStatusColors
 
 @Composable
 fun AccountStatusChip(
@@ -40,13 +38,14 @@ fun AccountStatusChip(
     disabled: Boolean,
     modifier: Modifier = Modifier,
 ) {
+    val statusColors = LocalStatusColors.current
     val (labelRes, color) =
         when {
-            disabled -> R.string.account_status_disabled to AlertRed
-            status == UserStatus.Active -> R.string.account_status_active to SilverTree
+            disabled -> R.string.account_status_disabled to statusColors.error
+            status == UserStatus.Active -> R.string.account_status_active to statusColors.success
             status == UserStatus.PendingEmail || status == UserStatus.PendingApproval ->
-                R.string.account_status_pending to Straw
-            status == UserStatus.Rejected -> R.string.account_status_rejected to AlertRed
+                R.string.account_status_pending to statusColors.warning
+            status == UserStatus.Rejected -> R.string.account_status_rejected to statusColors.error
             else -> R.string.account_unknown to MaterialTheme.colorScheme.outline
         }
 
@@ -71,7 +70,8 @@ fun AccountSubscriptionCard(
     modifier: Modifier = Modifier,
 ) {
     val active = subscription.isActive && subscription.grantsAccess
-    val accent = if (active) SilverTree else AlertRed
+    val statusColors = LocalStatusColors.current
+    val accent = if (active) statusColors.success else statusColors.error
 
     AccountCard(modifier = modifier) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -208,19 +208,20 @@ fun SubscriptionInactiveCard(modifier: Modifier = Modifier) {
 
 @Composable
 fun TariffMissingCard(modifier: Modifier = Modifier) {
+    val warning = LocalStatusColors.current.warning
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        color = Straw.copy(alpha = 0.14f),
+        color = warning.copy(alpha = 0.14f),
         contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, Straw.copy(alpha = 0.4f)),
+        border = BorderStroke(1.dp, warning.copy(alpha = 0.4f)),
     ) {
         Row(
             modifier = Modifier.padding(16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top,
         ) {
-            Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = Straw)
+            Icon(Icons.Outlined.WarningAmber, contentDescription = null, tint = warning)
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
                     text = stringResource(R.string.account_tariff_missing_title),

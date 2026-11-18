@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MarkEmailRead
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -22,6 +23,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -133,6 +137,31 @@ fun VerifyPendingScreen(
             }
         }
 
+        state.pendingDeepLinkToken?.let {
+            AccountCard {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = stringResource(R.string.verify_email_confirm_title),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    DescriptionText(stringResource(R.string.verify_email_confirm_body))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = viewModel::dismissDeepLink) {
+                            Text(stringResource(R.string.verify_email_confirm_dismiss))
+                        }
+                        AccountLoadingButton(
+                            text = stringResource(R.string.verify_email_confirm_action),
+                            onClick = viewModel::confirmDeepLink,
+                        )
+                    }
+                }
+            }
+        }
+
         VerificationStepper(currentStep = currentStep, completed = state.isApproved)
 
         when (val phase = state.phase) {
@@ -190,16 +219,37 @@ fun VerifyPendingScreen(
             color = MaterialTheme.colorScheme.outline,
         )
 
+        var confirmSignOut by remember { mutableStateOf(false) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.Center,
         ) {
-            TextButton(onClick = viewModel::signOut) {
+            TextButton(onClick = { confirmSignOut = true }) {
                 Text(stringResource(R.string.account_switch_account))
             }
-            TextButton(onClick = viewModel::signOut) {
-                Text(stringResource(R.string.account_back_to_login))
-            }
+        }
+
+        if (confirmSignOut) {
+            AlertDialog(
+                onDismissRequest = { confirmSignOut = false },
+                title = { Text(stringResource(R.string.account_logout)) },
+                text = { Text(stringResource(R.string.account_logout_message)) },
+                confirmButton = {
+                    TextButton(
+                        onClick = {
+                            confirmSignOut = false
+                            viewModel.signOut()
+                        },
+                    ) {
+                        Text(stringResource(R.string.account_logout))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { confirmSignOut = false }) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                },
+            )
         }
     }
 }

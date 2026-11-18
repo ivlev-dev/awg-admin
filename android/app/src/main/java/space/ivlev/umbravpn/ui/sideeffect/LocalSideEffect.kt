@@ -3,6 +3,8 @@ package space.ivlev.umbravpn.ui.sideeffect
 sealed class LocalSideEffect {
     data object SaveChanges : LocalSideEffect()
 
+    data object RequestBack : LocalSideEffect()
+
     data object ShowSensitive : LocalSideEffect()
 
     data object CopyToClipboard : LocalSideEffect()

@@ -8,9 +8,9 @@ import kotlinx.coroutines.launch
 import org.koin.core.component.KoinComponent
 import org.koin.core.component.inject
 import org.koin.core.qualifier.named
+import space.ivlev.umbravpn.core.lock.AppLockManager
 import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
 import space.ivlev.umbravpn.di.Scope
-import space.ivlev.umbravpn.domain.model.GeneralSettings
 import space.ivlev.umbravpn.domain.repository.GeneralSettingRepository
 import space.ivlev.umbravpn.domain.repository.TunnelRepository
 import space.ivlev.umbravpn.util.Constants
@@ -22,6 +22,7 @@ class RemoteControlReceiver : BroadcastReceiver(), KoinComponent {
     private val settingsRepository: GeneralSettingRepository by inject()
     private val tunnelsRepository: TunnelRepository by inject()
     private val tunnelCoordinator: TunnelCoordinator by inject()
+    private val appLockManager: AppLockManager by inject()
 
     enum class Action(private val suffix: String) {
         START_TUNNEL("START_TUNNEL"),
@@ -51,11 +52,21 @@ class RemoteControlReceiver : BroadcastReceiver(), KoinComponent {
                 val action = intent.action ?: return@launch
                 val appAction = Action.fromAction(action) ?: return@launch
 
+                // A locked app must not be controlled from outside; the user has to enter the PIN.
+                if (appLockManager.isLockRequired()) return@launch
+
                 val settings = settingsRepository.getGeneralSettings()
 
                 if (!settings.isRemoteControlEnabled) return@launch
 
-                if (!validateKey(settings, intent)) return@launch
+                if (
+                    !RemoteControlAuth.matchesKey(
+                        settings.remoteKey,
+                        intent.getStringExtra(EXTRA_KEY),
+                    )
+                ) {
+                    return@launch
+                }
 
                 when (appAction) {
                     Action.START_TUNNEL -> {
@@ -92,15 +103,6 @@ class RemoteControlReceiver : BroadcastReceiver(), KoinComponent {
                 pendingResult.finish()
             }
         }
-    }
-
-    private fun validateKey(settings: GeneralSettings, intent: Intent): Boolean {
-
-        val expected = settings.remoteKey?.trim() ?: return false
-
-        val actual = intent.getStringExtra(EXTRA_KEY)?.trim()
-
-        return expected == actual
     }
 
     private suspend fun resolveTunnel(intent: Intent) =

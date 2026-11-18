@@ -88,11 +88,12 @@ fun currentRouteAsNavbarState(
     sharedViewModel: SharedAppViewModel,
     route: Route?,
     navController: NavController,
+    screenDirty: Boolean = false,
 ): State<NavbarState> {
     val keyboardController = LocalSoftwareKeyboardController.current
     val context = LocalContext.current
 
-    return remember(route, globalState) {
+    return remember(route, globalState, screenDirty) {
         derivedStateOf {
             when (route) {
                 Appearance -> {
@@ -111,11 +112,17 @@ fun currentRouteAsNavbarState(
                 }
                 Dns -> {
                     NavbarState(
-                        topLeading = { TvBackButton { navController.pop() } },
+                        topLeading = {
+                            TvBackButton {
+                                sharedViewModel.postSideEffect(LocalSideEffect.RequestBack)
+                            }
+                        },
                         showBottomItems = true,
                         topTitle = context.getString(R.string.dns_settings),
+                        topActionEnabled = screenDirty,
                         topTrailing = {
                             IconButton(
+                                enabled = screenDirty,
                                 onClick = {
                                     keyboardController?.hide()
                                     sharedViewModel.postSideEffect(LocalSideEffect.SaveChanges)
@@ -187,11 +194,17 @@ fun currentRouteAsNavbarState(
                 }
                 ProxySettings -> {
                     NavbarState(
-                        topLeading = { TvBackButton { navController.pop() } },
+                        topLeading = {
+                            TvBackButton {
+                                sharedViewModel.postSideEffect(LocalSideEffect.RequestBack)
+                            }
+                        },
                         showBottomItems = true,
                         topTitle = context.getString(R.string.proxy_settings),
+                        topActionEnabled = screenDirty,
                         topTrailing = {
                             IconButton(
+                                enabled = screenDirty,
                                 onClick = {
                                     keyboardController?.hide()
                                     sharedViewModel.postSideEffect(LocalSideEffect.SaveChanges)
@@ -211,11 +224,17 @@ fun currentRouteAsNavbarState(
                 is ConfigGlobal,
                 GlobalAmnezia -> {
                     NavbarState(
-                        topLeading = { TvBackButton { navController.pop() } },
+                        topLeading = {
+                            TvBackButton {
+                                sharedViewModel.postSideEffect(LocalSideEffect.RequestBack)
+                            }
+                        },
                         showBottomItems = true,
                         topTitle = context.getString(R.string.amnezia_for_all_tunnels),
+                        topActionEnabled = screenDirty,
                         topTrailing = {
                             IconButton(
+                                enabled = screenDirty,
                                 onClick = {
                                     keyboardController?.hide()
                                     sharedViewModel.postSideEffect(LocalSideEffect.SaveChanges)
@@ -232,14 +251,20 @@ fun currentRouteAsNavbarState(
                         if (route is SplitTunnel) globalState.tunnelNames[route.id]
                         else context.getString(R.string.splt_tunneling)
                     NavbarState(
-                        topLeading = { TvBackButton { navController.pop() } },
+                        topLeading = {
+                            TvBackButton {
+                                sharedViewModel.postSideEffect(LocalSideEffect.RequestBack)
+                            }
+                        },
                         topTitle = tunnelName ?: "",
+                        topActionEnabled = screenDirty,
                         topTrailing = {
                             var showOverflowMenu by remember { mutableStateOf(false) }
                             val showSystemApps by
                                 sharedViewModel.showSplitSystemApps.collectAsStateWithLifecycle()
                             Row {
                                 IconButton(
+                                    enabled = screenDirty,
                                     onClick = {
                                         sharedViewModel.postSideEffect(LocalSideEffect.SaveChanges)
                                     },
@@ -661,7 +686,6 @@ fun currentRouteAsNavbarState(
                 }
                 Account -> {
                     NavbarState(
-                        topTitle = context.getString(R.string.account),
                         showBottomItems = true,
                     )
                 }

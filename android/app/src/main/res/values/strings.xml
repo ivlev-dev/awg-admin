@@ -31,6 +31,8 @@
     <string name="no_browser_detected">No browser detected</string>
     <string name="auto">(Auto)</string>
     <string name="incorrect_pin">Pin is incorrect</string>
+    <string name="pin_locked_out">Too many attempts. Try again in %1$d s</string>
+    <string name="pin_attempts_left">Wrong PIN. %1$d attempts left</string>
     <string name="pin_created">Pin successfully created</string>
     <string name="enter_pin">Enter PIN</string>
     <string name="create_pin">Create PIN</string>
@@ -480,6 +482,9 @@
     <string name="restore_failed_invalid_file">Restore failed. Select a valid backup file (.zip, .sqlite3, or .sqlite3.aes)</string>
     <string name="restore_failed_newer_version">Restore failed. This backup is from a newer version of the app</string>
     <string name="backup_saved_downloads">Backup saved to Downloads as %1$s</string>
+    <string name="backup_encryption_warning">The backup contains private VPN keys, tunnel configs and account data. It is always encrypted — keep the password safe, it cannot be recovered.</string>
+    <string name="backup_password_too_short">Password must be at least %1$d characters</string>
+    <string name="backup_password_required">A backup password of at least 8 characters is required</string>
 
     <string name="local_network_permission_title">Local Network Access Needed</string>
 
@@ -634,6 +639,12 @@
     <string name="account_back_to_login">Back to sign in</string>
     <string name="account_verify_title">Confirm email</string>
     <string name="account_verify_subtitle">We sent a confirmation link to your email. Open it on this device to finish registration.</string>
+    <string name="verify_email_confirm_title">Confirm this email link</string>
+    <string name="verify_email_confirm_body">The app opened a verification link. Verify the email for this device only if you requested it.</string>
+    <string name="verify_email_confirm_action">Verify email</string>
+    <string name="verify_email_confirm_dismiss">Ignore link</string>
+    <string name="account_already_active">This account is already active. The link was ignored.</string>
+    <string name="account_verify_link_ignored">The verification link cannot be used in the current session state.</string>
     <string name="account_verify_hint">Press \"I\'ve confirmed\" after opening the link. Access will be enabled once an administrator approves the account.</string>
     <string name="account_verify_in_progress">Checking the link…</string>
     <string name="account_verify_approval_hint">Email confirmed. The administrator still needs to approve access; then press \"I\'ve confirmed\".</string>
@@ -724,6 +735,7 @@
     <string name="account_error_empty_token">Enter the token from the email</string>
     <string name="account_error_device_name">Enter a device name</string>
     <string name="account_error_server_empty">Enter the server address</string>
+    <string name="account_error_server_insecure">HTTPS is required. Plain HTTP is only allowed in debug builds</string>
     <string name="account_error_server_invalid">Invalid server address</string>
     <string name="account_error_server_scheme">Only http and https addresses are supported</string>
     <string name="account_error_invalid_credentials">Invalid email or password</string>
@@ -797,4 +809,35 @@
     <string name="account_error_account_disabled">The account is disabled by the administrator</string>
     <string name="account_error_tariff_required">No tariff is assigned, contact the administrator</string>
     <string name="account_error_subscription_inactive">The subscription is inactive, renew it to restore access</string>
+
+    <string name="loading">Loading…</string>
+    <string name="tunnel_deleted">Tunnel deleted</string>
+    <string name="tunnel_deleted_hint">This tunnel no longer exists. Return to the tunnel list.</string>
+    <string name="discard_changes_title">Discard changes?</string>
+    <string name="discard_changes_body">You have unsaved changes. Discard them and leave this screen?</string>
+    <string name="discard_changes_confirm">Discard</string>
+    <string name="save_disabled_no_changes">No changes to save</string>
+    <string name="language_partial_badge">Partial</string>
+    <string name="language_partial_warning">This language is not fully translated yet. Some texts will stay in English.</string>
+    <string name="account_auto_connect_title">Connect on launch</string>
+    <string name="account_auto_connect_desc">Automatically connect your panel tunnel when the app starts</string>
+    <string name="auto_connect_connecting">Connecting automatically…</string>
+    <string name="auto_connect_failed">Could not connect automatically</string>
+    <string name="paste">Paste</string>
+    <string name="clipboard_empty">Clipboard is empty</string>
+
+    <plurals name="delete_tunnels_count">
+        <item quantity="one">Delete %d tunnel?</item>
+        <item quantity="other">Delete %d tunnels?</item>
+    </plurals>
+    <plurals name="delete_groups_count">
+        <item quantity="one">Delete %d group?</item>
+        <item quantity="other">Delete %d groups?</item>
+    </plurals>
+    <string name="auto_connect_connected">Connected automatically</string>
+
+    <plurals name="tunnels_more_names">
+        <item quantity="one">+%d more</item>
+        <item quantity="other">+%d more</item>
+    </plurals>
 </resources>

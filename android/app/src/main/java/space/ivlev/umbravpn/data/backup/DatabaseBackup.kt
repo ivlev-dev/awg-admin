@@ -24,6 +24,9 @@ sealed interface BackupWriteResult {
 
     data class SavedToDownloads(val fileName: String) : BackupWriteResult
 
+    /** A backup saved without a user-picked destination must always be encrypted. */
+    data object PasswordRequired : BackupWriteResult
+
     data object Failed : BackupWriteResult
 }
 
@@ -54,6 +57,12 @@ class DatabaseBackup(
 
     suspend fun backupTo(uri: Uri?, password: String?): BackupWriteResult =
         withContext(ioDispatcher) {
+            val secret = password?.takeIf { it.isNotBlank() }
+            if (secret == null || secret.length < BackupCipher.MIN_PASSWORD_LENGTH) {
+                return@withContext BackupWriteResult.PasswordRequired
+            }
+            // A backup without a user-picked SAF destination would land in a public folder, so it
+            // is only written encrypted.
             val snapshot = runCatching {
                 snapshotDatabase()
             }
@@ -71,18 +80,18 @@ class DatabaseBackup(
                         platform = BackupArchive.PLATFORM_ANDROID,
                         schemaVersion = version,
                         appVersionName = BuildConfig.VERSION_NAME,
-                        encrypted = !password.isNullOrBlank(),
+                        encrypted = true,
                     )
                 if (uri != null) {
                     val stream =
                         context.contentResolver.openOutputStream(uri)
                             ?: return@withContext BackupWriteResult.Failed
-                    stream.use { BackupArchive.write(it, bytes, manifest, password) }
+                    stream.use { BackupArchive.write(it, bytes, manifest, secret) }
                     BackupWriteResult.Success
                 } else {
                     val name = newBackupFileName()
                     val file = File(context.cacheDir, name)
-                    file.outputStream().use { BackupArchive.write(it, bytes, manifest, password) }
+                    file.outputStream().use { BackupArchive.write(it, bytes, manifest, secret) }
                     val exported =
                         fileUtils.exportFile(file, uri = null, FileUtils.ZIP_FILE_MIME_TYPE)
                     file.delete()

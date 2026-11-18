@@ -1,7 +1,12 @@
+@file:UseSerializers(InstantIsoSerializer::class)
+
 package space.ivlev.umbravpn.domain.model.account
 
 import java.time.Instant
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 
+@Serializable
 data class AuthUser(
     val id: String,
     val login: String,
@@ -17,6 +22,7 @@ data class AuthUser(
     val updatedAt: Instant? = null,
 )
 
+@Serializable
 enum class UserStatus {
     PendingEmail,
     PendingApproval,
@@ -36,6 +42,7 @@ enum class UserStatus {
     }
 }
 
+@Serializable
 enum class UserRole {
     Admin,
     User,

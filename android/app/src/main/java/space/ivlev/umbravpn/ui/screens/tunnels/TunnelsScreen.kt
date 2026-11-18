@@ -1,6 +1,8 @@
 package space.ivlev.umbravpn.ui.screens.tunnels
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NetworkCheck
@@ -14,7 +16,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
 import org.koin.compose.viewmodel.koinActivityViewModel
@@ -22,6 +26,7 @@ import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.model.TunnelGroup
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.functions.rememberFileExportLauncherForResult
 import space.ivlev.umbravpn.ui.common.sheet.CustomBottomSheet
@@ -45,7 +50,10 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
 
     val uiState by sharedViewModel.tunnelsUiState.collectAsStateWithLifecycle()
 
-    if (uiState.isLoading) return
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val selectedTunnelsExportLauncher =
         rememberFileExportLauncherForResult(
@@ -117,6 +125,13 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
         )
 
     if (showDeleteModal) {
+        val tunnelCount = uiState.selectedTunnels.size
+        val groupCount = uiState.selectedGroups.size
+        val names =
+            (uiState.selectedTunnels.map { it.name } + uiState.selectedGroups.map { it.name }).take(
+                MAX_DELETE_DIALOG_NAMES,
+            )
+        val hiddenCount = tunnelCount + groupCount - names.size
         InfoDialog(
             onDismiss = { showDeleteModal = false },
             onAttest = {
@@ -125,24 +140,56 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
             },
             title =
                 stringResource(
-                    if (uiState.selectedTunnels.isEmpty() && uiState.selectedGroups.isNotEmpty())
-                        R.string.delete_group
+                    if (tunnelCount == 0 && groupCount > 0) R.string.delete_group
                     else R.string.delete_tunnel,
                 ),
             body = {
-                Text(
-                    text =
-                        stringResource(
-                            if (
-                                uiState.selectedTunnels.isEmpty() &&
-                                    uiState.selectedGroups.isNotEmpty()
-                            )
-                                R.string.delete_group_message
-                            else R.string.delete_tunnel_message,
-                        ),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (tunnelCount > 0) {
+                        Text(
+                            pluralStringResource(
+                                R.plurals.delete_tunnels_count,
+                                tunnelCount,
+                                tunnelCount,
+                            ),
+                        )
+                    }
+                    if (groupCount > 0) {
+                        Text(
+                            pluralStringResource(
+                                R.plurals.delete_groups_count,
+                                groupCount,
+                                groupCount,
+                            ),
+                        )
+                    }
+                    if (names.isNotEmpty()) {
+                        Text(text = names.joinToString(", "))
+                    }
+                    if (hiddenCount > 0) {
+                        Text(
+                            text =
+                                pluralStringResource(
+                                    R.plurals.tunnels_more_names,
+                                    hiddenCount,
+                                    hiddenCount,
+                                ),
+                        )
+                    }
+                    Text(
+                        text =
+                            stringResource(
+                                if (tunnelCount == 0 && groupCount > 0) {
+                                    R.string.delete_group_message
+                                } else {
+                                    R.string.delete_tunnel_message
+                                },
+                            ),
+                    )
+                }
             },
-            confirmText = stringResource(R.string.yes),
+            confirmText = stringResource(R.string.delete),
+            destructive = true,
         )
     }
 
@@ -233,8 +280,14 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
                 deleteGroup = null
             },
             title = stringResource(R.string.delete_group),
-            body = { Text(text = stringResource(R.string.delete_group_message)) },
-            confirmText = stringResource(R.string.yes),
+            body = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text = group.name)
+                    Text(text = stringResource(R.string.delete_group_message))
+                }
+            },
+            confirmText = stringResource(R.string.delete),
+            destructive = true,
         )
     }
 
@@ -246,10 +299,26 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
                 deleteGroupAndTunnels = null
             },
             title = stringResource(R.string.delete_group_and_tunnels),
-            body = { Text(text = stringResource(R.string.delete_group_and_tunnels_message)) },
-            confirmText = stringResource(R.string.yes),
+            body = {
+                val tunnelCount = uiState.tunnels.count { it.groupId == group.id }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(text = group.name)
+                    Text(
+                        pluralStringResource(
+                            R.plurals.delete_tunnels_count,
+                            tunnelCount,
+                            tunnelCount,
+                        ),
+                    )
+                    Text(text = stringResource(R.string.delete_group_and_tunnels_message))
+                }
+            },
+            confirmText = stringResource(R.string.delete),
+            destructive = true,
         )
     }
 
     TunnelList(uiState, Modifier.fillMaxSize(), sharedViewModel)
 }
+
+private const val MAX_DELETE_DIALOG_NAMES = 3

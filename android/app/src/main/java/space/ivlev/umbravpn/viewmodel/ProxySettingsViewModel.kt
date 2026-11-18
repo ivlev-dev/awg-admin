@@ -50,6 +50,15 @@ class ProxySettingsViewModel(
         }
 
     fun save(restart: Boolean = false) = intent {
+        if (!state.isDirty) {
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.save_disabled_no_changes),
+                    ToastType.Info,
+                ),
+            )
+            return@intent
+        }
         val current = state
 
         val updated =
@@ -110,6 +119,16 @@ class ProxySettingsViewModel(
 
         proxySettingsRepository.upsert(updated)
         if (restart) tunnelCoordinator.restartActiveTunnels()
+        reduce {
+            state.copy(
+                proxySettings = updated,
+                socksBindAddress = updated.socks5ProxyBindAddress ?: "",
+                httpBindAddress = updated.httpProxyBindAddress ?: "",
+                proxyUsername = updated.proxyUsername ?: "",
+                proxyPassword = updated.proxyPassword ?: "",
+                allowSocks4 = updated.allowSocks4,
+            )
+        }
 
         postSideEffect(
             GlobalSideEffect.Snackbar(

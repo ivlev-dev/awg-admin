@@ -24,7 +24,11 @@ data class GlobalAmneziaUiState(
     val interfaceDraft: EditableInterface = EditableInterface(),
     val enabled: Boolean = false,
     val tunnelActive: Boolean = false,
-)
+    val savedInterfaceDraft: EditableInterface = EditableInterface(),
+) {
+    val isDirty: Boolean
+        get() = !isLoading && interfaceDraft != savedInterfaceDraft
+}
 
 class GlobalAmneziaViewModel(
     private val tunnelRepository: TunnelRepository,
@@ -65,6 +69,7 @@ class GlobalAmneziaViewModel(
                                     interfaceDraft = draft,
                                     enabled = enabled,
                                     tunnelActive = active,
+                                    savedInterfaceDraft = draft,
                                 )
                             }
                         } else {
@@ -99,6 +104,15 @@ class GlobalAmneziaViewModel(
     }
 
     fun save(restart: Boolean = false) = intent {
+        if (!state.isDirty) {
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.save_disabled_no_changes),
+                    ToastType.Info,
+                ),
+            )
+            return@intent
+        }
         val stored = state.tunnelId?.let { tunnelRepository.getById(it) } ?: return@intent
         val merged =
             EditableConfig.from(stored.getConfig()).let {
@@ -114,6 +128,7 @@ class GlobalAmneziaViewModel(
         tunnelRepository.save(
             stored.copy(quickConfig = config.withName(stored.name).asQuickString()),
         )
+        reduce { state.copy(savedInterfaceDraft = state.interfaceDraft) }
         if (restart) tunnelCoordinator.restartActiveTunnels()
         postSideEffect(
             GlobalSideEffect.Snackbar(

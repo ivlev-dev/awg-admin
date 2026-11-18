@@ -38,7 +38,7 @@ fun LogItem(log: LogMessage) {
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
-                    onClick = { clipboardManager.copy(log.toString()) },
+                    onClick = { clipboardManager.copy(log.toString(), sensitive = true) },
                 )
                 .padding(vertical = 6.dp, horizontal = 4.dp),
     ) {

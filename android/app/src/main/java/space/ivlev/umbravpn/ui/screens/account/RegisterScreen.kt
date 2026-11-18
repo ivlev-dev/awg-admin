@@ -22,6 +22,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -52,6 +55,7 @@ fun RegisterScreen(
 ) {
     val navController = LocalNavController.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val state by viewModel.collectAsState()
 
     LaunchedEffect(Unit) { verificationViewModel.setEmail(null) }
@@ -61,7 +65,7 @@ fun RegisterScreen(
             is RegisterSideEffect.Registered -> {
                 keyboardController?.hide()
                 verificationViewModel.setEmail(effect.email)
-                navController.resetTo(Route.VerifyPending(effect.email))
+                navController.resetTo(Route.Login, Route.VerifyPending(effect.email))
             }
         }
     }
@@ -86,6 +90,9 @@ fun RegisterScreen(
             error = state.emailError,
             keyboardOptions =
                 KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            contentType = ContentType.EmailAddress,
         )
 
         AccountFormField(
@@ -98,6 +105,9 @@ fun RegisterScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Next,
                 ),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            contentType = ContentType.NewPassword,
             visualTransformation =
                 if (state.passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),
@@ -128,6 +138,7 @@ fun RegisterScreen(
                     imeAction = ImeAction.Done,
                 ),
             keyboardActions = KeyboardActions(onDone = { viewModel.submit() }),
+            contentType = ContentType.NewPassword,
             visualTransformation =
                 if (state.passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),

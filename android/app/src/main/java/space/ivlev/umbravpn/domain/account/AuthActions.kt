@@ -24,6 +24,7 @@ class AuthActions(
     private val authRepository: AuthRepository,
     private val pendingSignupCache: PendingSignupCache,
     private val onAccessBlocked: (BlockReason, String?) -> Unit = { _, _ -> },
+    private val isSessionActive: () -> Boolean = { false },
 ) {
     suspend fun login(
         email: String,
@@ -123,6 +124,9 @@ class AuthActions(
 
     suspend fun verifyEmail(token: String): ActionResult<Unit> {
         if (token.trim().isEmpty()) return ActionResult.Failure(AccountMessage.EmptyToken)
+        // A signed-in account is already active. Verifying from a stale link must not clear tokens
+        // or move the session back to the pending states.
+        if (isSessionActive()) return ActionResult.Success(Unit)
 
         return when (val result = authRepository.verifyEmail(token.trim())) {
             is AccountResult.Success -> ActionResult.Success(Unit)

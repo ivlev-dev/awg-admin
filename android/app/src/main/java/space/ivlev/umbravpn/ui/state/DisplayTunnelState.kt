@@ -7,10 +7,9 @@ import com.wgtunnel.backend.Tunnel
 import com.wgtunnel.backend.state.ActiveTunnel
 import com.wgtunnel.backend.state.BootstrapState
 import space.ivlev.umbravpn.R
-import space.ivlev.umbravpn.ui.theme.AlertRed
-import space.ivlev.umbravpn.ui.theme.CoolGray
-import space.ivlev.umbravpn.ui.theme.SilverTree
-import space.ivlev.umbravpn.ui.theme.Straw
+import space.ivlev.umbravpn.ui.theme.StatusColors
+import space.ivlev.umbravpn.ui.theme.StatusKind
+import space.ivlev.umbravpn.ui.theme.StatusPalettes
 
 sealed class DisplayTunnelState {
     data object Disconnected : DisplayTunnelState()
@@ -33,14 +32,16 @@ sealed class DisplayTunnelState {
             HandshakeFailure -> R.string.tunnel_state_handshake_failure
         }
 
-    fun asColor(): Color =
+    fun statusKind(): StatusKind =
         when (this) {
-            Disconnected -> CoolGray
+            Disconnected -> StatusKind.NEUTRAL
             ResolvingDns,
-            EstablishingConnection -> Straw
-            Connected -> SilverTree
-            HandshakeFailure -> AlertRed
+            EstablishingConnection -> StatusKind.WARNING
+            Connected -> StatusKind.SUCCESS
+            HandshakeFailure -> StatusKind.ERROR
         }
+
+    fun asColor(): Color = StatusColors.from(StatusPalettes.Dark).colorFor(statusKind())
 
     fun asLocalizedString(context: Context): String {
         return context.getString(labelRes())

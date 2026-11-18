@@ -1,7 +1,12 @@
+@file:UseSerializers(InstantIsoSerializer::class)
+
 package space.ivlev.umbravpn.domain.model.account
 
 import java.time.Instant
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.UseSerializers
 
+@Serializable
 data class AccountSubscription(
     val id: String = "",
     val planName: String = "",
@@ -15,6 +20,7 @@ data class AccountSubscription(
         get() = status == SubscriptionStatus.Active || status == SubscriptionStatus.Trialing
 }
 
+@Serializable
 enum class SubscriptionStatus {
     Active,
     Trialing,
@@ -37,6 +43,7 @@ enum class SubscriptionStatus {
     }
 }
 
+@Serializable
 data class AccountAccess(
     val blocked: Boolean = false,
     val throttled: Boolean = false,
@@ -52,6 +59,7 @@ data class AccountAccess(
         get() = AccountAccessReason.TariffMissing in reasons
 }
 
+@Serializable
 enum class AccountAccessReason {
     QuotaExceeded,
     SubscriptionInactive,

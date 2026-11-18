@@ -17,6 +17,8 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.bind
 import org.koin.dsl.module
 import space.ivlev.umbravpn.BuildConfig
+import space.ivlev.umbravpn.core.lock.EncryptedPinAttemptStore
+import space.ivlev.umbravpn.core.lock.PinLockGuard
 import space.ivlev.umbravpn.core.shortcut.DynamicShortcutManager
 import space.ivlev.umbravpn.core.shortcut.ShortcutManager
 import space.ivlev.umbravpn.domain.repository.GlobalEffectRepository
@@ -25,6 +27,7 @@ import space.ivlev.umbravpn.notification.AndroidNotificationService
 import space.ivlev.umbravpn.notification.NotificationService
 import space.ivlev.umbravpn.service.ServiceManager
 import space.ivlev.umbravpn.util.FileUtils
+import space.ivlev.umbravpn.util.logging.NoopLogReader
 import space.ivlev.umbravpn.util.network.NetworkUtils
 import space.ivlev.umbravpn.viewmodel.AccountViewModel
 import space.ivlev.umbravpn.viewmodel.DnsViewModel
@@ -51,9 +54,11 @@ val appModule = module {
         CoroutineScope(SupervisorJob() + Dispatchers.Default)
     }
     single<LogReader> {
-        val version = BuildConfig.VERSION_NAME
-        val flavor = BuildConfig.FLAVOR
-        if (BuildConfig.DEBUG) {
+        if (!BuildConfig.DEBUG) {
+            NoopLogReader()
+        } else {
+            val version = BuildConfig.VERSION_NAME
+            val flavor = BuildConfig.FLAVOR
             val readPolicy = StrictMode.allowThreadDiskReads()
             val writePolicy = StrictMode.allowThreadDiskWrites()
             try {
@@ -63,9 +68,6 @@ val appModule = module {
                 StrictMode.setThreadPolicy(readPolicy)
                 StrictMode.setThreadPolicy(writePolicy)
             }
-        } else {
-            val storageDir = androidContext().filesDir.absolutePath
-            LogcatReader.init(storageDir = storageDir, appVersion = version, appFlavor = flavor)
         }
     }
 
@@ -76,6 +78,7 @@ val appModule = module {
     single { ServiceManager(androidContext()) }
 
     singleOf(::GlobalEffectRepository)
+    single { PinLockGuard(EncryptedPinAttemptStore(androidContext())) }
 
     single { FileUtils(androidContext(), get(named(Dispatcher.IO))) }
     single<ShortcutManager> { DynamicShortcutManager(androidContext(), get(named(Dispatcher.IO))) }

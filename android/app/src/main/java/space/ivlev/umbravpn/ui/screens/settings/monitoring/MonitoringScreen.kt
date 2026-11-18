@@ -30,6 +30,7 @@ import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.enums.SeamlessRecoveryBounceDelay
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
 import space.ivlev.umbravpn.ui.common.dropdown.LabeledDropdown
@@ -55,7 +56,10 @@ fun MonitoringScreen(
     var showRefreshRateSheet by rememberSaveable { mutableStateOf(false) }
     var showDetails by rememberSaveable { mutableStateOf(false) }
 
-    if (uiState.isLoading || settingsState.isLoading) return
+    if (uiState.isLoading || settingsState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     sharedViewModel.collectSideEffect { sideEffect ->
         if (sideEffect is LocalSideEffect.Modal.RecoveryDetails) showDetails = true

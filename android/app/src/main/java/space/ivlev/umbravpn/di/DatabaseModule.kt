@@ -64,6 +64,10 @@ val databaseModule = module {
                 MIGRATION_43_44,
                 MIGRATION_44_45,
             )
+            // Destructive migration is intentionally kept: the schema has explicit migrations for
+            // every historical version, so this only triggers for a database written by a newer,
+            // unsupported build. Losing local tunnel configs is preferable to crashing at startup;
+            // user data can be restored from an encrypted backup.
             .fallbackToDestructiveMigration(true)
             .addCallback(get())
             .build()

@@ -17,6 +17,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.ui.common.TunnelRemovedPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
 import space.ivlev.umbravpn.ui.screens.tunnels.components.TunnelPickerList
@@ -27,7 +28,11 @@ fun EntryTunnelScreen(viewModel: TunnelViewModel) {
     val uiState by viewModel.collectAsState()
 
     if (uiState.isLoading) return
-    val tunnel = uiState.tunnel ?: return
+    val tunnel = uiState.tunnel
+    if (tunnel == null) {
+        TunnelRemovedPlaceholder()
+        return
+    }
 
     val candidates =
         remember(uiState.userTunnels, tunnel.id) {

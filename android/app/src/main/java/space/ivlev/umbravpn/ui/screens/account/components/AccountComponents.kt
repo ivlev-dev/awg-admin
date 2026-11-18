@@ -22,6 +22,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -45,6 +48,7 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.ServerUrlEmpty -> R.string.account_error_server_empty
         AccountMessage.ServerUrlInvalid -> R.string.account_error_server_invalid
         AccountMessage.ServerUrlUnsupportedScheme -> R.string.account_error_server_scheme
+        AccountMessage.ServerUrlInsecure -> R.string.account_error_server_insecure
         AccountMessage.InvalidCredentials -> R.string.account_error_invalid_credentials
         AccountMessage.TotpRequired -> R.string.account_error_totp_required
         AccountMessage.TotpInvalid -> R.string.account_error_totp_invalid
@@ -117,6 +121,7 @@ fun AccountFormField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     trailing: @Composable ((Modifier) -> Unit)? = null,
+    contentType: ContentType? = null,
 ) {
     Column(modifier = modifier.fillMaxWidth()) {
         CustomTextField(
@@ -131,7 +136,15 @@ fun AccountFormField(
             keyboardActions = keyboardActions,
             visualTransformation = visualTransformation,
             trailing = trailing,
-            modifier = Modifier.fillMaxWidth(),
+            modifier =
+                Modifier.fillMaxWidth()
+                    .then(
+                        if (contentType != null) {
+                            Modifier.semantics { this.contentType = contentType }
+                        } else {
+                            Modifier
+                        },
+                    ),
         )
         if (error != null) {
             Text(

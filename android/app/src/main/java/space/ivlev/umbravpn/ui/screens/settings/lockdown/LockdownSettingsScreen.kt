@@ -26,6 +26,7 @@ import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
@@ -47,7 +48,10 @@ fun LockdownSettingsScreen(
         if (it is LocalSideEffect.SaveChanges) viewModel.setShowSaveModal(true)
     }
 
-    if (uiState.isLoading) return
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     if (uiState.showSaveModal) {
         InfoDialog(

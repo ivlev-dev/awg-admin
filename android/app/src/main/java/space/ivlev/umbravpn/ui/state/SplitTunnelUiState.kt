@@ -20,4 +20,14 @@ data class SplitTunnelUiState(
     val globalOverride: SplitAppListSummary? = null,
     // Null where strict split tunneling can't apply, like before Android 10 or outside VPN mode.
     val strictSplitEnabled: Boolean? = null,
-)
+    val savedBehavior: SplitBehavior = SplitBehavior.ALL,
+    val savedIncludedPackages: Set<String> = emptySet(),
+    val savedExcludedPackages: Set<String> = emptySet(),
+) {
+    val isDirty: Boolean
+        get() =
+            initialized &&
+                (activeBehavior != savedBehavior ||
+                    includedPackages != savedIncludedPackages ||
+                    excludedPackages != savedExcludedPackages)
+}

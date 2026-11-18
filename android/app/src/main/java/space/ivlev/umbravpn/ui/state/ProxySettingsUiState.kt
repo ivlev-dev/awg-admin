@@ -21,4 +21,14 @@ data class ProxySettingsUiState(
     val isUserNameError: Boolean = false,
     val isPasswordError: Boolean = false,
     val isLoading: Boolean = true,
-)
+) {
+    val isDirty: Boolean
+        get() =
+            socks5Enabled != proxySettings.socks5ProxyEnabled ||
+                httpEnabled != proxySettings.httpProxyEnabled ||
+                allowSocks4 != proxySettings.allowSocks4 ||
+                socksBindAddress != (proxySettings.socks5ProxyBindAddress ?: "") ||
+                httpBindAddress != (proxySettings.httpProxyBindAddress ?: "") ||
+                proxyUsername != (proxySettings.proxyUsername ?: "") ||
+                proxyPassword != (proxySettings.proxyPassword ?: "")
+}

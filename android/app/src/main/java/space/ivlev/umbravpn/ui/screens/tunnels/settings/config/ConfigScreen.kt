@@ -35,6 +35,7 @@ import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.sideeffect.GlobalSideEffect
+import space.ivlev.umbravpn.ui.common.TunnelRemovedPlaceholder
 import space.ivlev.umbravpn.ui.common.functions.rememberClipboardHelper
 import space.ivlev.umbravpn.ui.common.scroll.appScrollbar
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.components.QrCodeDialog
@@ -58,7 +59,11 @@ fun ConfigScreen(
     var showKeys by rememberSaveable { mutableStateOf(false) }
 
     if (uiState.isLoading) return
-    val tunnel = uiState.tunnel ?: return
+    val tunnel = uiState.tunnel
+    if (tunnel == null) {
+        TunnelRemovedPlaceholder()
+        return
+    }
 
     var showQrModal by rememberSaveable { mutableStateOf(false) }
 
@@ -105,7 +110,7 @@ fun ConfigScreen(
                 }
             }
             is LocalSideEffect.ShowSensitive -> showKeys = !showKeys
-            is LocalSideEffect.CopyToClipboard -> clipboard.copy(rawConfig)
+            is LocalSideEffect.CopyToClipboard -> clipboard.copy(rawConfig, sensitive = true)
             else -> Unit
         }
     }

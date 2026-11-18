@@ -14,6 +14,11 @@ class DataStoreAccountSettingsRepository(
             normalizeServerUrl(it.orEmpty())
         }
 
+    override val autoConnectOnStartupFlow: Flow<Boolean> =
+        dataStoreManager.getFromStoreFlow(DataStoreManager.accountAutoConnectOnStartup).map {
+            it ?: true
+        }
+
     override val termsAcceptedFlow: Flow<Boolean> =
         dataStoreManager.getFromStoreFlow(DataStoreManager.accountTermsAccepted).map { it ?: false }
 
@@ -44,5 +49,30 @@ class DataStoreAccountSettingsRepository(
             DataStoreManager.accountManagedProvisioned,
             provisioned,
         )
+    }
+
+    override suspend fun cachedSnapshot(): String? =
+        dataStoreManager.getFromStore(DataStoreManager.accountSnapshotCache)
+
+    override suspend fun setCachedSnapshot(json: String?) {
+        if (json == null) {
+            dataStoreManager.removeFromDataStore(DataStoreManager.accountSnapshotCache)
+        } else {
+            dataStoreManager.saveToDataStore(DataStoreManager.accountSnapshotCache, json)
+        }
+    }
+
+    override suspend fun manualDisconnect(): Boolean =
+        dataStoreManager.getFromStore(DataStoreManager.accountManualDisconnect) ?: false
+
+    override suspend fun setManualDisconnect(value: Boolean) {
+        dataStoreManager.saveToDataStore(DataStoreManager.accountManualDisconnect, value)
+    }
+
+    override suspend fun autoConnectOnStartup(): Boolean =
+        dataStoreManager.getFromStore(DataStoreManager.accountAutoConnectOnStartup) ?: true
+
+    override suspend fun setAutoConnectOnStartup(enabled: Boolean) {
+        dataStoreManager.saveToDataStore(DataStoreManager.accountAutoConnectOnStartup, enabled)
     }
 }

@@ -20,10 +20,16 @@ class AccountValidationTest {
     }
 
     @Test
-    fun acceptsHttpAndPath() {
+    fun acceptsHttpOnlyWhenHttpIsAllowed() {
         assertEquals(
             "http://10.0.2.2:8080",
-            valid("http://10.0.2.2:8080/"),
+            (validateServerUrl("http://10.0.2.2:8080/", allowHttp = true)
+                    as ServerUrlValidation.Valid)
+                .url,
+        )
+        assertEquals(
+            ServerUrlError.InsecureScheme,
+            invalid("http://10.0.2.2:8080/"),
         )
         assertEquals(
             "https://example.com/panel",

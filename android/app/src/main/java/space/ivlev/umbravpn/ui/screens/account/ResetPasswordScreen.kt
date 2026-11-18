@@ -20,6 +20,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
@@ -34,6 +37,7 @@ import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.functions.rememberClipboardHelper
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
@@ -52,6 +56,8 @@ fun ResetPasswordScreen(
 ) {
     val navController = LocalNavController.current
     val keyboardController = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
+    val clipboard = rememberClipboardHelper()
     val state by viewModel.collectAsState()
 
     viewModel.collectSideEffect { effect ->
@@ -86,6 +92,27 @@ fun ResetPasswordScreen(
             label = stringResource(R.string.account_reset_token),
             error = state.tokenError,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            trailing = { modifier ->
+                TextButton(
+                    onClick = {
+                        clipboard.paste { text ->
+                            if (text.isNullOrBlank()) {
+                                sharedViewModel.showSnackMessage(
+                                    StringValue.StringResource(R.string.clipboard_empty),
+                                    ToastType.Warning,
+                                )
+                            } else {
+                                viewModel.onTokenChange(text.trim())
+                            }
+                        }
+                    },
+                    modifier = modifier,
+                ) {
+                    Text(stringResource(R.string.paste))
+                }
+            },
         )
 
         AccountFormField(
@@ -98,6 +125,9 @@ fun ResetPasswordScreen(
                     keyboardType = KeyboardType.Password,
                     imeAction = ImeAction.Next,
                 ),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            contentType = ContentType.NewPassword,
             visualTransformation =
                 if (state.passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),
@@ -128,6 +158,7 @@ fun ResetPasswordScreen(
                     imeAction = ImeAction.Done,
                 ),
             keyboardActions = KeyboardActions(onDone = { viewModel.submit() }),
+            contentType = ContentType.NewPassword,
             visualTransformation =
                 if (state.passwordVisible) VisualTransformation.None
                 else PasswordVisualTransformation(),

@@ -19,7 +19,11 @@ class AuthActionsTest {
     private val cache = PendingSignupCache()
     private val blockedRequests = mutableListOf<Pair<BlockReason, String?>>()
     private val actions =
-        AuthActions(repository, cache) { reason, email -> blockedRequests += reason to email }
+        AuthActions(
+            repository,
+            cache,
+            onAccessBlocked = { reason, email -> blockedRequests += reason to email },
+        )
 
     @Test
     fun loginSuccessReturnsUserAndTrimsEmail() = runTest {

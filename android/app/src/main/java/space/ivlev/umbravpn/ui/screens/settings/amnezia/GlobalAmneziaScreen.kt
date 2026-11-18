@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.settings.amnezia
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -15,7 +16,10 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,7 +33,10 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.banner.InfoNotice
+import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.dialog.rememberRestartToApplyChanges
 import space.ivlev.umbravpn.ui.common.label.GroupLabel
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.edit.components.AmneziaSection
@@ -43,8 +50,32 @@ fun GlobalAmneziaScreen(
     viewModel: GlobalAmneziaViewModel = koinViewModel(),
     sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
+    val navController = LocalNavController.current
     val uiState by viewModel.collectAsState()
-    if (uiState.isLoading) return
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(uiState.isDirty) { sharedViewModel.setScreenDirty(uiState.isDirty) }
+    DisposableEffect(Unit) { onDispose { sharedViewModel.setScreenDirty(false) } }
+    BackHandler(enabled = uiState.isDirty) { showDiscardDialog = true }
+
+    if (showDiscardDialog) {
+        InfoDialog(
+            onDismiss = { showDiscardDialog = false },
+            onAttest = {
+                showDiscardDialog = false
+                navController.pop()
+            },
+            title = stringResource(R.string.discard_changes_title),
+            body = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmText = stringResource(R.string.discard_changes_confirm),
+            destructive = true,
+        )
+    }
+
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     var menuExpanded by rememberSaveable { mutableStateOf(false) }
     val requestApply =
@@ -54,7 +85,12 @@ fun GlobalAmneziaScreen(
         )
 
     sharedViewModel.collectSideEffect { effect ->
-        if (effect is LocalSideEffect.SaveChanges) requestApply()
+        when (effect) {
+            is LocalSideEffect.SaveChanges -> requestApply()
+            is LocalSideEffect.RequestBack ->
+                if (uiState.isDirty) showDiscardDialog = true else navController.pop()
+            else -> Unit
+        }
     }
 
     Column(

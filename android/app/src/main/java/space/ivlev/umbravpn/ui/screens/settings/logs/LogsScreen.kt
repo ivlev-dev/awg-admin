@@ -25,6 +25,7 @@ import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.screens.settings.logs.components.LogList
 import space.ivlev.umbravpn.ui.screens.settings.logs.components.LogsBottomSheet
 import space.ivlev.umbravpn.ui.screens.tunnels.components.EmptyStateLottie
@@ -40,7 +41,10 @@ fun LogsScreen(
 ) {
     val loggerState by viewModel.collectAsState()
 
-    if (loggerState.isLoading) return
+    if (loggerState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val lazyColumnListState = rememberLazyListState()
     var isAutoScrolling by rememberSaveable { mutableStateOf(true) }

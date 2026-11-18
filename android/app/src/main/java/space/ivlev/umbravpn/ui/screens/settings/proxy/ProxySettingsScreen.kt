@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.settings.proxy
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -17,8 +18,14 @@ import androidx.compose.material.icons.outlined.Http
 import androidx.compose.material.icons.outlined.RemoveRedEye
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -33,8 +40,11 @@ import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.model.ProxySettings
+import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.LoadingPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
+import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.dialog.rememberRestartToApplyChanges
 import space.ivlev.umbravpn.ui.common.label.GroupLabel
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
@@ -48,9 +58,17 @@ fun ProxySettingsScreen(
     viewModel: ProxySettingsViewModel = koinViewModel(),
     sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
+    val navController = LocalNavController.current
     val uiState by viewModel.collectAsState()
+    var showDiscardDialog by rememberSaveable { mutableStateOf(false) }
 
-    if (uiState.isLoading) return
+    LaunchedEffect(uiState.isDirty) { sharedViewModel.setScreenDirty(uiState.isDirty) }
+    DisposableEffect(Unit) { onDispose { sharedViewModel.setScreenDirty(false) } }
+
+    if (uiState.isLoading) {
+        LoadingPlaceholder()
+        return
+    }
 
     val keyboardController = LocalSoftwareKeyboardController.current
 
@@ -64,7 +82,28 @@ fun ProxySettingsScreen(
         )
 
     sharedViewModel.collectSideEffect { sideEffect ->
-        if (sideEffect is LocalSideEffect.SaveChanges) requestApply()
+        when (sideEffect) {
+            is LocalSideEffect.SaveChanges -> requestApply()
+            is LocalSideEffect.RequestBack ->
+                if (uiState.isDirty) showDiscardDialog = true else navController.pop()
+            else -> Unit
+        }
+    }
+
+    BackHandler(enabled = uiState.isDirty) { showDiscardDialog = true }
+
+    if (showDiscardDialog) {
+        InfoDialog(
+            onDismiss = { showDiscardDialog = false },
+            onAttest = {
+                showDiscardDialog = false
+                navController.pop()
+            },
+            title = stringResource(R.string.discard_changes_title),
+            body = { Text(stringResource(R.string.discard_changes_body)) },
+            confirmText = stringResource(R.string.discard_changes_confirm),
+            destructive = true,
+        )
     }
 
     Column(

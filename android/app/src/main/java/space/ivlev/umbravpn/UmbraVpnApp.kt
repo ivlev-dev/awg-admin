@@ -49,6 +49,7 @@ import space.ivlev.umbravpn.domain.account.AccountAccessCleanup
 import space.ivlev.umbravpn.domain.enums.TunnelActionSource
 import space.ivlev.umbravpn.domain.events.TunnelActionEvent
 import space.ivlev.umbravpn.domain.model.account.SessionState
+import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
 import space.ivlev.umbravpn.notification.ManagedTunnelSyncNotifier
 import space.ivlev.umbravpn.notification.NotificationService
@@ -77,6 +78,8 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
 
     private val authRepository: AuthRepository by inject()
 
+    private val accountSettingsRepository: AccountSettingsRepository by inject()
+
     private val accountAccessCleanup: AccountAccessCleanup by inject()
 
     private val backend: Backend by inject()
@@ -100,7 +103,7 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
     @OptIn(KoinViewModelScopeApi::class)
     override fun onCreate() {
         super.onCreate()
-        BackendLog.setMinLevel(if (BuildConfig.DEBUG) LogLevel.Debug else LogLevel.Info)
+        BackendLog.setMinLevel(if (BuildConfig.DEBUG) LogLevel.Debug else LogLevel.Warn)
         startKoin {
             androidContext(this@UmbraVpnApp)
             if (BuildConfig.DEBUG) androidLogger()
@@ -157,8 +160,14 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
 
         applicationScope.launch {
             tunnelCoordinator.actions.collect { event ->
-                if (event is TunnelActionEvent.Stopped && event.source == TunnelActionSource.USER) {
-                    managedTunnelAutoConnector.onManualDisconnect()
+                when {
+                    event is TunnelActionEvent.Stopped &&
+                        event.source == TunnelActionSource.USER -> {
+                        managedTunnelAutoConnector.onManualDisconnect()
+                        accountSettingsRepository.setManualDisconnect(true)
+                    }
+                    event is TunnelActionEvent.Started && event.source == TunnelActionSource.USER ->
+                        accountSettingsRepository.setManualDisconnect(false)
                 }
             }
         }
@@ -171,7 +180,10 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
             if (authRepository.session.value is SessionState.Unknown) {
                 authRepository.me()
             }
-            managedTunnelAutoConnector.ensureConnected()
+            val autoConnectEnabled =
+                accountSettingsRepository.autoConnectOnStartup() &&
+                    !accountSettingsRepository.manualDisconnect()
+            managedTunnelAutoConnector.ensureConnected(autoConnect = autoConnectEnabled)
         }
 
         applicationScope.launch(ioDispatcher) { boostrapCoordinator.bootstrap(this@UmbraVpnApp) }

@@ -7,9 +7,53 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import space.ivlev.umbravpn.util.network.ServerUrlError
+import space.ivlev.umbravpn.util.network.ServerUrlValidation
 import space.ivlev.umbravpn.util.network.normalizeServerUrl
+import space.ivlev.umbravpn.util.network.validateServerUrl
 
 class ServerUrlTest {
+
+    @Test
+    fun releaseRejectsPlainHttp() {
+        assertEquals(
+            ServerUrlValidation.Invalid(ServerUrlError.InsecureScheme),
+            validateServerUrl("http://10.0.0.5:8080"),
+        )
+        assertEquals(
+            ServerUrlValidation.Invalid(ServerUrlError.InsecureScheme),
+            validateServerUrl("http://panel.example.com", allowHttp = false),
+        )
+    }
+
+    @Test
+    fun debugMayUsePlainHttp() {
+        assertEquals(
+            ServerUrlValidation.Valid("http://10.0.0.5:8080"),
+            validateServerUrl("http://10.0.0.5:8080/", allowHttp = true),
+        )
+    }
+
+    @Test
+    fun httpsIsAcceptedInRelease() {
+        assertEquals(
+            ServerUrlValidation.Valid("https://panel.example.com"),
+            validateServerUrl("panel.example.com"),
+        )
+    }
+
+    @Test
+    fun rejectsUserInfoAndFragment() {
+        assertEquals(
+            ServerUrlValidation.Invalid(ServerUrlError.UserInfoNotAllowed),
+            validateServerUrl("https://user:pass@panel.example.com"),
+        )
+        assertEquals(
+            ServerUrlValidation.Invalid(ServerUrlError.FragmentNotAllowed),
+            validateServerUrl("https://panel.example.com/#section"),
+        )
+    }
+
     @Test
     fun stripsWhitespaceAndTrailingSlashes() {
         assertEquals(

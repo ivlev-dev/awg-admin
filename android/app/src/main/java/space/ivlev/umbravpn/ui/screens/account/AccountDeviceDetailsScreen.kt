@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.dokar.sonner.ToastType
-import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
@@ -54,7 +53,7 @@ import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 @Composable
 fun AccountDeviceDetailsScreen(
     id: String,
-    viewModel: AccountViewModel = koinViewModel(),
+    viewModel: AccountViewModel = koinActivityViewModel(),
     sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
     val state by viewModel.collectAsState()
@@ -103,7 +102,16 @@ fun AccountDeviceDetailsScreen(
                 }
             } else {
                 AccountHeader(title = stringResource(R.string.account_device_details))
-                AccountErrorCard(AccountMessage.NotFound)
+                AccountErrorCard(
+                    state.error ?: AccountMessage.NotFound,
+                )
+                if (state.error == AccountMessage.Network) {
+                    Text(
+                        text = stringResource(R.string.account_offline_message),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
                 AccountSecondaryButton(
                     text = stringResource(R.string.account_retry),
                     onClick = viewModel::retry,
@@ -196,6 +204,14 @@ private fun TunnelsCard(device: AccountDevice, viewModel: AccountViewModel) {
             color = MaterialTheme.colorScheme.outline,
             modifier = Modifier.padding(top = 4.dp),
         )
+        if (!canDelete && device.peers.isNotEmpty()) {
+            Text(
+                text = stringResource(R.string.account_error_last_tunnel),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
         if (device.peers.isEmpty()) {
             Text(
                 text = stringResource(R.string.account_unknown),

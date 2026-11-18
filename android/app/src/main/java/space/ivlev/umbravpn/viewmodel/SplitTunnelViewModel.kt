@@ -90,6 +90,9 @@ class SplitTunnelViewModel(
                                 activeBehavior = splitBehaviorOf(included, excluded),
                                 includedPackages = included,
                                 excludedPackages = excluded,
+                                savedBehavior = splitBehaviorOf(included, excluded),
+                                savedIncludedPackages = included,
+                                savedExcludedPackages = excluded,
                                 needsRestart = restart,
                                 globalOverride = override,
                                 strictSplitEnabled = strict,
@@ -144,6 +147,15 @@ class SplitTunnelViewModel(
     }
 
     fun save(restart: Boolean = false) = intent {
+        if (!state.isDirty) {
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.save_disabled_no_changes),
+                    ToastType.Info,
+                ),
+            )
+            return@intent
+        }
         val current = state
         val tunnel = current.tunnel ?: return@intent
         val config = tunnel.getConfig()
@@ -165,6 +177,13 @@ class SplitTunnelViewModel(
         val updatedTunnel =
             tunnel.copy(quickConfig = updatedConfig.withName(tunnel.name).asQuickString())
         tunnelRepository.save(updatedTunnel)
+        reduce {
+            state.copy(
+                savedBehavior = current.activeBehavior,
+                savedIncludedPackages = current.includedPackages,
+                savedExcludedPackages = current.excludedPackages,
+            )
+        }
         if (restart) {
             if (updatedTunnel.isGlobalConfig) {
                 tunnelCoordinator.restartActiveTunnels()
@@ -221,6 +240,9 @@ class SplitTunnelViewModel(
                 activeBehavior = splitBehaviorOf(included, excluded),
                 includedPackages = included,
                 excludedPackages = excluded,
+                savedBehavior = splitBehaviorOf(included, excluded),
+                savedIncludedPackages = included,
+                savedExcludedPackages = excluded,
                 selectedCopySourceTunnelId = null,
             )
         }

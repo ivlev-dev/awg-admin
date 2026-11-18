@@ -17,6 +17,9 @@ enum class ServerUrlError {
     InvalidFormat,
     UnsupportedScheme,
     MissingHost,
+    InsecureScheme,
+    UserInfoNotAllowed,
+    FragmentNotAllowed,
 }
 
 sealed interface ServerUrlValidation {
@@ -25,7 +28,11 @@ sealed interface ServerUrlValidation {
     data class Invalid(val error: ServerUrlError) : ServerUrlValidation
 }
 
-fun validateServerUrl(raw: String): ServerUrlValidation {
+/**
+ * Validates a panel URL. Release builds must not talk to plain HTTP servers, and credentials or
+ * fragments in the URL are rejected so they do not leak into logs or HTTP requests.
+ */
+fun validateServerUrl(raw: String, allowHttp: Boolean = false): ServerUrlValidation {
     val trimmed = raw.trim()
     if (trimmed.isEmpty()) return ServerUrlValidation.Invalid(ServerUrlError.Empty)
     if (trimmed.any { it.isWhitespace() }) {
@@ -36,6 +43,9 @@ fun validateServerUrl(raw: String): ServerUrlValidation {
         val scheme = trimmed.substringBefore("://").lowercase()
         if (scheme != "http" && scheme != "https") {
             return ServerUrlValidation.Invalid(ServerUrlError.UnsupportedScheme)
+        }
+        if (scheme == "http" && !allowHttp) {
+            return ServerUrlValidation.Invalid(ServerUrlError.InsecureScheme)
         }
     }
 
@@ -49,6 +59,15 @@ fun validateServerUrl(raw: String): ServerUrlValidation {
     if (uri.scheme != "http" && uri.scheme != "https") {
         return ServerUrlValidation.Invalid(ServerUrlError.UnsupportedScheme)
     }
+    if (uri.scheme == "http" && !allowHttp) {
+        return ServerUrlValidation.Invalid(ServerUrlError.InsecureScheme)
+    }
     if (uri.host.isNullOrBlank()) return ServerUrlValidation.Invalid(ServerUrlError.MissingHost)
+    if (uri.userInfo != null) {
+        return ServerUrlValidation.Invalid(ServerUrlError.UserInfoNotAllowed)
+    }
+    if (uri.fragment != null) {
+        return ServerUrlValidation.Invalid(ServerUrlError.FragmentNotAllowed)
+    }
     return ServerUrlValidation.Valid(normalized)
 }

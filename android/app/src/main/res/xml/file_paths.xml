@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only APK files are served through the FileProvider. They live in the app specific external
+  files directory (DownloadManager destination) or the internal files directory fallback.
+  Exports and backups are written through SAF / MediaStore and never need a content Uri here.
+-->
 <paths>
-    <files-path name="files" path="." />
-    <external-path name="external_files" path="." />
-    <external-files-path name="apks" path="/" />
-    <cache-path name="cache_files" path="external_files/" />
+    <external-files-path name="apk" path="." />
+    <files-path name="internal_apk" path="." />
 </paths>

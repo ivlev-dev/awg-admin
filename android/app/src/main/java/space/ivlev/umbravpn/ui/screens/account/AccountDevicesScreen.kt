@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
@@ -33,7 +33,7 @@ import space.ivlev.umbravpn.ui.screens.account.components.AccountSecondaryButton
 import space.ivlev.umbravpn.viewmodel.AccountViewModel
 
 @Composable
-fun AccountDevicesScreen(viewModel: AccountViewModel = koinViewModel()) {
+fun AccountDevicesScreen(viewModel: AccountViewModel = koinActivityViewModel()) {
     val navController = LocalNavController.current
     val state by viewModel.collectAsState()
 

@@ -36,6 +36,9 @@ class DataStoreManager(
         val accountServerUrl = stringPreferencesKey("ACCOUNT_SERVER_URL")
         val accountTermsAccepted = booleanPreferencesKey("ACCOUNT_TERMS_ACCEPTED")
         val accountManagedProvisioned = booleanPreferencesKey("ACCOUNT_MANAGED_PROVISIONED")
+        val accountSnapshotCache = stringPreferencesKey("ACCOUNT_SNAPSHOT_CACHE")
+        val accountManualDisconnect = booleanPreferencesKey("ACCOUNT_MANUAL_DISCONNECT")
+        val accountAutoConnectOnStartup = booleanPreferencesKey("ACCOUNT_AUTO_CONNECT_ON_STARTUP")
     }
 
     suspend fun init() {

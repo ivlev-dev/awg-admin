@@ -2,11 +2,13 @@ package space.ivlev.umbravpn.viewmodel
 
 import androidx.lifecycle.ViewModel
 import org.orbitmvi.orbit.OrbitContainerHost
+import org.orbitmvi.orbit.syntax.Syntax
 import org.orbitmvi.orbit.viewmodel.orbitContainer
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.account.ActionResult
 import space.ivlev.umbravpn.domain.account.ApprovalResult
 import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.account.ResendCooldown
 import space.ivlev.umbravpn.ui.state.EmailVerificationPhase
 import space.ivlev.umbravpn.ui.state.EmailVerificationUiState
@@ -15,7 +17,10 @@ sealed interface EmailVerificationSideEffect {
     data object SignedOut : EmailVerificationSideEffect
 }
 
-class EmailVerificationViewModel(private val authActions: AuthActions) :
+class EmailVerificationViewModel(
+    private val authActions: AuthActions,
+    private val logoutCoordinator: LogoutCoordinator,
+) :
     OrbitContainerHost<
         EmailVerificationUiState,
         EmailVerificationUiState,
@@ -35,8 +40,30 @@ class EmailVerificationViewModel(private val authActions: AuthActions) :
         reduce { state.copy(email = email) }
     }
 
-    fun verify(token: String) = intent {
-        if (state.phase == EmailVerificationPhase.Verifying) return@intent
+    /**
+     * A deep link never verifies by itself: the token waits in state until the user confirms it on
+     * the verification screen.
+     */
+    fun offerDeepLink(token: String) = intent {
+        val trimmed = token.trim()
+        if (trimmed.isEmpty()) return@intent
+        reduce { state.copy(pendingDeepLinkToken = trimmed, phase = EmailVerificationPhase.Idle) }
+    }
+
+    fun confirmDeepLink() = intent {
+        val token = state.pendingDeepLinkToken ?: return@intent
+        reduce { state.copy(pendingDeepLinkToken = null) }
+        runVerify(token)
+    }
+
+    fun dismissDeepLink() = intent { reduce { state.copy(pendingDeepLinkToken = null) } }
+
+    fun verify(token: String) = intent { runVerify(token) }
+
+    private suspend fun Syntax<EmailVerificationUiState, EmailVerificationSideEffect>.runVerify(
+        token: String,
+    ) {
+        if (state.phase == EmailVerificationPhase.Verifying) return
         reduce { state.copy(phase = EmailVerificationPhase.Verifying) }
 
         when (val outcome = authActions.verifyEmail(token)) {
@@ -98,7 +125,8 @@ class EmailVerificationViewModel(private val authActions: AuthActions) :
     fun clearFeedback() = intent { reduce { state.copy(feedback = null) } }
 
     fun signOut() = intent {
-        authActions.logout()
+        reduce { state.copy(pendingDeepLinkToken = null) }
+        logoutCoordinator.logout()
         postSideEffect(EmailVerificationSideEffect.SignedOut)
     }
 }

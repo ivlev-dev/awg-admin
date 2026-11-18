@@ -1,80 +1,54 @@
 package space.ivlev.umbravpn.ui.navigation.components
 
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.BottomAppBarDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
-import androidx.compose.material3.FlexibleBottomAppBar
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
-import androidx.compose.material3.LocalRippleConfiguration
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import space.ivlev.umbravpn.ui.LocalIsAndroidTV
-import space.ivlev.umbravpn.ui.common.animations.AnimatedFloatIcon
 import space.ivlev.umbravpn.ui.navigation.Tab
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun BottomNavbar(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
-    val isTv = LocalIsAndroidTV.current
-    val rippleTheme = LocalRippleConfiguration.current
-    val theme = remember { if (isTv) rippleTheme else null }
-    FlexibleBottomAppBar(
+    NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
-        content = {
-            val arrangement = BottomAppBarDefaults.FlexibleFixedHorizontalArrangement
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = arrangement) {
-                Tab.entries.forEach { tab ->
-                    val interactionSource = remember { MutableInteractionSource() }
-                    val isSelected = currentTab == tab
-                    val button =
-                        @Stable @Composable {
-                            CompositionLocalProvider(LocalRippleConfiguration provides theme) {
-                                IconButton(
-                                    onClick = { onTabSelected(tab) },
-                                    modifier = Modifier.semantics { selected = isSelected },
-                                    colors =
-                                        IconButtonDefaults.iconButtonColors(
-                                            containerColor = Color.Transparent,
-                                            contentColor =
-                                                if (isSelected) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                                },
-                                            disabledContainerColor = Color.Transparent,
-                                            disabledContentColor =
-                                                MaterialTheme.colorScheme.onSurfaceVariant,
-                                        ),
-                                    interactionSource = interactionSource,
-                                ) {
-                                    AnimatedFloatIcon(
-                                        activeIcon = tab.activeIcon,
-                                        inactiveIcon = tab.inactiveIcon,
-                                        isSelected = isSelected,
-                                        contentDescription = stringResource(tab.titleRes),
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
-                            }
-                        }
-                    button()
-                }
-            }
-        },
-    )
+    ) {
+        Tab.entries.forEach { tab ->
+            val isSelected = currentTab == tab
+            NavigationBarItem(
+                selected = isSelected,
+                onClick = { onTabSelected(tab) },
+                alwaysShowLabel = true,
+                icon = {
+                    Icon(
+                        imageVector = if (isSelected) tab.activeIcon else tab.inactiveIcon,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                    )
+                },
+                label = {
+                    Text(
+                        text = stringResource(tab.titleRes),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                },
+                colors =
+                    NavigationBarItemDefaults.colors(
+                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                        indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+            )
+        }
+    }
 }

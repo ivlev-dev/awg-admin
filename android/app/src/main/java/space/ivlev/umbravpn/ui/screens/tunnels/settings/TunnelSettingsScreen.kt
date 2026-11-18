@@ -30,6 +30,7 @@ import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.TunnelRemovedPlaceholder
 import space.ivlev.umbravpn.ui.common.button.SurfaceRow
 import space.ivlev.umbravpn.ui.common.button.ThemedSwitch
 import space.ivlev.umbravpn.ui.common.label.GroupLabel
@@ -52,7 +53,11 @@ fun TunnelSettingsScreen(
     val uiState by viewModel.collectAsState()
 
     if (uiState.isLoading) return
-    val tunnel = uiState.tunnel ?: return
+    val tunnel = uiState.tunnel
+    if (tunnel == null) {
+        TunnelRemovedPlaceholder()
+        return
+    }
 
     Column(
         horizontalAlignment = Alignment.Start,
