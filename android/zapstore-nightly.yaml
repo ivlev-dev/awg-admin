@@ -1,0 +1,5 @@
+match: 'umbravpn-standalone-v[0-9.]+-nightly\+git\.[0-9a-f]+\.apk$'
+prerelease_channel: nightly
+
+summary: Nightly builds of Umbra VPN. Bleeding-edge, may contain bugs.
+tags: [vpn, wireguard, amneziawg, nightly]

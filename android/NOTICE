@@ -1,0 +1,30 @@
+Umbra VPN
+=========
+
+This product is a rebranded distribution of the open source wgtunnel/android
+project (https://github.com/wgtunnel/android), used under the MIT License.
+
+Upstream copyright and license notices are preserved in the LICENSE file and in
+the source headers. The original project is licensed under the MIT License.
+
+WireGuard
+---------
+
+WireGuard is a registered trademark of Jason A. Donenfeld. The WireGuard
+implementation and related tools are licensed under the GPLv2 and are used here
+through the amneziawg-go and wireproxy components. See the respective upstream
+projects for details:
+https://www.wireguard.com/
+
+AmneziaWG
+---------
+
+AmneziaWG is a fork of WireGuard with additional obfuscation support, maintained
+by the Amnezia VPN project and licensed under the MIT License:
+https://github.com/amnezia-vpn/amneziawg-go
+
+Third-party components
+----------------------
+
+Other bundled libraries and their licenses are listed inside the application in
+the Licenses screen.

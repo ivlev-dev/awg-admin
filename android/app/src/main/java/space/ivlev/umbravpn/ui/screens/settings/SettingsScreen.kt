@@ -1,0 +1,298 @@
+package space.ivlev.umbravpn.ui.screens.settings
+
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.ViewQuilt
+import androidx.compose.material.icons.outlined.Android
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.ExpandMore
+import androidx.compose.material.icons.outlined.MonitorHeart
+import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.SettingsBackupRestore
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.ViewHeadline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.text.intl.Locale
+import androidx.compose.ui.unit.dp
+import com.dokar.sonner.ToastType
+import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.viewmodel.koinActivityViewModel
+import org.orbitmvi.orbit.compose.collectAsState
+import space.ivlev.umbravpn.MainActivity
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.domain.enums.TunnelMode
+import space.ivlev.umbravpn.ui.LocalIsAndroidTV
+import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.button.PreferenceTrailing
+import space.ivlev.umbravpn.ui.common.button.SurfaceRow
+import space.ivlev.umbravpn.ui.common.button.SwitchWithDivider
+import space.ivlev.umbravpn.ui.common.functions.rememberFileImportLauncherForResult
+import space.ivlev.umbravpn.ui.common.label.GroupLabel
+import space.ivlev.umbravpn.ui.common.text.DescriptionText
+import space.ivlev.umbravpn.ui.common.text.sectionsSummary
+import space.ivlev.umbravpn.ui.navigation.Route
+import space.ivlev.umbravpn.ui.screens.settings.advanced.AdvancedSection
+import space.ivlev.umbravpn.ui.screens.settings.components.BackupBottomSheet
+import space.ivlev.umbravpn.ui.screens.settings.components.BackupEncryptionDialog
+import space.ivlev.umbravpn.ui.screens.settings.monitoring.MonitoringSection
+import space.ivlev.umbravpn.ui.screens.settings.proxy.compoents.AppModeBottomSheet
+import space.ivlev.umbravpn.util.StringValue
+import space.ivlev.umbravpn.util.extensions.asString
+import space.ivlev.umbravpn.util.extensions.asTitleString
+import space.ivlev.umbravpn.util.extensions.capitalize
+import space.ivlev.umbravpn.viewmodel.SettingsViewModel
+import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
+
+@Composable
+fun SettingsScreen(
+    viewModel: SettingsViewModel = koinViewModel(),
+    sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
+) {
+    val context = LocalContext.current
+    val navController = LocalNavController.current
+    val isTv = LocalIsAndroidTV.current
+
+    val locale = Locale.current.platformLocale
+
+    val uiState by viewModel.collectAsState()
+
+    if (uiState.isLoading) return
+
+    val focusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        if (isTv) {
+            focusRequester.requestFocus()
+        }
+    }
+
+    var showBackupSheet by rememberSaveable { mutableStateOf(false) }
+    var showEncryptionDialog by rememberSaveable { mutableStateOf(false) }
+    var isRestoreAction by remember { mutableStateOf(false) }
+    var pendingRestorePassword by remember { mutableStateOf<String?>(null) }
+    val launchTvRestore =
+        rememberFileImportLauncherForResult(
+            onNoFileExplorer = {
+                sharedViewModel.showSnackMessage(
+                    StringValue.StringResource(R.string.error_no_file_explorer),
+                    ToastType.Error,
+                )
+            },
+            onData = { uri ->
+                (context as? MainActivity)?.restoreFromUri(uri, pendingRestorePassword)
+                pendingRestorePassword = null
+            },
+            onCancel = {
+                pendingRestorePassword = null
+                sharedViewModel.showSnackMessage(
+                    StringValue.StringResource(R.string.restore_failed),
+                    ToastType.Error,
+                )
+            },
+        )
+
+    var showAppModeSheet by rememberSaveable { mutableStateOf(false) }
+
+    val appMode = uiState.settings.tunnelMode
+    val dnsEnabled by rememberSaveable(appMode) { mutableStateOf(true) }
+
+    if (showBackupSheet) {
+        BackupBottomSheet(
+            onBackup = {
+                showBackupSheet = false
+                isRestoreAction = false
+                showEncryptionDialog = true
+            },
+            onRestore = {
+                showBackupSheet = false
+                isRestoreAction = true
+                showEncryptionDialog = true
+            },
+            onDismiss = { showBackupSheet = false },
+        )
+    }
+
+    if (showEncryptionDialog) {
+        BackupEncryptionDialog(
+            isRestore = isRestoreAction,
+            onConfirm = { _, password ->
+                showEncryptionDialog = false
+                val activity = context as? MainActivity ?: return@BackupEncryptionDialog
+                if (isRestoreAction) {
+                    if (isTv) {
+                        pendingRestorePassword = password
+                        launchTvRestore()
+                    } else {
+                        activity.beginRestore(password)
+                    }
+                } else {
+                    activity.beginBackup(password)
+                }
+            },
+            onDismiss = { showEncryptionDialog = false },
+        )
+    }
+
+    if (showAppModeSheet)
+        AppModeBottomSheet(sharedViewModel::setAppMode, uiState.settings.tunnelMode) {
+            showAppModeSheet = false
+        }
+
+    Column(
+        horizontalAlignment = Alignment.Start,
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.Top),
+        modifier = Modifier.verticalScroll(rememberScrollState()).fillMaxSize(),
+    ) {
+        Column {
+            GroupLabel(
+                stringResource(R.string.tunnel).capitalize(locale),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SurfaceRow(
+                leading = {
+                    Icon(ImageVector.vectorResource(R.drawable.sdk), contentDescription = null)
+                },
+                trailing = { modifier ->
+                    val expand =
+                        @Composable {
+                            Box(modifier = Modifier.pointerInput(Unit) { detectTapGestures {} }) {
+                                IconButton(onClick = { showAppModeSheet = true }, modifier) {
+                                    Icon(
+                                        Icons.Outlined.ExpandMore,
+                                        contentDescription = stringResource(R.string.select),
+                                    )
+                                }
+                            }
+                        }
+                    when (uiState.settings.tunnelMode) {
+                        TunnelMode.VPN -> expand()
+                        TunnelMode.PROXY,
+                        TunnelMode.LOCK_DOWN -> {
+                            PreferenceTrailing { expand() }
+                        }
+                    }
+                },
+                title = stringResource(R.string.backend_mode),
+                description = { DescriptionText(appMode.asTitleString(context)) },
+                onClick = {
+                    when (appMode) {
+                        TunnelMode.PROXY -> navController.push(Route.ProxySettings)
+                        TunnelMode.LOCK_DOWN -> navController.push(Route.LockdownSettings)
+                        TunnelMode.VPN -> showAppModeSheet = true
+                    }
+                },
+                modifier = Modifier.focusRequester(focusRequester),
+            )
+            SurfaceRow(
+                leading = {
+                    Icon(
+                        Icons.Outlined.Dns,
+                        null,
+                        tint =
+                            if (dnsEnabled) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.outline,
+                    )
+                },
+                title = stringResource(R.string.dns_settings),
+                enabled = dnsEnabled,
+                onClick = {
+                    if (dnsEnabled) navController.push(Route.Dns)
+                    else
+                        sharedViewModel.showSnackMessage(
+                            StringValue.StringResource(
+                                R.string.mode_disabled_template,
+                                appMode.asString(context),
+                            ),
+                            ToastType.Info,
+                        )
+                },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.MonitorHeart, null) },
+                title = stringResource(R.string.monitoring_and_recovery),
+                description = { DescriptionText(sectionsSummary(MonitoringSection.entries)) },
+                onClick = { navController.push(Route.MonitoringAndRecovery) },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.Tune, contentDescription = null) },
+                title = stringResource(R.string.advanced),
+                description = { DescriptionText(sectionsSummary(AdvancedSection.entries)) },
+                onClick = { navController.push(Route.Advanced) },
+            )
+        }
+        Column(modifier = Modifier.padding(bottom = 16.dp)) {
+            GroupLabel(
+                stringResource(R.string.general),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            SurfaceRow(
+                leading = {
+                    Icon(Icons.AutoMirrored.Outlined.ViewQuilt, contentDescription = null)
+                },
+                title = stringResource(R.string.appearance),
+                onClick = { navController.push(Route.Appearance) },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.Security, contentDescription = null) },
+                title = stringResource(R.string.security),
+                onClick = { navController.push(Route.Security) },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.Android, null) },
+                title = stringResource(R.string.android_integrations),
+                onClick = { navController.push(Route.AndroidIntegrations) },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.ViewHeadline, contentDescription = null) },
+                title = stringResource(R.string.local_logging),
+                trailing = { modifier ->
+                    SwitchWithDivider(
+                        checked = uiState.monitoring.isLocalLogsEnabled,
+                        onClick = { viewModel.setLocalLogging(it) },
+                        modifier = modifier,
+                    )
+                },
+                description = { DescriptionText(stringResource(R.string.local_logging_desc)) },
+                onClick = { navController.push(Route.Logs) },
+            )
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.SettingsBackupRestore, contentDescription = null) },
+                title = stringResource(R.string.backup_and_restore),
+                onClick = { showBackupSheet = true },
+                trailing = { modifier ->
+                    IconButton(modifier = modifier, onClick = { showBackupSheet = true }) {
+                        Icon(
+                            Icons.Outlined.ExpandMore,
+                            contentDescription = stringResource(R.string.select),
+                        )
+                    }
+                },
+            )
+        }
+    }
+}

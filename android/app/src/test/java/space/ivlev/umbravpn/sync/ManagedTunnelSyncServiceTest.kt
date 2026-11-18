@@ -1,0 +1,412 @@
+package space.ivlev.umbravpn.sync
+
+import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Test
+import space.ivlev.umbravpn.domain.model.TunnelConfig
+import space.ivlev.umbravpn.domain.model.account.AccountError
+import space.ivlev.umbravpn.domain.model.account.AccountResult
+import space.ivlev.umbravpn.domain.model.account.CreatedDevice
+import space.ivlev.umbravpn.domain.model.account.ManagedTunnel
+import space.ivlev.umbravpn.domain.model.account.SessionState
+import space.ivlev.umbravpn.domain.sync.SyncResult
+
+class ManagedTunnelSyncServiceTest {
+
+    @Test
+    fun emptyBootstrapCreatesDeviceAndImportsTunnel() = runTest {
+        val config = deviceConfig()
+        val device = accountDevice()
+        val env =
+            syncEnvironment(snapshot = accountSnapshot(devices = emptyList())) {
+                createDeviceResult =
+                    AccountResult.Success(CreatedDevice(device = device, config = config))
+            }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(created = 1), result)
+        assertEquals(listOf("Test Device"), env.createdDeviceNames)
+        assertEquals(1, env.account.bootstrapCalls)
+
+        val tunnel = env.tunnels.tunnels.single()
+        assertTrue(tunnel.id != 0)
+        assertEquals("Pixel", tunnel.name)
+        assertEquals(normalizeQuickConfig(config.conf), tunnel.quickConfig)
+        assertEquals(0, tunnel.position)
+
+        val binding = env.managed.getByDeviceId(device.id)
+        assertNotNull(binding)
+        assertEquals(tunnel.id, binding?.tunnelId)
+        assertEquals("Pixel", binding?.deviceName)
+        assertEquals("rev-1", binding?.revision)
+        assertEquals("iface-1", binding?.interfaceId)
+        assertEquals("vpn.example.com:51820", binding?.endpoint)
+        assertEquals(SYNC_TIMESTAMP, binding?.syncedAt)
+    }
+
+    @Test
+    fun provisionedAccountWithNoDevicesDoesNotCreateAnotherDevice() = runTest {
+        val existing = TunnelConfig(id = 9, name = "Old", quickConfig = quickConfig(), position = 0)
+        val binding =
+            ManagedTunnel(
+                deviceId = "device-old",
+                tunnelId = 9,
+                deviceName = "Old",
+                interfaceId = "iface-1",
+                endpoint = "vpn.example.com:51820",
+                revision = "rev-1",
+                syncedAt = 1L,
+            )
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = emptyList()),
+                tunnels = listOf(existing),
+                bindings = listOf(binding),
+            )
+        env.settings.setManagedProvisioned(true)
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(removed = 1), result)
+        assertTrue(env.createdDeviceNames.isEmpty())
+        assertTrue(env.tunnels.tunnels.isEmpty())
+        assertNull(env.managed.getByDeviceId("device-old"))
+    }
+
+    @Test
+    fun successfulProvisioningMarksAccountAsProvisioned() = runTest {
+        val env =
+            syncEnvironment(snapshot = accountSnapshot(devices = emptyList())) {
+                createDeviceResult =
+                    AccountResult.Success(
+                        CreatedDevice(device = accountDevice(), config = deviceConfig()),
+                    )
+            }
+
+        env.service.sync()
+
+        assertTrue(env.settings.managedProvisioned())
+    }
+
+    @Test
+    fun sameRevisionKeepsExistingTunnelUntouched() = runTest {
+        val existing =
+            TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig(), position = 3)
+        val binding =
+            ManagedTunnel(
+                deviceId = "device-1",
+                tunnelId = 7,
+                deviceName = "Pixel",
+                interfaceId = "iface-1",
+                endpoint = "vpn.example.com:51820",
+                revision = "rev-1",
+                syncedAt = 1L,
+            )
+        val env =
+            syncEnvironment(
+                tunnels = listOf(existing),
+                bindings = listOf(binding),
+                configure = {
+                    deviceConfigResults["device-1"] = AccountResult.Success(deviceConfig())
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(), result)
+        assertEquals(0, env.tunnels.saveCount)
+        val tunnel = env.tunnels.tunnels.single()
+        assertEquals(7, tunnel.id)
+        assertEquals(existing, tunnel)
+        assertEquals(7, env.managed.getByDeviceId("device-1")?.tunnelId)
+    }
+
+    @Test
+    fun changedRevisionUpdatesQuickConfigAndKeepsId() = runTest {
+        val oldConfig = quickConfig(endpoint = "old.example.com:51820")
+        val newConfig = quickConfig(endpoint = "new.example.com:51820")
+        val existing =
+            TunnelConfig(
+                id = 7,
+                name = "Pixel",
+                quickConfig = oldConfig,
+                position = 3,
+                isMetered = true,
+                groupId = 5,
+            )
+        val binding =
+            ManagedTunnel(
+                deviceId = "device-1",
+                tunnelId = 7,
+                deviceName = "Pixel",
+                interfaceId = "iface-1",
+                endpoint = "old.example.com:51820",
+                revision = "rev-1",
+                syncedAt = 1L,
+            )
+        val env =
+            syncEnvironment(
+                tunnels = listOf(existing),
+                bindings = listOf(binding),
+                configure = {
+                    deviceConfigResults["device-1"] =
+                        AccountResult.Success(
+                            deviceConfig(
+                                conf = newConfig,
+                                revision = "rev-2",
+                                endpoint = "new.example.com:51820",
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1), result)
+        val tunnel = env.tunnels.tunnels.single()
+        assertEquals(7, tunnel.id)
+        assertEquals(normalizeQuickConfig(newConfig), tunnel.quickConfig)
+        assertEquals(3, tunnel.position)
+        assertEquals(5, tunnel.groupId)
+        assertTrue(tunnel.isMetered)
+
+        val updatedBinding = env.managed.getByDeviceId("device-1")
+        assertEquals("rev-2", updatedBinding?.revision)
+        assertEquals("new.example.com:51820", updatedBinding?.endpoint)
+    }
+
+    @Test
+    fun revokedDeviceRemovesTunnelAndBinding() = runTest {
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = listOf(accountDevice(revoked = true))),
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(removed = 1), result)
+        assertTrue(env.tunnels.tunnels.isEmpty())
+        assertTrue(env.managed.bindings.isEmpty())
+    }
+
+    @Test
+    fun missingDeviceRemovesTunnelAndBinding() = runTest {
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = listOf(accountDevice(id = "device-2"))),
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+                configure = {
+                    deviceConfigResults["device-2"] = AccountResult.Success(deviceConfig())
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(created = 1, removed = 1), result)
+        val remaining = env.tunnels.tunnels.single()
+        assertEquals("device-2", env.managed.bindings.single().deviceId)
+        assertEquals(remaining.id, env.managed.bindings.single().tunnelId)
+    }
+
+    @Test
+    fun offlineKeepsTunnelsAndBindings() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+            ) {
+                bootstrapResult = AccountResult.Failure(AccountError.Network)
+            }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Offline, result)
+        assertEquals(1, env.tunnels.tunnels.size)
+        assertEquals(1, env.managed.bindings.size)
+        assertEquals(0, env.tunnels.deleteCount)
+    }
+
+    @Test
+    fun apiErrorReturnsFailedAndKeepsTunnels() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+            ) {
+                bootstrapResult =
+                    AccountResult.Failure(
+                        AccountError.Api(status = 500, code = "internal", message = "boom"),
+                    )
+            }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Failed("boom"), result)
+        assertEquals(1, env.tunnels.tunnels.size)
+        assertEquals(1, env.managed.bindings.size)
+    }
+
+    @Test
+    fun deviceConfigFailureKeepsTunnels() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+                configure = {
+                    deviceConfigResults["device-1"] = AccountResult.Failure(AccountError.Network)
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Offline, result)
+        assertEquals(1, env.tunnels.tunnels.size)
+        assertEquals(1, env.managed.bindings.size)
+    }
+
+    @Test
+    fun nameConflictAddsSuffix() = runTest {
+        val manual = TunnelConfig(id = 9, name = "Pixel", quickConfig = quickConfig())
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = emptyList()),
+                tunnels = listOf(manual),
+                configure = {
+                    createDeviceResult =
+                        AccountResult.Success(
+                            CreatedDevice(device = accountDevice(), config = deviceConfig()),
+                        )
+                },
+            )
+
+        env.service.sync()
+
+        val imported = env.tunnels.tunnels.single { it.id != manual.id }
+        assertEquals("Pixel (2)", imported.name)
+        assertEquals("Pixel", env.managed.getByDeviceId("device-1")?.deviceName)
+        assertEquals(9, env.tunnels.findByTunnelName("Pixel")?.id)
+    }
+
+    @Test
+    fun deviceRenameRenamesTunnelWithUniqueName() = runTest {
+        val existing =
+            TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig(), position = 2)
+        val manual = TunnelConfig(id = 9, name = "New name", quickConfig = quickConfig())
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = listOf(accountDevice(name = "New name"))),
+                tunnels = listOf(existing, manual),
+                bindings = listOf(managedBinding(tunnelId = 7, deviceName = "Pixel")),
+                configure = {
+                    deviceConfigResults["device-1"] = AccountResult.Success(deviceConfig())
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1), result)
+        val renamed = env.tunnels.getById(7)
+        assertEquals("New name (2)", renamed?.name)
+        assertEquals(2, renamed?.position)
+        val binding = env.managed.getByDeviceId("device-1")
+        assertEquals("New name", binding?.deviceName)
+        assertEquals("New name", env.tunnels.getById(9)?.name)
+    }
+
+    @Test
+    fun invalidConfigReturnsFailedWithoutTouchingTunnels() = runTest {
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = emptyList()),
+                configure = {
+                    createDeviceResult =
+                        AccountResult.Success(
+                            CreatedDevice(
+                                device = accountDevice(),
+                                config = deviceConfig(conf = "not a wireguard config"),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertTrue(result is SyncResult.Failed)
+        assertTrue(env.tunnels.tunnels.isEmpty())
+        assertTrue(env.managed.bindings.isEmpty())
+    }
+
+    @Test
+    fun sessionExpiredReturnsTypedResult() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+            ) {
+                bootstrapResult = AccountResult.Failure(AccountError.SessionExpired)
+            }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.SessionExpired, result)
+        assertEquals(1, env.tunnels.tunnels.size)
+    }
+
+    @Test
+    fun blankServerUrlIsNotConfigured() = runTest {
+        val env = syncEnvironment(serverUrl = "")
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.NotConfigured, result)
+        assertEquals(0, env.account.bootstrapCalls)
+    }
+
+    @Test
+    fun inactiveSessionIsNotConfigured() = runTest {
+        val env = syncEnvironment(session = SessionState.LoggedOut)
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.NotConfigured, result)
+        assertEquals(0, env.account.bootstrapCalls)
+        assertNull(env.managed.bindings.firstOrNull())
+    }
+
+    @Test
+    fun manualTunnelsAreNeverDeleted() = runTest {
+        val manual = TunnelConfig(id = 42, name = "Manual", quickConfig = quickConfig())
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = listOf(accountDevice(revoked = true))),
+                tunnels = listOf(manual),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+            )
+
+        env.service.sync()
+
+        assertEquals(manual, env.tunnels.getById(42))
+        assertEquals(0, env.tunnels.deleteCount)
+    }
+
+    private fun managedBinding(
+        tunnelId: Int,
+        deviceId: String = "device-1",
+        deviceName: String = "Pixel",
+    ): ManagedTunnel =
+        ManagedTunnel(
+            deviceId = deviceId,
+            tunnelId = tunnelId,
+            deviceName = deviceName,
+            interfaceId = "iface-1",
+            endpoint = "vpn.example.com:51820",
+            revision = "rev-1",
+            syncedAt = 1L,
+        )
+}

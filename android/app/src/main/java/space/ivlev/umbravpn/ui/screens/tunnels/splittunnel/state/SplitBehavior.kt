@@ -1,0 +1,16 @@
+package space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.state
+
+enum class SplitBehavior {
+    ALL,
+    INCLUDE,
+    EXCLUDE,
+}
+
+/** An empty set of lists is tunnel-all. Android has no separate "split off" value. */
+fun splitBehaviorOf(included: Collection<String>, excluded: Collection<String>): SplitBehavior {
+    return when {
+        excluded.isNotEmpty() -> SplitBehavior.EXCLUDE
+        included.isNotEmpty() -> SplitBehavior.INCLUDE
+        else -> SplitBehavior.ALL
+    }
+}

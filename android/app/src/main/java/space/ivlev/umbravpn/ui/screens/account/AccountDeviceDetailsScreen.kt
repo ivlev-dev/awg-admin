@@ -1,0 +1,149 @@
+package space.ivlev.umbravpn.ui.screens.account
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import org.koin.androidx.compose.koinViewModel
+import org.orbitmvi.orbit.compose.collectAsState
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.domain.account.AccountFormat
+import space.ivlev.umbravpn.domain.account.AccountMessage
+import space.ivlev.umbravpn.ui.screens.account.components.AccountCard
+import space.ivlev.umbravpn.ui.screens.account.components.AccountDialogs
+import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
+import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
+import space.ivlev.umbravpn.ui.screens.account.components.AccountInfoRow
+import space.ivlev.umbravpn.ui.screens.account.components.AccountSecondaryButton
+import space.ivlev.umbravpn.viewmodel.AccountViewModel
+
+@Composable
+fun AccountDeviceDetailsScreen(
+    id: String,
+    viewModel: AccountViewModel = koinViewModel(),
+) {
+    val state by viewModel.collectAsState()
+    val device = state.devices.firstOrNull { it.id == id }
+
+    LaunchedEffect(id) { viewModel.loadDeviceEndpoint(id) }
+
+    AccountDialogs(
+        state = state,
+        onDismiss = viewModel::dismissDialog,
+        onCreateDevice = viewModel::createDevice,
+        onRenameDevice = viewModel::renameDevice,
+        onDeleteDevice = viewModel::deleteDevice,
+        onLogout = viewModel::logout,
+        onChangeServer = viewModel::changeServer,
+    )
+
+    Column(
+        modifier =
+            Modifier.fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        if (device == null) {
+            if (state.isLoading) {
+                Box(
+                    modifier = Modifier.fillMaxSize().padding(top = 32.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator()
+                }
+            } else {
+                AccountHeader(title = stringResource(R.string.account_device_details))
+                AccountErrorCard(AccountMessage.NotFound)
+                AccountSecondaryButton(
+                    text = stringResource(R.string.account_retry),
+                    onClick = viewModel::retry,
+                )
+            }
+            return@Column
+        }
+
+        AccountHeader(
+            title = device.name,
+            subtitle = stringResource(R.string.account_device_details),
+        )
+
+        AccountCard {
+            AccountInfoRow(
+                label = stringResource(R.string.account_device_interface),
+                value = device.interfaceName.ifBlank { stringResource(R.string.account_unknown) },
+            )
+            AccountInfoRow(
+                label = stringResource(R.string.account_node),
+                value = device.nodeName.ifBlank { stringResource(R.string.account_unknown) },
+            )
+            AccountInfoRow(
+                label = stringResource(R.string.account_device_endpoint),
+                value = state.deviceEndpoint ?: stringResource(R.string.account_unknown),
+            )
+            AccountInfoRow(
+                label = stringResource(R.string.addresses),
+                value =
+                    device.addresses.joinToString(", ").ifBlank {
+                        stringResource(R.string.account_unknown)
+                    },
+            )
+            AccountInfoRow(
+                label = stringResource(R.string.account_status),
+                value =
+                    stringResource(
+                        if (device.revoked) R.string.account_device_revoked
+                        else R.string.account_device_active,
+                    ),
+            )
+            val createdAt = AccountFormat.date(device.createdAt)
+            if (createdAt != null) {
+                AccountInfoRow(
+                    label = stringResource(R.string.account_device_created_at),
+                    value = createdAt,
+                )
+            }
+            state.endpointError?.let { AccountErrorCard(it) }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AccountSecondaryButton(
+                    text = stringResource(R.string.account_rename_device),
+                    onClick = { viewModel.showRenameDevice(device.id, device.name) },
+                    modifier = Modifier.weight(1f),
+                )
+                AccountSecondaryButton(
+                    text = stringResource(R.string.account_delete_device),
+                    onClick = { viewModel.showDeleteDevice(device.id, device.name) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        TextButton(onClick = viewModel::refresh) {
+            Text(
+                text = stringResource(R.string.account_refresh),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
+}

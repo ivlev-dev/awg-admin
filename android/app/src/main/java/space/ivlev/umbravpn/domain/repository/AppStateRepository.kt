@@ -1,0 +1,43 @@
+package space.ivlev.umbravpn.domain.repository
+
+import kotlinx.coroutines.flow.Flow
+import space.ivlev.umbravpn.domain.enums.StrictSplitNotice
+import space.ivlev.umbravpn.domain.model.AppState
+
+interface AppStateRepository {
+    suspend fun isLocationDisclosureShown(): Boolean
+
+    suspend fun setLocationDisclosureShown(shown: Boolean)
+
+    suspend fun isBatteryOptimizationDisableShown(): Boolean
+
+    suspend fun setBatteryOptimizationDisableShown(shown: Boolean)
+
+    suspend fun isNotificationPermissionRequested(): Boolean
+
+    suspend fun setNotificationPermissionRequested(requested: Boolean)
+
+    suspend fun setShouldShowDonationSnackbar(show: Boolean)
+
+    suspend fun shouldShowDonationSnackbar(): Boolean
+
+    suspend fun isDesktopPromptShown(): Boolean
+
+    suspend fun setDesktopPromptShown(shown: Boolean)
+
+    suspend fun isStrictSplitDecided(): Boolean
+
+    suspend fun setStrictSplitDecided(decided: Boolean)
+
+    val strictSplitNotice: Flow<StrictSplitNotice?>
+
+    suspend fun setStrictSplitNotice(notice: StrictSplitNotice?)
+
+    suspend fun getLastActiveTunnelIds(): List<Int>
+
+    suspend fun setLastActiveTunnelIds(ids: List<Int>)
+
+    suspend fun clearLastActiveTunnelIds()
+
+    val flow: Flow<AppState>
+}

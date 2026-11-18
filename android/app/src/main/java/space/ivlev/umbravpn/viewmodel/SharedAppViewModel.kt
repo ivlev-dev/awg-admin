@@ -1,0 +1,900 @@
+package space.ivlev.umbravpn.viewmodel
+
+import android.net.Uri
+import androidx.appcompat.app.AppCompatDelegate
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.dokar.sonner.ToastType
+import com.wgtunnel.parser.Config
+import com.wgtunnel.parser.ConfigParseException
+import com.wgtunnel.parser.archive.ConfigArchive
+import io.ktor.client.HttpClient
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
+import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withContext
+import org.orbitmvi.orbit.OrbitContainerHost
+import org.orbitmvi.orbit.viewmodel.orbitContainer
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.core.lock.AppLockManager
+import space.ivlev.umbravpn.core.orchestration.TunnelBackendCoordinator
+import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
+import space.ivlev.umbravpn.core.tunnel.StrictSplitDefaults
+import space.ivlev.umbravpn.domain.enums.TunnelMode
+import space.ivlev.umbravpn.domain.model.TunnelConfig
+import space.ivlev.umbravpn.domain.model.TunnelGroup
+import space.ivlev.umbravpn.domain.repository.AppStateRepository
+import space.ivlev.umbravpn.domain.repository.GeneralSettingRepository
+import space.ivlev.umbravpn.domain.repository.GlobalEffectRepository
+import space.ivlev.umbravpn.domain.repository.SelectedTunnelsRepository
+import space.ivlev.umbravpn.domain.repository.TunnelGroupRepository
+import space.ivlev.umbravpn.domain.repository.TunnelRepository
+import space.ivlev.umbravpn.domain.repository.TunnelsSelection
+import space.ivlev.umbravpn.domain.sideeffect.GlobalSideEffect
+import space.ivlev.umbravpn.domain.sideeffect.NotificationPendingAction
+import space.ivlev.umbravpn.service.ServiceManager
+import space.ivlev.umbravpn.ui.sideeffect.LocalSideEffect
+import space.ivlev.umbravpn.ui.state.DisplayTunnelState
+import space.ivlev.umbravpn.ui.state.GlobalAppUiState
+import space.ivlev.umbravpn.ui.state.TunnelsUiState
+import space.ivlev.umbravpn.ui.state.nextChildPosition
+import space.ivlev.umbravpn.ui.state.nextRootPosition
+import space.ivlev.umbravpn.ui.state.shiftForInsertAfter
+import space.ivlev.umbravpn.ui.state.shiftRootPositionsBy
+import space.ivlev.umbravpn.ui.state.sortGroupChildrenByName
+import space.ivlev.umbravpn.ui.state.sortRootByName
+import space.ivlev.umbravpn.ui.state.ungroupKeepingOrder
+import space.ivlev.umbravpn.ui.state.uniqueDisplayName
+import space.ivlev.umbravpn.ui.theme.Theme
+import space.ivlev.umbravpn.util.FileUtils
+import space.ivlev.umbravpn.util.LocaleUtil
+import space.ivlev.umbravpn.util.StringValue
+import space.ivlev.umbravpn.util.extensions.QuickConfig
+import space.ivlev.umbravpn.util.extensions.TunnelName
+import space.ivlev.umbravpn.util.extensions.asExportFileName
+import space.ivlev.umbravpn.util.extensions.asFileExportName
+import space.ivlev.umbravpn.util.extensions.asStringValue
+import space.ivlev.umbravpn.util.extensions.isFileAccessDenied
+import space.ivlev.umbravpn.util.extensions.saveTunnelsUniquely
+import space.ivlev.umbravpn.util.network.NetworkUtils
+import timber.log.Timber
+import xyz.teamgravity.pin_lock_compose.PinManager
+
+class SharedAppViewModel(
+    private val appStateRepository: AppStateRepository,
+    private val serviceManager: ServiceManager,
+    private val tunnelCoordinator: TunnelCoordinator,
+    private val globalEffectRepository: GlobalEffectRepository,
+    private val tunnelRepository: TunnelRepository,
+    private val tunnelGroupRepository: TunnelGroupRepository,
+    private val settingsRepository: GeneralSettingRepository,
+    private val selectedTunnelsRepository: SelectedTunnelsRepository,
+    private val tunnelBackendCoordinator: TunnelBackendCoordinator,
+    private val httpClient: HttpClient,
+    private val fileUtils: FileUtils,
+    private val networkUtils: NetworkUtils,
+    private val appLockManager: AppLockManager,
+    private val strictSplitDefaults: StrictSplitDefaults,
+) : OrbitContainerHost<GlobalAppUiState, GlobalAppUiState, LocalSideEffect>, ViewModel() {
+
+    val globalSideEffect = globalEffectRepository.flow
+
+    private val _supportAutoUpdateRequests = MutableSharedFlow<Boolean>(extraBufferCapacity = 1)
+    val supportAutoUpdateRequests = _supportAutoUpdateRequests.asSharedFlow()
+
+    fun requestSupportAutoUpdate(startDownload: Boolean) {
+        _supportAutoUpdateRequests.tryEmit(startDownload)
+    }
+
+    // Sticky, the Support screen may not be composed yet when this is requested
+    private val _showUpdateStatusRequested = MutableStateFlow(false)
+    val showUpdateStatusRequested = _showUpdateStatusRequested.asStateFlow()
+
+    fun requestShowUpdateStatus() {
+        _showUpdateStatusRequested.value = true
+    }
+
+    fun consumeShowUpdateStatus() {
+        _showUpdateStatusRequested.value = false
+    }
+
+    private val _showSplitSystemApps = MutableStateFlow(false)
+    val showSplitSystemApps = _showSplitSystemApps.asStateFlow()
+    private var splitSystemAppsTunnelId: Int? = null
+
+    fun prepareSplitSystemApps(tunnelId: Int) {
+        if (splitSystemAppsTunnelId != tunnelId) {
+            splitSystemAppsTunnelId = tunnelId
+            _showSplitSystemApps.value = false
+        }
+    }
+
+    fun setShowSplitSystemApps(show: Boolean) {
+        _showSplitSystemApps.value = show
+    }
+
+    fun clearSplitSystemApps(tunnelId: Int) {
+        if (splitSystemAppsTunnelId == tunnelId) {
+            splitSystemAppsTunnelId = null
+            _showSplitSystemApps.value = false
+        }
+    }
+
+    val strictSplitNotice =
+        strictSplitDefaults.notice.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000L),
+            null,
+        )
+
+    fun acknowledgeStrictSplitNotice() = intent { strictSplitDefaults.acknowledge() }
+
+    fun answerStrictSplitSuggestion(enable: Boolean) = intent {
+        strictSplitDefaults.answer(enable)
+        if (enable) tunnelCoordinator.restartActiveTunnels()
+    }
+
+    private val reorderDraft = MutableStateFlow<ReorderDraft?>(null)
+    private val pingLatencies = MutableStateFlow<Map<Int, Double>>(emptyMap())
+    private val pingInFlight = MutableStateFlow(false)
+
+    val tunnelsUiState =
+        combine(
+                combine(
+                    tunnelRepository.userTunnelsFlow,
+                    tunnelGroupRepository.flow,
+                    tunnelCoordinator.backendStatus,
+                    selectedTunnelsRepository.flow,
+                    reorderDraft,
+                ) { tunnels, groups, backendStatus, selection, draft ->
+                    val displayStates =
+                        backendStatus.activeTunnels.mapValues { (_, activeTunnel) ->
+                            DisplayTunnelState.from(activeTunnel)
+                        }
+
+                    TunnelsUiState(
+                        tunnels = draft?.tunnels ?: tunnels,
+                        groups = draft?.groups ?: groups,
+                        backendStatus = backendStatus,
+                        displayStates = displayStates,
+                        selectedTunnels = selection.tunnels,
+                        selectedGroups = selection.groups,
+                        isLoading = false,
+                        isReorderMode = draft != null,
+                        reorderScopeGroupId = draft?.scopeGroupId,
+                        reorderLatencies = draft?.latencies.orEmpty(),
+                    )
+                },
+                pingLatencies,
+            ) { ui, latencies ->
+                ui.copy(
+                    pingLatencies =
+                        if (ui.backendStatus.activeTunnels.isEmpty()) latencies else emptyMap(),
+                )
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), TunnelsUiState())
+
+    override val container =
+        orbitContainer<GlobalAppUiState, LocalSideEffect>(
+            GlobalAppUiState(),
+            buildSettings = { repeatOnSubscribedStopTimeout = 5_000L },
+        ) {
+            intent {
+                combine(
+                        tunnelRepository.userTunnelsFlow
+                            .map { tuns -> tuns.associate { it.id to it.name } }
+                            .distinctUntilChanged(),
+                        settingsRepository.flow,
+                        tunnelsUiState
+                            .map {
+                                TunnelsChrome(
+                                    loading = it.isLoading,
+                                    selectedTunCount = it.selectedCount,
+                                    canMoveToGroup = it.canMoveToGroup,
+                                    isReorderMode = it.isReorderMode,
+                                    reorderScopeTitle = it.reorderScopeGroup?.name,
+                                    hasGroups = it.groups.isNotEmpty(),
+                                    canReorder = it.tunnels.size + it.groups.size > 1,
+                                    hasActiveTunnel = it.hasActiveTunnel,
+                                )
+                            }
+                            .distinctUntilChanged(),
+                        appStateRepository.flow,
+                    ) { tunNames, settings, chrome, appState ->
+                        state.copy(
+                            theme = settings.theme,
+                            tunnelMode = settings.tunnelMode,
+                            tunnelNames = tunNames,
+                            alreadyDonated = settings.alreadyDonated,
+                            isBatteryOptimizationShown = appState.isBatteryOptimizationDisableShown,
+                            shouldShowDonationSnackbar = appState.shouldShowDonationSnackbar,
+                            isDesktopPromptShown = appState.isDesktopPromptShown,
+                            selectedTunnelCount = chrome.selectedTunCount,
+                            canMoveToGroup = chrome.canMoveToGroup,
+                            isReorderMode = chrome.isReorderMode,
+                            reorderScopeTitle = chrome.reorderScopeTitle,
+                            hasGroups = chrome.hasGroups,
+                            canReorder = chrome.canReorder,
+                            hasActiveTunnel = chrome.hasActiveTunnel,
+                            pinLockEnabled = settings.isPinLockEnabled,
+                            isScreenRecordingProtectionEnabled =
+                                settings.screenRecordingSecurityEnabled,
+                            isAppLoaded = !chrome.loading,
+                        )
+                    }
+                    .collect { newState -> reduce { newState } }
+            }
+            intent {
+                appLockManager.unlocked.collect { unlocked ->
+                    reduce { state.copy(isPinVerified = unlocked) }
+                }
+            }
+            intent {
+                // Clear ping results when tunnel is active
+                tunnelCoordinator.backendStatus
+                    .map { it.activeTunnels.isNotEmpty() }
+                    .distinctUntilChanged()
+                    .collect { hasActiveTunnel ->
+                        if (hasActiveTunnel) pingLatencies.value = emptyMap()
+                    }
+            }
+        }
+
+    fun startTunnel(tunnelConfig: TunnelConfig) = intent {
+        if (state.tunnelMode == TunnelMode.VPN) {
+            if (!serviceManager.hasVpnPermission())
+                return@intent postSideEffect(
+                    GlobalSideEffect.RequestVpnPermission(TunnelMode.VPN, tunnelConfig),
+                )
+        }
+        if (
+            !serviceManager.hasNotificationPermission() &&
+                !appStateRepository.isNotificationPermissionRequested()
+        ) {
+            appStateRepository.setNotificationPermissionRequested(true)
+            return@intent postSideEffect(
+                GlobalSideEffect.RequestNotificationPermission(
+                    NotificationPendingAction.StartTunnel(tunnelConfig),
+                ),
+            )
+        }
+        tunnelCoordinator.startTunnel(tunnelConfig)
+    }
+
+    fun postSideEffect(localSideEffect: LocalSideEffect) = intent {
+        postSideEffect(localSideEffect)
+    }
+
+    fun setTheme(theme: Theme) = intent { settingsRepository.updateTheme(theme) }
+
+    fun setLocale(locale: String) = intent {
+        // pre-T the stored value is reapplied on startup, on T+ the system persists it
+        if (!LocaleUtil.isSystemManaged) settingsRepository.updateLocale(locale)
+        withContext(Dispatchers.Main) { LocaleUtil.changeLocale(locale) }
+    }
+
+    fun syncLocale() = intent {
+        val stored = settingsRepository.flow.firstOrNull()?.locale ?: return@intent
+        if (stored == LocaleUtil.OPTION_PHONE_LANGUAGE) return@intent
+        if (LocaleUtil.isSystemManaged) {
+            // one-time handoff to the system, without overriding a locale set in system settings
+            if (AppCompatDelegate.getApplicationLocales().isEmpty) {
+                withContext(Dispatchers.Main) { LocaleUtil.changeLocale(stored) }
+            }
+            settingsRepository.updateLocale(LocaleUtil.OPTION_PHONE_LANGUAGE)
+        } else {
+            withContext(Dispatchers.Main) { LocaleUtil.changeLocale(stored) }
+        }
+    }
+
+    fun setPinLockEnabled(enabled: Boolean) = intent {
+        if (!enabled) PinManager.clearPin()
+        settingsRepository.updatePinLockEnabled(enabled)
+    }
+
+    fun stopTunnel(tunnelConfig: TunnelConfig) = intent {
+        tunnelCoordinator.stopTunnel(tunnelConfig.id)
+    }
+
+    fun setAppMode(mode: TunnelMode) = intent {
+        if (mode == TunnelMode.VPN || mode == TunnelMode.LOCK_DOWN) {
+            if (!serviceManager.hasVpnPermission()) {
+                return@intent postSideEffect(GlobalSideEffect.RequestVpnPermission(mode, null))
+            }
+        }
+
+        tunnelBackendCoordinator.changeMode(mode)
+    }
+
+    fun setShouldShowDonationSnackbar(to: Boolean) = intent {
+        appStateRepository.setShouldShowDonationSnackbar(to)
+    }
+
+    fun setDesktopPromptShown(shown: Boolean) = intent {
+        appStateRepository.setDesktopPromptShown(shown)
+    }
+
+    fun showSnackMessage(message: StringValue, type: ToastType) = intent {
+        postGlobalSideEffect(GlobalSideEffect.Snackbar(message, type))
+    }
+
+    suspend fun postSideEffect(globalSideEffect: GlobalSideEffect) {
+        globalEffectRepository.post(globalSideEffect)
+    }
+
+    fun authenticated() = appLockManager.unlock()
+
+    suspend fun postGlobalSideEffect(sideEffect: GlobalSideEffect) {
+        globalEffectRepository.post(sideEffect)
+    }
+
+    fun disableBatteryOptimizationsShown() = intent {
+        appStateRepository.setBatteryOptimizationDisableShown(true)
+    }
+
+    fun enterReorderMode() = intent {
+        val ui = tunnelsUiState.value
+        clearSelectedTunnels()
+        reorderDraft.value =
+            ReorderDraft(
+                tunnels = ui.tunnels,
+                groups = ui.groups,
+                scopeGroupId = null,
+                originalTunnels = ui.tunnels,
+                originalGroups = ui.groups,
+            )
+    }
+
+    fun cancelReorder() = intent { reorderDraft.value = null }
+
+    fun exitReorderScope() = intent {
+        reorderDraft.update { draft -> draft?.copy(scopeGroupId = null, sortAscending = null) }
+    }
+
+    fun enterReorderScope(groupId: Int) = intent {
+        reorderDraft.update { draft -> draft?.copy(scopeGroupId = groupId, sortAscending = null) }
+    }
+
+    fun applyReorderDraft(groups: List<TunnelGroup>, tunnels: List<TunnelConfig>) {
+        reorderDraft.update { draft -> draft?.copy(groups = groups, tunnels = tunnels) }
+    }
+
+    fun saveReorder() = intent {
+        val draft = reorderDraft.value ?: return@intent
+        tunnelGroupRepository.saveAll(draft.groups)
+        val changedTunnels = changedFrom(draft.originalTunnels, draft.tunnels)
+        if (changedTunnels.isNotEmpty()) tunnelRepository.updateAll(changedTunnels)
+        reorderDraft.value = null
+        postSideEffect(
+            GlobalSideEffect.Snackbar(
+                StringValue.StringResource(R.string.config_changes_saved),
+                ToastType.Success,
+            ),
+        )
+    }
+
+    fun sortReorderByName() = intent {
+        val draft = reorderDraft.value ?: return@intent
+        val nextAscending =
+            when (draft.sortAscending) {
+                null -> true
+                true -> false
+                false -> null
+            }
+        if (nextAscending == null) {
+            reorderDraft.value =
+                draft.copy(
+                    tunnels = draft.originalTunnels,
+                    groups = draft.originalGroups,
+                    sortAscending = null,
+                )
+            return@intent
+        }
+        val (groups, tunnels) =
+            if (draft.scopeGroupId != null) {
+                draft.groups to
+                    sortGroupChildrenByName(draft.tunnels, draft.scopeGroupId, nextAscending)
+            } else {
+                sortRootByName(draft.groups, draft.tunnels, nextAscending)
+            }
+        reorderDraft.value =
+            draft.copy(tunnels = tunnels, groups = groups, sortAscending = nextAscending)
+    }
+
+    fun sortReorderByLatency() = intent {
+        val draft = reorderDraft.value ?: return@intent
+        if (pingInFlight.value) return@intent
+        pingInFlight.value = true
+        postSideEffect(
+            GlobalSideEffect.Snackbar(
+                StringValue.StringResource(R.string.pinging_servers),
+                ToastType.Info,
+            ),
+        )
+        try {
+            val scopeId = draft.scopeGroupId
+            val targets =
+                if (scopeId != null) draft.tunnels.filter { it.groupId == scopeId }
+                else draft.tunnels.filter { it.groupId == null }
+            val results = pingSorted(targets)
+            val ordered = results.map { it.first }
+            val tunnels =
+                if (scopeId != null) {
+                    val others = draft.tunnels.filter { it.groupId != scopeId }
+                    others + ordered.mapIndexed { index, tunnel -> tunnel.copy(position = index) }
+                } else {
+                    val grouped = draft.tunnels.filter { it.groupId != null }
+                    val slots =
+                        draft.tunnels
+                            .filter { it.groupId == null }
+                            .sortedBy { it.position }
+                            .map { it.position }
+                    val rewritten = ordered.mapIndexed { index, tunnel ->
+                        tunnel.copy(position = slots.getOrElse(index) { tunnel.position })
+                    }
+                    grouped + rewritten
+                }
+            val measured = results.associate { (tunnel, ms) -> tunnel.id to ms }
+            reorderDraft.value =
+                draft.copy(
+                    tunnels = tunnels,
+                    sortAscending = null,
+                    latencies = draft.latencies + measured,
+                )
+            if (tunnelCoordinator.backendStatus.first().activeTunnels.isEmpty()) {
+                pingLatencies.value = pingLatencies.value + measured
+            }
+        } finally {
+            pingInFlight.value = false
+        }
+    }
+
+    fun pingTunnels() = intent {
+        if (pingInFlight.value) return@intent
+        if (tunnelCoordinator.backendStatus.first().activeTunnels.isNotEmpty()) return@intent
+        pingInFlight.value = true
+        postSideEffect(
+            GlobalSideEffect.Snackbar(
+                StringValue.StringResource(R.string.pinging_servers),
+                ToastType.Info,
+            ),
+        )
+        try {
+            val results = pingSorted(tunnelRepository.userTunnelsFlow.first())
+            if (tunnelCoordinator.backendStatus.first().activeTunnels.isEmpty()) {
+                pingLatencies.value = results.associate { (tunnel, ms) -> tunnel.id to ms }
+            }
+        } finally {
+            pingInFlight.value = false
+        }
+    }
+
+    fun createGroupAndMoveSelected(name: String) = intent {
+        val ui = tunnelsUiState.value
+        val selected = ui.selectedTunnels
+        if (selected.isEmpty()) return@intent
+        val unique = uniqueDisplayName(name, ui.groups.map { it.name }, "Group")
+        // New groups land at the top
+        val (shiftedGroups, shiftedTunnels) = shiftRootPositionsBy(ui.groups, ui.tunnels, 1)
+        tunnelGroupRepository.saveAll(shiftedGroups)
+        if (shiftedTunnels.isNotEmpty()) tunnelRepository.updateAll(shiftedTunnels)
+        val groupId =
+            tunnelGroupRepository.save(TunnelGroup(name = unique, position = 0, expanded = true))
+        moveToGroup(groupId, selected, ui.tunnels)
+    }
+
+    fun renameGroup(group: TunnelGroup, name: String) = intent {
+        val unique =
+            uniqueDisplayName(
+                name,
+                tunnelsUiState.value.groups.filter { it.id != group.id }.map { it.name },
+                "Group",
+            )
+        tunnelGroupRepository.save(group.copy(name = unique))
+    }
+
+    fun toggleGroupExpanded(group: TunnelGroup) = intent {
+        tunnelGroupRepository.setExpanded(group.id, !group.expanded)
+    }
+
+    fun ungroup(group: TunnelGroup) = intent {
+        val ui = tunnelsUiState.value
+        val (groups, tunnels) = ungroupKeepingOrder(ui.groups, ui.tunnels, group.id)
+        val changedTunnels = changedFrom(ui.tunnels, tunnels)
+        if (changedTunnels.isNotEmpty()) tunnelRepository.updateAll(changedTunnels)
+        tunnelGroupRepository.saveAll(groups)
+        tunnelGroupRepository.delete(group)
+        selectedTunnelsRepository.clear()
+    }
+
+    fun deleteGroupAndTunnels(group: TunnelGroup) = intent {
+        val children = tunnelsUiState.value.tunnels.filter { it.groupId == group.id }
+        val activeTunIds =
+            tunnelCoordinator.backendStatus.firstOrNull()?.activeTunnels?.map { it.key }
+        if (children.any { activeTunIds?.contains(it.id) == true })
+            return@intent postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.delete_active_message),
+                    ToastType.Error,
+                ),
+            )
+        if (children.isNotEmpty()) tunnelRepository.delete(children)
+        tunnelGroupRepository.delete(group)
+        selectedTunnelsRepository.clear()
+    }
+
+    fun moveSelectedToGroup(groupId: Int) = intent {
+        val ui = tunnelsUiState.value
+        if (ui.selectedTunnels.isEmpty()) return@intent
+        moveToGroup(groupId, ui.selectedTunnels, ui.tunnels)
+    }
+
+    private fun changedFrom(
+        before: List<TunnelConfig>,
+        after: List<TunnelConfig>,
+    ): List<TunnelConfig> {
+        val beforeById = before.associateBy { it.id }
+        return after.filter { tunnel ->
+            val prior = beforeById[tunnel.id]
+            prior == null || prior.position != tunnel.position || prior.groupId != tunnel.groupId
+        }
+    }
+
+    private suspend fun moveToGroup(
+        groupId: Int,
+        selected: List<TunnelConfig>,
+        all: List<TunnelConfig>,
+    ) {
+        var next = nextChildPosition(all, groupId)
+        val ids = selected.map { it.id }.toSet()
+        tunnelRepository.updateAll(
+            all.filter { it.id in ids }.map { it.copy(groupId = groupId, position = next++) },
+        )
+        clearSelectedTunnels()
+    }
+
+    // Releases only the selected tunnels from their groups
+    fun ungroupSelected() = intent {
+        val ui = tunnelsUiState.value
+        if (!ui.canUngroup) return@intent
+        var next = nextRootPosition(ui.groups, ui.tunnels)
+        val ids = ui.selectedTunnels.map { it.id }.toSet()
+        val tunnels =
+            ui.tunnels.filter { it.id in ids }.map { it.copy(groupId = null, position = next++) }
+        if (tunnels.isNotEmpty()) tunnelRepository.updateAll(tunnels)
+        clearSelectedTunnels()
+    }
+
+    fun exportGroup(group: TunnelGroup, uri: Uri?) = intent {
+        val children = tunnelsUiState.value.tunnels.filter { it.groupId == group.id }
+        if (children.isEmpty()) {
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.no_tunnels_in_group),
+                    ToastType.Warning,
+                ),
+            )
+            return@intent
+        }
+        val (fileName, mimeType) = group.asExportFileName()
+        postSideEffect(
+            GlobalSideEffect.ExportFile(
+                uri = uri,
+                fileName = fileName,
+                mimeType = mimeType,
+                successMessage = StringValue.StringResource(R.string.export_success),
+                prepareFile = { shareFile ->
+                    // Always a zip, even for one tunnel, so the group name survives the export
+                    fileUtils
+                        .writeConfigArchive(shareFile, children.asArchiveEntries())
+                        .getOrThrow()
+                },
+                onComplete = {},
+            ),
+        )
+    }
+
+    private suspend fun pingSorted(tunnels: List<TunnelConfig>): List<Pair<TunnelConfig, Double>> {
+        return withContext(Dispatchers.IO) {
+            tunnels
+                .map { tunnel ->
+                    async {
+                        val config =
+                            try {
+                                tunnel.getConfig()
+                            } catch (_: Exception) {
+                                null
+                            }
+                        val endpoint = config?.peers?.firstOrNull()?.host
+                        val latency =
+                            if (endpoint != null) {
+                                try {
+                                    // 3 pings, a single dropped packet on an otherwise reachable
+                                    // server would otherwise show as unreachable. Each tunnel is
+                                    // pinged concurrently, so this doesn't multiply by tunnel count
+                                    val stats = networkUtils.pingWithStats(endpoint, 3)
+                                    if (stats.isReachable) stats.rttAvg else Double.MAX_VALUE
+                                } catch (_: Exception) {
+                                    Double.MAX_VALUE
+                                }
+                            } else {
+                                Double.MAX_VALUE
+                            }
+                        tunnel to latency
+                    }
+                }
+                .awaitAll()
+                .sortedBy { it.second }
+        }
+    }
+
+    fun importTunnelConfigs(configs: Map<QuickConfig, TunnelName>) = intent {
+        try {
+            val ui = tunnelsUiState.value
+            val tunnelConfigs =
+                configs.entries.mapIndexed { index, (quick, name) ->
+                    val config = Config.parseQuickString(quick)
+                    config.validate()
+                    // Final positions assigned after validation below, placed at the top.
+                    TunnelConfig.fromConfig(config, name).copy(position = index)
+                }
+            // New tunnels land at the top
+            val (shiftedGroups, shiftedTunnels) =
+                shiftRootPositionsBy(ui.groups, ui.tunnels, tunnelConfigs.size)
+            tunnelGroupRepository.saveAll(shiftedGroups)
+            if (shiftedTunnels.isNotEmpty()) tunnelRepository.updateAll(shiftedTunnels)
+            tunnelRepository.saveTunnelsUniquely(tunnelConfigs, state.tunnelNames.map { it.value })
+        } catch (e: Exception) {
+            if (e is ConfigParseException) {
+                postSideEffect(GlobalSideEffect.Snackbar(e.asStringValue(), ToastType.Error))
+            } else {
+                postSideEffect(
+                    GlobalSideEffect.Snackbar(
+                        StringValue.StringResource(R.string.config_error),
+                        ToastType.Error,
+                    ),
+                )
+            }
+        }
+    }
+
+    fun importFromClipboard(conf: String) {
+        importTunnelConfigs(mapOf(conf to null))
+    }
+
+    fun importFromQr(conf: String) = intent { importFromClipboard(conf) }
+
+    fun promptWgImport(url: String) = intent { reduce { state.copy(pendingWgImportUrl = url) } }
+
+    fun dismissWgImport() = intent { reduce { state.copy(pendingWgImportUrl = null) } }
+
+    fun importFromUrl(url: String) = intent {
+        reduce { state.copy(pendingWgImportUrl = null) }
+        try {
+            httpClient.prepareGet(url).execute { response ->
+                if (response.status.value !in 200..299) {
+                    throw IOException("Server returned error: ${response.status.value}")
+                }
+
+                val body = response.bodyAsText()
+
+                val contentType = response.contentType()
+                val isHtml =
+                    (contentType?.match(ContentType.Text.Html) == true) ||
+                        body.trimStart().let {
+                            it.startsWith("<!DOCTYPE", ignoreCase = true) ||
+                                it.startsWith("<html", ignoreCase = true)
+                        }
+
+                if (isHtml) {
+                    postSideEffect(
+                        GlobalSideEffect.Snackbar(
+                            StringValue.StringResource(R.string.error_invalid_config_url),
+                            ToastType.Error,
+                        ),
+                    )
+                    return@execute
+                }
+
+                importFromClipboard(body)
+            }
+        } catch (e: Exception) {
+            Timber.e(e)
+            postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.error_download_failed),
+                    ToastType.Error,
+                ),
+            )
+        }
+    }
+
+    fun importFromUri(uri: Uri) = intent {
+        fileUtils
+            .readConfigsFromUri(uri)
+            .onSuccess { configs -> importTunnelConfigs(configs) }
+            .onFailure { error ->
+                val message =
+                    when {
+                        // Broken Android TV and legacy pickers can return file:// without a read
+                        // grant
+                        error.isFileAccessDenied() ->
+                            StringValue.StringResource(R.string.error_no_file_explorer)
+                        error is IOException ->
+                            StringValue.StringResource(R.string.error_download_failed)
+                        else -> StringValue.StringResource(R.string.error_file_extension)
+                    }
+                postSideEffect(GlobalSideEffect.Snackbar(message, ToastType.Error))
+            }
+    }
+
+    fun toggleSelectAllTunnels() = intent {
+        val ui = tunnelsUiState.value
+        val allSelected =
+            ui.selectedTunnels.size == ui.tunnels.size && ui.selectedGroups.size == ui.groups.size
+        if (allSelected) {
+            selectedTunnelsRepository.clear()
+        } else {
+            selectedTunnelsRepository.set(
+                TunnelsSelection(tunnels = ui.tunnels, groups = ui.groups),
+            )
+        }
+    }
+
+    fun clearSelectedTunnels() = intent { selectedTunnelsRepository.clear() }
+
+    fun toggleSelectedTunnel(tunnelId: Int) = intent {
+        val ui = tunnelsUiState.value
+        val selectedTuns =
+            ui.selectedTunnels.toMutableList().apply {
+                val removed = removeIf { it.id == tunnelId }
+                if (!removed) addAll(ui.tunnels.filter { it.id == tunnelId })
+            }
+        selectedTunnelsRepository.set(
+            TunnelsSelection(tunnels = selectedTuns, groups = ui.selectedGroups),
+        )
+    }
+
+    fun toggleSelectedGroup(groupId: Int) = intent {
+        val ui = tunnelsUiState.value
+        val selectedGroups =
+            ui.selectedGroups.toMutableList().apply {
+                val removed = removeIf { it.id == groupId }
+                if (!removed) addAll(ui.groups.filter { it.id == groupId })
+            }
+        selectedTunnelsRepository.set(
+            TunnelsSelection(tunnels = ui.selectedTunnels, groups = selectedGroups),
+        )
+    }
+
+    fun deleteSelectedTunnels() = intent {
+        val ui = tunnelsUiState.value
+        val activeTunIds =
+            tunnelCoordinator.backendStatus.firstOrNull()?.activeTunnels?.map { it.key }.orEmpty()
+        val selectedTuns = ui.selectedTunnels
+        if (selectedTuns.any { activeTunIds.contains(it.id) })
+            return@intent postSideEffect(
+                GlobalSideEffect.Snackbar(
+                    StringValue.StringResource(R.string.delete_active_message),
+                    ToastType.Error,
+                ),
+            )
+        if (selectedTuns.isNotEmpty()) tunnelRepository.delete(selectedTuns)
+        var groups = ui.groups
+        val beforeUngroup = ui.tunnels.filter { tun -> selectedTuns.none { it.id == tun.id } }
+        var tunnels = beforeUngroup
+        ui.selectedGroups.forEach { group ->
+            val result = ungroupKeepingOrder(groups, tunnels, group.id)
+            groups = result.first
+            tunnels = result.second
+            tunnelGroupRepository.delete(group)
+        }
+        if (ui.selectedGroups.isNotEmpty()) {
+            val changedTunnels = changedFrom(beforeUngroup, tunnels)
+            if (changedTunnels.isNotEmpty()) tunnelRepository.updateAll(changedTunnels)
+            tunnelGroupRepository.saveAll(groups)
+        }
+        clearSelectedTunnels()
+    }
+
+    fun copySelectedTunnel() = intent {
+        val selected = tunnelsUiState.value.selectedTunnels.firstOrNull() ?: return@intent
+        val config = selected.getConfig()
+        val ui = tunnelsUiState.value
+        // Placed right after the original, not appended to the end - shift everything after it
+        // in the same scope (its group, or root) forward by one to open that slot.
+        val (shiftedGroups, shiftedTunnels) =
+            shiftForInsertAfter(ui.groups, ui.tunnels, selected.groupId, selected.position)
+        val copy =
+            TunnelConfig.fromConfig(config, selected.name)
+                .copy(groupId = selected.groupId, position = selected.position + 1)
+        tunnelGroupRepository.saveAll(shiftedGroups)
+        if (shiftedTunnels.isNotEmpty()) tunnelRepository.updateAll(shiftedTunnels)
+        tunnelRepository.saveTunnelsUniquely(listOf(copy), state.tunnelNames.map { it.value })
+        clearSelectedTunnels()
+    }
+
+    fun exportSelectedTunnels(uri: Uri?) = intent {
+        val ui = tunnelsUiState.value
+        val selectedTunnels =
+            (ui.selectedTunnels +
+                    ui.selectedGroups.flatMap { group ->
+                        ui.tunnels.filter { it.groupId == group.id }
+                    })
+                .distinctBy { it.id }
+        if (selectedTunnels.isEmpty()) return@intent
+
+        val (fileName, mimeType) = selectedTunnels.asFileExportName()
+        postSideEffect(
+            GlobalSideEffect.ExportFile(
+                uri = uri,
+                fileName = fileName,
+                mimeType = mimeType,
+                successMessage = StringValue.StringResource(R.string.export_success),
+                prepareFile = { shareFile ->
+                    if (selectedTunnels.size == 1) {
+                        val tunnel = selectedTunnels.first()
+                        shareFile.writeText(
+                            ConfigArchive.withNameComment(tunnel.quickConfig, tunnel.name),
+                        )
+                        if (shareFile.length() == 0L) {
+                            throw IOException("Failed to create config file")
+                        }
+                    } else {
+                        fileUtils
+                            .writeConfigArchive(shareFile, selectedTunnels.asArchiveEntries())
+                            .getOrThrow()
+                    }
+                },
+                onComplete = { clearSelectedTunnels() },
+            ),
+        )
+    }
+
+    fun setScreenRecordingSecurity(to: Boolean) = intent {
+        settingsRepository.updateScreenRecordingSecurity(to)
+    }
+
+    private fun Collection<TunnelConfig>.asArchiveEntries(): List<ConfigArchive.Entry> = filter {
+        it.quickConfig.isNotBlank()
+    }
+        .map { ConfigArchive.Entry(it.name, it.quickConfig) }
+}
+
+private data class ReorderDraft(
+    val tunnels: List<TunnelConfig>,
+    val groups: List<TunnelGroup>,
+    val scopeGroupId: Int?,
+    val sortAscending: Boolean? = null,
+    val originalTunnels: List<TunnelConfig>,
+    val originalGroups: List<TunnelGroup>,
+    val latencies: Map<Int, Double> = emptyMap(),
+)
+
+private data class TunnelsChrome(
+    val loading: Boolean,
+    val selectedTunCount: Int,
+    val canMoveToGroup: Boolean,
+    val isReorderMode: Boolean,
+    val reorderScopeTitle: String?,
+    val hasGroups: Boolean,
+    val canReorder: Boolean,
+    val hasActiveTunnel: Boolean,
+)

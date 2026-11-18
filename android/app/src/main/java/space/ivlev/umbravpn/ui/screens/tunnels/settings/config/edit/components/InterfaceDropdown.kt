@@ -1,0 +1,81 @@
+package space.ivlev.umbravpn.ui.screens.tunnels.settings.config.edit.components
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.MoreVert
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.domain.enums.MimicMode
+import space.ivlev.umbravpn.ui.state.ConfigUiState
+
+@Composable
+fun InterfaceDropdown(
+    uiState: ConfigUiState,
+    onToggleDropdown: (Boolean) -> Unit,
+    onToggleScripts: () -> Unit,
+    onToggleAmneziaValues: () -> Unit,
+    onToggleAmneziaCompatibility: () -> Unit,
+    onMimic: (MimicMode) -> Unit,
+) {
+    Column {
+        IconButton(onClick = { onToggleDropdown(true) }) {
+            Icon(
+                Icons.Rounded.MoreVert,
+                contentDescription = stringResource(R.string.quick_actions),
+            )
+        }
+        DropdownMenu(
+            expanded = uiState.ui.isInterfaceDropdownExpanded,
+            onDismissRequest = { onToggleDropdown(false) },
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+            tonalElevation = 4.dp,
+            shadowElevation = 4.dp,
+        ) {
+            DropdownMenuItem(
+                text = {
+                    Text(
+                        if (uiState.ui.showScripts) stringResource(R.string.hide_scripts)
+                        else stringResource(R.string.show_scripts),
+                    )
+                },
+                onClick = {
+                    onToggleDropdown(false)
+                    onToggleScripts()
+                },
+            )
+            if (!uiState.globalSettings.amneziaEnabled)
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            if (uiState.ui.showAmneziaValues)
+                                stringResource(R.string.hide_amnezia_properties)
+                            else stringResource(R.string.show_amnezia_properties),
+                        )
+                    },
+                    onClick = {
+                        onToggleDropdown(false)
+                        onToggleAmneziaValues()
+                    },
+                )
+            AmneziaToolMenuItems(
+                compatibilitySet = uiState.isAmneziaCompatibilitySet,
+                onToggleCompatibility = {
+                    onToggleDropdown(false)
+                    onToggleAmneziaCompatibility()
+                },
+                onMimic = { mimic ->
+                    onToggleDropdown(false)
+                    onMimic(mimic)
+                },
+            )
+        }
+    }
+}

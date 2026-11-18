@@ -1,0 +1,137 @@
+package space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.components
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material3.Icon
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.intl.Locale
+import androidx.compose.ui.unit.dp
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.domain.model.InstalledPackage
+import space.ivlev.umbravpn.ui.LocalIsAndroidTV
+import space.ivlev.umbravpn.ui.common.banner.InfoNotice
+import space.ivlev.umbravpn.ui.common.button.SurfaceRow
+import space.ivlev.umbravpn.ui.common.label.GroupLabel
+import space.ivlev.umbravpn.ui.common.text.DescriptionText
+import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.state.SplitBehavior
+import space.ivlev.umbravpn.ui.state.SplitAppListSummary
+
+@Composable
+fun SplitTunnelContent(
+    activeBehavior: SplitBehavior,
+    selectedPackages: Set<String>,
+    installedPackages: List<InstalledPackage>,
+    onActiveBehaviorChange: (SplitBehavior) -> Unit,
+    onAppSelectionToggle: (String, Boolean) -> Unit,
+    showSystemApps: Boolean,
+    globalOverride: SplitAppListSummary? = null,
+    strictSplitEnabled: Boolean? = null,
+    onStrictSplitClick: () -> Unit = {},
+) {
+    val isTv = LocalIsAndroidTV.current
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { if (isTv) focusRequester.requestFocus() }
+
+    var query by rememberSaveable { mutableStateOf("") }
+    val locale = Locale.current
+    // Pin the selection from the first time this mode is shown.
+    val showApps = activeBehavior != SplitBehavior.ALL
+    val pinnedByBehavior = remember { mutableMapOf<SplitBehavior, Set<String>>() }
+    val pinnedPackages =
+        if (showApps) pinnedByBehavior.getOrPut(activeBehavior) { selectedPackages } else emptySet()
+    val filteredAndSortedPackages =
+        remember(
+            installedPackages,
+            query,
+            pinnedPackages,
+            selectedPackages,
+            showSystemApps,
+            locale,
+        ) {
+            filterAndSortPackages(
+                installedPackages,
+                query,
+                pinnedPackages,
+                selectedPackages,
+                showSystemApps,
+                locale,
+            )
+        }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        if (globalOverride != null) {
+            InfoNotice(
+                title = stringResource(R.string.managed_globally),
+                message = stringResource(R.string.split_override_notice),
+                detail = splitAppsLabel(globalOverride),
+            )
+        }
+        SplitBehaviorOptions(
+            activeBehavior = activeBehavior,
+            onBehaviorChange = onActiveBehaviorChange,
+            modifier = Modifier.focusRequester(focusRequester),
+        )
+        if (showApps && strictSplitEnabled != null) {
+            SurfaceRow(
+                leading = { Icon(Icons.Outlined.Shield, contentDescription = null) },
+                title = stringResource(R.string.strict_split_tunnel),
+                description = {
+                    DescriptionText(
+                        stringResource(
+                            if (strictSplitEnabled) R.string.state_on else R.string.state_off,
+                        ),
+                    )
+                },
+                trailing = { modifier ->
+                    Icon(
+                        Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                        contentDescription = null,
+                        modifier = modifier,
+                    )
+                },
+                onClick = onStrictSplitClick,
+            )
+        }
+        if (showApps) {
+            Column(modifier = Modifier.padding(top = 16.dp)) {
+                GroupLabel(
+                    stringResource(
+                        when (activeBehavior) {
+                            SplitBehavior.INCLUDE -> R.string.select_apps_to_include
+                            SplitBehavior.EXCLUDE -> R.string.select_apps_to_exclude
+                            SplitBehavior.ALL -> R.string.select_apps_to_exclude
+                        },
+                    ),
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                )
+                AppSearchField(query = query, onQueryChange = { query = it })
+            }
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(filteredAndSortedPackages, key = { it.packageName }) { pkg ->
+                    val selected = selectedPackages.contains(pkg.packageName)
+                    AppListItem(
+                        installedPackage = pkg,
+                        isSelected = selected,
+                        onToggle = { onAppSelectionToggle(pkg.packageName, it) },
+                    )
+                }
+            }
+        }
+    }
+}

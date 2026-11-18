@@ -1,0 +1,306 @@
+package space.ivlev.umbravpn.viewmodel
+
+import androidx.lifecycle.ViewModel
+import com.dokar.sonner.ToastType
+import com.wgtunnel.backend.model.dns.DnsValidator
+import com.wgtunnel.parser.ConfigParseException
+import com.zaneschepke.networkmonitor.NetworkMonitor
+import kotlinx.coroutines.flow.combine
+import org.orbitmvi.orbit.OrbitContainerHost
+import org.orbitmvi.orbit.viewmodel.orbitContainer
+import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.core.orchestration.DnsSettingsCoordinator
+import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
+import space.ivlev.umbravpn.domain.enums.BootstrapDnsProtocol
+import space.ivlev.umbravpn.domain.enums.ForeignDnsPolicy
+import space.ivlev.umbravpn.domain.enums.SplitDnsSuffixTarget
+import space.ivlev.umbravpn.domain.enums.TunnelDnsMode
+import space.ivlev.umbravpn.domain.enums.TunnelDnsProtocol
+import space.ivlev.umbravpn.domain.repository.DnsSettingsRepository
+import space.ivlev.umbravpn.domain.repository.GlobalEffectRepository
+import space.ivlev.umbravpn.domain.repository.TunnelRepository
+import space.ivlev.umbravpn.domain.sideeffect.GlobalSideEffect
+import space.ivlev.umbravpn.ui.state.DnsUiState
+import space.ivlev.umbravpn.ui.state.EditableConfig
+import space.ivlev.umbravpn.util.StringValue
+import space.ivlev.umbravpn.util.extensions.asStringValue
+import space.ivlev.umbravpn.util.extensions.labelRes
+
+class DnsViewModel(
+    private val dnsSettingsRepository: DnsSettingsRepository,
+    private val tunnelRepository: TunnelRepository,
+    private val networkMonitor: NetworkMonitor,
+    private val globalEffectRepository: GlobalEffectRepository,
+    private val dnsSettingsCoordinator: DnsSettingsCoordinator,
+    private val tunnelCoordinator: TunnelCoordinator,
+) : OrbitContainerHost<DnsUiState, DnsUiState, Nothing>, ViewModel() {
+
+    override val container =
+        orbitContainer<DnsUiState, Nothing>(
+            DnsUiState(),
+            buildSettings = { repeatOnSubscribedStopTimeout = 5000L },
+        ) {
+            combine(
+                    dnsSettingsRepository.flow,
+                    tunnelRepository.globalTunnelFlow,
+                    networkMonitor.connectivityStateFlow,
+                    tunnelCoordinator.backendStatus,
+                ) { dnsSettings, globalTunnelConfig, connectivity, backendStatus ->
+                    if (state.isLoading) {
+                        state.copy(
+                            dnsSettings = dnsSettings,
+                            globalTunnelConfig = globalTunnelConfig,
+                            globalDnsServers =
+                                globalTunnelConfig?.getConfig()?.`interface`?.dns.orEmpty(),
+                            systemDnsInfo = connectivity?.underlyingDnsInfo,
+                            isLoading = false,
+                            hasActiveTunnel = backendStatus.activeTunnels.isNotEmpty(),
+                        )
+                    } else {
+                        state.copy(
+                            systemDnsInfo = connectivity?.underlyingDnsInfo,
+                            hasActiveTunnel = backendStatus.activeTunnels.isNotEmpty(),
+                        )
+                    }
+                }
+                .collect { newState -> reduce { newState } }
+        }
+
+    fun setBootstrapDnsProtocol(to: BootstrapDnsProtocol) = intent {
+        reduce {
+            state.copy(
+                dnsSettings =
+                    state.dnsSettings.copy(bootstrapDnsProtocol = to, bootstrapDnsEndpoint = null),
+                bootstrapEndpointError = null,
+            )
+        }
+    }
+
+    fun setTunnelDnsProtocol(to: TunnelDnsProtocol) = intent {
+        reduce {
+            state.copy(
+                dnsSettings = state.dnsSettings.copy(tunnelDnsProtocol = to),
+                tunnelEndpointError = null,
+            )
+        }
+    }
+
+    fun setGlobalTunnelDnsEnabled(to: Boolean) = intent {
+        reduce {
+            state.copy(dnsSettings = state.dnsSettings.copy(isGlobalTunnelConfigDnsEnabled = to))
+        }
+    }
+
+    fun setGlobalDnsServers(input: String) = intent {
+        reduce { state.copy(globalDnsServers = input) }
+    }
+
+    fun save(restart: Boolean = false) = intent {
+        if (!saveGlobalDnsServers()) return@intent
+        val settings = state.dnsSettings
+
+        when (
+            val r =
+                DnsValidator.validateEndpoint(
+                    settings.bootstrapDnsProtocol.toCore(),
+                    settings.bootstrapDnsEndpoint,
+                )
+        ) {
+            is DnsValidator.Result.Invalid -> {
+                reduce { state.copy(bootstrapEndpointError = r.error) }
+                postSideEffect(
+                    GlobalSideEffect.Snackbar(
+                        StringValue.StringResource(r.error.labelRes()),
+                        type = ToastType.Error,
+                    ),
+                )
+                return@intent
+            }
+            DnsValidator.Result.Valid -> Unit
+        }
+
+        val usesTunnelDns =
+            settings.tunnelDnsMode.isSplitMode() &&
+                settings.tunnelDnsProtocol == TunnelDnsProtocol.Plain &&
+                settings.useTunnelDnsServersInSplit
+
+        if (
+            settings.tunnelDnsMode == TunnelDnsMode.Encrypted ||
+                settings.tunnelDnsMode.isSplitMode()
+        ) {
+            if (!usesTunnelDns) {
+                when (
+                    val r =
+                        DnsValidator.validateEndpoint(
+                            settings.tunnelDnsProtocol.toCore(),
+                            settings.tunnelDnsEndpoint,
+                        )
+                ) {
+                    is DnsValidator.Result.Invalid -> {
+                        reduce { state.copy(tunnelEndpointError = r.error) }
+                        postSideEffect(
+                            GlobalSideEffect.Snackbar(
+                                StringValue.StringResource(r.error.labelRes()),
+                                type = ToastType.Error,
+                            ),
+                        )
+                        return@intent
+                    }
+                    DnsValidator.Result.Valid -> Unit
+                }
+            }
+        }
+
+        if (settings.tunnelDnsMode.isSplitMode()) {
+            when (
+                val r =
+                    DnsValidator.validateLocalSuffixes(
+                        requiresSuffixes = true,
+                        input = settings.localSuffixes,
+                    )
+            ) {
+                is DnsValidator.Result.Invalid -> {
+                    reduce { state.copy(localSuffixesError = r.error) }
+                    postSideEffect(
+                        GlobalSideEffect.Snackbar(
+                            StringValue.StringResource(r.error.labelRes()),
+                            type = ToastType.Error,
+                        ),
+                    )
+                    return@intent
+                }
+                DnsValidator.Result.Valid -> Unit
+            }
+        }
+
+        val updated =
+            settings.copy(
+                bootstrapDnsEndpoint =
+                    DnsValidator.normalizeEndpoint(
+                            settings.bootstrapDnsProtocol.toCore(),
+                            settings.bootstrapDnsEndpoint,
+                        )
+                        .ifEmpty { null },
+                tunnelDnsEndpoint =
+                    when (settings.tunnelDnsMode) {
+                        TunnelDnsMode.Encrypted,
+                        TunnelDnsMode.Split ->
+                            if (!usesTunnelDns) {
+                                DnsValidator.normalizeEndpoint(
+                                    settings.tunnelDnsProtocol.toCore(),
+                                    settings.tunnelDnsEndpoint,
+                                )
+                            } else {
+                                null
+                            }
+                        else -> null
+                    },
+                localSuffixes =
+                    when {
+                        settings.tunnelDnsMode.isSplitMode() ->
+                            DnsValidator.normalizeLocalSuffixes(settings.localSuffixes).ifEmpty {
+                                null
+                            }
+                        else -> null
+                    },
+            )
+
+        dnsSettingsRepository.upsert(updated)
+        dnsSettingsCoordinator.appyDnsSettings(updated)
+        if (restart) tunnelCoordinator.restartActiveTunnels()
+        postSideEffect(GlobalSideEffect.PopBackStack)
+        postSideEffect(
+            GlobalSideEffect.Snackbar(
+                StringValue.StringResource(R.string.config_changes_saved),
+                ToastType.Success,
+            ),
+        )
+    }
+
+    fun setBootstrapDnsEndpoint(input: String) = intent {
+        reduce {
+            state.copy(
+                dnsSettings = state.dnsSettings.copy(bootstrapDnsEndpoint = input),
+                bootstrapEndpointError = null,
+            )
+        }
+    }
+
+    fun setLocalDomainSuffixes(input: String) = intent {
+        reduce {
+            state.copy(
+                dnsSettings = state.dnsSettings.copy(localSuffixes = input),
+                localSuffixesError = null,
+            )
+        }
+    }
+
+    fun setTunnelDnsMode(tunnelDnsMode: TunnelDnsMode) = intent {
+        reduce {
+            val protocol =
+                if (
+                    state.dnsSettings.tunnelDnsProtocol == TunnelDnsProtocol.Plain &&
+                        tunnelDnsMode == TunnelDnsMode.Encrypted
+                ) {
+                    TunnelDnsProtocol.Doh
+                } else {
+                    state.dnsSettings.tunnelDnsProtocol
+                }
+            state.copy(
+                dnsSettings =
+                    state.dnsSettings.copy(
+                        tunnelDnsMode = tunnelDnsMode,
+                        tunnelDnsProtocol = protocol,
+                    ),
+                tunnelEndpointError = null,
+                localSuffixesError = null,
+            )
+        }
+    }
+
+    fun setTunnelDnsEndpoint(input: String) = intent {
+        reduce {
+            state.copy(
+                dnsSettings = state.dnsSettings.copy(tunnelDnsEndpoint = input),
+                tunnelEndpointError = null,
+            )
+        }
+    }
+
+    fun setUseTunnelDnsServersInSplit(to: Boolean) = intent {
+        reduce { state.copy(dnsSettings = state.dnsSettings.copy(useTunnelDnsServersInSplit = to)) }
+    }
+
+    fun setForeignDnsPolicy(policy: ForeignDnsPolicy) = intent {
+        reduce { state.copy(dnsSettings = state.dnsSettings.copy(foreignDnsPolicy = policy)) }
+    }
+
+    fun setSplitSuffixTarget(target: SplitDnsSuffixTarget) = intent {
+        reduce { state.copy(dnsSettings = state.dnsSettings.copy(splitSuffixTarget = target)) }
+    }
+
+    suspend fun postSideEffect(globalSideEffect: GlobalSideEffect) {
+        globalEffectRepository.post(globalSideEffect)
+    }
+
+    private suspend fun saveGlobalDnsServers(): Boolean {
+        val uiState = container.stateFlow.value
+        if (uiState.dnsSettings.tunnelDnsMode != TunnelDnsMode.Off) return true
+        val stored =
+            uiState.globalTunnelConfig?.let { tunnelRepository.getById(it.id) } ?: return true
+        val current = stored.getConfig()
+        val edited = EditableConfig.from(current).withDnsServers(uiState.globalDnsServers)
+        if (current.`interface`.dns == edited.`interface`.dnsServers.ifBlank { null }) return true
+        val updated =
+            try {
+                edited.validatedConfig(stored.name)
+            } catch (e: ConfigParseException) {
+                postSideEffect(GlobalSideEffect.Snackbar(e.asStringValue(), ToastType.Error))
+                return false
+            }
+        tunnelRepository.save(
+            stored.copy(quickConfig = updated.withName(stored.name).asQuickString()),
+        )
+        return true
+    }
+}
