@@ -58,6 +58,7 @@ test.describe("Двухфакторная аутентификация", () => {
     await expect(totpCard.getByText("Включена", { exact: true })).toBeVisible();
 
     await page.locator(".sidebar").getByRole("button", { name: "Выйти", exact: true }).click();
+    await page.locator(".confirm-dialog").getByRole("button", { name: "Выйти", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
 
     await loginViaUi(page, user.login, user.password);

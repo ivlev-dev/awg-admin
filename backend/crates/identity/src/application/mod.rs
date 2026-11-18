@@ -545,6 +545,7 @@ impl IdentityService {
     pub fn enable_totp(&self, user_id: Uuid, code: &str) -> CoreResult<()> {
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
+        let was_enabled = user.totp_enabled;
         let pending = user.totp_pending_secret_sealed.clone();
         let sealed = pending
             .clone()
@@ -563,7 +564,7 @@ impl IdentityService {
         user.totp_pending_secret_sealed = None;
         user.totp_pending_recovery_codes.clear();
         user.totp_enabled = true;
-        user.last_totp_step = Some(step);
+        user.last_totp_step = if was_enabled { Some(step) } else { None };
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         Ok(())

@@ -107,6 +107,7 @@ test.describe("Регистрация и подтверждение почты",
     await expect(page.locator("tbody tr").filter({ hasText: sentinelEmail })).toHaveCount(1);
 
     await page.locator(".sidebar").getByRole("button", { name: "Выйти", exact: true }).click();
+    await page.locator(".confirm-dialog").getByRole("button", { name: "Выйти", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
 
     await loginViaUi(page, email, password);

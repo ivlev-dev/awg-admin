@@ -53,6 +53,7 @@ test.describe("Аутентификация", () => {
     await loginAndWait(page, ADMIN_LOGIN, ADMIN_PASSWORD);
 
     await page.locator(".sidebar").getByRole("button", { name: "Выйти", exact: true }).click();
+    await page.locator(".confirm-dialog").getByRole("button", { name: "Выйти", exact: true }).click();
 
     await expect(page).toHaveURL((url) => url.pathname === "/login");
     await expect(page.locator(".sidebar")).toHaveCount(0);

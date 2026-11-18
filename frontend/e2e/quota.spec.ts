@@ -50,6 +50,7 @@ test.describe("Квота трафика", () => {
   test("колонка квоты в списке пользователей показывает процент и статус", async ({ page }) => {
     await seedSession(page, adminAuth);
     await page.goto("/users");
+    await page.getByPlaceholder("Поиск по email").fill(workspace.login);
 
     const row = page.locator("tbody tr").filter({ hasText: workspace.login });
     await expect(row).toHaveCount(1);
