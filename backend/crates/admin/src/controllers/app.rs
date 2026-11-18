@@ -19,7 +19,7 @@ use crate::controllers::devices::{build_view, build_views, forwarding_default, u
 use crate::controllers::quota::current_quota;
 use crate::error::{ApiError, ApiResult};
 use crate::idempotency::{IDEMPOTENCY_HEADER, IdempotentResponse, user_key, valid_key};
-use crate::models::{AppDeviceRequest, CreateTunnelRequest};
+use crate::models::{AppDeviceRequest, CreateTunnelRequest, UpdateTunnelRequest};
 use crate::publish::publish_group;
 use crate::state::AppState;
 use crate::views::{
@@ -244,6 +244,36 @@ pub async fn create_tunnel(
             request.label,
             &settings.obfuscation,
         )
+        .map_err(ApiError::from)?;
+    publish_group(&state, device.group_id);
+    let configs = device_configs_for(&state, id)?;
+    let config = primary_config(&configs, device.interface_id)
+        .ok_or_else(|| ApiError::NotFound("device peer".into()))?;
+    Ok(Json(AppDeviceView {
+        device: build_view(&state, &device)?,
+        config,
+        configs,
+    }))
+}
+
+pub async fn update_tunnel(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path((id, peer_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<UpdateTunnelRequest>,
+) -> ApiResult<Json<AppDeviceView>> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    if device.revoked {
+        return Err(ApiError::Conflict("device is revoked".into()));
+    }
+    let peer = state.devices.peer(peer_id).map_err(ApiError::from)?;
+    if peer.device_id != id {
+        return Err(ApiError::NotFound("device peer".into()));
+    }
+    state
+        .devices
+        .rename_peer(peer_id, request.label)
         .map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     let configs = device_configs_for(&state, id)?;

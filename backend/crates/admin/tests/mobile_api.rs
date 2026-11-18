@@ -1468,3 +1468,107 @@ async fn app_tunnels_are_scoped_to_the_owner() {
     assert_eq!(status, StatusCode::OK, "{fetched}");
     assert_eq!(fetched.as_array().unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn app_tunnel_rename_is_scoped_validated_and_idempotent() {
+    let env = app_env();
+    let created = create_device(router(&env), &env.owner_token, "Phone").await;
+    let device_id = created["device"]["id"].as_str().unwrap().to_string();
+    let peer_id = created["configs"][0]["peer_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let uri = format!("/api/v1/app/devices/{device_id}/tunnels/{peer_id}");
+    let (status, renamed) = call(
+        router(&env),
+        "PATCH",
+        &uri,
+        &env.owner_token,
+        Some(json!({ "label": "  Renamed  " })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    assert_eq!(renamed["config"]["label"], "Renamed");
+    assert!(
+        renamed["configs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|config| config["peer_id"] == peer_id && config["label"] == "Renamed")
+    );
+    assert!(
+        renamed["device"]["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|peer| peer["peer_id"] == peer_id && peer["label"] == "Renamed")
+    );
+
+    let (status, repeated) = call(
+        router(&env),
+        "PATCH",
+        &uri,
+        &env.owner_token,
+        Some(json!({ "label": "Renamed" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{repeated}");
+    assert_eq!(repeated["config"]["label"], "Renamed");
+
+    for label in [String::new(), "   ".to_string(), "a".repeat(65)] {
+        let (status, body) = call(
+            router(&env),
+            "PATCH",
+            &uri,
+            &env.owner_token,
+            Some(json!({ "label": label })),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+
+    let admin = admin_token(&env).await;
+    let (status, other) = call(
+        router(&env),
+        "POST",
+        "/api/v1/devices",
+        &admin,
+        Some(json!({ "user_id": env.other_id, "name": "Other", "interface_ids": [env.interface_ids[0]] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{other}");
+    let other_device_id = other["id"].as_str().unwrap().to_string();
+    let other_peer_id = other["peers"][0]["peer_id"].as_str().unwrap().to_string();
+
+    let (status, body) = call(
+        router(&env),
+        "PATCH",
+        &uri,
+        &env.other_token,
+        Some(json!({ "label": "hijack" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let (status, body) = call(
+        router(&env),
+        "PATCH",
+        &format!("/api/v1/app/devices/{device_id}/tunnels/{other_peer_id}"),
+        &env.owner_token,
+        Some(json!({ "label": "foreign" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+
+    let (status, body) = call(
+        router(&env),
+        "PATCH",
+        &format!("/api/v1/app/devices/{other_device_id}/tunnels/{other_peer_id}"),
+        &env.other_token,
+        Some(json!({ "label": "kept" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["config"]["label"], "kept");
+}

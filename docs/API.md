@@ -104,6 +104,7 @@
 | GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` (primary-интерфейс) |
 | GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все пиры) |
 | POST | `/app/devices/{id}/tunnels` | self/admin | `{interface_id, label?}` | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
+| PATCH | `/app/devices/{id}/tunnels/{peer_id}` | self/admin | `{label}` | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
 | DELETE | `/app/devices/{id}/tunnels/{peer_id}` | self/admin | — | `204` (последний пир удалить нельзя — `409`) |
 | PATCH | `/app/devices/{id}` | self/admin | `{name}` | `DeviceView` |
 | DELETE | `/app/devices/{id}` | self/admin | — | `204` |
@@ -309,6 +310,13 @@
   → `{device, config, configs}`; правила те же, что у админской ручки
   `POST /devices/{id}/tunnels`, доступ — только к своим устройствам
   (чужое — `403`). Без тарифа — `409 tariff_required`.
+- `PATCH /app/devices/{id}/tunnels/{peer_id}` `{"label":"new"}` →
+  `{device, config, configs}` (как у `POST /app/devices/{id}/tunnels`).
+  Пир должен принадлежать этому устройству, иначе `404`; чужое устройство —
+  `403`; `label` — 1..64 символа после `trim`, иначе `400`; revoked-устройство
+  — `409`. После переименования группа публикуется на ноды, а `config` и
+  `configs` содержат обновлённый `label`. `Idempotency-Key` не требуется:
+  повтор с тем же `label` возвращает `200`.
 - `DELETE /app/devices/{id}/tunnels/{peer_id}` → `204`; чужое устройство —
   `403`, последний пир — `409`.
 - `PATCH /app/devices/{id}` `{"name":"New"}` → `DeviceView`; пустое имя или
