@@ -202,7 +202,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-3);
-  width: min(720px, calc(100vw - 24px));
+  width: min(720px, calc(100vw - 24px - env(safe-area-inset-left) - env(safe-area-inset-right)));
   padding: 10px var(--sp-3);
   border: var(--hairline) solid var(--border);
   border-radius: var(--r-pill);

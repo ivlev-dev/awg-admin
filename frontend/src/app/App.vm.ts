@@ -4,6 +4,16 @@ import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
 import { initDensity } from "@/app/density";
 import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
 import { Router } from "@/app/router";
+import {
+  blocksSwipe,
+  isMobileWidth,
+  neighborPath,
+  pointOf,
+  sheetDismissDirection,
+  swipeDirection,
+  type SwipeEventLike,
+  type SwipePoint,
+} from "@/app/swipe";
 import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
@@ -90,6 +100,10 @@ export class AppVM {
   private cancelIdlePrefetch: CancelIdlePrefetch | null = null;
 
   private idlePrefetchPlanned = false;
+
+  private swipeStart: { point: SwipePoint; blocked: boolean } | null = null;
+
+  private sheetStart: SwipePoint | null = null;
 
   constructor(
     private readonly session: Session,
@@ -237,6 +251,52 @@ export class AppVM {
 
   prefetch(path: string): void {
     void prefetchPath(path);
+  }
+
+  touchStart(event: SwipeEventLike): void {
+    const touch = event.touches[0];
+    if (event.touches.length !== 1 || touch === undefined) {
+      this.swipeStart = null;
+      return;
+    }
+    const target = event.target instanceof Element ? event.target : null;
+    this.swipeStart = { point: pointOf(touch), blocked: blocksSwipe(target) };
+  }
+
+  touchEnd(event: SwipeEventLike): void {
+    const start = this.swipeStart;
+    this.swipeStart = null;
+    const touch = event.changedTouches[0];
+    if (start === null || start.blocked || !isMobileWidth() || touch === undefined) return;
+    const direction = swipeDirection(start.point, pointOf(touch));
+    if (direction === null) return;
+    const target = neighborPath(
+      MOBILE_NAV.map((item) => item.path),
+      this.router.path,
+      direction,
+    );
+    if (target === null) return;
+    this.prefetch(target);
+    this.go(target);
+  }
+
+  sheetTouchStart(event: SwipeEventLike): void {
+    const touch = event.touches[0];
+    if (event.touches.length !== 1 || touch === undefined) {
+      this.sheetStart = null;
+      return;
+    }
+    this.sheetStart = pointOf(touch);
+  }
+
+  sheetTouchEnd(event: SwipeEventLike): void {
+    const start = this.sheetStart;
+    this.sheetStart = null;
+    const touch = event.changedTouches[0];
+    if (start === null || touch === undefined) return;
+    if (sheetDismissDirection(start, pointOf(touch)) === "down") {
+      this.closeMore();
+    }
   }
 
   openMore(): void {

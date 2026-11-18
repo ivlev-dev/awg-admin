@@ -139,7 +139,15 @@ function shell(vm: AppVM) {
             <div class="avatar avatar--sm">{vm.userInitial}</div>
           </button>
         </header>
-        <main class="content" id={MAIN_CONTENT_ID} tabindex={-1}>{pageView(vm)}</main>
+        <main
+          class="content"
+          id={MAIN_CONTENT_ID}
+          tabindex={-1}
+          onTouchStart={(event: TouchEvent) => vm.touchStart(event)}
+          onTouchEnd={(event: TouchEvent) => vm.touchEnd(event)}
+        >
+          {pageView(vm)}
+        </main>
       </div>
       <nav class="mobile-nav" aria-label={t("shell.menu")}>
         <For each={vm.mobileNav}>
@@ -174,55 +182,61 @@ function shell(vm: AppVM) {
         ariaLabel={t("shell.menu")}
         onClose={() => vm.closeMore()}
       >
-        <div class="sheet-nav">
-          <Show when={vm.moreManagementNav.length > 0}>
-            <div class="sheet-nav__label">{t("nav.group.management")}</div>
-            <For each={vm.moreManagementNav}>
-              {(item) => (
-                <button
-                  class="sheet-nav__item"
-                  type="button"
-                  onClick={() => vm.go(item.path)}
-                  onMouseEnter={() => vm.prefetch(item.path)}
-                  onFocus={() => vm.prefetch(item.path)}
-                >
-                  <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
-                  <span class="sheet-nav__title">{item.title}</span>
-                  <span class="sheet-nav__chevron" aria-hidden="true">›</span>
-                </button>
-              )}
-            </For>
-          </Show>
-          <Show when={vm.moreAccountNav.length > 0}>
-            <div class="sheet-nav__label">{t("nav.group.account")}</div>
-            <For each={vm.moreAccountNav}>
-              {(item) => (
-                <button
-                  class="sheet-nav__item"
-                  type="button"
-                  onClick={() => vm.go(item.path)}
-                  onMouseEnter={() => vm.prefetch(item.path)}
-                  onFocus={() => vm.prefetch(item.path)}
-                >
-                  <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
-                  <span class="sheet-nav__title">{item.title}</span>
-                  <span class="sheet-nav__chevron" aria-hidden="true">›</span>
-                </button>
-              )}
-            </For>
-          </Show>
-          <div class="sheet-nav__label">{t("shell.appearance")}</div>
-          <button class="sheet-nav__item" type="button" onClick={() => vm.toggleTheme()}>
-            <span class="sheet-nav__icon">
-              <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={20} />
-            </span>
-            <span class="sheet-nav__title">{t("shell.theme")}</span>
-            <span class="sheet-nav__meta">{vm.themeEffective === "dark" ? t("profile.theme.dark") : t("profile.theme.light")}</span>
-          </button>
-          <button class="sheet-nav__item sheet-nav__item--danger" type="button" onClick={() => vm.logout()}>
-            <span class="sheet-nav__icon"><Icon name="logout" size={20} /></span>
-            <span class="sheet-nav__title">{t("shell.logout")}</span>
-          </button>
+        <div
+          class="sheet-swipe"
+          onTouchStart={(event: TouchEvent) => vm.sheetTouchStart(event)}
+          onTouchEnd={(event: TouchEvent) => vm.sheetTouchEnd(event)}
+        >
+          <div class="sheet-nav">
+            <Show when={vm.moreManagementNav.length > 0}>
+              <div class="sheet-nav__label">{t("nav.group.management")}</div>
+              <For each={vm.moreManagementNav}>
+                {(item) => (
+                  <button
+                    class="sheet-nav__item"
+                    type="button"
+                    onClick={() => vm.go(item.path)}
+                    onMouseEnter={() => vm.prefetch(item.path)}
+                    onFocus={() => vm.prefetch(item.path)}
+                  >
+                    <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
+                    <span class="sheet-nav__title">{item.title}</span>
+                    <span class="sheet-nav__chevron" aria-hidden="true">›</span>
+                  </button>
+                )}
+              </For>
+            </Show>
+            <Show when={vm.moreAccountNav.length > 0}>
+              <div class="sheet-nav__label">{t("nav.group.account")}</div>
+              <For each={vm.moreAccountNav}>
+                {(item) => (
+                  <button
+                    class="sheet-nav__item"
+                    type="button"
+                    onClick={() => vm.go(item.path)}
+                    onMouseEnter={() => vm.prefetch(item.path)}
+                    onFocus={() => vm.prefetch(item.path)}
+                  >
+                    <span class="sheet-nav__icon"><Icon name={item.icon} size={20} /></span>
+                    <span class="sheet-nav__title">{item.title}</span>
+                    <span class="sheet-nav__chevron" aria-hidden="true">›</span>
+                  </button>
+                )}
+              </For>
+            </Show>
+            <div class="sheet-nav__label">{t("shell.appearance")}</div>
+            <button class="sheet-nav__item" type="button" onClick={() => vm.toggleTheme()}>
+              <span class="sheet-nav__icon">
+                <Icon name={vm.themeEffective === "dark" ? "sun" : "moon"} size={20} />
+              </span>
+              <span class="sheet-nav__title">{t("shell.theme")}</span>
+              <span class="sheet-nav__meta">{vm.themeEffective === "dark" ? t("profile.theme.dark") : t("profile.theme.light")}</span>
+            </button>
+            <button class="sheet-nav__item sheet-nav__item--danger" type="button" onClick={() => vm.logout()}>
+              <span class="sheet-nav__icon"><Icon name="logout" size={20} /></span>
+              <span class="sheet-nav__title">{t("shell.logout")}</span>
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

@@ -707,3 +707,96 @@ describe("AppVM prefetch", () => {
     expect(prefetchModule.prefetchPath).toHaveBeenCalledWith("/stats");
   });
 });
+
+describe("AppVM mobile gestures", () => {
+  const originalWidth = window.innerWidth;
+
+  function swipe(startX: number, startY: number, endX: number, endY: number) {
+    return {
+      touches: [{ clientX: startX, clientY: startY }],
+      changedTouches: [{ clientX: endX, clientY: endY }],
+      target: document.body,
+    };
+  }
+
+  beforeEach(() => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true });
+  });
+
+  afterEach(() => {
+    Object.defineProperty(window, "innerWidth", { value: originalWidth, configurable: true });
+  });
+
+  it("navigates between primary sections with horizontal swipes", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/clients" });
+
+    harness.vm.touchStart(swipe(300, 120, 300, 120));
+    harness.vm.touchEnd(swipe(300, 120, 180, 124));
+    expect(harness.router.path).toBe("/interfaces");
+
+    harness.vm.touchStart(swipe(180, 120, 180, 120));
+    harness.vm.touchEnd(swipe(180, 120, 300, 118));
+    expect(harness.router.path).toBe("/clients");
+    harness.vm.dispose();
+  });
+
+  it("does not wrap around at the edges or act on non-primary pages", () => {
+    const first = makeHarness({ user: ADMIN, path: "/" });
+    first.vm.touchStart(swipe(180, 120, 180, 120));
+    first.vm.touchEnd(swipe(180, 120, 300, 118));
+    expect(first.router.path).toBe("/");
+    first.vm.dispose();
+
+    const last = makeHarness({ user: ADMIN, path: "/stats" });
+    last.vm.touchStart(swipe(300, 120, 300, 120));
+    last.vm.touchEnd(swipe(300, 120, 180, 124));
+    expect(last.router.path).toBe("/stats");
+    last.vm.dispose();
+
+    const other = makeHarness({ user: ADMIN, path: "/tariffs" });
+    other.vm.touchStart(swipe(300, 120, 300, 120));
+    other.vm.touchEnd(swipe(300, 120, 180, 124));
+    expect(other.router.path).toBe("/tariffs");
+    other.vm.dispose();
+  });
+
+  it("ignores vertical gestures and gestures that start on form controls", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/clients" });
+    harness.vm.touchStart(swipe(300, 120, 300, 120));
+    harness.vm.touchEnd(swipe(300, 120, 290, 320));
+    expect(harness.router.path).toBe("/clients");
+
+    const input = document.createElement("input");
+    harness.vm.touchStart({
+      touches: [{ clientX: 300, clientY: 120 }],
+      changedTouches: [{ clientX: 180, clientY: 120 }],
+      target: input,
+    });
+    harness.vm.touchEnd({
+      touches: [{ clientX: 300, clientY: 120 }],
+      changedTouches: [{ clientX: 180, clientY: 120 }],
+      target: input,
+    });
+    expect(harness.router.path).toBe("/clients");
+    harness.vm.dispose();
+  });
+
+  it("closes the more sheet with a downward swipe", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/clients" });
+    harness.vm.openMore();
+    expect(harness.vm.moreOpen).toBe(true);
+
+    harness.vm.sheetTouchStart({
+      touches: [{ clientX: 200, clientY: 200 }],
+      changedTouches: [],
+      target: document.body,
+    });
+    harness.vm.sheetTouchEnd({
+      touches: [],
+      changedTouches: [{ clientX: 204, clientY: 340 }],
+      target: document.body,
+    });
+    expect(harness.vm.moreOpen).toBe(false);
+    harness.vm.dispose();
+  });
+});
