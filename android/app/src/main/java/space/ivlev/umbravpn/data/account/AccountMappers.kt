@@ -1,13 +1,17 @@
 package space.ivlev.umbravpn.data.account
 
 import java.time.Instant
+import space.ivlev.umbravpn.domain.model.account.AccountAccess
+import space.ivlev.umbravpn.domain.model.account.AccountAccessReason
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountQuota
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
+import space.ivlev.umbravpn.domain.model.account.AccountSubscription
 import space.ivlev.umbravpn.domain.model.account.AccountTariff
 import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.SubscriptionStatus
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
 
@@ -97,6 +101,26 @@ internal fun BootstrapDto.toDomain(): AccountSnapshot =
         tariff = tariff?.toDomain(),
         quota = quota?.toDomain() ?: emptyQuota(),
         devices = devices.map(DeviceDto::toDomain),
+        subscription = subscription?.toDomain(),
+        access = access?.toDomain() ?: AccountAccess(),
+    )
+
+internal fun SubscriptionDto.toDomain(): AccountSubscription =
+    AccountSubscription(
+        id = id,
+        planName = planName,
+        status = SubscriptionStatus.fromApi(status),
+        currentPeriodEnd = currentPeriodEnd.toInstantOrNull(),
+        autoRenew = autoRenew,
+        cancelAtPeriodEnd = cancelAtPeriodEnd,
+        grantsAccess = grantsAccess,
+    )
+
+internal fun AccessDto.toDomain(): AccountAccess =
+    AccountAccess(
+        blocked = blocked,
+        throttled = throttled,
+        reasons = reasons.map(AccountAccessReason::fromApi).toSet(),
     )
 
 internal fun AppDeviceDto.toDomain(): CreatedDevice =

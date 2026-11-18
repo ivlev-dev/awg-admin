@@ -68,6 +68,26 @@ internal data class BootstrapDto(
     val tariff: TariffDto? = null,
     val quota: QuotaDto? = null,
     val devices: List<DeviceDto> = emptyList(),
+    val subscription: SubscriptionDto? = null,
+    val access: AccessDto? = null,
+)
+
+@Serializable
+internal data class SubscriptionDto(
+    val id: String = "",
+    @SerialName("plan_name") val planName: String = "",
+    val status: String = "",
+    @SerialName("current_period_end") val currentPeriodEnd: String? = null,
+    @SerialName("auto_renew") val autoRenew: Boolean = false,
+    @SerialName("cancel_at_period_end") val cancelAtPeriodEnd: Boolean = false,
+    @SerialName("grants_access") val grantsAccess: Boolean = false,
+)
+
+@Serializable
+internal data class AccessDto(
+    val blocked: Boolean = false,
+    val throttled: Boolean = false,
+    val reasons: List<String> = emptyList(),
 )
 
 @Serializable

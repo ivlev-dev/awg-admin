@@ -711,4 +711,57 @@
     <string name="account_error_server">Server error. Try again later.</string>
     <string name="getting_started_guidance">Tunnels appear here automatically after you sign in to your account.</string>
     <string name="account_onboarding_subtitle">Enter the address of your Umbra VPN panel to sign in and receive your tunnels.</string>
+
+    <string name="access_blocked_disabled_title">Account disabled</string>
+    <string name="access_blocked_rejected_title">Registration rejected</string>
+    <string name="access_blocked_disabled_body">Access for %1$s has been closed by the administrator. If this is a mistake, contact the administrator or support.</string>
+    <string name="access_blocked_rejected_body">The registration request for %1$s was rejected. Contact the administrator or support to find out why.</string>
+    <string name="access_blocked_switch_account">Sign in with another account</string>
+    <string name="access_blocked_support">Support</string>
+    <string name="session_expired_title">Session expired</string>
+    <string name="session_expired_body">Your session has expired. Sign in again to continue using Umbra VPN.</string>
+    <string name="session_expired_sign_in">Sign in again</string>
+
+    <string name="account_login_pending_email_title">Confirm your email</string>
+    <string name="account_login_pending_email_body">We sent a confirmation link to %1$s. Open it, then wait for administrator approval.</string>
+    <string name="account_login_pending_approval_title">Awaiting approval</string>
+    <string name="account_login_pending_approval_body">The account %1$s is already confirmed and is waiting for administrator approval.</string>
+    <string name="account_login_pending_open">Open waiting screen</string>
+
+    <string name="account_verify_step_email">Email sent</string>
+    <string name="account_verify_step_review">Administrator review</string>
+    <string name="account_verify_step_access">Access granted</string>
+    <string name="account_resend_email_wait">Resend email (%1$d s)</string>
+    <string name="account_switch_account">Switch account</string>
+
+    <string name="account_status_pending">Pending</string>
+    <string name="account_status_disabled">Disabled</string>
+
+    <string name="account_subscription_title">Subscription</string>
+    <string name="account_subscription_status">Subscription status</string>
+    <string name="account_subscription_status_active">Active</string>
+    <string name="account_subscription_status_trialing">Trialing</string>
+    <string name="account_subscription_status_past_due">Past due</string>
+    <string name="account_subscription_status_suspended">Suspended</string>
+    <string name="account_subscription_status_canceled">Canceled</string>
+    <string name="account_subscription_period_end">Paid until</string>
+    <string name="account_subscription_ends_at">Ends on</string>
+    <string name="account_subscription_auto_renew">Auto-renew</string>
+    <string name="account_subscription_enabled">Enabled</string>
+    <string name="account_subscription_disabled">Disabled</string>
+    <string name="account_subscription_inactive_warning">Speed is limited. Renew your subscription to restore full access.</string>
+    <string name="account_subscription_missing_title">Subscription inactive</string>
+    <string name="account_subscription_missing_message">Speed is limited. Renew your subscription to restore full access.</string>
+
+    <string name="account_quota_throttled_title">Traffic limit reached</string>
+    <string name="account_quota_throttled_message">Speed is reduced to 1 Kbit/s on all tunnels.</string>
+    <string name="account_quota_throttled_reset">Speed restores on %1$s</string>
+    <string name="account_tariff_missing_title">No tariff assigned</string>
+    <string name="account_tariff_missing_message">Contact the administrator to assign a tariff to your account.</string>
+    <string name="account_add_device_blocked">Device creation is unavailable while access to the account is restricted.</string>
+    <string name="account_add_device_no_tariff">Device creation is unavailable without a tariff.</string>
+
+    <string name="account_error_account_disabled">The account is disabled by the administrator</string>
+    <string name="account_error_tariff_required">No tariff is assigned, contact the administrator</string>
+    <string name="account_error_subscription_inactive">The subscription is inactive, renew it to restore access</string>
 </resources>

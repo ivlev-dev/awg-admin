@@ -79,6 +79,11 @@ fun AccountDevicesScreen(viewModel: AccountViewModel = koinViewModel()) {
                 )
             }
             else -> {
+                val snapshot = state.snapshot
+                val accessBlocked = snapshot?.access?.blocked == true
+                val tariffMissing =
+                    snapshot == null || snapshot.tariff == null || snapshot.access.tariffMissing
+                val canAddDevice = snapshot != null && !accessBlocked && !tariffMissing
                 if (state.devices.isEmpty()) {
                     AccountCard {
                         Text(
@@ -95,7 +100,19 @@ fun AccountDevicesScreen(viewModel: AccountViewModel = koinViewModel()) {
                 AccountSecondaryButton(
                     text = stringResource(R.string.account_add_device),
                     onClick = viewModel::showAddDevice,
+                    enabled = canAddDevice,
                 )
+                if (!canAddDevice) {
+                    Text(
+                        text =
+                            stringResource(
+                                if (accessBlocked) R.string.account_add_device_blocked
+                                else R.string.account_add_device_no_tariff,
+                            ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
                 TextButton(
                     onClick = viewModel::refresh,
                     modifier = Modifier.align(Alignment.CenterHorizontally),

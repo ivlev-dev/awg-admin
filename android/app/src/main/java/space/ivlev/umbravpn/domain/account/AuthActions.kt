@@ -2,6 +2,7 @@ package space.ivlev.umbravpn.domain.account
 
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AuthUser
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.UserStatus
 import space.ivlev.umbravpn.domain.repository.AuthRepository
 
@@ -22,6 +23,7 @@ sealed interface ApprovalResult {
 class AuthActions(
     private val authRepository: AuthRepository,
     private val pendingSignupCache: PendingSignupCache,
+    private val onAccessBlocked: (BlockReason, String?) -> Unit = { _, _ -> },
 ) {
     suspend fun login(
         email: String,
@@ -44,10 +46,13 @@ class AuthActions(
                 if (result.value.status == UserStatus.Active) pendingSignupCache.clear()
                 ActionResult.Success(result.value)
             }
-            is AccountResult.Failure ->
+            is AccountResult.Failure -> {
+                val blockReason = result.error.blockReason()
+                if (blockReason != null) onAccessBlocked(blockReason, email.trim())
                 ActionResult.Failure(
                     AccountMessages.of(result.error, AccountActionKind.Login),
                 )
+            }
         }
     }
 

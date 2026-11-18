@@ -26,25 +26,33 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.dokar.sonner.ToastType
+import kotlinx.coroutines.delay
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
+import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
 import space.ivlev.umbravpn.ui.navigation.Route
+import space.ivlev.umbravpn.ui.screens.account.components.AccountCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
 import space.ivlev.umbravpn.ui.screens.account.components.AccountLoadingButton
 import space.ivlev.umbravpn.ui.screens.account.components.AccountSecondaryButton
-import space.ivlev.umbravpn.ui.screens.account.components.accountMessageRes
+import space.ivlev.umbravpn.ui.screens.account.components.VerificationStepper
 import space.ivlev.umbravpn.ui.state.EmailVerificationPhase
+import space.ivlev.umbravpn.util.StringValue
+import space.ivlev.umbravpn.viewmodel.EmailVerificationSideEffect
 import space.ivlev.umbravpn.viewmodel.EmailVerificationViewModel
+import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 
 @Composable
 fun VerifyPendingScreen(
     email: String? = null,
     viewModel: EmailVerificationViewModel = koinActivityViewModel(),
+    sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
     val navController = LocalNavController.current
     val state by viewModel.collectAsState()
@@ -53,6 +61,30 @@ fun VerifyPendingScreen(
     LaunchedEffect(state.isApproved) {
         if (state.isApproved) navController.resetTo(Route.Tunnels, Route.Account)
     }
+    LaunchedEffect(state.resendCooldownSeconds) {
+        if (state.resendCooldownSeconds > 0) {
+            delay(1_000L)
+            viewModel.tickCooldown()
+        }
+    }
+    LaunchedEffect(state.feedback) {
+        if (state.feedback == AccountMessage.EmailResent) {
+            sharedViewModel.showSnackMessage(
+                StringValue.StringResource(R.string.account_email_resent),
+                ToastType.Success,
+            )
+            viewModel.clearFeedback()
+        }
+    }
+
+    viewModel.collectSideEffect { effect ->
+        when (effect) {
+            EmailVerificationSideEffect.SignedOut -> navController.resetTo(Route.Login)
+        }
+    }
+
+    val emailVerified = state.phase == EmailVerificationPhase.Success
+    val currentStep = if (emailVerified) 1 else 0
 
     Column(
         modifier =
@@ -81,19 +113,27 @@ fun VerifyPendingScreen(
         )
 
         if (state.email.isNotBlank()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = stringResource(R.string.account_email),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-                Text(
-                    text = state.email,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
+            AccountCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.account_email),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                    Text(
+                        text = state.email,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
             }
         }
+
+        VerificationStepper(currentStep = currentStep, completed = state.isApproved)
 
         when (val phase = state.phase) {
             EmailVerificationPhase.Idle ->
@@ -108,9 +148,10 @@ fun VerifyPendingScreen(
                     Text(stringResource(R.string.account_verify_in_progress))
                 }
             EmailVerificationPhase.Success -> {
-                FeedbackCard(
-                    message = AccountMessage.EmailVerified,
-                    isError = false,
+                Text(
+                    text = stringResource(R.string.account_email_verified),
+                    style = MaterialTheme.typography.titleSmall,
+                    color = MaterialTheme.colorScheme.primary,
                 )
                 DescriptionText(stringResource(R.string.account_verify_approval_hint))
             }
@@ -121,14 +162,8 @@ fun VerifyPendingScreen(
         }
 
         state.feedback
-            ?.takeIf {
-                it != AccountMessage.EmailVerified || state.phase != EmailVerificationPhase.Success
-            }
-            ?.let { message ->
-                val success =
-                    message == AccountMessage.EmailResent || message == AccountMessage.EmailVerified
-                FeedbackCard(message = message, isError = !success)
-            }
+            ?.takeIf { it != AccountMessage.EmailResent }
+            ?.let { message -> AccountErrorCard(message) }
 
         AccountLoadingButton(
             text = stringResource(R.string.account_check_approval),
@@ -136,11 +171,17 @@ fun VerifyPendingScreen(
             loading = state.isChecking,
         )
 
+        val cooldown = state.resendCooldownSeconds
         AccountSecondaryButton(
-            text = stringResource(R.string.account_resend_email),
+            text =
+                if (cooldown > 0) {
+                    stringResource(R.string.account_resend_email_wait, cooldown)
+                } else {
+                    stringResource(R.string.account_resend_email)
+                },
             onClick = viewModel::resend,
             loading = state.isResending,
-            enabled = state.email.isNotBlank(),
+            enabled = state.email.isNotBlank() && cooldown == 0,
         )
 
         Text(
@@ -149,31 +190,16 @@ fun VerifyPendingScreen(
             color = MaterialTheme.colorScheme.outline,
         )
 
-        TextButton(
-            onClick = { navController.resetTo(Route.Login) },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
         ) {
-            Text(stringResource(R.string.account_back_to_login))
+            TextButton(onClick = viewModel::signOut) {
+                Text(stringResource(R.string.account_switch_account))
+            }
+            TextButton(onClick = viewModel::signOut) {
+                Text(stringResource(R.string.account_back_to_login))
+            }
         }
-    }
-}
-
-@Composable
-private fun FeedbackCard(message: AccountMessage, isError: Boolean) {
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        color =
-            if (isError) MaterialTheme.colorScheme.errorContainer
-            else MaterialTheme.colorScheme.primaryContainer,
-        contentColor =
-            if (isError) MaterialTheme.colorScheme.onErrorContainer
-            else MaterialTheme.colorScheme.onPrimaryContainer,
-    ) {
-        Text(
-            text = stringResource(accountMessageRes(message)),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-        )
     }
 }

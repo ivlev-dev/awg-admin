@@ -607,4 +607,57 @@
     <string name="account_error_server">Ошибка сервера. Попробуйте позже.</string>
     <string name="getting_started_guidance">Туннели появятся здесь автоматически после входа в аккаунт.</string>
     <string name="account_onboarding_subtitle">Укажите адрес панели Umbra VPN, чтобы войти и получить свои туннели.</string>
+
+    <string name="access_blocked_disabled_title">Аккаунт отключён</string>
+    <string name="access_blocked_rejected_title">Регистрация отклонена</string>
+    <string name="access_blocked_disabled_body">Доступ для %1$s закрыт администратором. Если это ошибка — обратитесь к администратору или в поддержку.</string>
+    <string name="access_blocked_rejected_body">Заявка на регистрацию для %1$s отклонена. Обратитесь к администратору или в поддержку, чтобы уточнить причину.</string>
+    <string name="access_blocked_switch_account">Войти другим аккаунтом</string>
+    <string name="access_blocked_support">Поддержка</string>
+    <string name="session_expired_title">Сессия истекла</string>
+    <string name="session_expired_body">Срок действия сессии истёк. Войдите снова, чтобы продолжить пользоваться Umbra VPN.</string>
+    <string name="session_expired_sign_in">Войти снова</string>
+
+    <string name="account_login_pending_email_title">Подтвердите email</string>
+    <string name="account_login_pending_email_body">Мы отправили ссылку на %1$s. Откройте её, затем дождитесь одобрения администратора.</string>
+    <string name="account_login_pending_approval_title">Ожидается одобрение</string>
+    <string name="account_login_pending_approval_body">Аккаунт %1$s уже подтверждён и ожидает одобрения администратора.</string>
+    <string name="account_login_pending_open">Перейти к ожиданию</string>
+
+    <string name="account_verify_step_email">Email отправлен</string>
+    <string name="account_verify_step_review">Проверка администратора</string>
+    <string name="account_verify_step_access">Доступ открыт</string>
+    <string name="account_resend_email_wait">Отправить письмо ещё раз (%1$d с)</string>
+    <string name="account_switch_account">Сменить аккаунт</string>
+
+    <string name="account_status_pending">Ожидает</string>
+    <string name="account_status_disabled">Отключён</string>
+
+    <string name="account_subscription_title">Подписка</string>
+    <string name="account_subscription_status">Статус подписки</string>
+    <string name="account_subscription_status_active">Активна</string>
+    <string name="account_subscription_status_trialing">Пробный период</string>
+    <string name="account_subscription_status_past_due">Просрочена</string>
+    <string name="account_subscription_status_suspended">Приостановлена</string>
+    <string name="account_subscription_status_canceled">Отменена</string>
+    <string name="account_subscription_period_end">Оплачена до</string>
+    <string name="account_subscription_ends_at">Завершится</string>
+    <string name="account_subscription_auto_renew">Автопродление</string>
+    <string name="account_subscription_enabled">Включено</string>
+    <string name="account_subscription_disabled">Выключено</string>
+    <string name="account_subscription_inactive_warning">Скорость ограничена, продлите подписку для полного доступа.</string>
+    <string name="account_subscription_missing_title">Подписка неактивна</string>
+    <string name="account_subscription_missing_message">Скорость ограничена, продлите подписку для полного доступа.</string>
+
+    <string name="account_quota_throttled_title">Лимит трафика исчерпан</string>
+    <string name="account_quota_throttled_message">Скорость снижена до 1 Кбит/с на всех туннелях.</string>
+    <string name="account_quota_throttled_reset">Ограничение снимется %1$s</string>
+    <string name="account_tariff_missing_title">Тариф не назначен</string>
+    <string name="account_tariff_missing_message">Обратитесь к администратору, чтобы назначить тариф аккаунту.</string>
+    <string name="account_add_device_blocked">Создание устройств недоступно, пока доступ к аккаунту ограничен.</string>
+    <string name="account_add_device_no_tariff">Добавление устройств недоступно без тарифа.</string>
+
+    <string name="account_error_account_disabled">Аккаунт отключён администратором</string>
+    <string name="account_error_tariff_required">Тариф не назначен, обратитесь к администратору</string>
+    <string name="account_error_subscription_inactive">Подписка неактивна, продлите её для доступа</string>
 </resources>

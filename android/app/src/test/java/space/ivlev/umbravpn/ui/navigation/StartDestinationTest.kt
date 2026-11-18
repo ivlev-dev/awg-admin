@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 import space.ivlev.umbravpn.domain.model.account.AuthUser
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
@@ -41,9 +42,31 @@ class StartDestinationTest {
             Route.Login,
             resolveStartRedirect("https://panel.test", SessionState.LoggedOut),
         )
+    }
+
+    @Test
+    fun expiredSessionOpensDedicatedScreen() {
         assertEquals(
-            Route.Login,
+            Route.SessionExpired,
             resolveStartRedirect("https://panel.test", SessionState.Expired),
+        )
+    }
+
+    @Test
+    fun blockedSessionOpensAccessBlockedScreen() {
+        assertEquals(
+            Route.AccessBlocked,
+            resolveStartRedirect(
+                "https://panel.test",
+                SessionState.Blocked(BlockReason.Disabled),
+            ),
+        )
+        assertEquals(
+            Route.AccessBlocked,
+            resolveStartRedirect(
+                "https://panel.test",
+                SessionState.Blocked(BlockReason.Rejected),
+            ),
         )
     }
 

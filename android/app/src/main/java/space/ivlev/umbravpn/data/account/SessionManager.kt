@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import space.ivlev.umbravpn.domain.model.account.AuthUser
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.StoredSession
 import space.ivlev.umbravpn.domain.security.TokenStore
@@ -40,6 +41,11 @@ class SessionManager(private val tokenStore: TokenStore) {
     fun markExpired() {
         clearTokens()
         _state.value = SessionState.Expired
+    }
+
+    fun markBlocked(reason: BlockReason, email: String? = null) {
+        clearTokens()
+        _state.value = SessionState.Blocked(reason, email?.takeIf { it.isNotBlank() })
     }
 
     fun markLoggedOut() {

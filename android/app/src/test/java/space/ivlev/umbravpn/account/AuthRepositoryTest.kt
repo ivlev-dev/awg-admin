@@ -11,6 +11,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import space.ivlev.umbravpn.domain.model.account.AccountError
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
@@ -60,6 +61,72 @@ class AuthRepositoryTest {
 
         val body = env.requests.single().body.toByteArray().decodeToString()
         assertTrue(body.contains("\"totp_code\":\"123456\""))
+    }
+
+    @Test
+    fun loginDisabledMarksSessionBlockedAndClearsTokens() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.Forbidden,
+                    errorBody("account_disabled", "account disabled"),
+                )
+            }
+
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
+
+        assertEquals(AccountError.Disabled(BlockReason.Disabled), error)
+        assertNull(env.tokenStore.session)
+        assertEquals(
+            SessionState.Blocked(BlockReason.Disabled, "alice@example.com"),
+            env.sessionManager.state.value,
+        )
+    }
+
+    @Test
+    fun loginRejectedMarksSessionBlockedWithRejectedReason() = runTest {
+        val env = createEnvironment {
+            jsonResponse(HttpStatusCode.Forbidden, errorBody("rejected", "rejected"))
+        }
+
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
+
+        assertEquals(AccountError.Disabled(BlockReason.Rejected), error)
+        assertEquals(
+            SessionState.Blocked(BlockReason.Rejected, "alice@example.com"),
+            env.sessionManager.state.value,
+        )
+    }
+
+    @Test
+    fun bootstrapAccountDisabledMarksSessionBlocked() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.Forbidden,
+                    errorBody("account_disabled", "account disabled"),
+                )
+            }
+
+        val error = env.accountRepository.bootstrap().requireFailure()
+
+        assertEquals(AccountError.Disabled(BlockReason.Disabled), error)
+        assertNull(env.tokenStore.session)
+        assertTrue(env.sessionManager.state.value is SessionState.Blocked)
+    }
+
+    @Test
+    fun loginPendingApprovalMarksPendingSession() = runTest {
+        val env = createEnvironment {
+            jsonResponse(
+                HttpStatusCode.Forbidden,
+                errorBody("pending_approval", "wait for approval"),
+            )
+        }
+
+        env.authRepository.login("alice@example.com", "secret").requireFailure()
+
+        assertEquals(SessionState.PendingApproval, env.sessionManager.state.value)
     }
 
     @Test

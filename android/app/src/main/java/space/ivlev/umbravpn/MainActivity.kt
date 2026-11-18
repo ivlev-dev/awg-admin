@@ -108,9 +108,11 @@ import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.data.backup.BackupWriteResult
 import space.ivlev.umbravpn.data.backup.DatabaseBackup
 import space.ivlev.umbravpn.data.backup.RestoreResult
+import space.ivlev.umbravpn.domain.account.AuthActions
 import space.ivlev.umbravpn.domain.enums.StrictSplitNotice
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.model.TunnelConfig
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AppStateRepository
@@ -138,6 +140,7 @@ import space.ivlev.umbravpn.ui.navigation.components.DynamicTopAppBar
 import space.ivlev.umbravpn.ui.navigation.components.currentRouteAsNavbarState
 import space.ivlev.umbravpn.ui.navigation.functions.rememberNavController
 import space.ivlev.umbravpn.ui.navigation.resolveStartRedirect
+import space.ivlev.umbravpn.ui.screens.account.AccessBlockedScreen
 import space.ivlev.umbravpn.ui.screens.account.AccountDeviceDetailsScreen
 import space.ivlev.umbravpn.ui.screens.account.AccountDevicesScreen
 import space.ivlev.umbravpn.ui.screens.account.AccountScreen
@@ -146,6 +149,7 @@ import space.ivlev.umbravpn.ui.screens.account.LoginScreen
 import space.ivlev.umbravpn.ui.screens.account.OnboardingScreen
 import space.ivlev.umbravpn.ui.screens.account.RegisterScreen
 import space.ivlev.umbravpn.ui.screens.account.ResetPasswordScreen
+import space.ivlev.umbravpn.ui.screens.account.SessionExpiredScreen
 import space.ivlev.umbravpn.ui.screens.account.VerifyPendingScreen
 import space.ivlev.umbravpn.ui.screens.pin.LocalAppLocked
 import space.ivlev.umbravpn.ui.screens.pin.PinLockOverlay
@@ -199,6 +203,7 @@ class MainActivity : AppCompatActivity() {
     private val appLockManager: AppLockManager by inject()
     private val accountSettingsRepository: AccountSettingsRepository by inject()
     private val authRepository: AuthRepository by inject()
+    private val authActions: AuthActions by inject()
     private val autoConnector: ManagedTunnelAutoConnector by inject()
 
     val viewModel by viewModel<SharedAppViewModel>()
@@ -348,6 +353,8 @@ class MainActivity : AppCompatActivity() {
                 when (authRepository.session.value) {
                     is SessionState.Active,
                     is SessionState.Unknown -> Route.Tunnels
+                    is SessionState.Blocked -> Route.AccessBlocked
+                    is SessionState.Expired -> Route.SessionExpired
                     else -> Route.Login
                 }
 
@@ -388,9 +395,19 @@ class MainActivity : AppCompatActivity() {
             }
 
             val session by authRepository.session.collectAsStateWithLifecycle()
-            LaunchedEffect(uiState.isAppLoaded, session) {
-                if (uiState.isAppLoaded && session is SessionState.Expired) {
-                    navController.resetTo(Route.Login)
+            LaunchedEffect(uiState.isAppLoaded, session, backStack.lastOrNull()) {
+                if (!uiState.isAppLoaded) return@LaunchedEffect
+                val current = backStack.lastOrNull()
+                when (session) {
+                    is SessionState.Blocked ->
+                        if (current != Route.AccessBlocked && current !is Route.Support) {
+                            navController.resetTo(Route.AccessBlocked)
+                        }
+                    is SessionState.Expired ->
+                        if (current != Route.SessionExpired && current !is Route.Support) {
+                            navController.resetTo(Route.SessionExpired)
+                        }
+                    else -> Unit
                 }
             }
 
@@ -779,6 +796,34 @@ class MainActivity : AppCompatActivity() {
                                                     entry<Route.Lock> { PinLockScreen() }
                                                     entry<Route.Onboarding> { OnboardingScreen() }
                                                     entry<Route.Login> { LoginScreen() }
+                                                    entry<Route.AccessBlocked> {
+                                                        val blocked =
+                                                            session as? SessionState.Blocked
+                                                        AccessBlockedScreen(
+                                                            reason =
+                                                                blocked?.reason
+                                                                    ?: BlockReason.Disabled,
+                                                            email = blocked?.email,
+                                                            onSwitchAccount = {
+                                                                lifecycleScope.launch {
+                                                                    authActions.logout()
+                                                                    navController.resetTo(
+                                                                        Route.Login,
+                                                                    )
+                                                                }
+                                                            },
+                                                            onSupport = {
+                                                                navController.push(Route.Support)
+                                                            },
+                                                        )
+                                                    }
+                                                    entry<Route.SessionExpired> {
+                                                        SessionExpiredScreen(
+                                                            onSignIn = {
+                                                                navController.resetTo(Route.Login)
+                                                            },
+                                                        )
+                                                    }
                                                     entry<Route.Register> { RegisterScreen() }
                                                     entry<Route.VerifyPending> { key ->
                                                         VerifyPendingScreen(key.email)

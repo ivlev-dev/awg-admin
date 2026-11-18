@@ -38,6 +38,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.ui.navigation.NavController
 import space.ivlev.umbravpn.ui.navigation.Route
+import space.ivlev.umbravpn.ui.navigation.Route.AccessBlocked
 import space.ivlev.umbravpn.ui.navigation.Route.Account
 import space.ivlev.umbravpn.ui.navigation.Route.AccountDeviceDetails
 import space.ivlev.umbravpn.ui.navigation.Route.AccountDevices
@@ -66,6 +67,7 @@ import space.ivlev.umbravpn.ui.navigation.Route.ProxySettings
 import space.ivlev.umbravpn.ui.navigation.Route.Register
 import space.ivlev.umbravpn.ui.navigation.Route.ResetPassword
 import space.ivlev.umbravpn.ui.navigation.Route.Security
+import space.ivlev.umbravpn.ui.navigation.Route.SessionExpired
 import space.ivlev.umbravpn.ui.navigation.Route.Settings
 import space.ivlev.umbravpn.ui.navigation.Route.SplitTunnel
 import space.ivlev.umbravpn.ui.navigation.Route.SplitTunnelGlobal
@@ -617,7 +619,9 @@ fun currentRouteAsNavbarState(
                 null -> {
                     NavbarState()
                 }
-                Onboarding -> {
+                Onboarding,
+                AccessBlocked,
+                SessionExpired -> {
                     NavbarState(showBottomItems = false)
                 }
                 Login -> {

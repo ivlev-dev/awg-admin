@@ -16,7 +16,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
-import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleaner
+import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
 import space.ivlev.umbravpn.ui.state.AccountDialog
 import space.ivlev.umbravpn.ui.state.AccountSideEffect
@@ -30,7 +30,7 @@ class AccountViewModel(
     private val accountActions: AccountActions,
     private val authActions: AuthActions,
     private val syncService: ManagedTunnelSyncService,
-    private val tunnelCleaner: ManagedTunnelCleaner,
+    private val tunnelCleaner: ManagedTunnelCleanup,
     private val autoConnector: ManagedTunnelAutoConnector,
 ) : OrbitContainerHost<AccountUiState, AccountUiState, AccountSideEffect>, ViewModel() {
 
@@ -75,6 +75,21 @@ class AccountViewModel(
     }
 
     fun showAddDevice() = intent {
+        val snapshot = state.snapshot
+        if (snapshot != null) {
+            if (snapshot.access.blocked) {
+                postSideEffect(
+                    AccountSideEffect.Notice(AccountMessage.AccountDisabled, isError = true),
+                )
+                return@intent
+            }
+            if (snapshot.tariff == null || snapshot.access.tariffMissing) {
+                postSideEffect(
+                    AccountSideEffect.Notice(AccountMessage.TariffRequired, isError = true),
+                )
+                return@intent
+            }
+        }
         reduce { state.copy(dialog = AccountDialog.AddDevice, dialogError = null) }
     }
 

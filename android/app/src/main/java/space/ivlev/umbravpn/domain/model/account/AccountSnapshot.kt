@@ -7,6 +7,8 @@ data class AccountSnapshot(
     val tariff: AccountTariff?,
     val quota: AccountQuota,
     val devices: List<AccountDevice>,
+    val subscription: AccountSubscription? = null,
+    val access: AccountAccess = AccountAccess(),
 )
 
 data class AccountTariff(

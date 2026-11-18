@@ -25,6 +25,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountError
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.AuthUser
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
 import space.ivlev.umbravpn.domain.model.account.StoredSession
@@ -67,7 +68,7 @@ class AccountApi(
                 AccountResult.Success(result.value.user.toDomain())
             }
             is AccountResult.Failure -> {
-                applyAuthFailure(result.error)
+                applyAuthFailure(result.error, login)
                 result
             }
         }
@@ -160,14 +161,18 @@ class AccountApi(
         }
     }
 
-    suspend fun bootstrap(): AccountResult<AccountSnapshot> =
-        execute(
-            authenticated = true,
-            send = { baseUrl, token ->
-                client.get(endpoint(baseUrl, "app/bootstrap")) { bearer(token) }
-            },
-            decode = { body -> json.decodeFromString<BootstrapDto>(body).toDomain() },
-        )
+    suspend fun bootstrap(): AccountResult<AccountSnapshot> {
+        val result =
+            execute(
+                authenticated = true,
+                send = { baseUrl, token ->
+                    client.get(endpoint(baseUrl, "app/bootstrap")) { bearer(token) }
+                },
+                decode = { body -> json.decodeFromString<BootstrapDto>(body).toDomain() },
+            )
+        if (result is AccountResult.Failure) applyAuthFailure(result.error)
+        return result
+    }
 
     suspend fun createDevice(name: String): AccountResult<CreatedDevice> =
         execute(
@@ -223,11 +228,25 @@ class AccountApi(
         )
     }
 
-    private fun applyAuthFailure(error: AccountError) {
-        val code = (error as? AccountError.Api)?.code ?: return
-        when (code) {
-            CODE_EMAIL_NOT_VERIFIED -> sessionManager.markPendingEmail()
-            CODE_PENDING_APPROVAL -> sessionManager.markPendingApproval()
+    private fun applyAuthFailure(error: AccountError, email: String? = null) {
+        val blockedEmail = email ?: sessionManager.currentSession()?.email
+        when (error) {
+            is AccountError.Disabled -> sessionManager.markBlocked(error.reason, blockedEmail)
+            is AccountError.Api ->
+                when (error.code) {
+                    CODE_EMAIL_NOT_VERIFIED -> sessionManager.markPendingEmail()
+                    CODE_PENDING_APPROVAL -> sessionManager.markPendingApproval()
+                    CODE_ACCOUNT_DISABLED ->
+                        sessionManager.markBlocked(BlockReason.Disabled, blockedEmail)
+                    CODE_REJECTED -> sessionManager.markBlocked(BlockReason.Rejected, blockedEmail)
+                }
+            AccountError.TariffRequired,
+            AccountError.SubscriptionInactive,
+            AccountError.Network,
+            AccountError.SessionExpired,
+            AccountError.Unauthorized,
+            AccountError.ServerNotConfigured,
+            is AccountError.Unexpected -> Unit
         }
     }
 

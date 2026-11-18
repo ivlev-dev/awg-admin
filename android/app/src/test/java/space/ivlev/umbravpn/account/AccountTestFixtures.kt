@@ -247,6 +247,58 @@ internal fun bootstrapJson(): String =
     """
         .trimIndent()
 
+internal fun bootstrapWithSubscriptionJson(
+    subscriptionStatus: String = "active",
+    grantsAccess: Boolean = true,
+    blocked: Boolean = false,
+    throttled: Boolean = false,
+    reasons: List<String> = emptyList(),
+): String {
+    val reasonsJson = reasons.joinToString(",") { "\"$it\"" }
+    return """
+    {
+      "user": {
+        "id": "user-1",
+        "login": "alice",
+        "email": "alice@example.com",
+        "status": "active",
+        "totp_enabled": false,
+        "role": "user",
+        "disabled": false,
+        "created_at": "2026-01-01T10:00:00Z",
+        "updated_at": "2026-01-02T11:30:00Z"
+      },
+      "tariff": null,
+      "quota": {
+        "used_bytes": 0,
+        "quota_bytes": null,
+        "exceeded": $throttled,
+        "remaining_bytes": null,
+        "percent": null,
+        "period_start": null,
+        "period_end": null,
+        "reset_at": "2026-03-01T00:00:00Z"
+      },
+      "devices": [],
+      "subscription": {
+        "id": "sub-1",
+        "plan_name": "Umbra Plus",
+        "status": "$subscriptionStatus",
+        "current_period_end": "2026-03-01T00:00:00Z",
+        "auto_renew": true,
+        "cancel_at_period_end": false,
+        "grants_access": $grantsAccess
+      },
+      "access": {
+        "blocked": $blocked,
+        "throttled": $throttled,
+        "reasons": [$reasonsJson]
+      }
+    }
+    """
+        .trimIndent()
+}
+
 internal fun deviceConfigJson(revision: String = "0123456789abcdef"): String =
     """
     {

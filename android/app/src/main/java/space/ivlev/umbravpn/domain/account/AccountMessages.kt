@@ -1,6 +1,7 @@
 package space.ivlev.umbravpn.domain.account
 
 import space.ivlev.umbravpn.domain.model.account.AccountError
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.util.network.ServerUrlError
 
 enum class AccountMessage {
@@ -24,6 +25,9 @@ enum class AccountMessage {
     EmailNotVerified,
     PendingApproval,
     Rejected,
+    AccountDisabled,
+    TariffRequired,
+    SubscriptionInactive,
     DeviceLimitReached,
     EmailAlreadyRegistered,
     Conflicted,
@@ -64,6 +68,11 @@ object AccountMessages {
             AccountError.Unauthorized -> AccountMessage.InvalidCredentials
             AccountError.SessionExpired -> AccountMessage.SessionExpired
             AccountError.ServerNotConfigured -> AccountMessage.ServerNotConfigured
+            AccountError.TariffRequired -> AccountMessage.TariffRequired
+            AccountError.SubscriptionInactive -> AccountMessage.SubscriptionInactive
+            is AccountError.Disabled ->
+                if (error.reason == BlockReason.Rejected) AccountMessage.Rejected
+                else AccountMessage.AccountDisabled
             is AccountError.Unexpected -> AccountMessage.Unknown
             is AccountError.Api -> ofApi(error, kind)
         }
@@ -83,6 +92,9 @@ object AccountMessages {
             error.code == CODE_EMAIL_NOT_VERIFIED -> AccountMessage.EmailNotVerified
             error.code == CODE_PENDING_APPROVAL -> AccountMessage.PendingApproval
             error.code == CODE_REJECTED -> AccountMessage.Rejected
+            error.code == CODE_ACCOUNT_DISABLED -> AccountMessage.AccountDisabled
+            error.code == CODE_TARIFF_REQUIRED -> AccountMessage.TariffRequired
+            error.code == CODE_SUBSCRIPTION_INACTIVE -> AccountMessage.SubscriptionInactive
             error.status == STATUS_TOO_MANY_REQUESTS || error.code == CODE_TOO_MANY_REQUESTS ->
                 AccountMessage.TooManyAttempts
             error.code == CODE_INVALID_TOKEN -> AccountMessage.InvalidToken
@@ -106,6 +118,9 @@ object AccountMessages {
     private const val CODE_EMAIL_NOT_VERIFIED = "email_not_verified"
     private const val CODE_PENDING_APPROVAL = "pending_approval"
     private const val CODE_REJECTED = "rejected"
+    private const val CODE_ACCOUNT_DISABLED = "account_disabled"
+    private const val CODE_TARIFF_REQUIRED = "tariff_required"
+    private const val CODE_SUBSCRIPTION_INACTIVE = "subscription_inactive"
     private const val CODE_TOO_MANY_REQUESTS = "too_many_requests"
     private const val CODE_INVALID_TOKEN = "invalid_token"
     private const val CODE_CONFLICT = "conflict"

@@ -4,9 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,6 +36,7 @@ import org.koin.androidx.compose.koinViewModel
 import org.orbitmvi.orbit.compose.collectAsState
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
+import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
@@ -127,6 +131,17 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
             Text(stringResource(R.string.account_have_totp))
         }
 
+        state.pendingNotice?.let { notice ->
+            LoginPendingNotice(
+                notice = notice,
+                email = state.email,
+                onOpen = {
+                    keyboardController?.hide()
+                    navController.push(Route.VerifyPending(state.email.trim().ifBlank { null }))
+                },
+            )
+        }
+
         state.error?.let { AccountErrorCard(it) }
 
         AccountLoadingButton(
@@ -154,6 +169,47 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
             Text(stringResource(R.string.account_forgot_password))
+        }
+    }
+}
+
+@Composable
+private fun LoginPendingNotice(
+    notice: AccountMessage,
+    email: String,
+    onOpen: () -> Unit,
+) {
+    val emailVerified = notice == AccountMessage.EmailNotVerified
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+        contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text =
+                    stringResource(
+                        if (emailVerified) R.string.account_login_pending_email_title
+                        else R.string.account_login_pending_approval_title,
+                    ),
+                style = MaterialTheme.typography.titleSmall,
+            )
+            Text(
+                text =
+                    stringResource(
+                        if (emailVerified) R.string.account_login_pending_email_body
+                        else R.string.account_login_pending_approval_body,
+                        email.trim().ifBlank { stringResource(R.string.account_unknown) },
+                    ),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            TextButton(onClick = onOpen, modifier = Modifier.align(Alignment.End)) {
+                Text(stringResource(R.string.account_login_pending_open))
+            }
         }
     }
 }

@@ -9,6 +9,12 @@ sealed interface AccountError {
 
     data object ServerNotConfigured : AccountError
 
+    data object TariffRequired : AccountError
+
+    data object SubscriptionInactive : AccountError
+
+    data class Disabled(val reason: BlockReason = BlockReason.Disabled) : AccountError
+
     data class Api(val status: Int, val code: String, val message: String) : AccountError
 
     data class Unexpected(val message: String?) : AccountError

@@ -63,6 +63,28 @@ class AccountActionsTest {
     }
 
     @Test
+    fun createDeviceTariffRequiredIsReported() = runTest {
+        repository.createResult =
+            AccountResult.Failure(AccountError.Api(409, "tariff_required", "no tariff"))
+
+        val outcome = actions.createDevice("Tablet")
+
+        assertEquals(AccountMessage.TariffRequired, (outcome as ActionResult.Failure).message)
+    }
+
+    @Test
+    fun createDeviceSubscriptionInactiveIsReported() = runTest {
+        repository.createResult = AccountResult.Failure(AccountError.SubscriptionInactive)
+
+        val outcome = actions.createDevice("Tablet")
+
+        assertEquals(
+            AccountMessage.SubscriptionInactive,
+            (outcome as ActionResult.Failure).message,
+        )
+    }
+
+    @Test
     fun renameDeviceReturnsUpdatedDevice() = runTest {
         val device = (actions.renameDevice("device-1", " Renamed ") as ActionResult.Success).value
 

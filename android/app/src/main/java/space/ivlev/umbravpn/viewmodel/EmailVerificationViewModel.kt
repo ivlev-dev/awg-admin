@@ -7,14 +7,26 @@ import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.account.ActionResult
 import space.ivlev.umbravpn.domain.account.ApprovalResult
 import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.ResendCooldown
 import space.ivlev.umbravpn.ui.state.EmailVerificationPhase
 import space.ivlev.umbravpn.ui.state.EmailVerificationUiState
 
+sealed interface EmailVerificationSideEffect {
+    data object SignedOut : EmailVerificationSideEffect
+}
+
 class EmailVerificationViewModel(private val authActions: AuthActions) :
-    OrbitContainerHost<EmailVerificationUiState, EmailVerificationUiState, Nothing>, ViewModel() {
+    OrbitContainerHost<
+        EmailVerificationUiState,
+        EmailVerificationUiState,
+        EmailVerificationSideEffect,
+    >,
+    ViewModel() {
+
+    private val resendCooldown = ResendCooldown()
 
     override val container =
-        orbitContainer<EmailVerificationUiState, Nothing>(
+        orbitContainer<EmailVerificationUiState, EmailVerificationSideEffect>(
             EmailVerificationUiState(email = authActions.lastPendingEmail().orEmpty()),
         )
 
@@ -35,14 +47,29 @@ class EmailVerificationViewModel(private val authActions: AuthActions) :
     }
 
     fun resend() = intent {
-        if (state.isResending) return@intent
+        if (state.isResending || !resendCooldown.canResend()) return@intent
         reduce { state.copy(isResending = true, feedback = null) }
 
         when (val outcome = authActions.resendVerification(state.email)) {
-            is ActionResult.Success ->
-                reduce { state.copy(isResending = false, feedback = AccountMessage.EmailResent) }
+            is ActionResult.Success -> {
+                resendCooldown.markSent()
+                reduce {
+                    state.copy(
+                        isResending = false,
+                        feedback = AccountMessage.EmailResent,
+                        resendCooldownSeconds = resendCooldown.remainingSeconds(),
+                    )
+                }
+            }
             is ActionResult.Failure ->
                 reduce { state.copy(isResending = false, feedback = outcome.message) }
+        }
+    }
+
+    fun tickCooldown() = intent {
+        val seconds = resendCooldown.remainingSeconds()
+        if (seconds != state.resendCooldownSeconds) {
+            reduce { state.copy(resendCooldownSeconds = seconds) }
         }
     }
 
@@ -69,4 +96,9 @@ class EmailVerificationViewModel(private val authActions: AuthActions) :
     }
 
     fun clearFeedback() = intent { reduce { state.copy(feedback = null) } }
+
+    fun signOut() = intent {
+        authActions.logout()
+        postSideEffect(EmailVerificationSideEffect.SignedOut)
+    }
 }

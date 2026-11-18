@@ -24,6 +24,10 @@ sealed class Route : NavKey {
 
     @Keep @Serializable data object Login : Route()
 
+    @Keep @Serializable data object AccessBlocked : Route()
+
+    @Keep @Serializable data object SessionExpired : Route()
+
     @Keep @Serializable data object Register : Route()
 
     @Keep @Serializable data class VerifyPending(val email: String? = null) : Route()
@@ -191,6 +195,8 @@ enum class Tab(
                 is Route.AccountDeviceDetails,
                 Route.Onboarding,
                 Route.Login,
+                Route.AccessBlocked,
+                Route.SessionExpired,
                 Route.Register,
                 is Route.VerifyPending,
                 Route.ForgotPassword,

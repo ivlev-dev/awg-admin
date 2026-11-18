@@ -19,6 +19,7 @@ data class LoginUiState(
     val passwordVisible: Boolean = false,
     val isSubmitting: Boolean = false,
     val error: AccountMessage? = null,
+    val pendingNotice: AccountMessage? = null,
     val emailError: AccountMessage? = null,
     val passwordError: AccountMessage? = null,
 )
@@ -72,4 +73,5 @@ data class EmailVerificationUiState(
     val isResending: Boolean = false,
     val feedback: AccountMessage? = null,
     val isApproved: Boolean = false,
+    val resendCooldownSeconds: Int = 0,
 )

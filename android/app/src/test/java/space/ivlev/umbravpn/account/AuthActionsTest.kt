@@ -11,12 +11,15 @@ import space.ivlev.umbravpn.domain.account.AuthActions
 import space.ivlev.umbravpn.domain.account.PendingSignupCache
 import space.ivlev.umbravpn.domain.model.account.AccountError
 import space.ivlev.umbravpn.domain.model.account.AccountResult
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.UserStatus
 
 class AuthActionsTest {
     private val repository = FakeAuthRepository()
     private val cache = PendingSignupCache()
-    private val actions = AuthActions(repository, cache)
+    private val blockedRequests = mutableListOf<Pair<BlockReason, String?>>()
+    private val actions =
+        AuthActions(repository, cache) { reason, email -> blockedRequests += reason to email }
 
     @Test
     fun loginSuccessReturnsUserAndTrimsEmail() = runTest {
@@ -68,6 +71,49 @@ class AuthActionsTest {
         val outcome = actions.login("alice@example.com", "secret")
 
         assertEquals(AccountMessage.Network, (outcome as ActionResult.Failure).message)
+    }
+
+    @Test
+    fun loginDisabledReportsBlockedWithEmail() = runTest {
+        repository.loginResult = AccountResult.Failure(AccountError.Disabled(BlockReason.Disabled))
+
+        val outcome = actions.login(" alice@example.com ", "secret")
+
+        assertEquals(AccountMessage.AccountDisabled, (outcome as ActionResult.Failure).message)
+        assertEquals(listOf(BlockReason.Disabled to "alice@example.com"), blockedRequests)
+    }
+
+    @Test
+    fun loginRawRejectedCodeMapsToBlocked() = runTest {
+        repository.loginResult =
+            AccountResult.Failure(AccountError.Api(403, "rejected", "registration rejected"))
+
+        val outcome = actions.login("alice@example.com", "secret")
+
+        assertEquals(AccountMessage.Rejected, (outcome as ActionResult.Failure).message)
+        assertEquals(listOf(BlockReason.Rejected to "alice@example.com"), blockedRequests)
+    }
+
+    @Test
+    fun loginRawAccountDisabledCodeMapsToBlocked() = runTest {
+        repository.loginResult =
+            AccountResult.Failure(AccountError.Api(403, "account_disabled", "account disabled"))
+
+        val outcome = actions.login("alice@example.com", "secret")
+
+        assertEquals(AccountMessage.AccountDisabled, (outcome as ActionResult.Failure).message)
+        assertEquals(listOf(BlockReason.Disabled to "alice@example.com"), blockedRequests)
+    }
+
+    @Test
+    fun loginPendingApprovalDoesNotBlockAccess() = runTest {
+        repository.loginResult =
+            AccountResult.Failure(AccountError.Api(403, "pending_approval", "pending"))
+
+        val outcome = actions.login("alice@example.com", "secret")
+
+        assertEquals(AccountMessage.PendingApproval, (outcome as ActionResult.Failure).message)
+        assertTrue(blockedRequests.isEmpty())
     }
 
     @Test

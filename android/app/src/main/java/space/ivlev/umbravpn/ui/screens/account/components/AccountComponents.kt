@@ -52,6 +52,9 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.EmailNotVerified -> R.string.account_error_email_not_verified
         AccountMessage.PendingApproval -> R.string.account_error_pending_approval
         AccountMessage.Rejected -> R.string.account_error_rejected
+        AccountMessage.AccountDisabled -> R.string.account_error_account_disabled
+        AccountMessage.TariffRequired -> R.string.account_error_tariff_required
+        AccountMessage.SubscriptionInactive -> R.string.account_error_subscription_inactive
         AccountMessage.DeviceLimitReached -> R.string.account_error_device_limit
         AccountMessage.EmailAlreadyRegistered -> R.string.account_error_email_registered
         AccountMessage.Conflicted -> R.string.account_error_conflict

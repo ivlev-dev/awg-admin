@@ -174,6 +174,9 @@ class RemoteManagedTunnelSyncService(
             AccountError.SessionExpired -> SyncResult.SessionExpired
             AccountError.Unauthorized -> SyncResult.SessionExpired
             AccountError.ServerNotConfigured -> SyncResult.NotConfigured
+            AccountError.TariffRequired,
+            AccountError.SubscriptionInactive -> SyncResult.Failed(ACCESS_RESTRICTED_MESSAGE)
+            is AccountError.Disabled -> SyncResult.Failed(ACCESS_RESTRICTED_MESSAGE)
             is AccountError.Api -> SyncResult.Failed(message)
             is AccountError.Unexpected -> SyncResult.Failed(message ?: UNKNOWN_ERROR_MESSAGE)
         }
@@ -182,5 +185,6 @@ class RemoteManagedTunnelSyncService(
         const val CONFIG_ERROR_MESSAGE = "Invalid tunnel config"
         const val SAVE_ERROR_MESSAGE = "Failed to persist tunnel"
         const val UNKNOWN_ERROR_MESSAGE = "Unknown sync error"
+        const val ACCESS_RESTRICTED_MESSAGE = "Account access is restricted"
     }
 }

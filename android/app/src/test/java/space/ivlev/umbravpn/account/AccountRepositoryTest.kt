@@ -12,6 +12,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import space.ivlev.umbravpn.domain.model.account.AccountError
 import space.ivlev.umbravpn.domain.model.account.SessionState
+import space.ivlev.umbravpn.domain.model.account.SubscriptionStatus
 
 class AccountRepositoryTest {
     @Test
@@ -25,6 +26,10 @@ class AccountRepositoryTest {
 
         assertEquals("user-1", snapshot.user.id)
         assertEquals("alice@example.com", snapshot.user.email)
+        assertNull(snapshot.subscription)
+        assertEquals(false, snapshot.access.blocked)
+        assertEquals(false, snapshot.access.throttled)
+        assertTrue(snapshot.access.reasons.isEmpty())
         assertNotNull(snapshot.tariff)
         assertEquals("Standard", snapshot.tariff?.name)
         assertEquals(5, snapshot.tariff?.maxDevices)
@@ -90,6 +95,75 @@ class AccountRepositoryTest {
         assertEquals(0L, snapshot.quota.usedBytes)
         assertNull(snapshot.quota.quotaBytes)
         assertTrue(snapshot.devices.isEmpty())
+    }
+
+    @Test
+    fun bootstrapParsesSubscriptionAndAccessFlags() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    bootstrapWithSubscriptionJson(
+                        subscriptionStatus = "past_due",
+                        grantsAccess = false,
+                        blocked = true,
+                        throttled = true,
+                        reasons =
+                            listOf("quota_exceeded", "subscription_inactive", "tariff_missing"),
+                    ),
+                )
+            }
+
+        val snapshot = env.accountRepository.bootstrap().requireSuccess()
+
+        val subscription = snapshot.subscription
+        assertNotNull(subscription)
+        assertEquals("sub-1", subscription?.id)
+        assertEquals("Umbra Plus", subscription?.planName)
+        assertEquals(SubscriptionStatus.PastDue, subscription?.status)
+        assertEquals(false, subscription?.grantsAccess)
+        assertEquals(true, subscription?.autoRenew)
+        assertEquals(false, subscription?.cancelAtPeriodEnd)
+        assertEquals("2026-03-01T00:00:00Z", subscription?.currentPeriodEnd.toString())
+        assertNull(snapshot.tariff)
+        assertTrue(snapshot.access.blocked)
+        assertTrue(snapshot.access.throttled)
+        assertTrue(snapshot.access.quotaExceeded)
+        assertTrue(snapshot.access.subscriptionInactive)
+        assertTrue(snapshot.access.tariffMissing)
+    }
+
+    @Test
+    fun bootstrapWithoutSubscriptionAndAccessUsesSafeDefaults() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    """
+                    {
+                      "user": {
+                        "id": "user-1",
+                        "login": "alice",
+                        "email": "alice@example.com",
+                        "status": "active",
+                        "role": "user",
+                        "disabled": false
+                      },
+                      "tariff": null,
+                      "quota": null,
+                      "devices": []
+                    }
+                    """
+                        .trimIndent(),
+                )
+            }
+
+        val snapshot = env.accountRepository.bootstrap().requireSuccess()
+
+        assertNull(snapshot.subscription)
+        assertTrue(snapshot.access.reasons.isEmpty())
+        assertEquals(false, snapshot.access.blocked)
+        assertEquals(false, snapshot.access.throttled)
     }
 
     @Test

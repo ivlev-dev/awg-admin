@@ -22,7 +22,7 @@ class LoginViewModel(private val authActions: AuthActions) :
         }
 
     fun onEmailChange(value: String) = intent {
-        reduce { state.copy(email = value, emailError = null, error = null) }
+        reduce { state.copy(email = value, emailError = null, error = null, pendingNotice = null) }
     }
 
     fun onPasswordChange(value: String) = intent {
@@ -61,7 +61,7 @@ class LoginViewModel(private val authActions: AuthActions) :
             return@intent
         }
 
-        reduce { state.copy(isSubmitting = true, error = null) }
+        reduce { state.copy(isSubmitting = true, error = null, pendingNotice = null) }
         val outcome =
             authActions.login(
                 email = state.email,
@@ -79,10 +79,14 @@ class LoginViewModel(private val authActions: AuthActions) :
                     state.showTotp ||
                         outcome.message == AccountMessage.TotpRequired ||
                         outcome.message == AccountMessage.TotpInvalid
+                val pending =
+                    outcome.message == AccountMessage.PendingApproval ||
+                        outcome.message == AccountMessage.EmailNotVerified
                 reduce {
                     state.copy(
                         isSubmitting = false,
-                        error = outcome.message,
+                        error = if (pending) null else outcome.message,
+                        pendingNotice = if (pending) outcome.message else null,
                         showTotp = showTotp,
                         passwordError =
                             if (outcome.message == AccountMessage.EmptyPassword) {
@@ -109,6 +113,7 @@ class LoginViewModel(private val authActions: AuthActions) :
         reduce {
             state.copy(
                 error = null,
+                pendingNotice = null,
                 emailError = null,
                 passwordError = null,
             )

@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import space.ivlev.umbravpn.domain.model.account.AccountError
+import space.ivlev.umbravpn.domain.model.account.BlockReason
 
 internal data class ErrorPayload(val code: String?, val message: String?)
 
@@ -39,8 +40,12 @@ internal fun mapApiError(status: Int, body: String): AccountError {
     val payload = parseErrorPayload(body)
     val code = payload.code ?: "http_$status"
     val message = payload.message ?: "HTTP $status"
-    return when (status) {
-        HttpStatusCode.Unauthorized.value ->
+    return when {
+        code == CODE_ACCOUNT_DISABLED -> AccountError.Disabled(BlockReason.Disabled)
+        code == CODE_REJECTED -> AccountError.Disabled(BlockReason.Rejected)
+        code == CODE_TARIFF_REQUIRED -> AccountError.TariffRequired
+        code == CODE_SUBSCRIPTION_INACTIVE -> AccountError.SubscriptionInactive
+        status == HttpStatusCode.Unauthorized.value ->
             if (code == CODE_TOTP_REQUIRED || code == CODE_TOTP_INVALID) {
                 AccountError.Api(status, code, message)
             } else {
@@ -54,3 +59,7 @@ internal const val CODE_TOTP_REQUIRED = "totp_required"
 internal const val CODE_TOTP_INVALID = "totp_invalid"
 internal const val CODE_EMAIL_NOT_VERIFIED = "email_not_verified"
 internal const val CODE_PENDING_APPROVAL = "pending_approval"
+internal const val CODE_ACCOUNT_DISABLED = "account_disabled"
+internal const val CODE_REJECTED = "rejected"
+internal const val CODE_TARIFF_REQUIRED = "tariff_required"
+internal const val CODE_SUBSCRIPTION_INACTIVE = "subscription_inactive"

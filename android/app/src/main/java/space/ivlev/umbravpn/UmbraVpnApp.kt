@@ -45,6 +45,7 @@ import space.ivlev.umbravpn.di.dispatchersModule
 import space.ivlev.umbravpn.di.networkModule
 import space.ivlev.umbravpn.di.tunnelBackendProviderModule
 import space.ivlev.umbravpn.di.workerModule
+import space.ivlev.umbravpn.domain.account.AccountAccessCleanup
 import space.ivlev.umbravpn.domain.enums.TunnelActionSource
 import space.ivlev.umbravpn.domain.events.TunnelActionEvent
 import space.ivlev.umbravpn.domain.model.account.SessionState
@@ -72,6 +73,8 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
     private val managedTunnelAutoConnector: ManagedTunnelAutoConnector by inject()
 
     private val authRepository: AuthRepository by inject()
+
+    private val accountAccessCleanup: AccountAccessCleanup by inject()
 
     private val backend: Backend by inject()
 
@@ -154,6 +157,10 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
                     managedTunnelAutoConnector.onManualDisconnect()
                 }
             }
+        }
+
+        applicationScope.launch(ioDispatcher) {
+            authRepository.session.collect { accountAccessCleanup.onSessionState(it) }
         }
 
         applicationScope.launch(ioDispatcher) {

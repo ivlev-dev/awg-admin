@@ -40,7 +40,6 @@ import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
-import space.ivlev.umbravpn.domain.model.account.UserStatus
 import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.common.banner.InfoNotice
 import space.ivlev.umbravpn.ui.navigation.Route
@@ -52,6 +51,11 @@ import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
 import space.ivlev.umbravpn.ui.screens.account.components.AccountInfoRow
 import space.ivlev.umbravpn.ui.screens.account.components.AccountLoadingButton
 import space.ivlev.umbravpn.ui.screens.account.components.AccountSecondaryButton
+import space.ivlev.umbravpn.ui.screens.account.components.AccountStatusChip
+import space.ivlev.umbravpn.ui.screens.account.components.AccountSubscriptionCard
+import space.ivlev.umbravpn.ui.screens.account.components.SubscriptionInactiveCard
+import space.ivlev.umbravpn.ui.screens.account.components.TariffMissingCard
+import space.ivlev.umbravpn.ui.screens.account.components.TrafficLimitedBanner
 import space.ivlev.umbravpn.ui.screens.account.components.accountMessageRes
 import space.ivlev.umbravpn.ui.state.AccountSideEffect
 import space.ivlev.umbravpn.ui.state.AccountUiState
@@ -206,7 +210,12 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
     val snapshot = state.snapshot ?: return
     val quota = snapshot.quota
     val percent = AccountFormat.quotaPercent(quota)
+    val access = snapshot.access
+    val tariffMissing = snapshot.tariff == null || access.tariffMissing
     val maxDevices = snapshot.tariff?.maxDevices
+    val throttled = access.throttled || quota.exceeded
+    val canAddDevice = !access.blocked && !tariffMissing
+    val resetAt = quota.resetAt ?: quota.periodEnd
 
     Column(
         modifier =
@@ -229,66 +238,82 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
 
         ProfileCard(snapshot)
 
-        AccountCard {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
-                Text(
-                    text = stringResource(R.string.account_quota_title),
-                    style = MaterialTheme.typography.titleMedium,
-                )
-                Text(
-                    text =
-                        AccountFormat.percent(percent)
-                            ?: stringResource(R.string.account_quota_unlimited),
-                    style = MaterialTheme.typography.titleMedium,
-                    color =
-                        if (quota.exceeded) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary,
-                )
-            }
-            if (quota.quotaBytes != null) {
-                LinearProgressIndicator(
-                    progress = { ((percent ?: 0.0) / 100.0).toFloat() },
-                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
-                    color =
-                        if (quota.exceeded) MaterialTheme.colorScheme.error
-                        else MaterialTheme.colorScheme.primary,
-                )
-                Text(
-                    text = AccountFormat.quotaUsed(quota),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 8.dp),
-                )
-            } else {
-                Text(
-                    text =
-                        stringResource(
-                            R.string.account_quota_used,
-                            AccountFormat.bytes(quota.usedBytes),
-                        ),
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(top = 12.dp),
-                )
-            }
-            if (quota.exceeded) {
-                Text(
-                    text = stringResource(R.string.account_quota_exceeded),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
-            }
-            val resetAt = AccountFormat.date(quota.resetAt ?: quota.periodEnd)
-            if (resetAt != null) {
-                Text(
-                    text = stringResource(R.string.account_quota_resets, resetAt),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+        snapshot.subscription?.let { AccountSubscriptionCard(it) }
+
+        if (snapshot.subscription == null && access.subscriptionInactive) {
+            SubscriptionInactiveCard()
+        }
+
+        if (tariffMissing) {
+            TariffMissingCard()
+        }
+
+        if (throttled) {
+            TrafficLimitedBanner(resetAt = resetAt)
+        }
+
+        if (!tariffMissing) {
+            AccountCard {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.account_quota_title),
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(
+                        text =
+                            AccountFormat.percent(percent)
+                                ?: stringResource(R.string.account_quota_unlimited),
+                        style = MaterialTheme.typography.titleMedium,
+                        color =
+                            if (throttled) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary,
+                    )
+                }
+                if (quota.quotaBytes != null) {
+                    LinearProgressIndicator(
+                        progress = { ((percent ?: 0.0) / 100.0).toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                        color =
+                            if (throttled) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = AccountFormat.quotaUsed(quota),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                } else {
+                    Text(
+                        text =
+                            stringResource(
+                                R.string.account_quota_used,
+                                AccountFormat.bytes(quota.usedBytes),
+                            ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
+                }
+                if (throttled) {
+                    Text(
+                        text = stringResource(R.string.account_quota_exceeded),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
+                val resetLabel = AccountFormat.date(resetAt)
+                if (resetLabel != null) {
+                    Text(
+                        text = stringResource(R.string.account_quota_resets, resetLabel),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         }
 
@@ -352,7 +377,19 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
         AccountSecondaryButton(
             text = stringResource(R.string.account_add_device),
             onClick = viewModel::showAddDevice,
+            enabled = canAddDevice,
         )
+        if (!canAddDevice) {
+            Text(
+                text =
+                    stringResource(
+                        if (access.blocked) R.string.account_add_device_blocked
+                        else R.string.account_add_device_no_tariff,
+                    ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.outline,
+            )
+        }
 
         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
@@ -421,10 +458,18 @@ private fun ProfileCard(snapshot: AccountSnapshot) {
             label = stringResource(R.string.account_role),
             value = stringResource(roleRes(user.role)),
         )
-        AccountInfoRow(
-            label = stringResource(R.string.account_status),
-            value = stringResource(statusRes(user.status)),
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.account_status),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.outline,
+            )
+            AccountStatusChip(status = user.status, disabled = user.disabled)
+        }
         AccountInfoRow(
             label = stringResource(R.string.account_tariff),
             value = snapshot.tariff?.name ?: stringResource(R.string.account_unknown),
@@ -439,16 +484,6 @@ private fun roleRes(role: UserRole): Int =
         UserRole.Admin -> R.string.account_role_admin
         UserRole.User -> R.string.account_role_user
         UserRole.Unknown -> R.string.account_unknown
-    }
-
-@Composable
-private fun statusRes(status: UserStatus): Int =
-    when (status) {
-        UserStatus.Active -> R.string.account_status_active
-        UserStatus.PendingEmail -> R.string.account_status_pending_email
-        UserStatus.PendingApproval -> R.string.account_status_pending_approval
-        UserStatus.Rejected -> R.string.account_status_rejected
-        UserStatus.Unknown -> R.string.account_unknown
     }
 
 private const val PREVIEW_DEVICE_LIMIT = 3
