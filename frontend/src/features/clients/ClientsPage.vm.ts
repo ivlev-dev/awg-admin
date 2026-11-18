@@ -24,6 +24,15 @@ export interface ClientsFilters {
   groupFilter: string;
 }
 
+export interface ClientFormState {
+  readonly name: string;
+  readonly userId: string;
+  readonly groupId: string;
+  readonly downKbps: number;
+  readonly upKbps: number;
+  readonly forwarding: boolean;
+}
+
 const EMPTY_FILTERS: ClientsFilters = { query: "", groupFilter: "" };
 
 export const clientsFiltersStorage = persistedSignal<ClientsFilters>(
@@ -72,6 +81,8 @@ export class ClientsPageVM {
   @reactive accessor formDownKbps = 0;
   @reactive accessor formUpKbps = 0;
   @reactive accessor formForwarding = false;
+
+  @reactive private accessor formSnapshot: ClientFormState | null = null;
 
   created(): void {
     void this.load();
@@ -196,6 +207,24 @@ export class ClientsPageVM {
     return !this.isAdmin || this.formUserId.length > 0;
   }
 
+  @computed
+  get formDirty(): boolean {
+    const snapshot = this.formSnapshot;
+    if (snapshot === null) return false;
+    return !sameClientForm(snapshot, this.formState());
+  }
+
+  private formState(): ClientFormState {
+    return {
+      name: this.formName,
+      userId: this.formUserId,
+      groupId: this.formGroupId,
+      downKbps: this.formDownKbps,
+      upKbps: this.formUpKbps,
+      forwarding: this.formForwarding,
+    };
+  }
+
   async load(): Promise<void> {
     this.loading = true;
     try {
@@ -266,12 +295,23 @@ export class ClientsPageVM {
     this.formDownKbps = 0;
     this.formUpKbps = 0;
     this.formForwarding = false;
+    this.formSnapshot = this.formState();
     this.createOpen = true;
   }
 
-  closeCreate(): void {
+  async closeCreate(): Promise<void> {
     if (this.submitting) return;
+    if (this.formDirty) {
+      const confirmed = await askConfirm({
+        title: t("clients.create.discard.title"),
+        message: t("clients.create.discard.message"),
+        confirmLabel: t("clients.create.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     this.createOpen = false;
+    this.formSnapshot = null;
   }
 
   async create(): Promise<void> {
@@ -295,6 +335,7 @@ export class ClientsPageVM {
         },
       });
       this.createOpen = false;
+      this.formSnapshot = null;
       this.toasts.success(t("clients.toast.created", { name: device.name }));
       await this.load();
     } catch (error) {
@@ -352,4 +393,15 @@ function messageOf(error: unknown, fallback: string): string {
 
 function sanitizeKbps(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function sameClientForm(left: ClientFormState, right: ClientFormState): boolean {
+  return (
+    left.name === right.name &&
+    left.userId === right.userId &&
+    left.groupId === right.groupId &&
+    left.downKbps === right.downKbps &&
+    left.upKbps === right.upKbps &&
+    left.forwarding === right.forwarding
+  );
 }

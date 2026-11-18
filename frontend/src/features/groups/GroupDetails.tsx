@@ -4,6 +4,7 @@ import type { GroupDetailsVM } from "./GroupDetails.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Modal } from "@/components/Modal";
+import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 
 export function GroupDetails(this: { vm: GroupDetailsVM }) {
@@ -162,7 +163,34 @@ export function GroupDetails(this: { vm: GroupDetailsVM }) {
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
 
-      <Show when={!this.vm.loading} fallback={<div class="skeleton" style="height:260px"></div>}>
+      <Show
+        when={!this.vm.loading}
+        fallback={
+          <div class="stack">
+            <div class="page-head">
+              <Skeleton width={110} height={12} />
+              <div style="margin-top:10px">
+                <Skeleton width="min(320px, 60%)" height={30} />
+              </div>
+              <div style="margin-top:10px">
+                <Skeleton width="min(460px, 90%)" height={14} />
+              </div>
+            </div>
+            <SkeletonCards count={3} />
+            <section class="card">
+              <div class="card__head">
+                <div>
+                  <Skeleton width={180} height={16} />
+                  <div style="margin-top:8px">
+                    <Skeleton width={260} height={12} />
+                  </div>
+                </div>
+              </div>
+              <SkeletonTable rows={4} columns={5} />
+            </section>
+          </div>
+        }
+      >
         <Show
           when={this.vm.group}
           fallback={

@@ -63,6 +63,9 @@ export class InterfacesPageVM {
   @reactive accessor rotated: InterfaceInfo | null = null;
   @reactive accessor rotatedCopied = false;
 
+  private createSnapshot = "";
+  private editSnapshot = "";
+
   constructor(
     private readonly interfacesService: InterfacesService,
     private readonly groupsService: GroupsService,
@@ -209,10 +212,38 @@ export class InterfacesPageVM {
     this.formEndpointPort = DEFAULT_ENDPOINT_PORT;
     this.formListenPort = DEFAULT_LISTEN_PORT;
     this.formMtu = DEFAULT_MTU;
+    this.createSnapshot = this.formState();
   }
 
-  closeCreate(): void {
+  formState(): string {
+    return JSON.stringify([
+      this.formGroupId,
+      this.formNodeId,
+      this.formName,
+      this.formLabel,
+      this.formEndpointHost,
+      this.formEndpointPort,
+      this.formListenPort,
+      this.formMtu,
+    ]);
+  }
+
+  @computed
+  get createDirty(): boolean {
+    return this.createOpen && this.formState() !== this.createSnapshot;
+  }
+
+  async closeCreate(): Promise<void> {
     if (this.busy) return;
+    if (this.createDirty) {
+      const confirmed = await askConfirm({
+        title: t("interfaces.create.discard.title"),
+        message: t("interfaces.create.discard.message"),
+        confirmLabel: t("interfaces.create.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     this.createOpen = false;
     this.formError = null;
   }
@@ -268,6 +299,7 @@ export class InterfacesPageVM {
       const created = await this.interfacesService.createInterface(input);
       this.interfaces = [...this.interfaces, created];
       this.createOpen = false;
+      this.createSnapshot = this.formState();
       this.toasts.success(t("interfaces.toast.created", { name: created.name }));
     } catch (error) {
       const message = messageOf(error, t("interfaces.error.create"));
@@ -287,10 +319,36 @@ export class InterfacesPageVM {
     this.editListenPort = String(item.listen_port);
     this.editMtu = String(item.mtu);
     this.editEnabled = item.enabled;
+    this.editSnapshot = this.editState();
   }
 
-  closeEdit(): void {
+  editState(): string {
+    return JSON.stringify([
+      this.editLabel,
+      this.editHost,
+      this.editEndpointPort,
+      this.editListenPort,
+      this.editMtu,
+      this.editEnabled,
+    ]);
+  }
+
+  @computed
+  get editDirty(): boolean {
+    return this.editing !== null && this.editState() !== this.editSnapshot;
+  }
+
+  async closeEdit(): Promise<void> {
     if (this.busy) return;
+    if (this.editDirty) {
+      const confirmed = await askConfirm({
+        title: t("interfaces.edit.discard.title"),
+        message: t("interfaces.edit.discard.message"),
+        confirmLabel: t("interfaces.edit.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
     this.editing = null;
     this.editError = null;
   }
@@ -335,6 +393,7 @@ export class InterfacesPageVM {
         enabled: this.editEnabled,
       });
       this.replace(updated);
+      this.editSnapshot = this.editState();
       this.editing = null;
       this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
     } catch (error) {

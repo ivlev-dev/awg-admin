@@ -248,6 +248,8 @@
 .table tbody td { height: 52px; padding: 8px 16px; border-bottom: 1px solid var(--md-outline-variant); }
 .table tbody tr:last-child td { border-bottom: 0; }
 .table tbody tr { transition: background 100ms linear; }
+.table tbody tr[tabindex] { cursor: pointer; }
+.table tbody tr[tabindex]:focus-visible { outline: 2px solid var(--md-primary); outline-offset: -2px; }
 .table tbody tr:hover { background: color-mix(in oklab, var(--md-on-surface) 6%, transparent); }
 .table tbody tr.is-selected { background: var(--md-primary-container); color: var(--md-on-primary-container); }
 .table tbody tr.is-selected .muted,

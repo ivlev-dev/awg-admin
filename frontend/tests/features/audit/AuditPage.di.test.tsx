@@ -74,7 +74,7 @@ describe("AuditPageVM constructor DI", () => {
     result.dispose();
   });
 
-  it("помечает журнал для мобильных карточек и раскрывает детали", async () => {
+  it("помечает журнал для мобильных карточек и открывает панель деталей", async () => {
     const entry: AuditEntry = {
       ...ENTRY,
       details: "policy validation failed: " + "a".repeat(200),
@@ -106,17 +106,27 @@ describe("AuditPageVM constructor DI", () => {
     expect(root.querySelector("td.cell-details[data-label='Детали']")).not.toBeNull();
     expect(root.querySelectorAll(".cell-entity")).toHaveLength(2);
 
-    const toggle = root.querySelector(".audit-details");
-    expect(toggle).not.toBeNull();
-    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(root.querySelector(".audit-details__text--clamped")).not.toBeNull();
+    const open = root.querySelector<HTMLButtonElement>(".audit-details-cell__open");
+    expect(open).not.toBeNull();
+    expect(root.querySelector(".audit-details")).toBeNull();
+    expect(root.querySelector(".audit-drawer")).toBeNull();
 
-    (toggle as HTMLButtonElement).click();
+    open?.click();
 
     await vi.waitFor(() => {
-      expect(root.querySelector(".audit-details")?.getAttribute("aria-expanded")).toBe("true");
+      expect(root.querySelector(".audit-drawer")).not.toBeNull();
     });
-    expect(root.querySelector(".audit-details__text--clamped")).toBeNull();
+    const drawer = root.querySelector(".audit-drawer");
+    expect(drawer?.getAttribute("role")).toBe("dialog");
+    expect(drawer?.getAttribute("aria-modal")).toBe("true");
+    expect(drawer?.textContent).toContain("policy validation failed");
+    expect(drawer?.textContent).toContain("Событие");
+
+    root.querySelector<HTMLButtonElement>(".audit-drawer__close")?.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelector(".audit-drawer")).toBeNull();
+    });
 
     result.dispose();
     result.node.parentNode?.removeChild(result.node);

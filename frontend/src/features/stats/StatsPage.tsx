@@ -12,6 +12,42 @@ function avatarLetter(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
 }
 
+interface ComparisonNoteProps {
+  readonly enabled: boolean;
+  readonly loading: boolean;
+  readonly hasError: boolean;
+  readonly label: string;
+  readonly className: string;
+}
+
+function ComparisonNote(props: ComparisonNoteProps): Node {
+  return (
+    <Show when={props.enabled}>
+      <div class="stats-compare">
+        <Show
+          when={props.loading}
+          fallback={
+            <Show
+              when={!props.hasError}
+              fallback={
+                <span class="stats-compare__delta stats-compare__delta--flat">
+                  {t("stats.compare.failed")}
+                </span>
+              }
+            >
+              <span class={`stats-compare__delta ${props.className}`}>{props.label}</span>
+            </Show>
+          }
+        >
+          <span class="stats-compare__delta stats-compare__delta--flat">
+            {t("stats.compare.loading")}
+          </span>
+        </Show>
+      </div>
+    </Show>
+  );
+}
+
 export function StatsPage(this: { vm: StatsVM }) {
   return (
     <div class="stack">
@@ -36,6 +72,15 @@ export function StatsPage(this: { vm: StatsVM }) {
               <div class="data-toolbar__sub">{this.vm.periodLabel}</div>
             </div>
             <div class="data-toolbar__actions">
+              <button
+                class={`chip stats-compare__toggle ${this.vm.compareEnabled ? "is-selected" : ""}`}
+                type="button"
+                aria-pressed={this.vm.compareEnabled ? "true" : "false"}
+                onClick={() => this.vm.toggleCompare()}
+              >
+                <Icon name="check" size={14} class="chip__check" />
+                <Icon name="stats" size={14} class="" /> {t("stats.compare.toggle")}
+              </button>
               <button
                 class="btn btn--sm"
                 type="button"
@@ -115,6 +160,14 @@ export function StatsPage(this: { vm: StatsVM }) {
             >
               <Icon name="check" size={14} class="chip__check" /> {t("stats.range.30d")}
             </button>
+            <button
+              class={`chip ${this.vm.rangeKey === "90d" ? "is-selected" : ""}`}
+              type="button"
+              aria-pressed={this.vm.rangeKey === "90d" ? "true" : "false"}
+              onClick={() => this.vm.setRange("90d")}
+            >
+              <Icon name="check" size={14} class="chip__check" /> {t("stats.range.90d")}
+            </button>
           </div>
         </div>
       </section>
@@ -128,6 +181,13 @@ export function StatsPage(this: { vm: StatsVM }) {
             </div>
             <div class="stat__value">{this.vm.totalRxLabel}</div>
             <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
+            <ComparisonNote
+              enabled={this.vm.compareEnabled}
+              loading={this.vm.previousLoading}
+              hasError={this.vm.previousError !== null}
+              label={this.vm.compareRxLabel}
+              className={this.vm.compareRxClass}
+            />
           </div>
           <div class="stat">
             <div class="stat__top" style="justify-content:flex-start">
@@ -136,6 +196,13 @@ export function StatsPage(this: { vm: StatsVM }) {
             </div>
             <div class="stat__value">{this.vm.totalTxLabel}</div>
             <div class="stat__hint">{this.vm.periodLabel} · {this.vm.selectedScopeLabel}</div>
+            <ComparisonNote
+              enabled={this.vm.compareEnabled}
+              loading={this.vm.previousLoading}
+              hasError={this.vm.previousError !== null}
+              label={this.vm.compareTxLabel}
+              className={this.vm.compareTxClass}
+            />
           </div>
           <div class="stat">
             <div class="stat__top" style="justify-content:flex-start">

@@ -595,3 +595,172 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   display: inline-flex;
   padding: 0;
 }
+
+.audit-details-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.audit-details-cell__preview {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.audit-details-cell__open { flex: none; }
+
+.audit-drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: calc(var(--z-modal) + 5);
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-end;
+  background: color-mix(in oklab, #080b14 62%, transparent);
+  backdrop-filter: blur(4px);
+  animation: audit-drawer-fade var(--dur-3) var(--ease);
+}
+
+.audit-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(480px, 100vw);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--md-surface-high);
+  color: var(--md-on-surface);
+  border-left: 1px solid var(--md-outline-variant);
+  box-shadow: var(--shadow-3);
+  padding:
+    calc(16px + env(safe-area-inset-top))
+    calc(20px + env(safe-area-inset-right))
+    calc(20px + env(safe-area-inset-bottom))
+    calc(20px + env(safe-area-inset-left));
+  animation: audit-drawer-in var(--dur-3) var(--ease);
+}
+.audit-drawer:focus { outline: none; }
+
+.audit-drawer__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+.audit-drawer__title {
+  margin: 0;
+  font-size: var(--type-title-lg);
+  font-weight: 700;
+}
+.audit-drawer__close { flex: none; }
+.audit-drawer__body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.audit-drawer__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.audit-drawer__field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.audit-drawer__field dt,
+.audit-drawer__section-title {
+  color: var(--md-on-surface-variant);
+  font-size: var(--t-2xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.audit-drawer__field dd {
+  margin: 0;
+  font-size: var(--t-sm);
+  overflow-wrap: anywhere;
+}
+.audit-drawer__sub {
+  display: block;
+  margin-top: 2px;
+  color: var(--md-on-surface-variant);
+  font-size: var(--t-2xs);
+  overflow-wrap: anywhere;
+}
+.audit-drawer__section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.audit-drawer__json {
+  margin: 0;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 12px;
+  border: 1px solid var(--md-outline-variant);
+  border-radius: var(--shape-md);
+  background: var(--md-surface-container);
+  color: var(--md-on-surface);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--t-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  tab-size: 2;
+}
+.audit-drawer__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@keyframes audit-drawer-in {
+  from { transform: translateX(28px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@keyframes audit-drawer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 767px) {
+  .audit-drawer-backdrop { align-items: flex-end; }
+  .audit-drawer {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: calc(100dvh - env(safe-area-inset-top));
+    border-left: 0;
+    border-top: 1px solid var(--md-outline-variant);
+    border-radius: var(--shape-xl) var(--shape-xl) 0 0;
+    padding:
+      16px
+      max(16px, env(safe-area-inset-right))
+      calc(20px + env(safe-area-inset-bottom))
+      max(16px, env(safe-area-inset-left));
+    animation-name: audit-drawer-up;
+  }
+  .audit-drawer__json { max-height: 40dvh; }
+}
+
+@keyframes audit-drawer-up {
+  from { transform: translateY(28px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .audit-drawer,
+  .audit-drawer-backdrop { animation: none; }
+}

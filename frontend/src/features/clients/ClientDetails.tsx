@@ -6,6 +6,7 @@ import { Modal } from "@/components/Modal";
 import { QrCode } from "@/components/QrCode";
 import { RateField } from "@/components/RateField";
 import { Select } from "@/components/Select";
+import { Skeleton, SkeletonCards, SkeletonTable } from "@/components/Skeleton";
 import { t } from "@/i18n";
 import { formatDateTimeI18n } from "@/i18n/format";
 
@@ -38,8 +39,17 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
         when={!this.vm.loading}
         fallback={
           <div class="stack">
-            <div class="skeleton" style="height:110px"></div>
-            <div class="skeleton" style="height:280px"></div>
+            <Skeleton height={28} width="55%" />
+            <SkeletonCards count={4} />
+            <div class="grid grid--2">
+              <Skeleton height={220} radius={16} />
+              <Skeleton height={220} radius={16} />
+            </div>
+            <section class="card">
+              <div class="card__body">
+                <SkeletonTable rows={4} columns={4} />
+              </div>
+            </section>
           </div>
         }
       >
@@ -289,17 +299,27 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       </Show>
                     </div>
 
-                    <button
-                      class="btn btn--primary"
-                      type="button"
-                      disabled={!this.vm.canSave}
-                      onClick={() => this.vm.save()}
-                    >
-                      <Show when={this.vm.saving} fallback={<span>{t("common.saveShort")}</span>}>
-                        <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                        <span>{t("common.saving")}</span>
-                      </Show>
-                    </button>
+                    <div class="row" style="gap:8px">
+                      <button
+                        class="btn btn--primary"
+                        type="button"
+                        disabled={!this.vm.canSave}
+                        onClick={() => this.vm.save()}
+                      >
+                        <Show when={this.vm.saving} fallback={<span>{t("common.saveShort")}</span>}>
+                          <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                          <span>{t("common.saving")}</span>
+                        </Show>
+                      </button>
+                      <button
+                        class="btn"
+                        type="button"
+                        disabled={!this.vm.editDirty || this.vm.saving}
+                        onClick={() => void this.vm.cancelEdit()}
+                      >
+                        {t("common.cancelShort")}
+                      </button>
+                    </div>
                   </div>
                 </section>
               </div>

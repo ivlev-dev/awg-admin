@@ -7,6 +7,42 @@ import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { t } from "@/i18n";
 
+function fromInteractive(target: EventTarget | null): boolean {
+  return target instanceof Element && target.closest("button, input, textarea, select, a") !== null;
+}
+
+function onCardKeyDown(event: KeyboardEvent, open: () => void): void {
+  if (event.key === "Enter" || event.key === " ") {
+    if (fromInteractive(event.target)) return;
+    event.preventDefault();
+    open();
+    return;
+  }
+  if (
+    event.key !== "ArrowRight" &&
+    event.key !== "ArrowDown" &&
+    event.key !== "ArrowLeft" &&
+    event.key !== "ArrowUp"
+  ) {
+    return;
+  }
+  if (!(event.currentTarget instanceof HTMLElement)) return;
+  if (focusSiblingCard(event.currentTarget, event.key)) event.preventDefault();
+}
+
+function focusSiblingCard(current: HTMLElement, key: string): boolean {
+  const grid = current.closest(".grid");
+  if (grid === null) return false;
+  const cards = Array.from(grid.querySelectorAll<HTMLElement>("article[tabindex]"));
+  const index = cards.indexOf(current);
+  if (index < 0) return false;
+  const delta = key === "ArrowRight" || key === "ArrowDown" ? 1 : -1;
+  const next = cards[index + delta];
+  if (next === undefined) return false;
+  next.focus();
+  return true;
+}
+
 export function GroupsPage(this: { vm: GroupsPageVM }) {
   const form = (
     <form id="group-form" class="stack" onSubmit={(event: Event) => this.vm.save(event)}>
@@ -134,7 +170,13 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
           <div class="grid grid--3">
             <For each={this.vm.groups}>
               {(group) => (
-                <article class="card">
+                <article
+                  class="card"
+                  tabindex={0}
+                  role="link"
+                  aria-label={t("groups.card.openAria", { name: group.name })}
+                  onKeyDown={(event: KeyboardEvent) => onCardKeyDown(event, () => this.vm.open(group))}
+                >
                   <div class="card__body stack-sm">
                     <div class="row-between">
                       <div class="row" style="min-width:0">

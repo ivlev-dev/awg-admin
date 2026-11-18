@@ -473,6 +473,79 @@ describe("ClientsPageVM", () => {
     expect(router.path).toBe("/clients/d1");
   });
 
+  it("отслеживает несохранённые данные формы создания", () => {
+    const { vm } = setup("admin");
+
+    vm.openCreate();
+    expect(vm.formDirty).toBe(false);
+
+    vm.setFormName({ target: { value: "Pixel" } } as unknown as Event);
+    expect(vm.formDirty).toBe(true);
+
+    vm.formDownKbps = 100;
+    expect(vm.formDirty).toBe(true);
+
+    vm.setFormDownKbps(0);
+    expect(vm.formDirty).toBe(true);
+
+    vm.setFormName({ target: { value: "" } } as unknown as Event);
+    expect(vm.formDirty).toBe(false);
+  });
+
+  it("закрывает форму создания без подтверждения, если данные не менялись", async () => {
+    const { vm } = setup("admin");
+    vm.openCreate();
+
+    await vm.closeCreate();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.createOpen).toBe(false);
+    expect(vm.formDirty).toBe(false);
+  });
+
+  it("оставляет форму открытой при отказе от закрытия", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm } = setup("admin");
+    vm.openCreate();
+    vm.formName = "Pixel";
+
+    await vm.closeCreate();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Несохранённые данные",
+      message: "Закрыть форму? Введённые данные не сохранятся.",
+      confirmLabel: "Закрыть без сохранения",
+      tone: "danger",
+    });
+    expect(vm.createOpen).toBe(true);
+    expect(vm.formName).toBe("Pixel");
+  });
+
+  it("закрывает форму создания после подтверждения и сбрасывает снимок", async () => {
+    const { vm } = setup("admin");
+    vm.openCreate();
+    vm.formName = "Pixel";
+
+    await vm.closeCreate();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
+    expect(vm.createOpen).toBe(false);
+    expect(vm.formDirty).toBe(false);
+  });
+
+  it("сбрасывает снимок формы после успешного создания", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+    vm.openCreate();
+    vm.formName = "Pixel";
+    vm.setFormUser(OWNER.id);
+
+    await vm.create();
+
+    expect(vm.createOpen).toBe(false);
+    expect(vm.formDirty).toBe(false);
+  });
+
   it("фильтрует устройства по запросу и группе", async () => {
     const { vm } = setup("admin", [DEVICE, PHONE]);
     await vm.load();
@@ -631,6 +704,56 @@ describe("ClientsPageVM", () => {
     expect(labels).toContain("Статус");
     expect(root.querySelector("td[data-label='Владелец'] .cell-stack")).not.toBeNull();
     expect(root.querySelector("tbody tr td.cell-actions button")).not.toBeNull();
+
+    result.dispose();
+  });
+
+  it("навигирует по строкам таблицы с клавиатуры", async () => {
+    const devices = devicesHarness([DEVICE, PHONE]);
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groupsHarness([GROUP])));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
+    container.bind(Session, () => makeSession(ADMIN));
+    const router = new Router();
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => new ToastStore());
+
+    const result = createComponent(ClientsPage, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+
+    await vi.waitFor(() => {
+      expect(document.body.querySelectorAll("tbody tr[tabindex]").length).toBe(2);
+    });
+
+    const rows = Array.from(document.body.querySelectorAll<HTMLTableRowElement>("tbody tr[tabindex]"));
+    const first = rows[0];
+    const second = rows[1];
+    expect(first).toBeDefined();
+    expect(second).toBeDefined();
+    if (!first || !second) throw new Error("rows are not rendered");
+    expect(first.getAttribute("data-device")).toBe("d1");
+    expect(second.getAttribute("data-device")).toBe("d2");
+
+    first.focus();
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(document.activeElement).toBe(second);
+
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    expect(document.activeElement).toBe(first);
+
+    first.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(router.path).toBe("/clients/d1");
+
+    second.focus();
+    second.dispatchEvent(new KeyboardEvent("keydown", { key: " ", bubbles: true }));
+    expect(router.path).toBe("/clients/d2");
+
+    const checkbox = second.querySelector("input");
+    expect(checkbox).not.toBeNull();
+    checkbox?.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    expect(router.path).toBe("/clients/d2");
 
     result.dispose();
   });

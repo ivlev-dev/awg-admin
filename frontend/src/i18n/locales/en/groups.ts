@@ -10,6 +10,7 @@ export const enGroups = {
   "groups.interfaces": "Interfaces",
   "groups.devices": "Devices",
   "groups.action.open": "Open",
+  "groups.card.openAria": "Open group “{name}”",
   "groups.action.editAria": "Edit group",
   "groups.action.deleteAria": "Delete group",
   "groups.selectAll": "Select all groups",

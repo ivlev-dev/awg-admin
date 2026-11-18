@@ -59,6 +59,14 @@ export const SHARE_STATE_KEYS: Record<ShareLinkState, TranslationKey> = {
 
 export const SHARE_MAX_USES_LIMIT = 1000;
 
+export interface ClientEditState {
+  readonly name: string;
+  readonly downKbps: number;
+  readonly upKbps: number;
+  readonly forwardingMode: ForwardingMode;
+  readonly forwardingSelected: readonly string[];
+}
+
 export class ClientDetailsVM {
   constructor(
     private readonly devicesService: DevicesService,
@@ -102,6 +110,8 @@ export class ClientDetailsVM {
   @reactive accessor forwardingRows: ForwardingRow[] = [];
   @reactive accessor forwardingSymmetric = true;
   @reactive accessor forwardingBusy = false;
+
+  @reactive private accessor editSnapshot: ClientEditState | null = null;
 
   created(): void {
     void this.load();
@@ -304,6 +314,20 @@ export class ClientDetailsVM {
       this.editName.trim().length > 0 &&
       !this.saving &&
       this.forwardingError === null
+    );
+  }
+
+  @computed
+  get editDirty(): boolean {
+    const snapshot = this.editSnapshot;
+    if (snapshot === null) return false;
+    const current = this.editState();
+    return (
+      current.name !== snapshot.name ||
+      current.downKbps !== snapshot.downKbps ||
+      current.upKbps !== snapshot.upKbps ||
+      current.forwardingMode !== snapshot.forwardingMode ||
+      !sameIds(current.forwardingSelected, snapshot.forwardingSelected)
     );
   }
 
@@ -584,6 +608,22 @@ export class ClientDetailsVM {
     this.shareMaxUses = value;
   }
 
+  async cancelEdit(): Promise<void> {
+    if (this.saving) return;
+    const device = this.device;
+    if (!device) return;
+    if (this.editDirty) {
+      const confirmed = await askConfirm({
+        title: t("clients.edit.discard.title"),
+        message: t("clients.edit.discard.message"),
+        confirmLabel: t("clients.edit.discard.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
+    this.hydrateForm(device);
+  }
+
   async save(): Promise<void> {
     const device = this.device;
     if (!device || !this.canSave) return;
@@ -824,6 +864,16 @@ export class ClientDetailsVM {
     this.router.navigate("/clients");
   }
 
+  private editState(): ClientEditState {
+    return {
+      name: this.editName,
+      downKbps: this.editDownKbps,
+      upKbps: this.editUpKbps,
+      forwardingMode: this.forwardingMode,
+      forwardingSelected: [...this.forwardingSelected],
+    };
+  }
+
   private hydrateForm(device: Device): void {
     this.editName = device.name;
     this.editDownKbps = device.down_kbps;
@@ -831,6 +881,7 @@ export class ClientDetailsVM {
     this.forwardingMode = modeOfForwarding(device.forwarding);
     this.forwardingSelected =
       this.forwardingMode === "selected" ? [...device.forwarding.allowed_devices] : [];
+    this.editSnapshot = this.editState();
   }
 
   private async loadOwnerQuota(device: Device): Promise<void> {
@@ -917,6 +968,17 @@ export class ClientDetailsVM {
     if (!row) return;
     this.forwardingMode = row.mode;
     this.forwardingSelected = [...row.allowed];
+    this.refreshForwardingSnapshot();
+  }
+
+  private refreshForwardingSnapshot(): void {
+    const snapshot = this.editSnapshot;
+    if (snapshot === null) return;
+    this.editSnapshot = {
+      ...snapshot,
+      forwardingMode: this.forwardingMode,
+      forwardingSelected: [...this.forwardingSelected],
+    };
   }
 
   private async persistRows(
@@ -978,6 +1040,11 @@ function messageOf(error: unknown, fallback: string): string {
 
 function sanitizeKbps(value: number): number {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function sameIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }
 
 function sanitizeFilePart(value: string): string {

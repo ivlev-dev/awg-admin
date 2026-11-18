@@ -10,6 +10,7 @@ export const ruGroups = {
   "groups.interfaces": "Интерфейсы",
   "groups.devices": "Устройства",
   "groups.action.open": "Открыть",
+  "groups.card.openAria": "Открыть группу «{name}»",
   "groups.action.editAria": "Редактировать группу",
   "groups.action.deleteAria": "Удалить группу",
   "groups.selectAll": "Выбрать все группы",

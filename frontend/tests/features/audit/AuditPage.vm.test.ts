@@ -182,6 +182,7 @@ describe("AuditPageVM", () => {
     vm.status = "404";
     vm.from = "2024-01-01T10:00";
     vm.to = "2024-01-02T10:00";
+    vm.openDetails(formatAuditRow(entry()));
 
     await vm.reset();
 
@@ -191,6 +192,7 @@ describe("AuditPageVM", () => {
     expect(vm.status).toBe("");
     expect(vm.from).toBe("");
     expect(vm.to).toBe("");
+    expect(vm.detailsRow).toBeNull();
     expect(repository.calls[0]?.action).toBeUndefined();
     expect(repository.calls[0]?.status).toBeUndefined();
   });
@@ -370,14 +372,39 @@ describe("AuditPageVM", () => {
     expect(formatAuditRow(entry({ entity_id: null })).entityLabel).toBe("devices");
   });
 
-  it("разворачивает и сворачивает детали", () => {
+  it("открывает и закрывает панель деталей", () => {
     const vm = makeVM(new FakeAuditRepository());
+    const row = formatAuditRow(entry({ details: "payload" }));
 
-    vm.toggleDetails("e1");
-    expect(vm.expandedId).toBe("e1");
+    vm.openDetails(row);
+    expect(vm.detailsRow).toEqual(row);
 
-    vm.toggleDetails("e1");
-    expect(vm.expandedId).toBeNull();
+    vm.closeDetails();
+    expect(vm.detailsRow).toBeNull();
+  });
+
+  it("закрывает панель деталей при обновлении журнала", async () => {
+    const repository = new FakeAuditRepository();
+    repository.pages.push({ items: [entry()], next_cursor: null });
+    const vm = makeVM(repository);
+    await vm.reload();
+    vm.openDetails(vm.rows[0] ?? formatAuditRow(entry()));
+    expect(vm.detailsRow).not.toBeNull();
+
+    await vm.refresh();
+
+    expect(vm.detailsRow).toBeNull();
+  });
+
+  it("закрывает панель деталей при смене фильтров", async () => {
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+    vm.openDetails(formatAuditRow(entry()));
+    vm.action = "POST";
+
+    await vm.apply();
+
+    expect(vm.detailsRow).toBeNull();
   });
 
   it("разрешает очистку только при активных фильтрах", async () => {
@@ -519,7 +546,7 @@ describe("AuditPageVM", () => {
     vm.status = "404";
     vm.from = "2024-01-01T10:00";
     vm.to = "2024-01-02T10:00";
-    vm.expandedId = "e1";
+    vm.openDetails(formatAuditRow(entry()));
 
     await vm.clearFilter("action");
 
@@ -529,7 +556,7 @@ describe("AuditPageVM", () => {
     expect(vm.status).toBe("404");
     expect(vm.from).toBe("2024-01-01T10:00");
     expect(vm.to).toBe("2024-01-02T10:00");
-    expect(vm.expandedId).toBeNull();
+    expect(vm.detailsRow).toBeNull();
     expect(repository.calls).toHaveLength(1);
     expect(repository.calls[0]).toEqual({
       limit: 50,

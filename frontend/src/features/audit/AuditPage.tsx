@@ -1,6 +1,7 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { AuditPageVM } from "./AuditPage.vm";
+import { AuditDetailsDrawer } from "@/components/AuditDetailsDrawer";
 import { ErrorState } from "@/components/ErrorState";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
@@ -232,39 +233,18 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                             <span class="small mono">{row.ip}</span>
                           </td>
                           <td class="cell-details col-details" data-label={t("audit.column.details")}>
-                            <Show
-                              when={row.hasDetails}
-                              fallback={<span class="small muted">{row.detailsPreview}</span>}
-                            >
-                              <div class="row">
-                                <button
-                                  class="audit-details"
-                                  type="button"
-                                  aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                  title={row.details ?? undefined}
-                                  onClick={() => this.vm.toggleDetails(row.id)}
-                                >
-                                  <span
-                                    class={`audit-details__text ${
-                                      this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                    }`}
-                                  >
-                                    {row.details ?? row.detailsPreview}
-                                  </span>
-                                </button>
-                                <Show when={this.vm.expandedId === row.id && row.details !== null}>
-                                  <button
-                                    class="btn btn--sm btn--ghost btn--icon"
-                                    type="button"
-                                    aria-label={t("audit.copy.details")}
-                                    title={t("audit.copy.details")}
-                                    onClick={() => this.vm.copyDetails(row)}
-                                  >
-                                    <Icon name="copy" size={14} class="" />
-                                  </button>
-                                </Show>
-                              </div>
-                            </Show>
+                            <div class="audit-details-cell">
+                              <span class="small muted audit-details-cell__preview" title={row.details ?? undefined}>
+                                {row.detailsPreview}
+                              </span>
+                              <button
+                                class="btn btn--sm btn--ghost audit-details-cell__open"
+                                type="button"
+                                onClick={() => this.vm.openDetails(row)}
+                              >
+                                {t("audit.drawer.show")}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )}
@@ -308,39 +288,18 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                           <div class="entity-card__wide">
                             <dt>{t("audit.column.details")}</dt>
                             <dd>
-                              <Show
-                                when={row.hasDetails}
-                                fallback={<span class="small muted">{row.detailsPreview}</span>}
-                              >
-                                <div class="row">
-                                  <button
-                                    class="audit-details"
-                                    type="button"
-                                    aria-expanded={this.vm.expandedId === row.id ? "true" : "false"}
-                                    title={row.details ?? undefined}
-                                    onClick={() => this.vm.toggleDetails(row.id)}
-                                  >
-                                    <span
-                                      class={`audit-details__text ${
-                                        this.vm.expandedId === row.id ? "" : "audit-details__text--clamped"
-                                      }`}
-                                    >
-                                      {row.details ?? row.detailsPreview}
-                                    </span>
-                                  </button>
-                                  <Show when={row.details !== null}>
-                                    <button
-                                      class="btn btn--sm btn--ghost btn--icon"
-                                      type="button"
-                                      aria-label={t("audit.copy.details")}
-                                      title={t("audit.copy.details")}
-                                      onClick={() => this.vm.copyDetails(row)}
-                                    >
-                                      <Icon name="copy" size={14} class="" />
-                                    </button>
-                                  </Show>
-                                </div>
-                              </Show>
+                              <div class="audit-details-cell">
+                                <span class="small muted audit-details-cell__preview" title={row.details ?? undefined}>
+                                  {row.detailsPreview}
+                                </span>
+                                <button
+                                  class="btn btn--sm btn--ghost audit-details-cell__open"
+                                  type="button"
+                                  onClick={() => this.vm.openDetails(row)}
+                                >
+                                  {t("audit.drawer.show")}
+                                </button>
+                              </div>
                             </dd>
                           </div>
                         </dl>
@@ -383,6 +342,14 @@ export function AuditPage(this: { vm: AuditPageVM }) {
           </div>
         </Show>
       </section>
+
+      <AuditDetailsDrawer
+        row={this.vm.detailsRow}
+        onClose={() => this.vm.closeDetails()}
+        onCopy={(row) => {
+          void this.vm.copyDetails(row);
+        }}
+      />
     </div>
   );
 }

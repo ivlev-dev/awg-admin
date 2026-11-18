@@ -721,3 +721,6 @@
     border-top: 1px solid var(--md-outline-variant);
   }
 }
+
+.card[tabindex] { cursor: default; }
+.card[tabindex]:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }

@@ -15,7 +15,20 @@ import { t, type TranslationKey } from "@/i18n";
 import { formatBytesI18n } from "@/i18n/format";
 
 type Scope = "global" | "user" | "group" | "interface" | "device";
-type RangeKey = "24h" | "7d" | "30d";
+type RangeKey = "24h" | "7d" | "30d" | "90d";
+type DeltaDirection = "up" | "down" | "flat";
+
+export interface TrafficComparison {
+  current: number;
+  previous: number | null;
+  deltaPercent: number | null;
+  direction: DeltaDirection;
+}
+
+export interface StatsComparison {
+  rx: TrafficComparison;
+  tx: TrafficComparison;
+}
 
 interface ScopeOption {
   value: Scope;
@@ -49,13 +62,33 @@ const RANGE_SECONDS: Record<RangeKey, number> = {
   "24h": 24 * 3600,
   "7d": 7 * 24 * 3600,
   "30d": 30 * 24 * 3600,
+  "90d": 90 * 24 * 3600,
 };
 
 const RANGE_LABELS: Record<RangeKey, TranslationKey> = {
   "24h": "stats.range.24h",
   "7d": "stats.range.7d",
   "30d": "stats.range.30d",
+  "90d": "stats.range.90d",
 };
+
+function compareTotals(current: number, previous: number | null): TrafficComparison {
+  if (previous === null || previous === 0) {
+    return { current, previous, deltaPercent: null, direction: "flat" };
+  }
+  const deltaPercent = ((current - previous) / previous) * 100;
+  const rounded = Math.round(deltaPercent);
+  const direction: DeltaDirection = rounded > 0 ? "up" : rounded < 0 ? "down" : "flat";
+  return { current, previous, deltaPercent, direction };
+}
+
+function deltaLabel(deltaPercent: number | null): string {
+  if (deltaPercent === null) return "=";
+  const rounded = Math.round(Math.abs(deltaPercent));
+  if (rounded === 0) return "=";
+  const sign = deltaPercent > 0 ? "+" : "\u2212";
+  return `${sign}${rounded}%`;
+}
 
 function csvCell(value: string): string {
   return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
@@ -99,9 +132,14 @@ export class StatsVM {
   @reactive accessor devicesLoading = false;
   @reactive accessor initialized = false;
   @reactive accessor liveEnabled = false;
+  @reactive accessor compareEnabled = false;
+  @reactive accessor previousTotals: TrafficTotals | null = null;
+  @reactive accessor previousLoading = false;
+  @reactive accessor previousError: string | null = null;
 
   private seriesRequest = 0;
   private statsRequest = 0;
+  private previousRequest = 0;
 
   constructor(
     private readonly statsService: StatsService,
@@ -241,6 +279,34 @@ export class StatsVM {
   }
 
   @computed
+  get comparison(): StatsComparison {
+    return {
+      rx: compareTotals(this.totalRx, this.previousTotals?.rx ?? null),
+      tx: compareTotals(this.totalTx, this.previousTotals?.tx ?? null),
+    };
+  }
+
+  @computed
+  get compareRxLabel(): string {
+    return this.comparisonLabel(this.comparison.rx);
+  }
+
+  @computed
+  get compareTxLabel(): string {
+    return this.comparisonLabel(this.comparison.tx);
+  }
+
+  @computed
+  get compareRxClass(): string {
+    return this.comparisonClass(this.comparison.rx);
+  }
+
+  @computed
+  get compareTxClass(): string {
+    return this.comparisonClass(this.comparison.tx);
+  }
+
+  @computed
   get points(): number {
     return this.series.length;
   }
@@ -342,6 +408,29 @@ export class StatsVM {
     void this.loadSeries();
   }
 
+  toggleCompare(): void {
+    this.setCompare(!this.compareEnabled);
+  }
+
+  setCompare(value: boolean): void {
+    if (this.compareEnabled === value) return;
+    this.compareEnabled = value;
+    if (!value) {
+      this.previousRequest += 1;
+      this.previousTotals = null;
+      this.previousError = null;
+      this.previousLoading = false;
+      return;
+    }
+    if (this.requiresEntity && !this.scopeId) {
+      this.previousTotals = null;
+      this.previousError = null;
+      this.previousLoading = false;
+      return;
+    }
+    void this.loadPrevious(this.currentWindow().from);
+  }
+
   toggleLive(): void {
     if (this.liveEnabled) {
       this.liveEnabled = false;
@@ -388,23 +477,32 @@ export class StatsVM {
     if (this.requiresEntity && !this.scopeId) {
       this.series = [];
       this.seriesLoading = false;
+      this.resetPrevious();
       return;
     }
     this.seriesLoading = true;
     this.error = null;
+    const { from, to } = this.currentWindow();
+    const seriesTask = this.statsService.series(this.scope, this.scopeId, from, to);
+    const previousTask = this.compareEnabled ? this.loadPrevious(from) : null;
     try {
-      const to = Math.floor(Date.now() / 1000);
-      const from = to - this.rangeSeconds;
-      const points = await this.statsService.series(this.scope, this.scopeId, from, to);
-      if (request !== this.seriesRequest) return;
+      const points = await seriesTask;
+      if (request !== this.seriesRequest) {
+        await previousTask;
+        return;
+      }
       this.series = points;
     } catch (error) {
-      if (request !== this.seriesRequest) return;
+      if (request !== this.seriesRequest) {
+        await previousTask;
+        return;
+      }
       this.error = error instanceof Error ? error.message : t("stats.error.series");
       this.toasts.error(this.error);
     } finally {
       if (request === this.seriesRequest) this.seriesLoading = false;
     }
+    await previousTask;
   }
 
   async loadDeviceStats(): Promise<void> {
@@ -475,6 +573,53 @@ export class StatsVM {
 
   openDevice(id: string): void {
     this.router.navigate(`/clients/${id}`);
+  }
+
+  private currentWindow(): { from: number; to: number } {
+    const to = Math.floor(Date.now() / 1000);
+    return { from: to - this.rangeSeconds, to };
+  }
+
+  private async loadPrevious(currentFrom: number): Promise<void> {
+    const request = ++this.previousRequest;
+    this.previousLoading = true;
+    this.previousError = null;
+    const to = currentFrom - 1;
+    const from = to - this.rangeSeconds;
+    try {
+      const points = await this.statsService.series(this.scope, this.scopeId, from, to);
+      if (request !== this.previousRequest) return;
+      this.previousTotals = {
+        rx: points.reduce((sum, point) => sum + point.rx, 0),
+        tx: points.reduce((sum, point) => sum + point.tx, 0),
+      };
+    } catch (error) {
+      if (request !== this.previousRequest) return;
+      this.previousTotals = null;
+      this.previousError = error instanceof Error ? error.message : t("stats.compare.failed");
+    } finally {
+      if (request === this.previousRequest) this.previousLoading = false;
+    }
+  }
+
+  private resetPrevious(): void {
+    this.previousRequest += 1;
+    this.previousTotals = null;
+    this.previousError = null;
+    this.previousLoading = false;
+  }
+
+  private comparisonLabel(item: TrafficComparison): string {
+    if (item.previous === null || item.previous === 0) return t("stats.compare.noData");
+    const previous = t("stats.compare.previous", { value: formatBytesI18n(item.previous) });
+    return `${previous} · ${deltaLabel(item.deltaPercent)}`;
+  }
+
+  private comparisonClass(item: TrafficComparison): string {
+    if (item.previous === null || item.previous === 0) return "stats-compare__delta--flat";
+    if (item.direction === "up") return "stats-compare__delta--up";
+    if (item.direction === "down") return "stats-compare__delta--down";
+    return "stats-compare__delta--flat";
   }
 
   private ensureEntityId(): void {

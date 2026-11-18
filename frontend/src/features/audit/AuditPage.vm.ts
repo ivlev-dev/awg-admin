@@ -147,7 +147,7 @@ export class AuditPageVM {
   @reactive accessor clearing = false;
   @reactive accessor error: string | null = null;
   @reactive accessor cursor: string | null = null;
-  @reactive accessor expandedId: string | null = null;
+  @reactive accessor detailsRow: AuditRowView | null = null;
 
   @reactive accessor action = "";
   @reactive accessor entity = "";
@@ -315,7 +315,7 @@ export class AuditPageVM {
     this.status = "";
     this.from = "";
     this.to = "";
-    this.expandedId = null;
+    this.detailsRow = null;
     auditFiltersStorage.clear();
     await this.reload();
   }
@@ -332,7 +332,7 @@ export class AuditPageVM {
     if (key === "status") this.status = "";
     if (key === "from") this.from = "";
     if (key === "to") this.to = "";
-    this.expandedId = null;
+    this.detailsRow = null;
     this.persistFilters();
     await this.refresh();
   }
@@ -373,6 +373,7 @@ export class AuditPageVM {
 
   async reload(): Promise<void> {
     if (this.loading || this.loadingMore) return;
+    this.detailsRow = null;
     this.cursor = null;
     await this.loadPage(null);
   }
@@ -383,8 +384,12 @@ export class AuditPageVM {
     await this.loadPage(before);
   }
 
-  toggleDetails(id: string): void {
-    this.expandedId = this.expandedId === id ? null : id;
+  openDetails(row: AuditRowView): void {
+    this.detailsRow = row;
+  }
+
+  closeDetails(): void {
+    this.detailsRow = null;
   }
 
   exportCsv(): void {

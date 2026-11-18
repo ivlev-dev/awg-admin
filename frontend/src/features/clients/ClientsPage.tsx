@@ -7,11 +7,36 @@ import { BulkBar } from "@/components/BulkBar";
 import { Modal } from "@/components/Modal";
 import { RateField } from "@/components/RateField";
 import { SkeletonTable } from "@/components/Skeleton";
+import { isRowInteractiveTarget, tableKeyAction } from "@/domain/table-keys";
 import { t } from "@/i18n";
 import { formatRateI18n } from "@/i18n/format";
 
 function rateLabel(value: number): string {
   return value > 0 ? formatRateI18n(value) : "∞";
+}
+
+function handleRowKeyDown(
+  event: KeyboardEvent,
+  vm: ClientsPageVM,
+  deviceId: string,
+): void {
+  if (isRowInteractiveTarget(event.target)) return;
+  const action = tableKeyAction(event.key);
+  if (action === null) return;
+  event.preventDefault();
+  if (action === "activate") {
+    vm.openDevice(deviceId);
+    return;
+  }
+  const row = event.currentTarget;
+  if (!(row instanceof HTMLTableRowElement)) return;
+  const rows = Array.from(
+    row.parentElement?.querySelectorAll<HTMLTableRowElement>("tr[tabindex]") ?? [],
+  );
+  const index = rows.indexOf(row);
+  if (index === -1) return;
+  const target = action === "next" ? rows[index + 1] : rows[index - 1];
+  target?.focus();
 }
 
 export function ClientsPage(this: { vm: ClientsPageVM }) {
@@ -156,7 +181,12 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 <tbody>
                   <For each={this.vm.filteredDevices}>
                     {(device) => (
-                      <tr class={this.vm.isSelected(device.id) ? "is-selected" : ""}>
+                      <tr
+                        class={this.vm.isSelected(device.id) ? "is-selected" : ""}
+                        tabindex={0}
+                        data-device={device.id}
+                        onKeyDown={(event: KeyboardEvent) => handleRowKeyDown(event, this.vm, device.id)}
+                      >
                         <td class="cell-select">
                           <input
                             type="checkbox"
@@ -310,14 +340,14 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
       <Modal
         open={this.vm.createOpen}
         title={t("clients.form.title")}
-        onClose={() => this.vm.closeCreate()}
+        onClose={() => void this.vm.closeCreate()}
         footer={
           <div class="row" style="gap:8px">
             <button
               class="btn"
               type="button"
               disabled={this.vm.submitting}
-              onClick={() => this.vm.closeCreate()}
+              onClick={() => void this.vm.closeCreate()}
             >
               {t("common.cancelShort")}
             </button>

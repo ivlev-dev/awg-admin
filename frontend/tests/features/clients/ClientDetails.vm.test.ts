@@ -615,8 +615,103 @@ describe("ClientDetailsVM", () => {
     expect(vm.quotaExceeded).toBe(false);
   });
 
-  it("сохраняет имя, лимиты и режим «Все мои устройства»", async () => {
-    const { vm, repository, toasts } = setup("admin");
+  it("отслеживает изменения формы редактирования", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+    expect(vm.editDirty).toBe(false);
+
+    vm.setEditName({ target: { value: "renamed" } } as unknown as Event);
+    expect(vm.editDirty).toBe(true);
+
+    vm.setEditName({ target: { value: "laptop" } } as unknown as Event);
+    expect(vm.editDirty).toBe(false);
+
+    vm.setEditDownKbps(2000);
+    expect(vm.editDirty).toBe(true);
+    vm.setEditDownKbps(DEVICE.down_kbps);
+    expect(vm.editDirty).toBe(false);
+
+    vm.setForwardingMode("all");
+    expect(vm.editDirty).toBe(true);
+    vm.setForwardingMode("off");
+    expect(vm.editDirty).toBe(false);
+
+    vm.setEditUpKbps(10);
+    expect(vm.editDirty).toBe(true);
+    vm.setEditUpKbps(DEVICE.up_kbps);
+    expect(vm.editDirty).toBe(false);
+  });
+
+  it("не отмечает форму изменённой после сохранения", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+    vm.editName = "renamed";
+
+    await vm.save();
+
+    expect(vm.editDirty).toBe(false);
+  });
+
+  it("не отмечает форму изменённой после сохранения матрицы forwarding", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    await vm.toggleForwardingPair("d1", "d2");
+
+    expect(vm.forwardingMode).toBe("selected");
+    expect(vm.forwardingSelected).toEqual(["d2"]);
+    expect(vm.editDirty).toBe(false);
+  });
+
+  it("не спрашивает подтверждение при отмене без изменений", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    await vm.cancelEdit();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(vm.editName).toBe("laptop");
+  });
+
+  it("оставляет изменения при отказе от отмены", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm } = setup("admin");
+    await vm.load();
+    vm.editName = "renamed";
+
+    await vm.cancelEdit();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Несохранённые изменения",
+      message: "Отменить изменения? Они не сохранятся.",
+      confirmLabel: "Отменить изменения",
+      tone: "danger",
+    });
+    expect(vm.editName).toBe("renamed");
+    expect(vm.editDirty).toBe(true);
+  });
+
+  it("возвращает исходные значения после подтверждения отмены", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+    vm.editName = "renamed";
+    vm.setEditDownKbps(9000);
+    vm.setEditUpKbps(9000);
+    vm.setForwardingMode("all");
+
+    await vm.cancelEdit();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledTimes(1);
+    expect(repository.updateDevice).not.toHaveBeenCalled();
+    expect(vm.editName).toBe("laptop");
+    expect(vm.editDownKbps).toBe(DEVICE.down_kbps);
+    expect(vm.editUpKbps).toBe(DEVICE.up_kbps);
+    expect(vm.forwardingMode).toBe("off");
+    expect(vm.forwardingSelected).toEqual([]);
+    expect(vm.editDirty).toBe(false);
+  });
+
+  it("сохраняет имя, лимиты и режим «Все мои устройства»", async () => {    const { vm, repository, toasts } = setup("admin");
     await vm.load();
 
     vm.editName = "  renamed  ";

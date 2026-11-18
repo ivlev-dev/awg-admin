@@ -730,3 +730,149 @@ describe("InterfacesPageVM", () => {
     expect(vm).toBeInstanceOf(InterfacesPageVM);
   });
 });
+
+describe("InterfacesPageVM discard guard", () => {
+  beforeEach(() => {
+    confirmMock.askConfirm.mockReset();
+    confirmMock.askConfirm.mockResolvedValue(true);
+  });
+
+  it.each<[string, (vm: InterfacesPageVM) => void]>([
+    ["name", (vm) => { vm.formName = "wg1"; }],
+    ["label", (vm) => { vm.formLabel = "Основной"; }],
+    ["host", (vm) => { vm.formEndpointHost = "vpn.example.com"; }],
+    ["endpoint port", (vm) => { vm.formEndpointPort = "8443"; }],
+    ["listen port", (vm) => { vm.formListenPort = "51821"; }],
+    ["mtu", (vm) => { vm.formMtu = "1380"; }],
+  ])("tracks create changes of %s", (_field, mutate) => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    expect(harness.vm.createDirty).toBe(false);
+
+    mutate(harness.vm);
+
+    expect(harness.vm.createDirty).toBe(true);
+  });
+
+  it("tracks edit changes of every field", () => {
+    const harness = makeVm();
+    harness.vm.openEdit(iface());
+    expect(harness.vm.editDirty).toBe(false);
+
+    harness.vm.editLabel = "Новый";
+    expect(harness.vm.editDirty).toBe(true);
+  });
+
+  it("closes an untouched create form without confirmation", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+
+    await harness.vm.closeCreate();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(harness.vm.createOpen).toBe(false);
+  });
+
+  it("asks before discarding the create form", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    harness.vm.formName = "wg1";
+
+    await harness.vm.closeCreate();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отменить создание?",
+      message: "Введённые данные не сохранятся.",
+      confirmLabel: "Не создавать",
+      tone: "danger",
+    });
+    expect(harness.vm.createOpen).toBe(false);
+  });
+
+  it("keeps the create form open when the discard is declined", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const harness = makeVm();
+    harness.vm.openCreate();
+    harness.vm.formName = "wg1";
+
+    await harness.vm.closeCreate();
+
+    expect(harness.vm.createOpen).toBe(true);
+    expect(harness.vm.formName).toBe("wg1");
+    expect(harness.vm.createDirty).toBe(true);
+  });
+
+  it("asks before discarding the edit form", async () => {
+    const harness = makeVm();
+    harness.vm.openEdit(iface());
+    harness.vm.editHost = "new.example.com";
+
+    await harness.vm.closeEdit();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+      title: "Отменить изменения?",
+      message: "Несохранённые изменения будут потеряны.",
+      confirmLabel: "Не сохранять",
+      tone: "danger",
+    });
+    expect(harness.vm.editing).toBeNull();
+  });
+
+  it("keeps the edit form open when the discard is declined", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const harness = makeVm();
+    harness.vm.openEdit(iface());
+    harness.vm.editHost = "new.example.com";
+
+    await harness.vm.closeEdit();
+
+    expect(harness.vm.editing).not.toBeNull();
+    expect(harness.vm.editHost).toBe("new.example.com");
+    expect(harness.vm.editDirty).toBe(true);
+  });
+
+  it("does not ask while the create request is running", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    harness.vm.formName = "wg1";
+    harness.vm.busy = true;
+
+    await harness.vm.closeCreate();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(harness.vm.createOpen).toBe(true);
+  });
+
+  it("resets the create snapshot after a successful creation", async () => {
+    const harness = makeVm();
+    harness.groupsRepo.groups.set("g1", GROUP);
+    harness.nodesRepo.items.set("n1", NODE);
+    await harness.vm.load();
+    harness.vm.openCreate();
+    harness.vm.formName = "wg0";
+    harness.vm.formEndpointHost = "vpn.example.com";
+
+    await harness.vm.submitCreate(submit());
+
+    expect(harness.vm.createOpen).toBe(false);
+    expect(harness.vm.createDirty).toBe(false);
+
+    harness.vm.formName = "wg0";
+    await harness.vm.closeCreate();
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+  });
+
+  it("resets the edit snapshot after a successful save", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface());
+    await harness.vm.load();
+    harness.vm.openEdit(iface());
+    harness.vm.editHost = "new.example.com";
+
+    await harness.vm.submitEdit(submit());
+
+    expect(harness.vm.editing).toBeNull();
+    expect(harness.vm.editDirty).toBe(false);
+  });
+});

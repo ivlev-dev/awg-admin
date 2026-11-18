@@ -224,7 +224,9 @@ function statsHarness(points: StatsPoint[]): {
   repository: StatsRepository;
   series: ReturnType<typeof vi.fn>;
 } {
-  const series = vi.fn(async () => points);
+  const series = vi.fn(
+    async (_scope: string, _id: string | null, _from: number, _to: number) => points,
+  );
   return {
     series,
     repository: {
@@ -752,5 +754,220 @@ describe("StatsPageVM", () => {
     live.connect("global");
 
     expect(FakeWebSocket.instances.at(-1)?.url).toContain("token=di-access");
+  });
+});
+
+const PREVIOUS_POINTS: StatsPoint[] = [
+  { at: "2019-12-31T00:00:00Z", rx: 2048, tx: 4096, rx_bps: 0, tx_bps: 0 },
+];
+
+const ZERO_POINTS: StatsPoint[] = [
+  { at: "2019-12-31T00:00:00Z", rx: 0, tx: 0, rx_bps: 0, tx_bps: 0 },
+];
+
+describe("StatsVM: диапазон 90 дней и сравнение периодов", () => {
+  it("поддерживает диапазон 90 дней", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+
+    vm.setRange("90d");
+
+    expect(vm.rangeKey).toBe("90d");
+    expect(vm.periodLabel).toBe("90 дней");
+    expect(vm.rangeSeconds).toBe(90 * 24 * 3600);
+    await vi.waitFor(() => {
+      const call = stats.series.mock.calls.at(-1);
+      expect(call?.[0]).toBe("global");
+      expect(call?.[1]).toBeNull();
+      expect((call?.[3] ?? 0) - (call?.[2] ?? 0)).toBe(90 * 24 * 3600);
+    });
+  });
+
+  it("запрашивает предыдущий период со сдвигом на длину диапазона", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+    vm.compareEnabled = true;
+
+    await vm.loadSeries();
+
+    const calls = stats.series.mock.calls;
+    expect(calls).toHaveLength(2);
+    const current = calls[0];
+    const previous = calls[1];
+    expect(current).toBeDefined();
+    expect(previous).toBeDefined();
+    if (!current || !previous) return;
+    expect(previous[0]).toBe(current[0]);
+    expect(previous[1]).toBe(current[1]);
+    expect(previous[3]).toBe(current[2] - 1);
+    expect(previous[3] - previous[2]).toBe(24 * 3600);
+  });
+
+  it("считает проценты и подписи сравнения", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+    vm.compareEnabled = true;
+    vi.mocked(stats.series)
+      .mockResolvedValueOnce(POINTS)
+      .mockResolvedValueOnce(PREVIOUS_POINTS);
+
+    await vm.loadSeries();
+
+    expect(vm.previousTotals).toEqual({ rx: 2048, tx: 4096 });
+    expect(vm.comparison.rx).toEqual({
+      current: 4096,
+      previous: 2048,
+      deltaPercent: 100,
+      direction: "up",
+    });
+    expect(vm.comparison.tx).toEqual({
+      current: 2048,
+      previous: 4096,
+      deltaPercent: -50,
+      direction: "down",
+    });
+    expect(vm.compareRxLabel).toBe("было 2.0 КБ · +100%");
+    expect(vm.compareTxLabel).toBe("было 4.0 КБ · \u221250%");
+    expect(vm.compareRxClass).toBe("stats-compare__delta--up");
+    expect(vm.compareTxClass).toBe("stats-compare__delta--down");
+  });
+
+  it("возвращает null при нулевом предыдущем периоде и при равенстве", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+    vm.compareEnabled = true;
+    vi.mocked(stats.series)
+      .mockResolvedValueOnce(POINTS)
+      .mockResolvedValueOnce(ZERO_POINTS);
+
+    await vm.loadSeries();
+
+    expect(vm.comparison.rx.deltaPercent).toBeNull();
+    expect(vm.comparison.rx.direction).toBe("flat");
+    expect(vm.compareRxLabel).toBe("нет данных");
+
+    vi.mocked(stats.series)
+      .mockResolvedValueOnce(POINTS)
+      .mockResolvedValueOnce(POINTS);
+
+    await vm.loadSeries();
+
+    expect(vm.comparison.rx.deltaPercent).toBe(0);
+    expect(vm.comparison.rx.direction).toBe("flat");
+    expect(vm.compareRxLabel).toBe("было 4.0 КБ · =");
+  });
+
+  it("выключение сравнения не ломает график и не запрашивает прошлый период", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vm.compareEnabled = true;
+    await vm.loadSeries();
+    vi.mocked(stats.series).mockClear();
+
+    vm.toggleCompare();
+
+    expect(vm.compareEnabled).toBe(false);
+    expect(vm.previousTotals).toBeNull();
+    expect(vm.previousError).toBeNull();
+
+    await vm.loadSeries();
+
+    expect(stats.series).toHaveBeenCalledTimes(1);
+    expect(vm.series).toEqual(POINTS);
+    expect(vm.error).toBeNull();
+  });
+
+  it("ошибка предыдущего периода не заполняет основную ошибку", async () => {
+    const { vm, stats, toasts } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+    vm.compareEnabled = true;
+    vi.mocked(stats.series)
+      .mockResolvedValueOnce(POINTS)
+      .mockRejectedValueOnce(new Error("Нет истории"));
+
+    await vm.loadSeries();
+
+    expect(vm.error).toBeNull();
+    expect(vm.series).toEqual(POINTS);
+    expect(vm.previousError).toBe("Нет истории");
+    expect(vm.previousTotals).toBeNull();
+    expect(vm.comparison.rx.deltaPercent).toBeNull();
+    expect(toasts.items).toHaveLength(0);
+  });
+
+  it("включает сравнение через toggleCompare", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vi.mocked(stats.series).mockClear();
+
+    vm.toggleCompare();
+
+    expect(vm.compareEnabled).toBe(true);
+    await vi.waitFor(() => {
+      expect(stats.series).toHaveBeenCalledTimes(1);
+      expect(vm.previousTotals).toEqual({ rx: 4096, tx: 2048 });
+      expect(vm.previousLoading).toBe(false);
+      expect(vm.previousError).toBeNull();
+    });
+  });
+
+  it("перезапрашивает предыдущий период при смене диапазона", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.created();
+    vm.compareEnabled = true;
+    await vm.loadSeries();
+    vi.mocked(stats.series).mockClear();
+
+    vm.setRange("7d");
+
+    await vi.waitFor(() => {
+      expect(stats.series).toHaveBeenCalledTimes(2);
+      const previous = stats.series.mock.calls.at(-1);
+      expect(previous?.[3]).toBeDefined();
+      expect((previous?.[3] ?? 0) - (previous?.[2] ?? 0)).toBe(7 * 24 * 3600);
+    });
+  });
+
+  it("рендерит кнопку 90 дней и переключатель сравнения", async () => {
+    const { stats, devices, groups, interfaces, users, liveStats, session, router, toasts } =
+      setup("admin");
+
+    const container = createAppContainer();
+    container.bind(DefaultStatsService, () => new DefaultStatsService(stats.repository));
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultGroupsService, () => new DefaultGroupsService(groups));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfaces));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(users));
+    container.bind(LiveStats, () => liveStats);
+    container.bind(Session, () => session);
+    container.bind(Router, () => router);
+    container.bind(ToastStore, () => toasts);
+
+    const result = createComponent(StatsPage, {}, { container });
+    document.body.append(result.node);
+    await result.ready;
+
+    const root = document.body;
+
+    expect(root.textContent).toContain("90 дней");
+    expect(root.textContent).toContain("Сравнить с прошлым периодом");
+    const toggle = root.querySelector<HTMLButtonElement>(".stats-compare__toggle");
+    expect(toggle).not.toBeNull();
+
+    toggle?.click();
+
+    await vi.waitFor(() => {
+      const current = root.querySelector(".stats-compare__toggle");
+      expect(current?.getAttribute("aria-pressed")).toBe("true");
+      expect(root.textContent).toContain("было 4.0 КБ");
+    });
+
+    result.dispose();
+    result.node.parentNode?.removeChild(result.node);
   });
 });

@@ -388,10 +388,10 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
         open={this.vm.createOpen}
         title={t("interfaces.form.title")}
         wide={true}
-        onClose={() => this.vm.closeCreate()}
+        onClose={() => { void this.vm.closeCreate(); }}
         footer={
           <>
-            <button class="btn" type="button" onClick={() => this.vm.closeCreate()}>{t("common.cancelShort")}</button>
+            <button class="btn" type="button" onClick={() => { void this.vm.closeCreate(); }}>{t("common.cancelShort")}</button>
             <button
               class="btn btn--primary"
               type="submit"
@@ -510,10 +510,10 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
         open={this.vm.editing !== null}
         title={this.vm.editing ? t("interfaces.edit.title", { name: this.vm.editing.name }) : t("interfaces.edit.titleFallback")}
         wide={true}
-        onClose={() => this.vm.closeEdit()}
+        onClose={() => { void this.vm.closeEdit(); }}
         footer={
           <>
-            <button class="btn" type="button" onClick={() => this.vm.closeEdit()}>{t("common.cancelShort")}</button>
+            <button class="btn" type="button" onClick={() => { void this.vm.closeEdit(); }}>{t("common.cancelShort")}</button>
             <button
               class="btn btn--primary"
               type="submit"
