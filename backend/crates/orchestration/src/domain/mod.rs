@@ -58,6 +58,8 @@ pub struct UserLimit {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DesiredPeer {
+    #[serde(default)]
+    pub peer_id: Uuid,
     pub device_id: Uuid,
     pub user_id: Uuid,
     pub public_key: String,
@@ -94,6 +96,8 @@ pub struct InterfaceCounters {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PeerCounters {
+    #[serde(default)]
+    pub peer_id: Uuid,
     pub device_id: Uuid,
     pub public_key: String,
     pub rx_total: u64,

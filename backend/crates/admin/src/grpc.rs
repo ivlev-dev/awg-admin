@@ -82,7 +82,7 @@ async fn run_session(
     }
 
     let (state_tx, mut state_rx) = mpsc::channel(8);
-    state.registry.register(
+    let session = state.registry.register(
         node_id,
         state_tx,
         Some(hello.version.clone()).filter(|v| !v.is_empty()),
@@ -111,7 +111,7 @@ async fn run_session(
         tokio::select! {
             incoming = inbound.message() => {
                 match incoming {
-                    Ok(Some(message)) => handle_message(&state, node_id, message).await,
+                    Ok(Some(message)) => handle_message(&state, node_id, session, message).await,
                     Ok(None) => break,
                     Err(error) => {
                         tracing::warn!(%node_id, %error, "worker stream failed");
@@ -143,8 +143,12 @@ async fn run_session(
         }
     }
 
-    state.registry.unregister(node_id);
-    let _ = state.orchestration.online(node_id, false, None);
+    state.registry.unregister(node_id, session);
+    if state.registry.is_online(node_id) {
+        tracing::debug!(%node_id, "stale worker session closed; keeping the live session");
+    } else {
+        let _ = state.orchestration.online(node_id, false, None);
+    }
     tracing::info!(%node_id, "worker session closed");
 }
 
@@ -165,17 +169,22 @@ async fn send_ack(
         .await
 }
 
-async fn handle_message(state: &AppState, node_id: Uuid, message: WorkerMessage) {
+async fn handle_message(
+    state: &AppState,
+    node_id: Uuid,
+    session: awg_orchestration::SessionId,
+    message: WorkerMessage,
+) {
     match message.payload {
         Some(worker_message::Payload::Stats(snapshot)) => {
-            state.registry.touch(node_id);
+            state.registry.touch(node_id, session);
             let stats = awg_orchestration::infrastructure::from_proto_stats(snapshot);
             if let Err(error) = state.orchestration.record_stats(node_id, stats) {
                 tracing::warn!(%node_id, %error, "failed to record worker stats");
             }
         }
         Some(worker_message::Payload::Heartbeat(heartbeat)) => {
-            state.registry.touch(node_id);
+            state.registry.touch(node_id, session);
             if let Some(metrics) = heartbeat.metrics {
                 let update = awg_network::NodeMetricsUpdate {
                     cpu_load: metrics.cpu_load,

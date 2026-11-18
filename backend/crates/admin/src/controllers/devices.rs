@@ -70,6 +70,16 @@ pub async fn create(
         .map_err(ApiError::from)?
         .unwrap_or_else(unlimited_tariff);
     let group_id = request.group_id.or(owner.group_id);
+    if !user.is_admin() {
+        authorize_placement(
+            &state,
+            &owner,
+            &tariff,
+            group_id,
+            request.interface_id,
+            &request.interface_ids,
+        )?;
+    }
     let settings = state.settings.get().map_err(ApiError::from)?;
     let forwarding = request.forwarding.unwrap_or(Forwarding {
         to_own_devices: forwarding_default(
@@ -100,6 +110,7 @@ pub async fn create(
             },
             &settings.obfuscation,
         )
+        .await
         .map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     Ok(Json(build_view(&state, &device)?))
@@ -150,6 +161,10 @@ pub async fn delete(
 ) -> ApiResult<Json<serde_json::Value>> {
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
+    state
+        .share
+        .revoke_all_for_device(id)
+        .map_err(ApiError::from)?;
     state.devices.delete(id).map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -211,6 +226,16 @@ pub async fn create_tunnel(
         .tariff_for(&owner)
         .map_err(ApiError::from)?
         .unwrap_or_else(unlimited_tariff);
+    if !user.is_admin() {
+        authorize_placement(
+            &state,
+            &owner,
+            &tariff,
+            Some(device.group_id),
+            Some(request.interface_id),
+            &[],
+        )?;
+    }
     let settings = state.settings.get().map_err(ApiError::from)?;
     state
         .devices
@@ -222,6 +247,7 @@ pub async fn create_tunnel(
             request.label,
             &settings.obfuscation,
         )
+        .await
         .map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     Ok(Json(build_view(&state, &device)?))
@@ -323,8 +349,20 @@ pub async fn revoke_share(
     user: AuthUser,
     Path(token): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    if state.share.find(&token).map_err(ApiError::from)?.is_none() {
-        user.require_admin()?;
+    let link = state
+        .share
+        .find(&token)
+        .map_err(ApiError::from)?
+        .ok_or_else(|| ApiError::NotFound("share link".into()))?;
+    let owner_id = state
+        .devices
+        .get(link.device_id)
+        .ok()
+        .map(|device| device.user_id);
+    if !user.is_admin() && owner_id != Some(user.id()) && link.created_by != user.id() {
+        return Err(ApiError::Forbidden(
+            "share link belongs to another user".into(),
+        ));
     }
     state.share.revoke(&token).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -431,6 +469,46 @@ fn assemble_view(
         .unwrap_or_default();
     let node_name = node_names.get(&node_id).cloned().unwrap_or_default();
     DeviceView::build(device, peers, &names, &interface_name, node_id, &node_name)
+}
+
+/// Restricts where a non-administrator may place devices and interfaces.
+/// Interfaces explicitly allowed by the tariff are always accepted; everything
+/// else must belong to the group assigned to the account.
+pub(crate) fn authorize_placement(
+    state: &AppState,
+    owner: &awg_identity::User,
+    tariff: &Tariff,
+    group_id: Option<Uuid>,
+    interface_id: Option<Uuid>,
+    interface_ids: &[Uuid],
+) -> ApiResult<()> {
+    let allowed_group = owner.group_id;
+    if allowed_group.is_none() && group_id.is_some() {
+        return Err(ApiError::Forbidden(
+            "account is not assigned to a group".into(),
+        ));
+    }
+    if let Some(group_id) = group_id
+        && allowed_group != Some(group_id)
+    {
+        return Err(ApiError::Forbidden(
+            "group is not assigned to this account".into(),
+        ));
+    }
+    for id in interface_id.iter().chain(interface_ids.iter()) {
+        if tariff.interface_id == Some(*id) {
+            continue;
+        }
+        let interface = state.network.get_interface(*id).map_err(ApiError::from)?;
+        let assigned_to_group = allowed_group == Some(interface.group_id);
+        let assigned_to_node = owner.node_id == Some(interface.node_id);
+        if !assigned_to_group && !assigned_to_node {
+            return Err(ApiError::Forbidden(
+                "interface is not assigned to this account".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn forwarding_default(

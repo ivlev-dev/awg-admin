@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 use awg_shared::crypto::random_bytes;
@@ -96,8 +96,51 @@ impl ShareService {
         self.links.revoke_all_for_device(device_id, Utc::now())
     }
 
+    /// Marks a share link as revoked. The record is kept for the audit trail;
+    /// revocation is enforced by `resolve`.
     pub fn revoke(&self, token: &str) -> CoreResult<()> {
-        self.links.delete(token)
+        let mut link = self
+            .links
+            .find(token)?
+            .ok_or_else(|| CoreError::NotFound("share link".into()))?;
+        if link.revoked_at.is_none() {
+            link.revoked_at = Some(Utc::now());
+            self.links.save(&link)?;
+        }
+        Ok(())
+    }
+
+    pub fn revoke_created_by(&self, user_id: Uuid) -> CoreResult<usize> {
+        let now = Utc::now();
+        let mut revoked = 0;
+        for mut link in self.links.list()? {
+            if link.created_by != user_id || link.revoked_at.is_some() {
+                continue;
+            }
+            link.revoked_at = Some(now);
+            self.links.save(&link)?;
+            revoked += 1;
+        }
+        Ok(revoked)
+    }
+
+    /// Drops expired links and revoked links older than `revoked_retention_days`.
+    pub fn prune_expired(
+        &self,
+        now: DateTime<Utc>,
+        revoked_retention_days: i64,
+    ) -> CoreResult<usize> {
+        let cutoff = now - Duration::days(revoked_retention_days.max(0));
+        let mut removed = 0;
+        for link in self.links.list()? {
+            let expired = link.expires_at <= now;
+            let revoked_old = link.revoked_at.is_some_and(|at| at <= cutoff);
+            if expired || revoked_old {
+                self.links.delete(&link.token)?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
     }
 }
 

@@ -8,6 +8,8 @@ use awg_storage::{Result as StorageResult, Store};
 
 pub const BACKUP_PREFIX: &str = "awg-admin-";
 pub const BACKUP_SUFFIX: &str = ".redb";
+const TEMP_MARKER: &str = ".tmp-";
+const STALE_TEMP_AGE: Duration = Duration::from_secs(3600);
 
 pub fn backup_file_name(at: DateTime<Utc>) -> String {
     format!(
@@ -25,6 +27,36 @@ pub fn prune(dir: &Path, keep: usize) -> StorageResult<usize> {
     for path in files.into_iter().take(remove) {
         std::fs::remove_file(&path).map_err(storage_error)?;
         removed += 1;
+    }
+    Ok(removed)
+}
+
+/// Removes leftover `*.tmp-*` snapshots created while writing a backup (for
+/// example after a crash or a full disk). Recent files are kept so that a
+/// concurrently running backup is not disturbed.
+pub fn prune_temp_files(dir: &Path, max_age: Duration) -> StorageResult<usize> {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(0),
+        Err(error) => return Err(storage_error(error)),
+    };
+    let now = std::time::SystemTime::now();
+    let mut removed = 0;
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        if !name.contains(TEMP_MARKER) {
+            continue;
+        }
+        let age = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .and_then(|modified| now.duration_since(modified).ok())
+            .unwrap_or_default();
+        if age >= max_age {
+            std::fs::remove_file(entry.path()).map_err(storage_error)?;
+            removed += 1;
+        }
     }
     Ok(removed)
 }
@@ -54,7 +86,13 @@ pub fn backup_now(store: &Store, dir: &Path, keep: usize) -> StorageResult<PathB
     let path = dir.join(backup_file_name(Utc::now()));
     store.backup_to(&path)?;
     let removed = prune(dir, keep)?;
-    tracing::info!(path = %path.display(), removed, "created database backup");
+    let removed_temp = prune_temp_files(dir, STALE_TEMP_AGE).unwrap_or_default();
+    tracing::info!(
+        path = %path.display(),
+        removed,
+        removed_temp,
+        "created database backup"
+    );
     Ok(path)
 }
 
@@ -66,6 +104,15 @@ pub fn spawn(
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
+        match prune_temp_files(&dir, STALE_TEMP_AGE) {
+            Ok(removed) if removed > 0 => {
+                tracing::info!(removed, dir = %dir.display(), "removed stale backup temp files");
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(%error, dir = %dir.display(), "failed to prune stale backup temp files");
+            }
+        }
         let mut ticker = tokio::time::interval(Duration::from_secs(interval_secs.max(1)));
         loop {
             tokio::select! {
@@ -139,6 +186,40 @@ mod tests {
         );
         assert!(dir.join("notes.txt").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prune_temp_files_removes_only_stale_temporary_snapshots() {
+        let dir = temp_dir("temp");
+        let stale = dir.join("awg-admin-20260101T000000Z.redb.tmp-42-0");
+        let fresh = dir.join("awg-admin-20260101T000000Z.redb.tmp-42-1");
+        File::create(&stale).unwrap();
+        File::create(&fresh).unwrap();
+        let old = std::time::SystemTime::now() - Duration::from_secs(7200);
+        let times = std::fs::FileTimes::new().set_modified(old);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&stale)
+            .unwrap()
+            .set_times(times)
+            .unwrap();
+
+        assert_eq!(
+            prune_temp_files(&dir, Duration::from_secs(3600)).unwrap(),
+            1
+        );
+        assert!(!stale.exists());
+        assert!(fresh.exists());
+        assert_eq!(prune_temp_files(&dir, Duration::from_secs(0)).unwrap(), 1);
+        assert!(!fresh.exists());
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn prune_temp_files_ignores_missing_directory() {
+        let dir = std::env::temp_dir().join("awg-backup-missing-temp-dir");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(prune_temp_files(&dir, Duration::from_secs(0)).unwrap(), 0);
     }
 
     #[test]

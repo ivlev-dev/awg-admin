@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use awg_clients::domain::ShareLinkRepository;
 use awg_clients::{
-    DeviceService, Forwarding, NewDevice, ProfileService, RedbDevicePeerRepository,
+    Device, DeviceService, Forwarding, NewDevice, ProfileService, RedbDevicePeerRepository,
     RedbDeviceRepository, RedbShareLinkRepository, ShareConsume, ShareFormat, ShareLink,
     ShareLinkState, ShareService,
 };
@@ -20,6 +20,32 @@ use awg_shared::crypto::Sealer;
 use awg_shared::obf::ObfuscationSettings;
 use awg_storage::Store;
 use awg_tariffs::{NewTariff, RedbTariffRepository, TariffService};
+
+trait SyncDeviceCalls {
+    fn create_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        input: NewDevice,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<Device>;
+}
+
+impl SyncDeviceCalls for DeviceService {
+    fn create_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        input: NewDevice,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<Device> {
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("test runtime")
+            .block_on(self.create(user, tariff, input, settings))
+    }
+}
 
 struct Fixture {
     devices: DeviceService,
@@ -123,11 +149,14 @@ fn fixture() -> Fixture {
         totp_secret_sealed: None,
         totp_enabled: false,
         recovery_codes: Vec::new(),
+        totp_pending_secret_sealed: None,
+        totp_pending_recovery_codes: Vec::new(),
+        last_totp_step: None,
         created_at: now,
         updated_at: now,
     };
     let device = devices
-        .create(
+        .create_sync(
             &owner,
             &tariff,
             NewDevice {
@@ -354,6 +383,92 @@ fn missing_token_is_not_found() {
     let service = fixture.service();
     let error = service.resolve("unknown").unwrap_err();
     assert!(matches!(error, CoreError::NotFound(_)));
+}
+
+#[test]
+fn revoke_keeps_the_record_and_blocks_resolution() {
+    let fixture = fixture();
+    let service = fixture.service();
+    let link = fixture.create(None);
+
+    service.revoke(&link.token).unwrap();
+    let stored = fixture.links.find(&link.token).unwrap().unwrap();
+    assert!(stored.revoked_at.is_some());
+
+    let error = service.resolve(&link.token).unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("revoked")));
+
+    assert!(matches!(
+        service.revoke("unknown"),
+        Err(CoreError::NotFound(_))
+    ));
+}
+
+#[test]
+fn revoke_created_by_marks_only_the_author_links() {
+    let fixture = fixture();
+    let service = fixture.service();
+    let author = Uuid::new_v4();
+    let link = service
+        .create(
+            fixture.device_id,
+            fixture.interface_id,
+            author,
+            ShareFormat::Conf,
+            3600,
+            None,
+        )
+        .unwrap();
+    let other = fixture.create(None);
+
+    assert_eq!(service.revoke_created_by(author).unwrap(), 1);
+    assert!(
+        fixture
+            .links
+            .find(&link.token)
+            .unwrap()
+            .unwrap()
+            .revoked_at
+            .is_some()
+    );
+    assert!(
+        fixture
+            .links
+            .find(&other.token)
+            .unwrap()
+            .unwrap()
+            .revoked_at
+            .is_none()
+    );
+}
+
+#[test]
+fn prune_expired_removes_old_links_and_keeps_active_ones() {
+    let fixture = fixture();
+    let service = fixture.service();
+    let active = fixture.create(None);
+    let expired = fixture.create(None);
+    let revoked_recent = fixture.create(None);
+    let revoked_old = fixture.create(None);
+    let now = Utc::now();
+
+    let mut stored = fixture.links.find(&expired.token).unwrap().unwrap();
+    stored.expires_at = now - Duration::seconds(1);
+    fixture.links.save(&stored).unwrap();
+
+    let mut stored = fixture.links.find(&revoked_recent.token).unwrap().unwrap();
+    stored.revoked_at = Some(now - Duration::days(1));
+    fixture.links.save(&stored).unwrap();
+
+    let mut stored = fixture.links.find(&revoked_old.token).unwrap().unwrap();
+    stored.revoked_at = Some(now - Duration::days(40));
+    fixture.links.save(&stored).unwrap();
+
+    assert_eq!(service.prune_expired(now, 30).unwrap(), 2);
+    assert!(fixture.links.find(&active.token).unwrap().is_some());
+    assert!(fixture.links.find(&revoked_recent.token).unwrap().is_some());
+    assert!(fixture.links.find(&expired.token).unwrap().is_none());
+    assert!(fixture.links.find(&revoked_old.token).unwrap().is_none());
 }
 
 #[test]

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
@@ -17,21 +18,41 @@ pub struct NodePresence {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct SessionId(u64);
+
+impl SessionId {
+    pub fn value(self) -> u64 {
+        self.0
+    }
+}
+
 struct Entry {
+    session: SessionId,
     sender: tokio::sync::mpsc::Sender<DesiredState>,
     connected_at: DateTime<Utc>,
     last_seen: DateTime<Utc>,
     version: Option<String>,
+    dirty: bool,
 }
 
-#[derive(Default)]
 pub struct WorkerRegistry {
     workers: Mutex<HashMap<Uuid, Entry>>,
+    next_session: AtomicU64,
+}
+
+impl Default for WorkerRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl WorkerRegistry {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            workers: Mutex::new(HashMap::new()),
+            next_session: AtomicU64::new(1),
+        }
     }
 
     pub fn register(
@@ -39,41 +60,72 @@ impl WorkerRegistry {
         node_id: Uuid,
         sender: tokio::sync::mpsc::Sender<DesiredState>,
         version: Option<String>,
-    ) {
+    ) -> SessionId {
         let now = Utc::now();
+        let session = SessionId(self.next_session.fetch_add(1, Ordering::SeqCst));
         let mut workers = self.workers.lock().expect("worker registry lock");
         workers.insert(
             node_id,
             Entry {
+                session,
                 sender,
                 connected_at: now,
                 last_seen: now,
                 version,
+                dirty: false,
             },
         );
+        session
     }
 
-    pub fn unregister(&self, node_id: Uuid) {
+    pub fn unregister(&self, node_id: Uuid, session: SessionId) -> bool {
         let mut workers = self.workers.lock().expect("worker registry lock");
-        workers.remove(&node_id);
+        if workers
+            .get(&node_id)
+            .is_some_and(|entry| entry.session == session)
+        {
+            workers.remove(&node_id);
+            true
+        } else {
+            false
+        }
     }
 
-    pub fn touch(&self, node_id: Uuid) {
+    pub fn touch(&self, node_id: Uuid, session: SessionId) {
         let mut workers = self.workers.lock().expect("worker registry lock");
-        if let Some(entry) = workers.get_mut(&node_id) {
+        if let Some(entry) = workers.get_mut(&node_id)
+            && entry.session == session
+        {
             entry.last_seen = Utc::now();
         }
     }
 
     pub fn push(&self, node_id: Uuid, state: &DesiredState) -> bool {
-        let sender = {
-            let workers = self.workers.lock().expect("worker registry lock");
-            workers.get(&node_id).map(|e| e.sender.clone())
+        let mut workers = self.workers.lock().expect("worker registry lock");
+        let Some(entry) = workers.get_mut(&node_id) else {
+            return false;
         };
-        match sender {
-            Some(tx) => tx.try_send(state.clone()).is_ok(),
-            None => false,
+        match entry.sender.try_send(state.clone()) {
+            Ok(()) => {
+                entry.dirty = false;
+                true
+            }
+            Err(_) => {
+                entry.dirty = true;
+                false
+            }
         }
+    }
+
+    pub fn dirty_nodes(&self) -> Vec<Uuid> {
+        let workers = self.workers.lock().expect("worker registry lock");
+        let mut nodes: Vec<Uuid> = workers
+            .iter()
+            .filter(|(_, entry)| entry.dirty)
+            .map(|(node_id, _)| *node_id)
+            .collect();
+        nodes.sort_unstable();
+        nodes
     }
 
     pub fn is_online(&self, node_id: Uuid) -> bool {
@@ -151,6 +203,16 @@ impl OrchestrationService {
         }
     }
 
+    pub fn publish_dirty(&self) -> usize {
+        let mut published = 0;
+        for node_id in self.registry.dirty_nodes() {
+            if matches!(self.publish(node_id), Ok(true)) {
+                published += 1;
+            }
+        }
+        published
+    }
+
     pub fn authenticate(&self, node_id: Uuid, token: &str) -> CoreResult<()> {
         self.nodes.authenticate(node_id, token)
     }
@@ -160,33 +222,27 @@ impl OrchestrationService {
     }
 
     pub fn record_stats(&self, node_id: Uuid, snapshot: WorkerStats) -> CoreResult<usize> {
-        let mut recorded = 0;
+        let mut samples: Vec<(Uuid, Uuid, CounterSample)> = Vec::new();
         for interface in snapshot.interfaces {
-            let samples: Vec<(Uuid, CounterSample)> = interface
-                .peers
-                .iter()
-                .map(|peer| {
-                    (
-                        peer.device_id,
-                        CounterSample {
-                            rx_total: peer.rx_total,
-                            tx_total: peer.tx_total,
-                        },
-                    )
-                })
-                .collect();
-            if samples.is_empty() {
-                continue;
+            for peer in interface.peers {
+                samples.push((
+                    interface.interface_id,
+                    peer.device_id,
+                    CounterSample {
+                        peer_id: peer.peer_id,
+                        rx_total: peer.rx_total,
+                        tx_total: peer.tx_total,
+                    },
+                ));
             }
-            let updates = self.stats.record_snapshot(
-                node_id,
-                interface.interface_id,
-                &samples,
-                self.directory.as_ref(),
-            )?;
-            recorded += updates.len();
         }
-        Ok(recorded)
+        if samples.is_empty() {
+            return Ok(0);
+        }
+        let updates =
+            self.stats
+                .record_node_snapshot(node_id, &samples, self.directory.as_ref())?;
+        Ok(updates.len())
     }
 
     pub fn require_online(&self, node_id: Uuid) -> CoreResult<()> {
@@ -195,5 +251,189 @@ impl OrchestrationService {
         } else {
             Err(CoreError::Conflict(format!("worker {node_id} is offline")))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn state(node_id: Uuid) -> DesiredState {
+        DesiredState {
+            node_id,
+            revision: String::new(),
+            generated_at: Utc::now(),
+            interfaces: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn stale_session_does_not_unregister_the_new_one() {
+        let registry = WorkerRegistry::new();
+        let node_id = Uuid::new_v4();
+        let (first_tx, _first_rx) = tokio::sync::mpsc::channel(4);
+        let (second_tx, _second_rx) = tokio::sync::mpsc::channel(4);
+
+        let first = registry.register(node_id, first_tx, None);
+        let second = registry.register(node_id, second_tx, None);
+        assert_ne!(first, second);
+
+        registry.unregister(node_id, first);
+        assert!(registry.is_online(node_id));
+
+        registry.unregister(node_id, second);
+        assert!(!registry.is_online(node_id));
+    }
+
+    #[test]
+    fn overflow_marks_the_node_dirty_and_a_retry_clears_it() {
+        let registry = WorkerRegistry::new();
+        let node_id = Uuid::new_v4();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        registry.register(node_id, sender, None);
+
+        assert!(registry.push(node_id, &state(node_id)));
+        assert!(!registry.push(node_id, &state(node_id)));
+        assert_eq!(registry.dirty_nodes(), vec![node_id]);
+
+        let queued = receiver.try_recv().expect("the first state is queued");
+        assert_eq!(queued.node_id, node_id);
+        assert!(registry.push(node_id, &state(node_id)));
+        assert!(registry.dirty_nodes().is_empty());
+    }
+
+    #[test]
+    fn touch_ignores_a_stale_session() {
+        let registry = WorkerRegistry::new();
+        let node_id = Uuid::new_v4();
+        let (first_tx, _first_rx) = tokio::sync::mpsc::channel(4);
+        let (second_tx, _second_rx) = tokio::sync::mpsc::channel(4);
+        let first = registry.register(node_id, first_tx, None);
+        let second = registry.register(node_id, second_tx, None);
+        let after_register = registry
+            .presence()
+            .into_iter()
+            .find(|presence| presence.node_id == node_id)
+            .map(|presence| presence.last_seen)
+            .unwrap();
+
+        registry.touch(node_id, first);
+        let untouched = registry
+            .presence()
+            .into_iter()
+            .find(|presence| presence.node_id == node_id)
+            .map(|presence| presence.last_seen)
+            .unwrap();
+        assert_eq!(untouched, after_register);
+
+        registry.touch(node_id, second);
+        assert!(registry.is_online(node_id));
+    }
+
+    struct Source;
+
+    impl SnapshotSource for Source {
+        fn build(&self, node_id: Uuid) -> CoreResult<DesiredState> {
+            Ok(state(node_id).seal())
+        }
+    }
+
+    struct Directory;
+
+    impl DeviceDirectory for Directory {
+        fn group_and_user(&self, _device_id: Uuid) -> CoreResult<Option<(Uuid, Uuid)>> {
+            Ok(None)
+        }
+    }
+
+    struct Nodes;
+
+    impl NodeDirectory for Nodes {
+        fn authenticate(&self, _node_id: Uuid, _token: &str) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn set_online(
+            &self,
+            _node_id: Uuid,
+            _online: bool,
+            _version: Option<String>,
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+    }
+
+    struct EmptyStats;
+
+    impl awg_statistics::StatsRepository for EmptyStats {
+        fn counter(
+            &self,
+            _key: awg_statistics::CounterKey,
+        ) -> CoreResult<Option<awg_statistics::CounterState>> {
+            Ok(None)
+        }
+
+        fn save_counter(
+            &self,
+            _key: awg_statistics::CounterKey,
+            _state: &awg_statistics::CounterState,
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn add_bucket(
+            &self,
+            _scope: awg_statistics::StatsScope,
+            _hour: i64,
+            _rx: u64,
+            _tx: u64,
+        ) -> CoreResult<()> {
+            Ok(())
+        }
+
+        fn series(
+            &self,
+            _scope: awg_statistics::StatsScope,
+            _from_hour: i64,
+            _to_hour: i64,
+        ) -> CoreResult<Vec<awg_statistics::Bucket>> {
+            Ok(Vec::new())
+        }
+
+        fn cleanup_before(&self, _hour: i64) -> CoreResult<usize> {
+            Ok(0)
+        }
+    }
+
+    struct Hub;
+
+    impl awg_statistics::StatsBroadcaster for Hub {
+        fn broadcast(&self, _update: awg_statistics::StatsUpdate) {}
+    }
+
+    #[tokio::test]
+    async fn periodic_reconcile_republishes_after_an_overflow() {
+        let registry = Arc::new(WorkerRegistry::new());
+        let node_id = Uuid::new_v4();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
+        registry.register(node_id, sender, None);
+        let service = OrchestrationService::new(
+            registry.clone(),
+            Arc::new(Source),
+            Arc::new(StatsService::new(Arc::new(EmptyStats), Arc::new(Hub))),
+            Arc::new(Directory),
+            Arc::new(Nodes),
+        );
+
+        assert!(service.publish(node_id).unwrap());
+        assert!(!service.publish(node_id).unwrap());
+        assert_eq!(registry.dirty_nodes(), vec![node_id]);
+
+        let _ = receiver.recv().await.expect("first state");
+        service.publish_all();
+
+        assert!(registry.dirty_nodes().is_empty());
+        let retried = receiver.try_recv().expect("state was republished");
+        assert_eq!(retried.node_id, node_id);
     }
 }

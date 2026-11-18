@@ -44,7 +44,9 @@ Frontend доступен на `http://localhost:5173`, admin на `http://local
 
 - `AWG_MASTER_KEY` — 32 байта в base64 (`openssl rand -base64 32`), используется `Sealer` (ChaCha20-Poly1305) для шифрования приватных ключей устройств и интерфейсов в redb. В `production` старт завершается ошибкой, если ключ не задан, не base64 или длина не 32 байта. Потеря ключа делает сохранённые секреты нечитаемыми; менять ключ на данных production нельзя.
 - `AWG_JWT_SECRET` — не короче 32 байт в `production` (`openssl rand -base64 48`). Влияет на все JWT; смена секрета инвалидирует выданные токены.
-- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`, `AWG_ADMIN_LOGIN` (legacy) используется для поиска существующей записи.
+- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; если переменная не задана, применяется дефолт `admin12345`, и старт завершается ошибкой (`AWG_ADMIN_PASSWORD must be changed…`). Seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`, `AWG_ADMIN_LOGIN` (legacy) используется для поиска существующей записи.
+- `AWG_TRUSTED_PROXIES` — список IP/CIDR через запятую. `X-Forwarded-For` и `X-Real-IP` принимаются только от перечисленных адресов; клиентский IP для rate limit/аудита — первый справа хоп XFF, не входящий в trusted-сети. Пусто (по умолчанию) — заголовки игнорируются. За Traefik укажите подсеть docker-сети (`docker network inspect`), локально достаточно `127.0.0.1/32`.
+- `AWG_DEV_MAIL_TOKEN` — токен для `GET/DELETE /api/v1/dev/mail` вне production. Без него маршрут требует обычный access token администратора. В `production` маршрут всегда отвечает `404`, а dev-mailbox и токены в письмах не логируются.
 - `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` по умолчанию `awg-admin`; пустые значения заменяются значением по умолчанию.
 - SMTP: `AWG_MAIL_MODE=log|smtp`, `AWG_SMTP_URL=smtp://user:pass@host:port`, `AWG_SMTP_FROM`, `AWG_PUBLIC_URL` для ссылки подтверждения email.
 - `AWG_APP_VERIFY_URL` — deep link мобильного приложения для подтверждения email (`umbravpn://verify` по умолчанию); в письме добавляется `{AWG_APP_VERIFY_URL}?token=…`.
@@ -77,7 +79,8 @@ Admin умеет делать горячий снапшот по расписа�
 
 Файлы называются `awg-admin-YYYYMMDDTHHMMSSZ.redb`; после каждого снимка старые
 удаляются, остаётся `AWG_BACKUP_KEEP` самых новых. Первый снимок делается сразу
-после старта. В Docker смонтируйте каталог backup отдельным томом, иначе файлы
+после старта. Временные файлы `*.tmp-*` (остатки прерванной записи) удаляются при
+старте планировщика и после каждого успешного backup, если им больше часа. В Docker смонтируйте каталог backup отдельным томом, иначе файлы
 будут лежать в контейнере:
 
 ```yaml
@@ -146,7 +149,20 @@ docker compose logs --tail=50 admin              # нет ошибок мигр�
 
 Проверка версии: если backup создан другой версией admin, `restore` отклонит его; сначала обновите admin до версии, создавшей backup, или выполните миграции. Для отката на предыдущую версию используйте `awg-backup`, собранный из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`, шаги `1 → 2` (`v2_billing`, таблицы биллинга) и `2 → 3` (`v3_rate_limits`, таблица `rate_limits`) не меняют существующие данные; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
 
-## 4. Метрики
+## 4. Очистка устаревших данных
+
+Фоновая задача admin раз в час (и сразу при старте) удаляет устаревшие записи:
+
+- `idempotency` — старше 24 часов (`expires_at`);
+- `email_verifications` — истёкшие токены подтверждения и сброса пароля;
+- `share_links` — истёкшие и отозванные (`revoked_at`) старше 30 дней; отзыв
+  хранится как история, `revoked_at` не даёт скачать конфиг.
+
+Очистка выполняется в `spawn_blocking`, чтобы не блокировать runtime. Audit
+чистится отдельно по `AWG_AUDIT_RETENTION_DAYS` (раздел 7), трафик — по
+настройке stats retention.
+
+## 5. Метрики
 
 `GET /metrics` отдаёт реестр Prometheus text-формата `0.0.4`. С токеном:
 
@@ -184,7 +200,7 @@ scrape_configs:
 
 Алерты: `awg_worker_online == 0` дольше 2 минут; рост `awg_rate_limited_total`; `awg_auth_logins_total{result="failure"}`. `/metrics` сам не учитывается в `awg_http_requests_total`.
 
-## 5. Логи
+## 6. Логи
 
 `AWG_LOG_FORMAT=text|json` (по умолчанию `text`), уровень `RUST_LOG` (по умолчанию `info`, `EnvFilter`). При `json` включается `tracing_subscriber` JSON с полями `timestamp`, `level`, `target`, `fields`. Пример сбора в Loki через Vector (чтение stdout контейнера):
 
@@ -220,13 +236,13 @@ encoding.codec = "json"
 `ParentBased(AlwaysOn)`; для продакшена поднимите OTLP-collector (Tempo,
 Jaeger, OTel Collector) и при необходимости ограничьте `RUST_LOG`.
 
-## 6. Аудит
+## 7. Аудит
 
 `GET /api/v1/audit` доступен только роли `admin`; записи в обратном хронологическом порядке, ответ `{"items":[...],"next_cursor":"..."}`. Фильтры (AND): `limit` (1..500, по умолчанию 100), `before` (курсор `<микросекунды>:<uuid>`), `action` (например `POST`, `DELETE`), `entity` (например `devices`), `actor` (регистронезависимое вхождение), `status` (HTTP-код), `from`/`to` (Unix-секунды, включительно). `from > to` — `400 invalid_filter`.
 
 Retention: `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) — записи старше удаляются фоновой задачей раз в сутки. UI раздел `/audit` (admin only). Автоматически фиксируются успешные (2xx) mutating-запросы `POST`/`PATCH`/`PUT`/`DELETE` под `/api/v1`; вход фиксируется контроллером. `entity` — путь без идентификатора, `entity_id` — первый UUID или share-токен из пути, `ip` — первый адрес `X-Forwarded-For` либо адрес peer.
 
-## 7. Квоты
+## 8. Квоты
 
 ```bash
 TOKEN=$(curl -fsS -X POST http://127.0.0.1:8080/api/v1/auth/login \
@@ -246,7 +262,7 @@ tc -s class show dev <ifname> | grep -i '1kbit\|1kibit'
 
 Без квоты (`quota_bytes=null`) ограничение не применяется.
 
-## 8. Worker и dataplane
+## 9. Worker и dataplane
 
 Переменные: `AWG_NODE_ID`, `AWG_NODE_TOKEN`, `AWG_DRY_RUN=false`, `AWG_STATS_INTERVAL_SECS=2`, `AWG_GRPC_URL`, `AWG_COUNTERS_PATH=/var/lib/awg-worker/counters.json`. Запуск:
 
@@ -290,7 +306,7 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 - без тарифа у пользователя `user_limits` пуст и tc не применяется; пул без `gateway` даёт интерфейс без адреса.
 - worker не чистит интерфейс, удалённый из desired state, если worker был остановлен в момент удаления.
 
-## 9. Инциденты
+## 10. Инциденты
 
 - Admin недоступен: проверить `docker compose ps`, `docker compose logs admin`, healthcheck `curl -fsS http://127.0.0.1:8080/api/v1/health`. Частые причины: неверные секреты в `production` (старт завершается ошибкой), схема БД новее поддерживаемой, заполненный диск, отсутствие тома `awg-data`.
 - Worker offline: `docker compose ps`, `docker compose logs worker`, `GET /api/v1/nodes` (`online`). Проверить `AWG_NODE_ID`/`AWG_NODE_TOKEN`, `AWG_GRPC_URL`, доступность порта `9090` (не публиковать наружу).
@@ -299,7 +315,7 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 - Сертификат: `verify-tls.sh`, проверить `TRAEFIK_ACME_EMAIL`, том `traefik-letsencrypt`, домен задаётся `AWG_DOMAIN` (`Host(...)` в compose есть, HSTS настроен); ACME на реальном домене проверяется на стенде.
 - Rate limit: `awg_rate_limited_total`, параметры `AWG_LOGIN_RATE_LIMIT`, `AWG_REFRESH_RATE_LIMIT` и окна; 0 отключает лимит. Режим хранилища — `AWG_RATE_LIMIT_STORE`: `memory` (по умолчанию, счётчики у каждой реплики свои) или `redb` (общая таблица `rate_limits` в БД, файл открывается в redb `MultiWriter` для нескольких процессов). При нескольких репликах включайте `redb` на всех и давайте им общий `AWG_DB_PATH`; записи старше окна удаляются раз в час и при shutdown.
 
-## 10. Обновление
+## 11. Обновление
 
 1. Backup БД (раздел 3) и `.env`.
 2. Обновить образы: `docker compose build --pull` или `docker compose up -d --build`.
@@ -309,7 +325,7 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 
 Откат: остановить admin, вернуть прежний образ/`.env`, восстановить БД из backup командой `awg-backup restore --offline` той же версии, что и возвращаемый admin (раздел 3), запустить. Не менять `AWG_MASTER_KEY` при откате.
 
-## 11. Полезные команды
+## 12. Полезные команды
 
 ```bash
 make build

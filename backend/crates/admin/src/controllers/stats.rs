@@ -58,11 +58,20 @@ pub async fn overview(
             .map_err(ApiError::from)?
     };
     let mut top = Vec::new();
+    let device_scopes: Vec<StatsScope> = devices
+        .iter()
+        .filter(|d| !d.revoked)
+        .map(|device| StatsScope::Device(device.id))
+        .collect();
+    let today = state
+        .stats
+        .today_many(&device_scopes)
+        .map_err(ApiError::from)?;
     for device in devices.iter().filter(|d| !d.revoked) {
-        let (rx, tx) = state
-            .stats
-            .today(StatsScope::Device(device.id))
-            .map_err(ApiError::from)?;
+        let (rx, tx) = today
+            .get(&StatsScope::Device(device.id))
+            .copied()
+            .unwrap_or_default();
         top.push(DeviceTrafficView {
             device_id: device.id,
             name: device.name.clone(),

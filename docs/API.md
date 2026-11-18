@@ -6,27 +6,29 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_idempotency_key`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_idempotency_key`, `idempotency_in_progress`, `idempotency_key_mismatch`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
 | Метод | Путь | Права | Запрос | Ответ |
 |---|---|---|---|---|
 | GET | `/health` | public | — | `{status,service,version}` |
+| GET | `/dev/mail` | admin | — | `DevMail[]` (только dev; `404` в production) |
+| DELETE | `/dev/mail` | admin | — | `204` (только dev) |
 | POST | `/auth/login` | public | `LoginRequest` | `AuthView` |
 | POST | `/auth/register` | public | `{email,login?,password}` | `202 {status:"pending_email"}` |
 | POST | `/auth/verify-email` | public | `{token}` | `{status:"pending_approval"}` |
 | POST | `/auth/resend-verification` | public | `{email}` | `202 {status:"sent"}` |
 | POST | `/auth/forgot-password` | public | `{email}` | `202 {status:"sent"}` |
 | POST | `/auth/reset-password` | public | `{token,password}` | `200 {status:"reset"}` |
-| POST | `/auth/totp/setup` | user | — | `{secret,otpauth_url,recovery_codes}` |
+| POST | `/auth/totp/setup` | user | `{password?,code?}`¹ | `{secret,otpauth_url,recovery_codes}` |
 | POST | `/auth/totp/enable` | user | `{code}` | `{enabled:true}` |
 | POST | `/auth/totp/disable` | user | `{password,code}` | `{enabled:false}` |
 | POST | `/auth/refresh` | public | `RefreshRequest` | `AuthView` |
 | POST | `/auth/logout` | user | `LogoutRequest` | `{ok:true}` |
 | POST | `/auth/logout-all` | user | — | `{ok:true,revoked}` |
 | GET | `/auth/me` | user | — | `UserView` |
-| POST | `/auth/password` | user | `ChangePasswordRequest` | `{ok:true}` |
+| POST | `/auth/password` | user | `{current_password,new_password,totp_code?}` | `{ok:true}` |
 | GET | `/auth/sessions` | user | — | `SessionView[]` |
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
 | POST | `/auth/logout-all` | user | — | `{ok:true,revoked}` |
@@ -39,7 +41,7 @@
 | POST | `/users` | admin | `CreateUserRequest` | `UserView` |
 | GET | `/users/{id}` | admin | — | `UserView` |
 | PATCH | `/users/{id}` | admin | `UpdateUserRequest` | `UserView` |
-| DELETE | `/users/{id}` | admin | — | `{ok:true}` |
+| DELETE | `/users/{id}` | admin | — | `{ok:true}` (каскадно удаляет устройства, пиры и share-ссылки) |
 | POST | `/users/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/users/{id}/password` | admin | `{new_password}` (по контроллеру) | `{ok:true}` |
 | GET | `/tariffs` | admin | — | `TariffView[]` |
@@ -83,7 +85,7 @@
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
 | DELETE | `/devices/{id}/shares` | self/admin | — | `{revoked:N}` (отзыв всех ссылок устройства) |
 | GET | `/devices/{id}/stats` | self/admin | — | `DeviceTrafficView` (через stats) |
-| DELETE | `/shares/{token}` | user | — | `{ok:true}` |
+| DELETE | `/shares/{token}` | self/admin | — | `{ok:true}` (ставит `revoked_at`; чужой токен — `403`, неизвестный — `404`) |
 | GET | `/stats/overview` | user/admin | — | `OverviewView` |
 | GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
 | GET | `/stats/aggregate` | user/admin | query `scope,id,bucket,from,to` (см. «Агрегация статистики») | `{bucket,points}` |
@@ -119,6 +121,8 @@
 | GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
 | POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
 
+¹ `password` и `code` обязательны при повторной привязке, когда TOTP уже включён.
+
 ## Идемпотентность
 
 Любой бизнес-`POST` под `/api/v1` можно сделать идемпотентным: достаточно
@@ -139,9 +143,16 @@
   конфликтует; повтор с тем же ключом на другой `path` — это другой запрос.
 - TTL записи — 24 часа, после чего ключ можно использовать снова.
   Просроченная запись удаляется при чтении.
+- Повтор во время выполнения первого запроса получает `409` с кодом
+  `idempotency_in_progress`: второй эффект не создаётся. Если тело повтора
+  отличается от тела уже выполняющегося запроса, ответ — `409` с кодом
+  `idempotency_key_mismatch`. После успеха повтор возвращает готовый ответ,
+  после ошибки запись освобождается и повтор разрешён. Проверка «выполняется»
+  снимается автоматически через 5 минут, если процесс не успел завершить запрос.
 - Поведение при повторе: возвращается статус и тело первого ответа (`2xx`),
   `Content-Type` восстанавливается из записи; обработчик не вызывается.
-  Тело запроса повтора не сравнивается — возвращается первый результат.
+  После успешного завершения тело запроса повтора не сравнивается —
+  возвращается первый результат.
 - Кэшируются только успешные (`2xx`) ответы с JSON-телом не больше 2 МиБ.
   Ответы `4xx`/`5xx`, таймауты и ошибки не запоминаются: после исправления
   запроса тот же ключ выполнит операцию.
@@ -336,6 +347,9 @@ middleware этот маршрут не обрабатывает).
 - Повтор с тем же ключом в течение 24 часов возвращает `200` и тело первого
   успешного ответа (`AppDeviceView`); новое устройство не создаётся. Другое
   тело запроса игнорируется — возвращается первый результат.
+- Параллельный повтор, пока первый запрос ещё выполняется, получает `409
+  idempotency_in_progress`; с другим телом — `409 idempotency_key_mismatch`.
+  Это не даёт создать второе устройство при обрыве ответа.
 - Ответы с ошибкой (`4xx`/`5xx`) не запоминаются: после исправления запроса
   тот же ключ создаёт устройство.
 - Без заголовка поведение прежнее: каждый запрос создаёт новое устройство.
@@ -867,6 +881,10 @@ Access- и refresh-токены подписаны HS256 и содержат `su
   истечения TTL.
 - `POST /auth/logout-all` — отзывает все refresh-сессии пользователя,
   возвращает `{"ok":true,"revoked":N}`.
+- `POST /auth/password` требует `current_password` (`{current_password,
+  new_password, totp_code?}`); при включённом TOTP вместо пароля можно передать
+  действующий `totp_code`. `DELETE /users/{id}` дополнительно удаляет устройства,
+  пиры и share-ссылки пользователя.
 - `POST /auth/password`, `POST /auth/reset-password`, `PATCH /users/{id}` с
   `disabled=true`, `POST /users/{id}/password` и `DELETE /users/{id}` отзывают
   все refresh-сессии затронутого пользователя.
@@ -959,9 +977,16 @@ TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 - `POST /auth/totp/setup` → `{secret, otpauth_url, recovery_codes}`. Секрет
   хранится только в зашифрованном виде (`Sealer`), возвращаются 8 одноразовых
   recovery-кодов (в хранилище — Argon2-хэши), `totp_enabled` пока `false`.
-- `POST /auth/totp/enable` `{"code":"123456"}` → `{"enabled":true}`.
+  Если TOTP уже включён, запрос обязан содержать `password` и действующий
+  `code`; новый секрет сохраняется как pending, старый продолжает работать,
+  пока его не подтвердят через `/auth/totp/enable` — повторная привязка не
+  отключает 2FA.
+- `POST /auth/totp/enable` `{"code":"123456"}` → `{"enabled":true}`;
+  подтверждает первый или pending-секрет.
 - `POST /auth/totp/disable` `{"password":"…","code":"…"}` →
-  `{"enabled":false}`, секрет и recovery-коды удаляются.
+  `{"enabled":false}`, секрет, pending-секрет и recovery-коды удаляются. Один и
+  тот же TOTP-шаг нельзя использовать повторно (replay отклоняется как
+  `totp_invalid`).
 
 При включённом TOTP вход без кода возвращает `401 totp_required`, с неверным
 кодом — `401 totp_invalid`. В поле `totp_code` принимается код приложения или
@@ -1165,7 +1190,11 @@ bad_request`; неизвестный scope — `400 bad_request`, недосту
   (`active`|`expired`|`exhausted`|`revoked`), новые сначала.
 - `DELETE /devices/{id}/shares` отзывает все активные ссылки устройства
   (`revoked_at`), возвращает `{revoked:N}`.
-- `DELETE /api/v1/shares/{token}` отзывает одну ссылку.
+- `DELETE /api/v1/shares/{token}` отзывает одну ссылку: доступно владельцу
+  устройства, создателю ссылки или admin; неизвестный токен — `404`, чужая
+  ссылка — `403`. Запись не удаляется, выставляется `revoked_at` (история), а
+  `GET /share/{token}` после отзыва отвечает `403`. Истёкшие и отозванные старше
+  30 дней ссылки удаляются фоновой очисткой.
 
 ## Метрики нод
 
@@ -1236,7 +1265,7 @@ DELETE /api/v1/audit?actor=admin&from=1767225600&to=1767312000
 Автоматически фиксируются успешные (2xx) mutating-запросы `POST`, `PATCH`,
 `PUT`, `DELETE` под `/api/v1`: actor определяется по Bearer-токену (без токена —
 `anonymous`), `entity` — путь без идентификатора, `entity_id` — первый UUID или
-share-токен из пути, `ip` — первый адрес `X-Forwarded-For` либо адрес peer.
+share-токен из пути, `ip` — клиентский адрес: при доверенном peer (`AWG_TRUSTED_PROXIES`) первый справа недоверенный хоп `X-Forwarded-For`/`X-Real-IP`, иначе адрес peer.
 
 ```json
 {

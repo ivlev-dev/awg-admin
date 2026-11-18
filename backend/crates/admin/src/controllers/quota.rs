@@ -35,15 +35,24 @@ pub async fn users(
 ) -> ApiResult<Json<Vec<QuotaUserView>>> {
     authorize_user_quotas(&user)?;
     let accounts = state.identity.list().map_err(ApiError::from)?;
+    let scopes: Vec<StatsScope> = accounts
+        .iter()
+        .filter(|account| account.tariff_id.is_some())
+        .map(|account| StatsScope::User(account.id))
+        .collect();
+    let used = state
+        .stats
+        .used_bytes_many(&scopes)
+        .map_err(ApiError::from)?;
     let mut items = Vec::new();
     for account in accounts
         .iter()
         .filter(|account| account.tariff_id.is_some())
     {
-        let used = state
-            .stats
-            .used_bytes(StatsScope::User(account.id))
-            .map_err(ApiError::from)?;
+        let used = used
+            .get(&StatsScope::User(account.id))
+            .copied()
+            .unwrap_or_default();
         items.push(user_quota(&state.tariffs, account, used).map_err(ApiError::from)?);
     }
     items.sort_by(|left, right| {
@@ -139,6 +148,9 @@ mod tests {
             totp_secret_sealed: None,
             totp_enabled: false,
             recovery_codes: Vec::new(),
+            totp_pending_secret_sealed: None,
+            totp_pending_recovery_codes: Vec::new(),
+            last_totp_step: None,
             created_at: now,
             updated_at: now,
         }

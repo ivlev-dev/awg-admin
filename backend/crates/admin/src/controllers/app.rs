@@ -15,10 +15,14 @@ use awg_statistics::StatsScope;
 use awg_tariffs::Tariff;
 
 use crate::auth::AuthUser;
-use crate::controllers::devices::{build_view, build_views, forwarding_default, unlimited_tariff};
+use crate::controllers::devices::{
+    authorize_placement, build_view, build_views, forwarding_default, unlimited_tariff,
+};
 use crate::controllers::quota::current_quota;
 use crate::error::{ApiError, ApiResult};
-use crate::idempotency::{IDEMPOTENCY_HEADER, IdempotentResponse, user_key, valid_key};
+use crate::idempotency::{
+    BeginOutcome, IDEMPOTENCY_HEADER, IdempotentResponse, body_fingerprint, user_key, valid_key,
+};
 use crate::models::{AppDeviceRequest, CreateTunnelRequest, UpdateTunnelRequest};
 use crate::publish::publish_group;
 use crate::state::AppState;
@@ -101,33 +105,47 @@ pub async fn create_device(
     Json(request): Json<AppDeviceRequest>,
 ) -> ApiResult<Response> {
     let Some(key) = idempotency_key(&headers)? else {
-        return Ok(Json(create_device_view(&state, &user, &request)?).into_response());
+        return Ok(Json(create_device_view(&state, &user, &request).await?).into_response());
     };
 
     let storage_key = user_key(user.id(), &key);
-    let _guard = state.idempotency.lock().await;
-    if let Some(cached) = state
+    let fingerprint = body_fingerprint(
+        &serde_json::to_vec(&request).map_err(|error| ApiError::Internal(error.to_string()))?,
+    );
+    match state
         .idempotency
-        .get(&storage_key)
+        .begin(&storage_key, &fingerprint)
         .map_err(ApiError::from)?
     {
-        return Ok(cached.into_response());
+        BeginOutcome::Ready(cached) => return Ok(cached.into_response()),
+        BeginOutcome::InFlight => return Err(ApiError::IdempotencyInProgress),
+        BeginOutcome::FingerprintMismatch => return Err(ApiError::IdempotencyKeyMismatch),
+        BeginOutcome::Started => {}
     }
 
-    let view = create_device_view(&state, &user, &request)?;
+    let view = match create_device_view(&state, &user, &request).await {
+        Ok(view) => view,
+        Err(error) => {
+            if let Err(abort) = state.idempotency.abort(&storage_key, &fingerprint) {
+                tracing::warn!(%abort, "failed to release the idempotency record");
+            }
+            return Err(error);
+        }
+    };
     let body =
         serde_json::to_value(&view).map_err(|error| ApiError::Internal(error.to_string()))?;
-    state
-        .idempotency
-        .put(
-            &storage_key,
-            &IdempotentResponse::new(
-                StatusCode::OK.as_u16(),
-                body,
-                Some("application/json".into()),
-            ),
-        )
-        .map_err(ApiError::from)?;
+    if let Err(error) = state.idempotency.complete(
+        &storage_key,
+        &fingerprint,
+        &IdempotentResponse::new(
+            StatusCode::OK.as_u16(),
+            body,
+            Some("application/json".into()),
+        ),
+    ) {
+        tracing::warn!(%error, "failed to persist the device creation response");
+        return Err(ApiError::from(error));
+    }
     Ok(Json(view).into_response())
 }
 
@@ -145,7 +163,7 @@ fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<String>> {
     Ok(Some(key.to_string()))
 }
 
-fn create_device_view(
+async fn create_device_view(
     state: &AppState,
     user: &AuthUser,
     request: &AppDeviceRequest,
@@ -158,6 +176,16 @@ fn create_device_view(
         .map_err(ApiError::from)?
         .ok_or(ApiError::TariffRequired)?;
     let group_id = owner.group_id;
+    if !request.interface_ids.is_empty() {
+        authorize_placement(
+            state,
+            &owner,
+            &tariff,
+            group_id,
+            None,
+            &request.interface_ids,
+        )?;
+    }
     let (interface_id, interface_ids) = if request.interface_ids.is_empty() {
         (
             Some(select_interface(state, &owner, &tariff, group_id)?),
@@ -194,6 +222,7 @@ fn create_device_view(
             },
             &settings.obfuscation,
         )
+        .await
         .map_err(ApiError::from)?;
     publish_group(state, device.group_id);
     let configs = device_configs_for(state, device.id)?;
@@ -233,6 +262,14 @@ pub async fn create_tunnel(
         .tariff_for(&owner)
         .map_err(ApiError::from)?
         .ok_or(ApiError::TariffRequired)?;
+    authorize_placement(
+        &state,
+        &owner,
+        &tariff,
+        Some(device.group_id),
+        Some(request.interface_id),
+        &[],
+    )?;
     let settings = state.settings.get().map_err(ApiError::from)?;
     state
         .devices
@@ -244,6 +281,7 @@ pub async fn create_tunnel(
             request.label,
             &settings.obfuscation,
         )
+        .await
         .map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     let configs = device_configs_for(&state, id)?;
@@ -359,6 +397,10 @@ pub async fn delete_device(
 ) -> ApiResult<StatusCode> {
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
+    state
+        .share
+        .revoke_all_for_device(id)
+        .map_err(ApiError::from)?;
     state.devices.delete(id).map_err(ApiError::from)?;
     publish_group(&state, device.group_id);
     Ok(StatusCode::NO_CONTENT)

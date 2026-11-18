@@ -1,10 +1,12 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{HeaderMap, Method, header};
 use axum::middleware::Next;
 use axum::response::Response;
+use ipnet::IpNet;
 use uuid::Uuid;
 
 use awg_audit::{AuditEntry, NewAuditEntry};
@@ -13,6 +15,7 @@ use crate::state::AppState;
 
 const API_PREFIX: &str = "/api/v1";
 const LOGIN_PATH: &str = "/api/v1/auth/login";
+const MAX_ACTOR_LOGIN_LEN: usize = 254;
 
 pub async fn middleware(
     State(state): State<Arc<AppState>>,
@@ -23,7 +26,7 @@ pub async fn middleware(
     let method = request.method().clone();
     let path = request.uri().path().to_string();
     let authorization = header_string(request.headers(), header::AUTHORIZATION);
-    let ip = client_ip(request.headers(), Some(peer));
+    let ip = client_ip(Some(peer), request.headers(), &state.config.trusted_proxies);
 
     let response = next.run(request).await;
 
@@ -39,7 +42,7 @@ pub async fn middleware(
     };
 
     let (actor_id, actor_login) = match resolve_actor(&state, authorization.as_deref()) {
-        Some((id, login)) => (Some(id), login),
+        Some((id, login)) => (Some(id), truncate_actor_login(&login)),
         None => (None, "anonymous".to_string()),
     };
     let entry = AuditEntry::from_new(NewAuditEntry {
@@ -67,10 +70,7 @@ pub fn record_login(
     status: u16,
     details: Option<String>,
 ) {
-    let actor_login = match login.trim() {
-        "" => "anonymous".to_string(),
-        value => value.to_string(),
-    };
+    let actor_login = truncate_actor_login(login);
     let entry = AuditEntry::from_new(NewAuditEntry {
         actor_id,
         actor_login,
@@ -87,6 +87,14 @@ pub fn record_login(
     }
 }
 
+fn truncate_actor_login(login: &str) -> String {
+    let trimmed = login.trim();
+    if trimmed.is_empty() {
+        return "anonymous".to_string();
+    }
+    trimmed.chars().take(MAX_ACTOR_LOGIN_LEN).collect()
+}
+
 fn resolve_actor(state: &AppState, authorization: Option<&str>) -> Option<(Uuid, String)> {
     let token = authorization?.strip_prefix("Bearer ")?;
     let principal = state.identity.authenticate(token).ok()?;
@@ -94,18 +102,47 @@ fn resolve_actor(state: &AppState, authorization: Option<&str>) -> Option<(Uuid,
     Some((user.id, user.email_or_login()))
 }
 
-pub fn client_ip(headers: &HeaderMap, peer: Option<SocketAddr>) -> Option<String> {
-    for name in ["x-forwarded-for", "x-real-ip"] {
-        if let Some(value) = headers.get(name).and_then(|value| value.to_str().ok())
-            && let Some(first) = value
-                .split(',')
-                .map(str::trim)
-                .find(|part| !part.is_empty())
-        {
-            return Some(first.to_string());
+/// Resolves the client address for rate limiting and audit records.
+///
+/// Forwarding headers are only honoured when the direct peer belongs to
+/// `trusted` (configured with `AWG_TRUSTED_PROXIES`). The right-most
+/// `X-Forwarded-For` hop that is not itself a trusted proxy is returned, so a
+/// client cannot spoof its address by prepending entries to the header.
+pub fn client_ip(
+    peer: Option<SocketAddr>,
+    headers: &HeaderMap,
+    trusted: &[IpNet],
+) -> Option<String> {
+    let peer_ip = peer?.ip();
+    if !is_trusted(peer_ip, trusted) {
+        return Some(peer_ip.to_string());
+    }
+    if let Some(value) = headers
+        .get("x-forwarded-for")
+        .and_then(|value| value.to_str().ok())
+    {
+        for part in value.split(',').rev() {
+            let Ok(ip) = IpAddr::from_str(part.trim()) else {
+                continue;
+            };
+            if !is_trusted(ip, trusted) {
+                return Some(ip.to_string());
+            }
         }
     }
-    peer.map(|addr| addr.ip().to_string())
+    if let Some(ip) = headers
+        .get("x-real-ip")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| IpAddr::from_str(value.trim()).ok())
+        && !is_trusted(ip, trusted)
+    {
+        return Some(ip.to_string());
+    }
+    Some(peer_ip.to_string())
+}
+
+fn is_trusted(ip: IpAddr, trusted: &[IpNet]) -> bool {
+    trusted.iter().any(|net| net.contains(&ip))
 }
 
 pub fn is_mutating(method: &Method) -> bool {
@@ -150,6 +187,17 @@ fn header_string(headers: &HeaderMap, name: header::HeaderName) -> Option<String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn actor_logins_are_truncated_and_default_to_anonymous() {
+        assert_eq!(truncate_actor_login("   "), "anonymous");
+        assert_eq!(truncate_actor_login(" admin "), "admin");
+        let long = "я".repeat(300);
+        let truncated = truncate_actor_login(&long);
+        assert_eq!(truncated.chars().count(), MAX_ACTOR_LOGIN_LEN);
+        let ascii = "a".repeat(500);
+        assert_eq!(truncate_actor_login(&ascii).len(), MAX_ACTOR_LOGIN_LEN);
+    }
 
     #[test]
     fn mutating_methods_are_detected() {
@@ -216,27 +264,75 @@ mod tests {
         "192.0.2.10:54321".parse().unwrap()
     }
 
+    fn proxies() -> Vec<IpNet> {
+        vec!["192.0.2.0/24".parse().unwrap()]
+    }
+
     #[test]
-    fn client_ip_prefers_forwarded_header() {
+    fn client_ip_ignores_forwarded_headers_from_untrusted_peers() {
         let mut headers = HeaderMap::new();
-        headers.insert("x-forwarded-for", "203.0.113.5, 192.0.2.1".parse().unwrap());
+        headers.insert("x-forwarded-for", "203.0.113.5".parse().unwrap());
+        headers.insert("x-real-ip", "198.51.100.9".parse().unwrap());
         assert_eq!(
-            client_ip(&headers, Some(peer())),
+            client_ip(Some(peer()), &headers, &[]),
+            Some("192.0.2.10".to_string())
+        );
+        assert_eq!(
+            client_ip(Some(peer()), &headers, &proxies()),
             Some("203.0.113.5".to_string())
         );
     }
 
     #[test]
-    fn client_ip_uses_real_ip_then_peer() {
+    fn client_ip_returns_the_rightmost_untrusted_hop() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "203.0.113.5, 198.51.100.7, 192.0.2.20".parse().unwrap(),
+        );
+        assert_eq!(
+            client_ip(Some(peer()), &headers, &proxies()),
+            Some("198.51.100.7".to_string())
+        );
+    }
+
+    #[test]
+    fn client_ip_falls_back_to_peer_when_the_chain_is_trusted() {
+        let mut headers = HeaderMap::new();
+        headers.insert("x-forwarded-for", "192.0.2.20, 192.0.2.30".parse().unwrap());
+        assert_eq!(
+            client_ip(Some(peer()), &headers, &proxies()),
+            Some("192.0.2.10".to_string())
+        );
+    }
+
+    #[test]
+    fn client_ip_uses_real_ip_only_from_a_trusted_peer() {
         let mut headers = HeaderMap::new();
         headers.insert("x-real-ip", "198.51.100.9".parse().unwrap());
         assert_eq!(
-            client_ip(&headers, Some(peer())),
+            client_ip(Some(peer()), &headers, &proxies()),
             Some("198.51.100.9".to_string())
         );
 
         let headers = HeaderMap::new();
-        assert_eq!(client_ip(&headers, Some(peer())), Some("192.0.2.10".into()));
-        assert_eq!(client_ip(&headers, None), None);
+        assert_eq!(
+            client_ip(Some(peer()), &headers, &proxies()),
+            Some("192.0.2.10".into())
+        );
+        assert_eq!(client_ip(None, &headers, &proxies()), None);
+    }
+
+    #[test]
+    fn client_ip_skips_malformed_forwarded_entries() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-forwarded-for",
+            "not-an-ip, 203.0.113.5, also-bad".parse().unwrap(),
+        );
+        assert_eq!(
+            client_ip(Some(peer()), &headers, &proxies()),
+            Some("203.0.113.5".to_string())
+        );
     }
 }

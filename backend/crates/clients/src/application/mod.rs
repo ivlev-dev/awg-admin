@@ -4,11 +4,12 @@ pub mod share;
 pub use profiles::ProfileService;
 pub use share::ShareService;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 
 use chrono::Utc;
+use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 use uuid::Uuid;
 
 use awg_identity::User;
@@ -63,6 +64,7 @@ pub struct DeviceService {
     network: Arc<NetworkService>,
     tariffs: Arc<TariffService>,
     sealer: Arc<Sealer>,
+    group_locks: std::sync::Mutex<HashMap<Uuid, Arc<AsyncMutex<()>>>>,
 }
 
 impl DeviceService {
@@ -79,7 +81,23 @@ impl DeviceService {
             network,
             tariffs,
             sealer,
+            group_locks: std::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    async fn lock_group(&self, group_id: Uuid) -> OwnedMutexGuard<()> {
+        let mutex = {
+            let mut locks = self
+                .group_locks
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            locks.retain(|existing, mutex| *existing == group_id || Arc::strong_count(mutex) > 1);
+            locks
+                .entry(group_id)
+                .or_insert_with(|| Arc::new(AsyncMutex::new(())))
+                .clone()
+        };
+        mutex.lock_owned().await
     }
 
     pub fn list_all(&self) -> CoreResult<Vec<Device>> {
@@ -96,7 +114,7 @@ impl DeviceService {
             .ok_or_else(|| CoreError::NotFound("device".into()))
     }
 
-    pub fn create(
+    pub async fn create(
         &self,
         user: &User,
         tariff: &Tariff,
@@ -125,6 +143,7 @@ impl DeviceService {
             .cloned()
             .ok_or_else(|| CoreError::Invalid("at least one interface is required".into()))?;
         let group = self.network.get_group(primary.group_id)?;
+        let _lock = self.lock_group(group.id).await;
         let existing = self.devices.by_user(user.id)?;
         if existing.iter().filter(|d| !d.revoked).count() as u32 >= tariff.max_devices {
             return Err(CoreError::Conflict(format!(
@@ -232,7 +251,7 @@ impl DeviceService {
         Ok(ips)
     }
 
-    pub fn add_peer(
+    pub async fn add_peer(
         &self,
         user: &User,
         _tariff: &Tariff,
@@ -286,6 +305,7 @@ impl DeviceService {
             None => interface.name.clone(),
         };
 
+        let _lock = self.lock_group(device.group_id).await;
         let all_peers = self.peers.list()?;
         let mut used: HashSet<IpAddr> = all_peers
             .iter()

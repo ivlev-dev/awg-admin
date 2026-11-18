@@ -22,6 +22,7 @@ use crate::models::{
     AdminSubscriptionQuery, CreatePlanRequest, InvoiceQuery, StartCheckoutRequest,
     UpdatePlanRequest,
 };
+use crate::publish::publish_user_groups;
 use crate::state::AppState;
 use crate::views::{CheckoutView, PaymentMethodView, SubscriptionPageView, WebhookView};
 
@@ -167,6 +168,9 @@ pub async fn webhook(
         .billing
         .handle_webhook(&provider, &headers, body.as_ref(), Utc::now())
         .map_err(webhook_error)?;
+    if let Some(user_id) = outcome.affected_user() {
+        publish_user_groups(&state, user_id);
+    }
     Ok(Json(WebhookView {
         status: outcome.status().to_string(),
         event_id: Some(outcome.event_id().to_string()),

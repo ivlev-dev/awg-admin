@@ -59,6 +59,12 @@ pub struct User {
     pub totp_enabled: bool,
     #[serde(default)]
     pub recovery_codes: Vec<String>,
+    #[serde(default)]
+    pub totp_pending_secret_sealed: Option<String>,
+    #[serde(default)]
+    pub totp_pending_recovery_codes: Vec<String>,
+    #[serde(default)]
+    pub last_totp_step: Option<u64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -118,7 +124,7 @@ pub fn validate_password(password: &str) -> CoreResult<()> {
             "password must be at least 8 characters".into(),
         ));
     }
-    if password.len() > 256 {
+    if password.len() > 1024 {
         return Err(CoreError::Invalid("password is too long".into()));
     }
     Ok(())
@@ -223,6 +229,8 @@ pub struct EmailVerification {
 pub trait EmailVerificationRepository: Send + Sync {
     fn find(&self, token_hash: &str) -> CoreResult<Option<EmailVerification>>;
     fn save(&self, token_hash: &str, verification: &EmailVerification) -> CoreResult<()>;
+    fn list(&self) -> CoreResult<Vec<(String, EmailVerification)>>;
+    fn delete(&self, token_hash: &str) -> CoreResult<()>;
 }
 
 pub trait UserRepository: Send + Sync {

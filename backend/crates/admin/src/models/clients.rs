@@ -1,4 +1,4 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use awg_clients::{Forwarding, ShareFormat};
@@ -18,7 +18,7 @@ pub struct CreateDeviceRequest {
     pub forwarding: Option<Forwarding>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AppDeviceRequest {
     pub name: Option<String>,
     #[serde(default)]

@@ -128,6 +128,18 @@ impl EmailVerificationRepository for RedbEmailVerificationRepository {
             .put(Table::EmailVerifications, token_hash, verification)
             .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
     }
+
+    fn list(&self) -> CoreResult<Vec<(String, EmailVerification)>> {
+        self.store
+            .list_prefix(Table::EmailVerifications, "")
+            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+    }
+
+    fn delete(&self, token_hash: &str) -> CoreResult<()> {
+        self.store
+            .delete(Table::EmailVerifications, token_hash)
+            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+    }
 }
 
 #[derive(Debug, Clone, Default)]

@@ -1,9 +1,11 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::str::FromStr;
 
 use anyhow::{Context, Result, bail};
 use awg_shared::crypto::random_bytes;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
+use ipnet::IpNet;
 
 pub const DEFAULT_ADMIN_PASSWORD: &str = "admin12345";
 pub const DEFAULT_ADMIN_EMAIL: &str = "admin@local";
@@ -170,6 +172,8 @@ pub struct ConfigInput {
     pub share_ttl_secs: u64,
     pub public_url: String,
     pub app_verify_url: String,
+    pub trusted_proxies: String,
+    pub dev_mail_token: Option<String>,
     pub rate_limit_store: String,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
@@ -217,6 +221,8 @@ pub struct Config {
     pub share_ttl_secs: u64,
     pub public_url: String,
     pub app_verify_url: String,
+    pub trusted_proxies: Vec<IpNet>,
+    pub dev_mail_token: Option<String>,
     pub rate_limit_store: RateLimitStore,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
@@ -296,6 +302,20 @@ impl Config {
 
         let jwt_issuer = trimmed_or(&input.jwt_issuer, DEFAULT_JWT_ISSUER);
         let jwt_audience = trimmed_or(&input.jwt_audience, DEFAULT_JWT_AUDIENCE);
+
+        let trusted_proxies = parse_trusted_proxies(&input.trusted_proxies)?;
+        if trusted_proxies.is_empty() {
+            tracing::warn!(
+                "AWG_TRUSTED_PROXIES is empty; X-Forwarded-For and X-Real-IP are ignored and the direct peer address is used"
+            );
+        }
+
+        let dev_mail_token = non_empty(&input.dev_mail_token).map(|value| value.trim().to_string());
+        if production && dev_mail_token.is_some() {
+            tracing::warn!(
+                "AWG_DEV_MAIL_TOKEN is ignored in production because /dev/mail is disabled"
+            );
+        }
 
         if production {
             validate_production_admin_password(&input.admin_password)?;
@@ -381,6 +401,8 @@ impl Config {
             share_ttl_secs: input.share_ttl_secs,
             public_url: input.public_url.clone(),
             app_verify_url: trimmed_or(&input.app_verify_url, DEFAULT_APP_VERIFY_URL),
+            trusted_proxies,
+            dev_mail_token,
             rate_limit_store,
             login_rate_limit: input.login_rate_limit,
             login_rate_window_secs: input.login_rate_window_secs.max(1),
@@ -423,6 +445,29 @@ fn validate_production_admin_password(password: &str) -> Result<()> {
         );
     }
     Ok(())
+}
+
+pub fn parse_trusted_proxies(raw: &str) -> Result<Vec<IpNet>> {
+    let mut networks = Vec::new();
+    for entry in raw.split(',') {
+        let entry = entry.trim();
+        if entry.is_empty() {
+            continue;
+        }
+        let net = match IpNet::from_str(entry) {
+            Ok(net) => net,
+            Err(_) => {
+                let addr = IpAddr::from_str(entry).with_context(|| {
+                    format!("AWG_TRUSTED_PROXIES entries must be IP/CIDR, got {entry:?}")
+                })?;
+                IpNet::from(addr)
+            }
+        };
+        if !networks.contains(&net) {
+            networks.push(net);
+        }
+    }
+    Ok(networks)
 }
 
 fn decode_master_key(raw: &str) -> Result<()> {
@@ -499,6 +544,8 @@ fn input_from_env() -> Result<ConfigInput> {
         share_ttl_secs: env_u64("AWG_SHARE_TTL_SECS", 86_400),
         public_url: env("AWG_PUBLIC_URL", ""),
         app_verify_url: env("AWG_APP_VERIFY_URL", DEFAULT_APP_VERIFY_URL),
+        trusted_proxies: env("AWG_TRUSTED_PROXIES", ""),
+        dev_mail_token: env_optional("AWG_DEV_MAIL_TOKEN"),
         rate_limit_store: env("AWG_RATE_LIMIT_STORE", "memory"),
         login_rate_limit: env_u32("AWG_LOGIN_RATE_LIMIT", 10),
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
@@ -579,6 +626,8 @@ mod tests {
             share_ttl_secs: 3600,
             public_url: String::new(),
             app_verify_url: DEFAULT_APP_VERIFY_URL.into(),
+            trusted_proxies: String::new(),
+            dev_mail_token: None,
             rate_limit_store: "memory".into(),
             login_rate_limit: 10,
             login_rate_window_secs: 300,
@@ -810,6 +859,46 @@ mod tests {
         input.mail_mode = "telegram".into();
         let error = Config::from_input(input).unwrap_err().to_string();
         assert!(error.contains("AWG_MAIL_MODE must be log or smtp"));
+    }
+
+    #[test]
+    fn trusted_proxies_parse_cidrs_and_bare_addresses() {
+        let mut input = base_input(Environment::Development);
+        input.trusted_proxies = " 10.0.0.0/8, 192.0.2.5 ,, 2001:db8::/32 ".into();
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(
+            config.trusted_proxies,
+            vec![
+                "10.0.0.0/8".parse::<IpNet>().unwrap(),
+                "192.0.2.5/32".parse::<IpNet>().unwrap(),
+                "2001:db8::/32".parse::<IpNet>().unwrap(),
+            ]
+        );
+    }
+
+    #[test]
+    fn trusted_proxies_reject_malformed_values() {
+        let mut input = base_input(Environment::Development);
+        input.trusted_proxies = "not-a-proxy".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_TRUSTED_PROXIES"), "{error}");
+    }
+
+    #[test]
+    fn trusted_proxies_default_to_empty() {
+        let config = Config::from_input(base_input(Environment::Development)).unwrap();
+        assert!(config.trusted_proxies.is_empty());
+    }
+
+    #[test]
+    fn dev_mail_token_is_optional_and_trimmed() {
+        let mut input = base_input(Environment::Development);
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.dev_mail_token, None);
+
+        input.dev_mail_token = Some("  dev-mail-token  ".into());
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.dev_mail_token.as_deref(), Some("dev-mail-token"));
     }
 
     #[test]

@@ -4,9 +4,10 @@ use awg_storage::CURRENT_SCHEMA_VERSION;
 use axum::Json;
 use axum::Router;
 use axum::extract::{Extension, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
+use subtle::ConstantTimeEq;
 
 use crate::controllers;
 use crate::state::AppState;
@@ -42,19 +43,44 @@ pub async fn ready(Extension(readiness): Extension<Readiness>) -> Response {
     readiness_response(&readiness)
 }
 
-async fn dev_mail(State(state): State<Arc<AppState>>) -> Response {
-    if dev_mail_disabled(&state) {
-        return dev_mail_not_found();
+async fn dev_mail(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Err(response) = authorize_dev_mail(&state, &headers) {
+        return *response;
     }
     Json(crate::mailer::dev_mailbox().list()).into_response()
 }
 
-async fn dev_mail_clear(State(state): State<Arc<AppState>>) -> Response {
-    if dev_mail_disabled(&state) {
-        return dev_mail_not_found();
+async fn dev_mail_clear(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if let Err(response) = authorize_dev_mail(&state, &headers) {
+        return *response;
     }
     crate::mailer::dev_mailbox().clear();
     StatusCode::NO_CONTENT.into_response()
+}
+
+/// The development mail sink is disabled in production. Elsewhere it accepts
+/// either `AWG_DEV_MAIL_TOKEN` or a regular administrator access token.
+fn authorize_dev_mail(state: &AppState, headers: &HeaderMap) -> Result<(), Box<Response>> {
+    if dev_mail_disabled(state) {
+        return Err(Box::new(dev_mail_not_found()));
+    }
+    let token = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| Box::new(dev_mail_unauthorized()))?;
+    if let Some(expected) = state.config.dev_mail_token.as_deref()
+        && expected.as_bytes().ct_eq(token.as_bytes()).into()
+    {
+        return Ok(());
+    }
+    match state.identity.authenticate(token) {
+        Ok(principal) if principal.is_admin() => Ok(()),
+        Ok(_) => Err(Box::new(dev_mail_forbidden())),
+        Err(_) => Err(Box::new(dev_mail_unauthorized())),
+    }
 }
 
 fn dev_mail_disabled(state: &AppState) -> bool {
@@ -68,6 +94,32 @@ fn dev_mail_not_found() -> Response {
             "error": {
                 "code": "not_found",
                 "message": "dev mail sink is disabled",
+            },
+        })),
+    )
+        .into_response()
+}
+
+fn dev_mail_unauthorized() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(serde_json::json!({
+            "error": {
+                "code": "unauthorized",
+                "message": "dev mail requires an administrator token or AWG_DEV_MAIL_TOKEN",
+            },
+        })),
+    )
+        .into_response()
+}
+
+fn dev_mail_forbidden() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({
+            "error": {
+                "code": "forbidden",
+                "message": "admin role required",
             },
         })),
     )

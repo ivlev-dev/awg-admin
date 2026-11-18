@@ -68,9 +68,16 @@ pub struct CheckoutOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebhookOutcome {
-    Processed { event_id: String },
-    Duplicate { event_id: String },
-    Ignored { event_id: String },
+    Processed {
+        event_id: String,
+        user_id: Option<Uuid>,
+    },
+    Duplicate {
+        event_id: String,
+    },
+    Ignored {
+        event_id: String,
+    },
 }
 
 impl WebhookOutcome {
@@ -84,9 +91,17 @@ impl WebhookOutcome {
 
     pub fn event_id(&self) -> &str {
         match self {
-            Self::Processed { event_id }
+            Self::Processed { event_id, .. }
             | Self::Duplicate { event_id }
             | Self::Ignored { event_id } => event_id,
+        }
+    }
+
+    /// User whose subscription or invoice was touched by the event, when known.
+    pub fn affected_user(&self) -> Option<Uuid> {
+        match self {
+            Self::Processed { user_id, .. } => *user_id,
+            Self::Duplicate { .. } | Self::Ignored { .. } => None,
         }
     }
 }
@@ -503,21 +518,32 @@ impl BillingService {
             ));
         }
 
+        let affected_user = match event.invoice_id {
+            Some(invoice_id) => self
+                .invoices
+                .find(invoice_id)
+                .map_err(WebhookError::from)?
+                .map(|invoice| invoice.user_id),
+            None => None,
+        };
         let outcome = match &event.kind {
             PaymentEventKind::PaymentSucceeded => {
                 self.apply_payment_succeeded(&event, now)?;
                 WebhookOutcome::Processed {
                     event_id: event.event_id.clone(),
+                    user_id: affected_user,
                 }
             }
             PaymentEventKind::PaymentFailed => {
                 self.apply_payment_failed(&event)?;
                 WebhookOutcome::Processed {
                     event_id: event.event_id.clone(),
+                    user_id: affected_user,
                 }
             }
             PaymentEventKind::RefundSucceeded => WebhookOutcome::Processed {
                 event_id: event.event_id.clone(),
+                user_id: affected_user,
             },
             PaymentEventKind::Other(_) => WebhookOutcome::Ignored {
                 event_id: event.event_id.clone(),
@@ -1265,7 +1291,8 @@ mod tests {
         assert_eq!(
             outcome,
             WebhookOutcome::Processed {
-                event_id: "evt-1".into()
+                event_id: "evt-1".into(),
+                user_id: Some(user_id)
             }
         );
 

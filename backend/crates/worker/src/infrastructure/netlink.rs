@@ -610,6 +610,7 @@ mod tests {
 
     fn desired(key: &str, allowed: &[&str], psk: &str) -> DesiredPeer {
         DesiredPeer {
+            peer_id: Uuid::nil(),
             device_id: Uuid::nil(),
             user_id: Uuid::nil(),
             public_key: key.to_string(),

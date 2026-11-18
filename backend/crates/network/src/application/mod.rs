@@ -156,6 +156,12 @@ impl NetworkService {
         self.pools.list()
     }
 
+    pub fn get_pool(&self, id: Uuid) -> CoreResult<CidrPool> {
+        self.pools
+            .find(id)?
+            .ok_or_else(|| CoreError::NotFound("cidr pool".into()))
+    }
+
     pub fn add_pool(&self, group_id: Uuid, input: NewPool) -> CoreResult<CidrPool> {
         let group = self.get_group(group_id)?;
         let net = SubnetAllocator::ensure_valid_pool(&group.base_cidr, &input.cidr)?;

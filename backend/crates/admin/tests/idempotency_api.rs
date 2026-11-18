@@ -384,6 +384,107 @@ async fn app_devices_keeps_its_own_idempotency_handling() {
 }
 
 #[tokio::test]
+async fn cache_hit_does_not_wait_for_the_per_key_lock() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let key = "users-cache-hit-0001";
+    let payload = json!({
+        "email": "cache-hit@example.com",
+        "role": "user",
+        "password": PASSWORD,
+    });
+
+    let (status, _, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&token),
+        Some(key),
+        Some(payload.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let storage_key = awg_admin::idempotency::cache_key(
+        Some(&format!("Bearer {token}")),
+        "POST",
+        "/api/v1/users",
+        key,
+    );
+    let guard = env.state.idempotency.lock(&storage_key).await;
+    let replay = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        call_with_key(
+            router(&env),
+            "POST",
+            "/api/v1/users",
+            Some(&token),
+            Some(key),
+            Some(payload),
+        ),
+    )
+    .await;
+    drop(guard);
+
+    let (status, _, second) = replay.expect("a cache hit must not wait for the key lock");
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second, first);
+}
+
+#[tokio::test]
+async fn concurrent_identical_posts_create_one_effect() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let payload = json!({
+        "email": "concurrent-idempotent@example.com",
+        "role": "user",
+        "password": PASSWORD,
+    });
+    let key = "users-concurrent-0001";
+
+    let first = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&token),
+        Some(key),
+        Some(payload.clone()),
+    );
+    let second = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&token),
+        Some(key),
+        Some(payload),
+    );
+    let ((first_status, _, first_body), (second_status, _, second_body)) =
+        tokio::join!(first, second);
+
+    assert_eq!(first_status, StatusCode::OK, "{first_body}");
+    assert!(
+        second_status == StatusCode::OK || second_status == StatusCode::CONFLICT,
+        "unexpected status {second_status}: {second_body}"
+    );
+    if second_status == StatusCode::OK {
+        assert_eq!(
+            second_body, first_body,
+            "a repeat replays the cached response"
+        );
+    }
+
+    let created = env
+        .state
+        .identity
+        .list()
+        .unwrap()
+        .into_iter()
+        .filter(|user| user.email.as_deref() == Some("concurrent-idempotent@example.com"))
+        .count();
+    assert_eq!(created, 1);
+}
+
+#[tokio::test]
 async fn cached_response_bodies_are_encrypted_at_rest() {
     let env = app_env();
     let key = "device-sealed-0001";

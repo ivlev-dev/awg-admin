@@ -1,6 +1,21 @@
 use awg_proto as proto;
+use sha2::{Digest, Sha256};
 
 use crate::domain::{DesiredState, WorkerStats};
+
+fn peer_identity(raw: &str, public_key: &str) -> uuid::Uuid {
+    if let Ok(id) = raw.parse::<uuid::Uuid>()
+        && !id.is_nil()
+    {
+        return id;
+    }
+    let digest = Sha256::digest(public_key.as_bytes());
+    let mut bytes = [0u8; 16];
+    bytes.copy_from_slice(&digest[..16]);
+    bytes[6] = (bytes[6] & 0x0f) | 0x50;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    uuid::Uuid::from_bytes(bytes)
+}
 
 pub fn to_proto_state(state: &DesiredState) -> proto::DesiredState {
     proto::DesiredState {
@@ -43,6 +58,7 @@ pub fn to_proto_state(state: &DesiredState) -> proto::DesiredState {
                     .peers
                     .iter()
                     .map(|peer| proto::DesiredPeer {
+                        peer_id: peer.peer_id.to_string(),
                         device_id: peer.device_id.to_string(),
                         user_id: peer.user_id.to_string(),
                         public_key: peer.public_key.clone(),
@@ -84,6 +100,7 @@ pub fn from_proto_stats(snapshot: proto::StatsSnapshot) -> WorkerStats {
                     .peers
                     .into_iter()
                     .map(|peer| crate::domain::PeerCounters {
+                        peer_id: peer_identity(&peer.peer_id, &peer.public_key),
                         device_id: peer.device_id.parse().unwrap_or(uuid::Uuid::nil()),
                         public_key: peer.public_key,
                         rx_total: peer.rx_total,

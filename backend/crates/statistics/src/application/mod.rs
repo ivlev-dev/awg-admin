@@ -7,8 +7,9 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
-    AggregateBucket, Aggregator, Bucket, CounterSample, CounterState, DailyBucket, DeviceDirectory,
-    MonthlyBucket, Rate, StatsBroadcaster, StatsRepository, StatsScope,
+    AggregateBucket, Aggregator, Bucket, BucketDelta, CounterEntry, CounterKey, CounterSample,
+    CounterState, DailyBucket, DeviceDirectory, MonthlyBucket, Rate, StatsBroadcaster,
+    StatsRepository, StatsScope,
 };
 
 const RATE_SNAPSHOTS: usize = 2;
@@ -95,19 +96,76 @@ impl StatsService {
         directory: &dyn DeviceDirectory,
         at: DateTime<Utc>,
     ) -> CoreResult<Vec<StatsUpdate>> {
-        let mut updates = Vec::with_capacity(samples.len());
+        let samples: Vec<(Uuid, Uuid, CounterSample)> = samples
+            .iter()
+            .map(|(device_id, sample)| (interface_id, *device_id, *sample))
+            .collect();
+        self.record_node_snapshot_at(node_id, &samples, directory, at)
+    }
+
+    pub fn record_node_snapshot(
+        &self,
+        node_id: Uuid,
+        samples: &[(Uuid, Uuid, CounterSample)],
+        directory: &dyn DeviceDirectory,
+    ) -> CoreResult<Vec<StatsUpdate>> {
+        self.record_node_snapshot_at(node_id, samples, directory, Utc::now())
+    }
+
+    pub fn record_node_snapshot_at(
+        &self,
+        node_id: Uuid,
+        samples: &[(Uuid, Uuid, CounterSample)],
+        directory: &dyn DeviceDirectory,
+        at: DateTime<Utc>,
+    ) -> CoreResult<Vec<StatsUpdate>> {
+        if samples.is_empty() {
+            return Ok(Vec::new());
+        }
+        let keys: Vec<CounterKey> = samples
+            .iter()
+            .map(|(interface_id, device_id, sample)| CounterKey {
+                node_id,
+                interface_id: *interface_id,
+                device_id: *device_id,
+                peer_id: sample.peer_id,
+            })
+            .collect();
+        let previous = self.repo.counters(&keys)?;
+
+        let mut counters = Vec::with_capacity(samples.len());
+        let mut bucket_deltas: HashMap<(StatsScope, i64), (u64, u64)> = HashMap::new();
+        let mut device_updates: BTreeMap<(Uuid, Uuid), (Uuid, Uuid, u64, u64)> = BTreeMap::new();
         let mut scoped: HashMap<StatsScope, (u64, u64)> = HashMap::new();
-        let mut devices: Vec<(Uuid, CounterSample)> = Vec::with_capacity(samples.len());
-        for (device_id, sample) in samples {
-            let previous = self.repo.counter(node_id, interface_id, *device_id)?;
-            let (mut delta, state) = Aggregator::delta(previous, *sample);
-            delta.at = at;
-            let Some((group_id, user_id)) = directory.group_and_user(*device_id)? else {
+        let mut device_totals: HashMap<Uuid, (u64, u64)> = HashMap::new();
+        let mut directory_cache: HashMap<Uuid, Option<(Uuid, Uuid)>> = HashMap::new();
+
+        for (interface_id, device_id, sample) in samples {
+            let key = CounterKey {
+                node_id,
+                interface_id: *interface_id,
+                device_id: *device_id,
+                peer_id: sample.peer_id,
+            };
+            let scoped_ids = match directory_cache.get(device_id) {
+                Some(cached) => *cached,
+                None => {
+                    let resolved = directory.group_and_user(*device_id)?;
+                    directory_cache.insert(*device_id, resolved);
+                    resolved
+                }
+            };
+            let Some((group_id, user_id)) = scoped_ids else {
                 continue;
             };
-            devices.push((*device_id, *sample));
+            let totals = device_totals.entry(*device_id).or_default();
+            totals.0 = totals.0.saturating_add(sample.rx_total);
+            totals.1 = totals.1.saturating_add(sample.tx_total);
+
+            let (mut delta, state) = Aggregator::delta(previous.get(&key).copied(), *sample);
+            delta.at = at;
             for scope in [
-                StatsScope::Interface(interface_id),
+                StatsScope::Interface(*interface_id),
                 StatsScope::Group(group_id),
                 StatsScope::User(user_id),
                 StatsScope::Global,
@@ -119,39 +177,68 @@ impl StatsService {
             if delta.rx == 0 && delta.tx == 0 {
                 continue;
             }
-            self.repo
-                .save_counter(node_id, interface_id, *device_id, &state)?;
+            counters.push(CounterEntry { key, state });
             let hour = Aggregator::hour_of(delta.at);
             for scope in [
                 StatsScope::Device(*device_id),
-                StatsScope::Interface(interface_id),
+                StatsScope::Interface(*interface_id),
                 StatsScope::Group(group_id),
                 StatsScope::User(user_id),
                 StatsScope::Global,
             ] {
-                self.repo.add_bucket(scope, hour, delta.rx, delta.tx)?;
+                let entry = bucket_deltas.entry((scope, hour)).or_default();
+                entry.0 = entry.0.saturating_add(delta.rx);
+                entry.1 = entry.1.saturating_add(delta.tx);
             }
+            let update = device_updates
+                .entry((*interface_id, *device_id))
+                .or_insert((group_id, user_id, 0, 0));
+            update.2 = update.2.saturating_add(delta.rx);
+            update.3 = update.3.saturating_add(delta.tx);
+        }
+
+        let buckets: Vec<BucketDelta> = {
+            let mut buckets: Vec<BucketDelta> = bucket_deltas
+                .into_iter()
+                .filter(|(_, (rx, tx))| *rx > 0 || *tx > 0)
+                .map(|((scope, hour), (rx, tx))| BucketDelta {
+                    scope,
+                    hour,
+                    rx,
+                    tx,
+                })
+                .collect();
+            buckets.sort_by_key(|delta| (delta.hour, delta.scope.kind(), delta.scope.id()));
+            buckets
+        };
+
+        if !counters.is_empty() || !buckets.is_empty() {
+            self.repo.commit_snapshot(&counters, &buckets)?;
+        }
+
+        let mut updates = Vec::with_capacity(device_updates.len());
+        for ((interface_id, device_id), (group_id, user_id, rx, tx)) in device_updates {
             let update = StatsUpdate {
                 node_id,
                 interface_id,
-                device_id: *device_id,
+                device_id,
                 group_id,
                 user_id,
-                rx: delta.rx,
-                tx: delta.tx,
-                at: delta.at,
+                rx,
+                tx,
+                at,
             };
             self.broadcaster.broadcast(update.clone());
             updates.push(update);
         }
-        self.record_rates(&scoped, &devices, at);
+        self.record_rates(&scoped, &device_totals, at);
         Ok(updates)
     }
 
     fn record_rates(
         &self,
         scoped: &HashMap<StatsScope, (u64, u64)>,
-        devices: &[(Uuid, CounterSample)],
+        devices: &HashMap<Uuid, (u64, u64)>,
         at: DateTime<Utc>,
     ) {
         let mut guard = self
@@ -174,13 +261,13 @@ impl StatsService {
             };
             tracker.push(state);
         }
-        for (device_id, sample) in devices {
+        for (device_id, (rx_total, tx_total)) in devices {
             guard
                 .entry(StatsScope::Device(*device_id))
                 .or_default()
                 .push(CounterState {
-                    rx_total: sample.rx_total,
-                    tx_total: sample.tx_total,
+                    rx_total: *rx_total,
+                    tx_total: *tx_total,
                     updated_at: at,
                 });
         }
@@ -225,6 +312,22 @@ impl StatsService {
         Ok(series
             .iter()
             .fold((0u64, 0u64), |acc, b| (acc.0 + b.rx, acc.1 + b.tx)))
+    }
+
+    pub fn totals_many(
+        &self,
+        scopes: &[StatsScope],
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        if to <= from {
+            return Err(CoreError::Invalid("range end must be after start".into()));
+        }
+        if scopes.is_empty() {
+            return Ok(HashMap::new());
+        }
+        self.repo
+            .totals_many(scopes, Aggregator::hour_of(from), Aggregator::hour_of(to))
     }
 
     pub fn daily(
@@ -283,26 +386,36 @@ impl StatsService {
     }
 
     pub fn today(&self, scope: StatsScope) -> CoreResult<(u64, u64)> {
-        let now = Utc::now();
-        let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
-        self.totals(scope, start, now + Duration::seconds(1))
+        let (start, end) = day_range(Utc::now());
+        self.totals(scope, start, end)
+    }
+
+    pub fn today_many(&self, scopes: &[StatsScope]) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        let (start, end) = day_range(Utc::now());
+        self.totals_many(scopes, start, end)
     }
 
     pub fn month(&self, scope: StatsScope) -> CoreResult<(u64, u64)> {
-        let now = Utc::now();
-        let start = now
-            .date_naive()
-            .with_day(1)
-            .unwrap()
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_utc();
-        self.totals(scope, start, now + Duration::seconds(1))
+        let (start, end) = month_range(Utc::now());
+        self.totals(scope, start, end)
+    }
+
+    pub fn month_many(&self, scopes: &[StatsScope]) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        let (start, end) = month_range(Utc::now());
+        self.totals_many(scopes, start, end)
     }
 
     pub fn used_bytes(&self, scope: StatsScope) -> CoreResult<u64> {
         let (rx, tx) = self.month(scope)?;
         Ok(rx + tx)
+    }
+
+    pub fn used_bytes_many(&self, scopes: &[StatsScope]) -> CoreResult<HashMap<StatsScope, u64>> {
+        Ok(self
+            .month_many(scopes)?
+            .into_iter()
+            .map(|(scope, (rx, tx))| (scope, rx.saturating_add(tx)))
+            .collect())
     }
 
     pub fn cleanup(&self, keep_days: i64) -> CoreResult<usize> {
@@ -330,6 +443,22 @@ fn with_rates(mut buckets: Vec<Bucket>) -> Vec<SeriesPoint> {
         points.push(SeriesPoint { bucket, rate });
     }
     points
+}
+
+fn day_range(now: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
+    let start = now.date_naive().and_hms_opt(0, 0, 0).unwrap().and_utc();
+    (start, now + Duration::seconds(1))
+}
+
+fn month_range(now: DateTime<Utc>) -> (DateTime<Utc>, DateTime<Utc>) {
+    let start = now
+        .date_naive()
+        .with_day(1)
+        .unwrap()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    (start, now + Duration::seconds(1))
 }
 
 fn validate_window(

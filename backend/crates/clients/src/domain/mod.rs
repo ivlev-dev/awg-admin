@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::net::IpAddr;
 
 use chrono::{DateTime, Utc};
@@ -161,10 +161,32 @@ impl ForwardingPolicy {
     }
 
     pub fn allowed_pairs(devices: &[Device]) -> Vec<(Uuid, Uuid)> {
+        let mut by_id: HashMap<Uuid, &Device> = HashMap::with_capacity(devices.len());
+        let mut by_user: HashMap<Uuid, Vec<&Device>> = HashMap::new();
+        for device in devices {
+            by_id.insert(device.id, device);
+            by_user.entry(device.user_id).or_default().push(device);
+        }
+
         let mut out = Vec::new();
         for from in devices {
-            for to in devices {
-                if Self::allows(from, to) {
+            if from.revoked {
+                continue;
+            }
+            if from.forwarding.to_own_devices {
+                if let Some(candidates) = by_user.get(&from.user_id) {
+                    for to in candidates {
+                        if Self::allows(from, to) {
+                            out.push((from.id, to.id));
+                        }
+                    }
+                }
+                continue;
+            }
+            for allowed in &from.forwarding.allowed_devices {
+                if let Some(to) = by_id.get(allowed)
+                    && Self::allows(from, to)
+                {
                     out.push((from.id, to.id));
                 }
             }
@@ -301,6 +323,42 @@ mod tests {
         assert!(!ForwardingPolicy::allows(&b, &a));
         assert!(!ForwardingPolicy::allows(&c, &a));
         assert!(!ForwardingPolicy::allows(&a, &c));
+    }
+
+    #[test]
+    fn allowed_pairs_matches_brute_force() {
+        let user = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let mut devices = vec![
+            device(user, true),
+            device(user, false),
+            device(user, false),
+            device(other, true),
+            device(other, false),
+        ];
+        let second = devices[2].id;
+        let third = devices[3].id;
+        devices[1].forwarding.allowed_devices = vec![second, third];
+        devices[3].revoked = true;
+
+        let pairs = ForwardingPolicy::allowed_pairs(&devices);
+        let mut expected = Vec::new();
+        for from in &devices {
+            for to in &devices {
+                if from.id != to.id
+                    && !from.revoked
+                    && !to.revoked
+                    && from.user_id == to.user_id
+                    && (from.forwarding.to_own_devices
+                        || from.forwarding.allowed_devices.contains(&to.id))
+                {
+                    expected.push((from.id, to.id));
+                }
+            }
+        }
+        expected.sort();
+        expected.dedup();
+        assert_eq!(pairs, expected);
     }
 
     #[test]

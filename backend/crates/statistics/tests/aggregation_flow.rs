@@ -27,6 +27,7 @@ struct Fixture {
     user_id: Uuid,
     interface_id: Uuid,
     device_id: Uuid,
+    peer_id: Uuid,
 }
 
 fn fixture() -> Fixture {
@@ -41,6 +42,7 @@ fn fixture() -> Fixture {
         user_id: Uuid::new_v4(),
         interface_id: Uuid::new_v4(),
         device_id: Uuid::new_v4(),
+        peer_id: Uuid::new_v4(),
     }
 }
 
@@ -76,6 +78,7 @@ fn accumulates_deltas_and_resets() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 100,
                     tx_total: 200,
                 },
@@ -92,6 +95,7 @@ fn accumulates_deltas_and_resets() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 150,
                     tx_total: 260,
                 },
@@ -114,6 +118,7 @@ fn accumulates_deltas_and_resets() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 10,
                     tx_total: 20,
                 },
@@ -139,6 +144,142 @@ fn accumulates_deltas_and_resets() {
 }
 
 #[test]
+fn multiple_peers_per_device_keep_independent_deltas() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let peer_a = Uuid::new_v4();
+    let peer_b = Uuid::new_v4();
+    let at = Utc::now();
+
+    let sample = |peer_id, rx_total, tx_total| CounterSample {
+        peer_id,
+        rx_total,
+        tx_total,
+    };
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[
+                (fixture.device_id, sample(peer_a, 100, 200)),
+                (fixture.device_id, sample(peer_b, 50, 60)),
+            ],
+            &directory,
+            at,
+        )
+        .unwrap();
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[
+                (fixture.device_id, sample(peer_b, 70, 80)),
+                (fixture.device_id, sample(peer_a, 130, 240)),
+            ],
+            &directory,
+            at + Duration::seconds(10),
+        )
+        .unwrap();
+
+    assert_eq!(
+        fixture
+            .service
+            .today(StatsScope::Device(fixture.device_id))
+            .unwrap(),
+        (200, 320)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .today(StatsScope::User(fixture.user_id))
+            .unwrap(),
+        (200, 320)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .today(StatsScope::Interface(fixture.interface_id))
+            .unwrap(),
+        (200, 320)
+    );
+
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &[(fixture.device_id, sample(peer_a, 140, 250))],
+            &directory,
+            at + Duration::seconds(20),
+        )
+        .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .today(StatsScope::Device(fixture.device_id))
+            .unwrap(),
+        (210, 330)
+    );
+
+    assert_eq!(fixture.repo.write_transaction_count(), 3);
+}
+
+#[test]
+fn snapshot_write_transactions_do_not_grow_with_the_number_of_peers() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let at = Utc::now();
+
+    let small = [(
+        fixture.device_id,
+        CounterSample {
+            peer_id: Uuid::new_v4(),
+            rx_total: 10,
+            tx_total: 20,
+        },
+    )];
+    fixture
+        .service
+        .record_snapshot_at(node_id, fixture.interface_id, &small, &directory, at)
+        .unwrap();
+    assert_eq!(fixture.repo.write_transaction_count(), 1);
+
+    let mut many = Vec::new();
+    for index in 0..32u64 {
+        many.push((
+            fixture.device_id,
+            CounterSample {
+                peer_id: Uuid::new_v4(),
+                rx_total: 100 + index,
+                tx_total: 200 + index,
+            },
+        ));
+    }
+    fixture
+        .service
+        .record_snapshot_at(
+            node_id,
+            fixture.interface_id,
+            &many,
+            &directory,
+            at + Duration::seconds(1),
+        )
+        .unwrap();
+
+    assert_eq!(
+        fixture.repo.write_transaction_count(),
+        2,
+        "one write transaction per snapshot regardless of peer count"
+    );
+}
+
+#[test]
 fn series_returns_hourly_buckets() {
     let fixture = fixture();
     let directory = directory(&fixture);
@@ -150,6 +291,7 @@ fn series_returns_hourly_buckets() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 1_000,
                     tx_total: 2_000,
                 },
@@ -324,6 +466,7 @@ fn cleanup_removes_old_buckets() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 10,
                     tx_total: 20,
                 },
@@ -371,6 +514,7 @@ fn rate_uses_two_latest_snapshots() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 1_000,
                     tx_total: 2_000,
                 },
@@ -395,6 +539,7 @@ fn rate_uses_two_latest_snapshots() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 3_000,
                     tx_total: 4_000,
                 },
@@ -442,6 +587,7 @@ fn rate_is_none_for_zero_interval() {
                 &[(
                     fixture.device_id,
                     CounterSample {
+                        peer_id: fixture.peer_id,
                         rx_total: totals,
                         tx_total: totals,
                     },
@@ -475,6 +621,7 @@ fn rate_is_zero_when_counters_decrease() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 10_000,
                     tx_total: 20_000,
                 },
@@ -492,6 +639,7 @@ fn rate_is_zero_when_counters_decrease() {
             &[(
                 fixture.device_id,
                 CounterSample {
+                    peer_id: fixture.peer_id,
                     rx_total: 100,
                     tx_total: 200,
                 },

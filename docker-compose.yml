@@ -10,6 +10,8 @@ services:
     environment:
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
+      AWG_TRUSTED_PROXIES: ${AWG_TRUSTED_PROXIES:-}
+      AWG_DEV_MAIL_TOKEN: ${AWG_DEV_MAIL_TOKEN:-}
     volumes:
       - awg-data:/data
     ports:

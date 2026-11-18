@@ -565,6 +565,7 @@ mod tests {
 
     fn peer(down_kbps: u32, up_kbps: u32) -> DesiredPeer {
         DesiredPeer {
+            peer_id: Uuid::nil(),
             device_id: Uuid::nil(),
             user_id: Uuid::nil(),
             public_key: String::new(),

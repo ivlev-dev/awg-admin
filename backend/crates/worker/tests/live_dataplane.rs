@@ -152,6 +152,7 @@ fn obf() -> WireObf {
 
 fn desired_peer(public_key: &str, address: &str, user_id: Uuid, device_id: Uuid) -> DesiredPeer {
     DesiredPeer {
+        peer_id: Uuid::nil(),
         device_id,
         user_id,
         public_key: public_key.to_string(),
@@ -334,6 +335,7 @@ fn tc_interface(dev: &str) -> DesiredInterface {
     let user_id = Uuid::new_v4();
     let peers = vec![
         DesiredPeer {
+            peer_id: Uuid::nil(),
             device_id: Uuid::new_v4(),
             user_id,
             public_key: String::new(),
@@ -344,6 +346,7 @@ fn tc_interface(dev: &str) -> DesiredInterface {
             up_kbps: 1000,
         },
         DesiredPeer {
+            peer_id: Uuid::nil(),
             device_id: Uuid::new_v4(),
             user_id,
             public_key: String::new(),

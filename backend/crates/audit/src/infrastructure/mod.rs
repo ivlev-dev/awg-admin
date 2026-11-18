@@ -55,40 +55,19 @@ impl AuditRepository for RedbAuditRepository {
         }
         filter.validate()?;
 
-        let mut keys = self.store.keys(Table::Audit).map_err(map_err)?;
-        keys.sort_unstable();
-        let up_to = match before {
-            Some(cursor) => keys.partition_point(|key| key.as_str() < cursor),
-            None => keys.len(),
-        };
-
-        let mut page_keys: Vec<String> = Vec::with_capacity(limit);
-        let mut items: Vec<AuditEntry> = Vec::with_capacity(limit);
-        let mut has_more = false;
-        for key in keys[..up_to].iter().rev() {
-            let Some(entry) = self
-                .store
-                .get::<AuditEntry>(Table::Audit, key)
-                .map_err(map_err)?
-            else {
-                continue;
-            };
-            if !filter.matches(&entry) {
-                continue;
-            }
-            if page_keys.len() == limit {
-                has_more = true;
-                break;
-            }
-            page_keys.push(key.clone());
-            items.push(entry);
-        }
+        let (entries, has_more) = self
+            .store
+            .scan_rev::<AuditEntry>(Table::Audit, before, limit, |_, entry| {
+                filter.matches(entry)
+            })
+            .map_err(map_err)?;
 
         let next_cursor = if has_more {
-            page_keys.last().cloned()
+            entries.last().map(|(key, _)| key.clone())
         } else {
             None
         };
+        let items = entries.into_iter().map(|(_, entry)| entry).collect();
 
         Ok(AuditPage { items, next_cursor })
     }
@@ -101,19 +80,8 @@ impl AuditRepository for RedbAuditRepository {
     }
 
     fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
-        let keys = self.store.keys(Table::Audit).map_err(map_err)?;
-        let mut removed = 0;
-        for key in keys {
-            if let Some(entry) = self
-                .store
-                .get::<AuditEntry>(Table::Audit, &key)
-                .map_err(map_err)?
-                && entry.at < before
-            {
-                self.store.delete(Table::Audit, &key).map_err(map_err)?;
-                removed += 1;
-            }
-        }
-        Ok(removed)
+        self.store
+            .retain::<AuditEntry>(Table::Audit, |_, entry| entry.at >= before)
+            .map_err(map_err)
     }
 }

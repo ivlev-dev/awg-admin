@@ -98,6 +98,9 @@ mod tests {
             totp_secret_sealed: None,
             totp_enabled: false,
             recovery_codes: Vec::new(),
+            totp_pending_secret_sealed: None,
+            totp_pending_recovery_codes: Vec::new(),
+            last_totp_step: None,
             created_at: now,
             updated_at: now,
         }

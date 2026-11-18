@@ -205,6 +205,7 @@ fn to_domain_state(state: proto::DesiredState) -> DesiredState {
                     .peers
                     .into_iter()
                     .map(|peer| DesiredPeer {
+                        peer_id: parse_uuid(&peer.peer_id),
                         device_id: parse_uuid(&peer.device_id),
                         user_id: parse_uuid(&peer.user_id),
                         public_key: peer.public_key,
@@ -257,6 +258,7 @@ fn to_proto_stats(state: &DesiredState, report: &StatsReport) -> proto::StatsSna
                     .peers
                     .iter()
                     .map(|peer| proto::PeerStats {
+                        peer_id: peer.peer_id.to_string(),
                         device_id: peer.device_id.to_string(),
                         public_key: peer.public_key.clone(),
                         rx_total: peer.rx_total,

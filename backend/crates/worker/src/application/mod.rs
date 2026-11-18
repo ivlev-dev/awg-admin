@@ -22,6 +22,7 @@ pub struct InterfaceReport {
 
 #[derive(Debug, Clone)]
 pub struct PeerReport {
+    pub peer_id: Uuid,
     pub device_id: Uuid,
     pub public_key: String,
     pub rx_total: u64,
@@ -181,6 +182,7 @@ impl ReconcileService {
                     rx_total = rx_total.saturating_add(peer.rx_bytes);
                     tx_total = tx_total.saturating_add(peer.tx_bytes);
                     peer_reports.push(PeerReport {
+                        peer_id: desired.peer_id,
                         device_id: desired.device_id,
                         public_key: peer.public_key.clone(),
                         rx_total: rx,

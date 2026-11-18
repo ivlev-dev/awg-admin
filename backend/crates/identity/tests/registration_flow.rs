@@ -96,14 +96,31 @@ async fn active_user(harness: &Harness, email: &str) -> awg_identity::User {
 }
 
 fn totp_code(secret: &str, login: &str) -> String {
+    totp_code_at(secret, login, 0)
+}
+
+fn reset_totp_step(harness: &Harness, user_id: Uuid, step: Option<u64>) {
+    let mut user = harness.service.find(user_id).unwrap();
+    user.last_totp_step = step;
+    harness
+        .store
+        .put(Table::Users, &user_id.to_string(), &user)
+        .unwrap();
+}
+
+fn totp_code_at(secret: &str, login: &str, offset_secs: u64) -> String {
     let secret = Secret::try_from_base32(secret).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
     Builder::new()
         .with_secret(secret)
         .with_account_name(login)
         .with_issuer(Some("awg-admin"))
         .build()
         .unwrap()
-        .generate_current()
+        .generate(now + offset_secs)
         .to_string()
 }
 
@@ -323,7 +340,7 @@ async fn rejects_pending_registrations() {
 async fn totp_setup_enable_login_and_disable() {
     let harness = harness();
     let user = active_user(&harness, "totp@example.com").await;
-    let setup = harness.service.setup_totp(user.id).unwrap();
+    let setup = harness.service.setup_totp(user.id, None, None).unwrap();
     assert_eq!(setup.recovery_codes.len(), 8);
     assert!(setup.otpauth_url.starts_with("otpauth://totp/"));
 
@@ -361,7 +378,7 @@ async fn totp_setup_enable_login_and_disable() {
         .login_with_totp(
             "totp@example.com",
             "password123",
-            Some(&totp_code(&setup.secret, &user.login)),
+            Some(&totp_code_at(&setup.secret, &user.login, 30)),
             &metadata(),
         )
         .unwrap();
@@ -388,6 +405,7 @@ async fn totp_setup_enable_login_and_disable() {
         .unwrap_err();
     assert!(reused.to_string().contains("totp_invalid"), "{reused}");
 
+    reset_totp_step(&harness, user.id, None);
     harness
         .service
         .disable_totp(
@@ -409,10 +427,199 @@ async fn totp_setup_enable_login_and_disable() {
 }
 
 #[tokio::test]
+async fn login_rejects_oversized_credentials() {
+    let harness = harness();
+    let oversized_login = "a".repeat(300);
+    let error = harness
+        .service
+        .login(&oversized_login, "password123", &metadata())
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("invalid login or password"),
+        "{error}"
+    );
+
+    let oversized_password = "p".repeat(2000);
+    let error = harness
+        .service
+        .login("admin", &oversized_password, &metadata())
+        .unwrap_err();
+    assert!(
+        error.to_string().contains("invalid login or password"),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn totp_codes_cannot_be_replayed() {
+    let harness = harness();
+    let user = active_user(&harness, "replay@example.com").await;
+    let setup = harness.service.setup_totp(user.id, None, None).unwrap();
+    harness
+        .service
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .unwrap();
+
+    let code = totp_code_at(&setup.secret, &user.login, 30);
+    harness
+        .service
+        .login_with_totp(
+            "replay@example.com",
+            "password123",
+            Some(&code),
+            &metadata(),
+        )
+        .unwrap();
+
+    let replay = harness
+        .service
+        .login_with_totp(
+            "replay@example.com",
+            "password123",
+            Some(&code),
+            &metadata(),
+        )
+        .unwrap_err();
+    assert!(replay.to_string().contains("totp_invalid"), "{replay}");
+}
+
+#[tokio::test]
+async fn totp_reconfiguration_requires_password_and_code() {
+    let harness = harness();
+    let user = active_user(&harness, "rebind@example.com").await;
+    let setup = harness.service.setup_totp(user.id, None, None).unwrap();
+    harness
+        .service
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .unwrap();
+
+    let missing = harness.service.setup_totp(user.id, None, None).unwrap_err();
+    assert!(missing.to_string().contains("current password is wrong"));
+
+    let wrong_password = harness
+        .service
+        .setup_totp(user.id, Some("nope"), None)
+        .unwrap_err();
+    assert!(
+        wrong_password
+            .to_string()
+            .contains("current password is wrong")
+    );
+
+    let missing_code = harness
+        .service
+        .setup_totp(user.id, Some("password123"), Some("000000"))
+        .unwrap_err();
+    assert!(missing_code.to_string().contains("invalid totp code"));
+
+    let rebound = harness
+        .service
+        .setup_totp(
+            user.id,
+            Some("password123"),
+            Some(&totp_code_at(&setup.secret, &user.login, 30)),
+        )
+        .unwrap();
+    let stored = harness.service.find(user.id).unwrap();
+    assert!(stored.totp_enabled, "re-binding must not disable 2FA");
+    assert!(stored.totp_pending_secret_sealed.is_some());
+    assert!(stored.totp_secret_sealed.is_some());
+
+    let missing = harness
+        .service
+        .login_with_totp("rebind@example.com", "password123", None, &metadata())
+        .unwrap_err();
+    assert!(missing.to_string().contains("totp_required"));
+
+    harness
+        .service
+        .enable_totp(user.id, &totp_code_at(&rebound.secret, &user.login, 30))
+        .unwrap();
+    let stored = harness.service.find(user.id).unwrap();
+    assert!(stored.totp_enabled);
+    assert!(stored.totp_pending_secret_sealed.is_none());
+    assert_eq!(stored.recovery_codes.len(), 8);
+
+    reset_totp_step(&harness, user.id, None);
+    harness
+        .service
+        .login_with_totp(
+            "rebind@example.com",
+            "password123",
+            Some(&totp_code(&rebound.secret, &user.login)),
+            &metadata(),
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn password_change_accepts_a_totp_code_instead_of_the_password() {
+    let harness = harness();
+    let user = active_user(&harness, "rotate@example.com").await;
+    let setup = harness.service.setup_totp(user.id, None, None).unwrap();
+    harness
+        .service
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .unwrap();
+
+    let code = totp_code_at(&setup.secret, &user.login, 30);
+    harness
+        .service
+        .change_password(user.id, "", Some(&code), "rotated12345")
+        .unwrap();
+    assert!(
+        harness
+            .service
+            .login("rotate@example.com", "password123", &metadata())
+            .is_err()
+    );
+
+    reset_totp_step(&harness, user.id, None);
+    let next = totp_code_at(&setup.secret, &user.login, 30);
+    harness
+        .service
+        .login_with_totp(
+            "rotate@example.com",
+            "rotated12345",
+            Some(&next),
+            &metadata(),
+        )
+        .unwrap();
+}
+
+#[tokio::test]
+async fn prune_email_verifications_removes_expired_tokens() {
+    let harness = harness();
+    let now = Utc::now();
+    let expired = EmailVerification {
+        user_id: Uuid::new_v4(),
+        email: "old@example.com".into(),
+        expires_at: now - Duration::minutes(1),
+        used: false,
+        kind: awg_identity::VerificationKind::VerifyEmail,
+    };
+    let active = EmailVerification {
+        expires_at: now + Duration::hours(1),
+        ..expired.clone()
+    };
+    harness
+        .store
+        .put(Table::EmailVerifications, "expired-hash", &expired)
+        .unwrap();
+    harness
+        .store
+        .put(Table::EmailVerifications, "active-hash", &active)
+        .unwrap();
+
+    assert_eq!(harness.service.prune_email_verifications(now).unwrap(), 1);
+    assert_eq!(harness.store.count(Table::EmailVerifications).unwrap(), 1);
+}
+
+#[tokio::test]
 async fn totp_disable_requires_password_and_code() {
     let harness = harness();
     let user = active_user(&harness, "guard@example.com").await;
-    let setup = harness.service.setup_totp(user.id).unwrap();
+    let setup = harness.service.setup_totp(user.id, None, None).unwrap();
 
     let wrong_password = harness
         .service

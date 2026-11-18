@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::Json;
@@ -13,7 +14,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest,
 };
-use crate::publish::publish_user_groups;
+use crate::publish::{publish_group, publish_user_groups};
 use crate::state::AppState;
 use crate::views::UserView;
 
@@ -55,6 +56,7 @@ pub async fn create(
             node_id: request.node_id,
         })
         .map_err(ApiError::from)?;
+    publish_user_groups(&state, created.id);
     Ok(Json(UserView::from(&created)))
 }
 
@@ -108,7 +110,25 @@ pub async fn delete(
     if user.id() == id {
         return Err(ApiError::Conflict("cannot delete your own account".into()));
     }
+    let devices = state.devices.list_for_user(id).map_err(ApiError::from)?;
+    let mut groups: HashSet<Uuid> = devices.iter().map(|device| device.group_id).collect();
+    if let Ok(found) = state.identity.find(id)
+        && let Some(group_id) = found.group_id
+    {
+        groups.insert(group_id);
+    }
+    for device in &devices {
+        state
+            .share
+            .revoke_all_for_device(device.id)
+            .map_err(ApiError::from)?;
+        state.devices.delete(device.id).map_err(ApiError::from)?;
+    }
+    state.share.revoke_created_by(id).map_err(ApiError::from)?;
     state.identity.delete(id).map_err(ApiError::from)?;
+    for group in groups {
+        publish_group(&state, group);
+    }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -163,6 +183,7 @@ pub async fn approve(
             )
             .map_err(ApiError::from)?;
     }
+    publish_user_groups(&state, approved.id);
     Ok(Json(UserView::from(&approved)))
 }
 
@@ -173,6 +194,7 @@ pub async fn reject(
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
     let rejected = state.identity.reject_user(id).map_err(ApiError::from)?;
+    publish_user_groups(&state, rejected.id);
     Ok(Json(UserView::from(&rejected)))
 }
 

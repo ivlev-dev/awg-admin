@@ -1,5 +1,7 @@
 use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
+
+use crate::config::Environment;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -475,16 +477,23 @@ pub struct AppEnv {
 pub const OWNER_EMAIL: &str = "owner@example.com";
 pub const OTHER_EMAIL: &str = "other@example.com";
 pub const PASSWORD: &str = "password123";
+pub const MOCK_PAYMENT_SECRET: &str = "mock-payment-secret-for-tests-0123456789";
 
-fn app_config(billing_enabled: bool) -> crate::config::Config {
+fn app_config(
+    billing_enabled: bool,
+    environment: Environment,
+    dev_mail_token: Option<String>,
+    mock_billing: bool,
+) -> crate::config::Config {
     use crate::config::{
         Config, ConfigInput, DEFAULT_ADMIN_EMAIL, DEFAULT_APP_VERIFY_URL, DEFAULT_JWT_AUDIENCE,
-        DEFAULT_JWT_ISSUER, Environment,
+        DEFAULT_JWT_ISSUER,
     };
 
     let master_key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
+    let production = environment.is_production();
     Config::from_input(ConfigInput {
-        environment: Environment::Development,
+        environment,
         bind: "127.0.0.1:0".into(),
         grpc_bind: "127.0.0.1:0".into(),
         db_path: ":memory:".into(),
@@ -496,12 +505,18 @@ fn app_config(billing_enabled: bool) -> crate::config::Config {
         refresh_ttl_secs: 86_400,
         admin_login: "admin".into(),
         admin_email: DEFAULT_ADMIN_EMAIL.into(),
-        admin_password: "admin12345".into(),
+        admin_password: if production {
+            "production-password-123".into()
+        } else {
+            "admin12345".into()
+        },
         dns: "1.1.1.1".into(),
         cors_origins: String::new(),
         share_ttl_secs: 3600,
         public_url: "https://panel.test".into(),
         app_verify_url: DEFAULT_APP_VERIFY_URL.into(),
+        trusted_proxies: String::new(),
+        dev_mail_token,
         rate_limit_store: "memory".into(),
         login_rate_limit: 100,
         login_rate_window_secs: 60,
@@ -522,8 +537,12 @@ fn app_config(billing_enabled: bool) -> crate::config::Config {
         billing_enabled: if billing_enabled { "true" } else { "false" }.into(),
         billing_currency: "RUB".into(),
         billing_trial_days: "0".into(),
-        payment_provider: "noop".into(),
-        payment_secret: String::new(),
+        payment_provider: if mock_billing { "mock" } else { "noop" }.into(),
+        payment_secret: if mock_billing {
+            MOCK_PAYMENT_SECRET.into()
+        } else {
+            String::new()
+        },
         backup_dir: String::new(),
         backup_interval_secs: 0,
         backup_keep: 7,
@@ -532,17 +551,44 @@ fn app_config(billing_enabled: bool) -> crate::config::Config {
 }
 
 pub fn app_env() -> AppEnv {
-    app_env_with_billing(false)
+    app_env_with(false, Environment::Development, None, false)
 }
 
 pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
+    app_env_with(billing_enabled, Environment::Development, None, false)
+}
+
+pub fn app_env_with_mock_billing() -> AppEnv {
+    app_env_with(true, Environment::Development, None, true)
+}
+
+pub fn app_env_production() -> AppEnv {
+    app_env_with(false, Environment::Production, None, false)
+}
+
+pub fn app_env_with_dev_mail_token(token: &str) -> AppEnv {
+    app_env_with(
+        false,
+        Environment::Development,
+        Some(token.to_string()),
+        false,
+    )
+}
+
+fn app_env_with(
+    billing_enabled: bool,
+    environment: Environment,
+    dev_mail_token: Option<String>,
+    mock_billing: bool,
+) -> AppEnv {
     use std::time::Duration;
 
     use awg_audit::AuditService;
     use awg_audit::RedbAuditRepository;
     use awg_billing::{
-        BillingService, NoopGateway, RedbInvoiceRepository, RedbPaymentEventRepository,
-        RedbPaymentMethodRepository, RedbPlanRepository, RedbSubscriptionRepository,
+        BillingService, MockGateway, NoopGateway, PaymentGateway, RedbInvoiceRepository,
+        RedbPaymentEventRepository, RedbPaymentMethodRepository, RedbPlanRepository,
+        RedbSubscriptionRepository,
     };
     use awg_clients::{ProfileService, RedbShareLinkRepository, ShareService};
     use awg_identity::{
@@ -562,7 +608,12 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
     use crate::snapshot::SnapshotBuilder;
     use crate::state::AppState;
 
-    let config = Arc::new(app_config(billing_enabled));
+    let config = Arc::new(app_config(
+        billing_enabled,
+        environment,
+        dev_mail_token,
+        mock_billing,
+    ));
     let store = Arc::new(Store::open_in_memory().unwrap());
     let key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
     let sealer = Arc::new(Sealer::from_master_key(&key).unwrap());
@@ -715,6 +766,18 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
     ));
     let registry = Arc::new(WorkerRegistry::new());
     let subscriptions = Arc::new(RedbSubscriptionRepository::new(store.clone()));
+    let gateway: Arc<dyn PaymentGateway> = if config.billing.provider.is_mock() {
+        Arc::new(
+            MockGateway::from_config(
+                &config.payment_secret,
+                &config.public_url,
+                awg_billing::DEFAULT_MOCK_TOLERANCE_SECS,
+            )
+            .unwrap(),
+        )
+    } else {
+        Arc::new(NoopGateway)
+    };
     let billing = Arc::new(BillingService::new(
         Arc::new(RedbPlanRepository::new(store.clone())),
         subscriptions,
@@ -722,7 +785,7 @@ pub fn app_env_with_billing(billing_enabled: bool) -> AppEnv {
         Arc::new(RedbPaymentMethodRepository::new(store.clone())),
         Arc::new(RedbPaymentEventRepository::new(store.clone())),
         Arc::new(TariffCatalogAdapter::new(tariffs.clone())),
-        Arc::new(NoopGateway),
+        gateway,
         config.billing.settings(),
     ));
     let snapshot = Arc::new(SnapshotBuilder {

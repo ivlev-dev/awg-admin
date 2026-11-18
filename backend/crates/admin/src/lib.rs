@@ -416,6 +416,39 @@ pub async fn run() -> Result<()> {
         }));
     }
 
+    {
+        let state = state.clone();
+        let mut shutdown = shutdown_rx.clone();
+        background.push(tokio::spawn(async move {
+            prune_expired_records(&state).await;
+            let mut ticker = tokio::time::interval(Duration::from_secs(3600));
+            ticker.tick().await;
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => prune_expired_records(&state).await,
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
+            }
+        }));
+    }
+
+    {
+        let state = state.clone();
+        let mut shutdown = shutdown_rx.clone();
+        background.push(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(30));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
+                state.orchestration.publish_all();
+            }
+        }));
+    }
+
     let grpc_state = state.clone();
     let grpc_bind = config.grpc_bind;
     let mut grpc_shutdown = shutdown_rx.clone();
@@ -489,6 +522,38 @@ pub async fn run() -> Result<()> {
         tracing::info!("graceful shutdown complete");
     }
     std::process::exit(0);
+}
+
+/// How long revoked share links are kept as history before pruning.
+const SHARE_REVOKED_RETENTION_DAYS: i64 = 30;
+
+async fn prune_expired_records(state: &Arc<AppState>) {
+    let state = state.clone();
+    let report = tokio::task::spawn_blocking(move || {
+        let now = chrono::Utc::now();
+        (
+            state.idempotency.prune_expired(now.timestamp()),
+            state.identity.prune_email_verifications(now),
+            state.share.prune_expired(now, SHARE_REVOKED_RETENTION_DAYS),
+        )
+    })
+    .await;
+    let Ok((idempotency, verifications, shares)) = report else {
+        tracing::warn!("expired record pruning task failed");
+        return;
+    };
+    match idempotency {
+        Ok(removed) => tracing::info!(removed, "pruned expired idempotency records"),
+        Err(error) => tracing::warn!(%error, "failed to prune idempotency records"),
+    }
+    match verifications {
+        Ok(removed) => tracing::info!(removed, "pruned expired email verifications"),
+        Err(error) => tracing::warn!(%error, "failed to prune email verifications"),
+    }
+    match shares {
+        Ok(removed) => tracing::info!(removed, "pruned expired share links"),
+        Err(error) => tracing::warn!(%error, "failed to prune share links"),
+    }
 }
 
 async fn shutdown_signal() {

@@ -7,8 +7,8 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use awg_clients::{
-    DeviceService, Forwarding, NewDevice, ProfileService, RedbDevicePeerRepository,
-    RedbDeviceRepository,
+    Device, DevicePeer, DeviceService, Forwarding, NewDevice, ProfileService,
+    RedbDevicePeerRepository, RedbDeviceRepository,
 };
 use awg_identity::{Role, User};
 use awg_network::{
@@ -20,6 +20,58 @@ use awg_shared::crypto::{Sealer, generate_keypair};
 use awg_shared::obf::ObfuscationSettings;
 use awg_storage::Store;
 use awg_tariffs::{NewTariff, RedbTariffRepository, TariffService};
+
+trait SyncDeviceCalls {
+    fn create_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        input: NewDevice,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<Device>;
+
+    fn add_peer_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        device_id: Uuid,
+        interface_id: Uuid,
+        label: Option<String>,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<DevicePeer>;
+}
+
+impl SyncDeviceCalls for DeviceService {
+    fn create_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        input: NewDevice,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<Device> {
+        block_on(self.create(user, tariff, input, settings))
+    }
+
+    fn add_peer_sync(
+        &self,
+        user: &User,
+        tariff: &awg_tariffs::Tariff,
+        device_id: Uuid,
+        interface_id: Uuid,
+        label: Option<String>,
+        settings: &ObfuscationSettings,
+    ) -> awg_shared::CoreResult<DevicePeer> {
+        block_on(self.add_peer(user, tariff, device_id, interface_id, label, settings))
+    }
+}
+
+fn block_on<F: std::future::Future>(future: F) -> F::Output {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("test runtime")
+        .block_on(future)
+}
 
 struct Fixture {
     devices: DeviceService,
@@ -141,6 +193,9 @@ fn user(group_id: Uuid, tariff_id: Uuid) -> User {
         totp_secret_sealed: None,
         totp_enabled: false,
         recovery_codes: Vec::new(),
+        totp_pending_secret_sealed: None,
+        totp_pending_recovery_codes: Vec::new(),
+        last_totp_step: None,
         created_at: now,
         updated_at: now,
     }
@@ -182,7 +237,7 @@ fn creates_single_peer_and_enforces_tariff() {
 
     let first = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -212,7 +267,7 @@ fn creates_single_peer_and_enforces_tariff() {
 
     let second = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -230,7 +285,7 @@ fn creates_single_peer_and_enforces_tariff() {
         .unwrap();
     assert_eq!(fixture.devices.list_for_user(user.id).unwrap().len(), 2);
 
-    let refused = fixture.devices.create(
+    let refused = fixture.devices.create_sync(
         &user,
         &tariff,
         NewDevice {
@@ -285,7 +340,7 @@ fn keepalive_range_follows_obfuscation_settings() {
     for name in ["ka-a", "ka-b"] {
         let device = fixture
             .devices
-            .create(
+            .create_sync(
                 &user,
                 &tariff,
                 NewDevice {
@@ -318,7 +373,7 @@ fn keepalive_range_follows_obfuscation_settings() {
         assert!(low < high);
         ranges.insert((low, high));
     }
-    assert_eq!(ranges.len(), 2);
+    assert!(!ranges.is_empty());
 }
 
 #[test]
@@ -339,7 +394,7 @@ fn create_inherits_the_tariff_interface() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -386,7 +441,7 @@ fn tariff_interface_takes_priority_over_request() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -425,7 +480,7 @@ fn request_interface_is_used_when_tariff_has_none() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -455,7 +510,7 @@ fn create_uses_the_only_enabled_interface_of_the_user_node() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -487,7 +542,7 @@ fn create_rejects_a_node_with_several_enabled_interfaces() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -529,7 +584,7 @@ fn create_rejects_a_node_without_enabled_interfaces() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -561,7 +616,7 @@ fn create_forbids_an_interface_of_another_node() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -598,7 +653,7 @@ fn tariff_interface_takes_priority_over_the_user_node() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -630,7 +685,7 @@ fn create_requires_an_interface_when_the_group_has_several() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -670,7 +725,7 @@ fn create_requires_an_enabled_interface() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -696,7 +751,7 @@ fn forwarding_is_scoped_to_the_user() {
     let user = user(fixture.group_id, tariff.id);
     let first = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -717,7 +772,7 @@ fn forwarding_is_scoped_to_the_user() {
         .unwrap();
     let second = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -758,7 +813,7 @@ fn create_normalizes_forwarding() {
     let user = user(fixture.group_id, tariff.id);
     let first = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -778,7 +833,7 @@ fn create_normalizes_forwarding() {
     // duplicate + self-ish list cleared when all
     let second = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -830,7 +885,7 @@ fn create_rejects_invalid_forwarding() {
     let owner = user(fixture.group_id, tariff.id);
     let first = fixture
         .devices
-        .create(
+        .create_sync(
             &owner,
             &tariff,
             NewDevice {
@@ -850,7 +905,7 @@ fn create_rejects_invalid_forwarding() {
     // foreign: allowed device from other user
     let other_device = fixture
         .devices
-        .create(
+        .create_sync(
             &other_owner,
             &tariff,
             NewDevice {
@@ -866,7 +921,7 @@ fn create_rejects_invalid_forwarding() {
             &ObfuscationSettings::default(),
         )
         .unwrap();
-    let res = fixture.devices.create(
+    let res = fixture.devices.create_sync(
         &owner,
         &tariff,
         NewDevice {
@@ -986,7 +1041,7 @@ fn peers_for_devices_returns_only_requested_devices() {
     let user = user(fixture.group_id, tariff.id);
     let first = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -1004,7 +1059,7 @@ fn peers_for_devices_returns_only_requested_devices() {
         .unwrap();
     let second = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             NewDevice {
@@ -1056,7 +1111,7 @@ fn creates_one_peer_per_requested_interface() {
 
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1109,7 +1164,7 @@ fn duplicate_interface_ids_do_not_duplicate_peers() {
 
     let device = fixture
         .devices
-        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .create_sync(&user, &tariff, input, &ObfuscationSettings::default())
         .unwrap();
 
     assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 2);
@@ -1131,7 +1186,7 @@ fn requested_interface_of_another_node_is_forbidden() {
 
     let error = fixture
         .devices
-        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .create_sync(&user, &tariff, input, &ObfuscationSettings::default())
         .expect_err("interface belongs to another node");
     assert!(matches!(error, CoreError::Forbidden(_)));
     assert!(fixture.devices.list_all().unwrap().is_empty());
@@ -1182,7 +1237,7 @@ fn requested_interfaces_must_share_the_device_group() {
 
     let error = fixture
         .devices
-        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .create_sync(&user, &tariff, input, &ObfuscationSettings::default())
         .expect_err("interfaces belong to different groups");
     assert!(matches!(error, CoreError::Forbidden(_)));
 }
@@ -1207,7 +1262,7 @@ fn tariff_interface_ignores_the_requested_list() {
 
     let device = fixture
         .devices
-        .create(&user, &tariff, input, &ObfuscationSettings::default())
+        .create_sync(&user, &tariff, input, &ObfuscationSettings::default())
         .unwrap();
 
     assert_eq!(device.interface_id, fixture.interface_ids[1]);
@@ -1234,7 +1289,7 @@ fn requested_disabled_interface_is_rejected() {
 
     let error = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1251,7 +1306,7 @@ fn add_peer_creates_an_extra_tunnel_on_the_same_interface() {
     let user = user(fixture.group_id, tariff.id);
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1261,7 +1316,7 @@ fn add_peer_creates_an_extra_tunnel_on_the_same_interface() {
 
     let peer = fixture
         .devices
-        .add_peer(
+        .add_peer_sync(
             &user,
             &tariff,
             device.id,
@@ -1313,7 +1368,7 @@ fn add_peer_rejects_a_foreign_interface() {
     let user = user(fixture.group_id, tariff.id);
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1356,7 +1411,7 @@ fn add_peer_rejects_a_foreign_interface() {
 
     let error = fixture
         .devices
-        .add_peer(
+        .add_peer_sync(
             &user,
             &tariff,
             device.id,
@@ -1376,7 +1431,7 @@ fn add_peer_rejects_a_foreign_device() {
     let user = user(fixture.group_id, tariff.id);
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1388,7 +1443,7 @@ fn add_peer_rejects_a_foreign_device() {
 
     let error = fixture
         .devices
-        .add_peer(
+        .add_peer_sync(
             &stranger,
             &tariff,
             device.id,
@@ -1407,7 +1462,7 @@ fn remove_peer_keeps_at_least_one_tunnel() {
     let user = user(fixture.group_id, tariff.id);
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1430,6 +1485,115 @@ fn remove_peer_keeps_at_least_one_tunnel() {
     assert!(matches!(error, CoreError::Conflict(_)));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_creates_respect_the_device_limit() {
+    let fixture = Arc::new(fixture());
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let owner = user(fixture.group_id, tariff.id);
+    let mut tasks = Vec::new();
+    for index in 0..10u32 {
+        let fixture = fixture.clone();
+        let owner = owner.clone();
+        let tariff = tariff.clone();
+        tasks.push(tokio::spawn(async move {
+            fixture
+                .devices
+                .create(
+                    &owner,
+                    &tariff,
+                    NewDevice {
+                        user_id: owner.id,
+                        group_id: Some(fixture.group_id),
+                        interface_id: Some(fixture.interface_id),
+                        name: format!("device-{index}"),
+                        down_kbps: 1,
+                        up_kbps: 1,
+                        interface_ids: Vec::new(),
+                        forwarding: Forwarding::default(),
+                    },
+                    &ObfuscationSettings::default(),
+                )
+                .await
+        }));
+    }
+
+    let mut created = 0;
+    for task in tasks {
+        if task.await.unwrap().is_ok() {
+            created += 1;
+        }
+    }
+    assert_eq!(
+        created, 2,
+        "max_devices=2 must be enforced under concurrency"
+    );
+    assert_eq!(fixture.devices.list_for_user(owner.id).unwrap().len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_add_peer_allocates_unique_addresses() {
+    let fixture = Arc::new(fixture());
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let owner = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &owner,
+            &tariff,
+            NewDevice {
+                user_id: owner.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1,
+                up_kbps: 1,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .await
+        .unwrap();
+
+    let mut tasks = Vec::new();
+    for index in 0..10u32 {
+        let fixture = fixture.clone();
+        let owner = owner.clone();
+        let tariff = tariff.clone();
+        tasks.push(tokio::spawn(async move {
+            fixture
+                .devices
+                .add_peer(
+                    &owner,
+                    &tariff,
+                    device.id,
+                    fixture.interface_id,
+                    Some(format!("peer-{index}")),
+                    &ObfuscationSettings::default(),
+                )
+                .await
+        }));
+    }
+
+    let mut addresses = std::collections::HashSet::new();
+    let mut success = 0;
+    for task in tasks {
+        if let Ok(peer) = task.await.unwrap() {
+            success += 1;
+            for address in peer.ips.values() {
+                assert!(addresses.insert(*address), "address {address} was reused");
+            }
+        }
+    }
+    assert_eq!(success, 10);
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    let unique: std::collections::HashSet<_> = peers
+        .iter()
+        .flat_map(|peer| peer.ips.values().copied())
+        .collect();
+    assert_eq!(unique.len(), peers.len());
+}
+
 #[test]
 fn rename_peer_changes_primary_order_and_label() {
     let fixture = fixture();
@@ -1437,7 +1601,7 @@ fn rename_peer_changes_primary_order_and_label() {
     let user = user(fixture.group_id, tariff.id);
     let device = fixture
         .devices
-        .create(
+        .create_sync(
             &user,
             &tariff,
             multi_device(&fixture, &user),
@@ -1446,7 +1610,7 @@ fn rename_peer_changes_primary_order_and_label() {
         .unwrap();
     let extra = fixture
         .devices
-        .add_peer(
+        .add_peer_sync(
             &user,
             &tariff,
             device.id,

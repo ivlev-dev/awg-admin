@@ -50,6 +50,7 @@ pub struct WireObf {
 
 #[derive(Debug, Clone)]
 pub struct DesiredPeer {
+    pub peer_id: Uuid,
     pub device_id: Uuid,
     pub user_id: Uuid,
     pub public_key: String,

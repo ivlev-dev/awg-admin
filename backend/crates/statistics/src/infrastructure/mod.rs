@@ -1,19 +1,27 @@
+use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
-use uuid::Uuid;
+use redb::ReadableTable;
 
 use awg_shared::{CoreError, CoreResult};
-use awg_storage::{StorageError, Store, Table};
+use awg_storage::{StorageError, Store, Table, prefix_upper_bound};
 
 use crate::application::StatsUpdate;
-use crate::domain::{Bucket, CounterState, StatsBroadcaster, StatsRepository, StatsScope};
+use crate::domain::{
+    Bucket, BucketDelta, CounterEntry, CounterKey, CounterState, StatsBroadcaster, StatsRepository,
+    StatsScope,
+};
 
 fn map_err(e: StorageError) -> CoreError {
     CoreError::Io(std::io::Error::other(e.to_string()))
 }
 
-fn counter_key(node_id: Uuid, interface_id: Uuid, device_id: Uuid) -> String {
-    format!("{node_id}:{interface_id}:{device_id}")
+fn counter_key(key: CounterKey) -> String {
+    format!(
+        "{}:{}:{}:{}",
+        key.node_id, key.interface_id, key.device_id, key.peer_id
+    )
 }
 
 fn bucket_key(scope: StatsScope, hour: i64) -> String {
@@ -26,66 +34,123 @@ fn bucket_key(scope: StatsScope, hour: i64) -> String {
 
 pub struct RedbStatsRepository {
     store: Arc<Store>,
+    write_transactions: AtomicUsize,
 }
 
 impl RedbStatsRepository {
     pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+        Self {
+            store,
+            write_transactions: AtomicUsize::new(0),
+        }
+    }
+
+    pub fn write_transaction_count(&self) -> usize {
+        self.write_transactions.load(Ordering::SeqCst)
     }
 }
 
 impl StatsRepository for RedbStatsRepository {
-    fn counter(
-        &self,
-        node_id: Uuid,
-        interface_id: Uuid,
-        device_id: Uuid,
-    ) -> CoreResult<Option<CounterState>> {
+    fn counter(&self, key: CounterKey) -> CoreResult<Option<CounterState>> {
         self.store
-            .get(
-                Table::PeerCounters,
-                &counter_key(node_id, interface_id, device_id),
-            )
+            .get(Table::PeerCounters, &counter_key(key))
             .map_err(map_err)
     }
 
-    fn save_counter(
-        &self,
-        node_id: Uuid,
-        interface_id: Uuid,
-        device_id: Uuid,
-        state: &CounterState,
-    ) -> CoreResult<()> {
+    fn save_counter(&self, key: CounterKey, state: &CounterState) -> CoreResult<()> {
         self.store
-            .put(
-                Table::PeerCounters,
-                &counter_key(node_id, interface_id, device_id),
-                state,
-            )
+            .put(Table::PeerCounters, &counter_key(key), state)
             .map_err(map_err)
     }
 
     fn add_bucket(&self, scope: StatsScope, hour: i64, rx: u64, tx: u64) -> CoreResult<()> {
         let key = bucket_key(scope, hour);
-        let existing: Option<Bucket> = self
-            .store
-            .get(Table::TrafficBuckets, &key)
-            .map_err(map_err)?;
-        let bucket = match existing {
-            Some(mut bucket) => {
-                bucket.rx = bucket.rx.saturating_add(rx);
-                bucket.tx = bucket.tx.saturating_add(tx);
-                bucket
-            }
-            None => Bucket {
-                scope,
-                hour,
-                rx,
-                tx,
-            },
-        };
         self.store
-            .put(Table::TrafficBuckets, &key, &bucket)
+            .update::<Bucket, _>(Table::TrafficBuckets, &key, |current| {
+                (Some(merge_bucket(current, scope, hour, rx, tx)), ())
+            })
+            .map_err(map_err)
+    }
+
+    fn counters(&self, keys: &[CounterKey]) -> CoreResult<HashMap<CounterKey, CounterState>> {
+        self.store
+            .with_read_txn(|txn| {
+                let table = txn.open_table(Table::PeerCounters.definition())?;
+                let mut out = HashMap::with_capacity(keys.len());
+                for key in keys {
+                    let Some(bytes) = table.get(counter_key(*key).as_str())? else {
+                        continue;
+                    };
+                    out.insert(*key, serde_json::from_slice(bytes.value())?);
+                }
+                Ok(out)
+            })
+            .map_err(map_err)
+    }
+
+    fn save_counters(&self, entries: &[CounterEntry]) -> CoreResult<()> {
+        self.store
+            .with_write_txn(|txn| {
+                let mut table = txn.open_table(Table::PeerCounters.definition())?;
+                for entry in entries {
+                    let bytes = serde_json::to_vec(&entry.state)?;
+                    table.insert(counter_key(entry.key).as_str(), bytes.as_slice())?;
+                }
+                Ok(())
+            })
+            .map_err(map_err)
+    }
+
+    fn add_buckets_batch(&self, deltas: &[BucketDelta]) -> CoreResult<()> {
+        self.store
+            .with_write_txn(|txn| {
+                let mut table = txn.open_table(Table::TrafficBuckets.definition())?;
+                for delta in deltas {
+                    let key = bucket_key(delta.scope, delta.hour);
+                    let current: Option<Bucket> = match table.get(key.as_str())? {
+                        Some(bytes) => Some(serde_json::from_slice(bytes.value())?),
+                        None => None,
+                    };
+                    let bucket = merge_bucket(current, delta.scope, delta.hour, delta.rx, delta.tx);
+                    let bytes = serde_json::to_vec(&bucket)?;
+                    table.insert(key.as_str(), bytes.as_slice())?;
+                }
+                Ok(())
+            })
+            .map_err(map_err)
+    }
+
+    fn commit_snapshot(
+        &self,
+        counters: &[CounterEntry],
+        buckets: &[BucketDelta],
+    ) -> CoreResult<()> {
+        self.write_transactions.fetch_add(1, Ordering::SeqCst);
+        self.store
+            .with_write_txn(|txn| {
+                {
+                    let mut table = txn.open_table(Table::PeerCounters.definition())?;
+                    for entry in counters {
+                        let bytes = serde_json::to_vec(&entry.state)?;
+                        table.insert(counter_key(entry.key).as_str(), bytes.as_slice())?;
+                    }
+                }
+                {
+                    let mut table = txn.open_table(Table::TrafficBuckets.definition())?;
+                    for delta in buckets {
+                        let key = bucket_key(delta.scope, delta.hour);
+                        let current: Option<Bucket> = match table.get(key.as_str())? {
+                            Some(bytes) => Some(serde_json::from_slice(bytes.value())?),
+                            None => None,
+                        };
+                        let bucket =
+                            merge_bucket(current, delta.scope, delta.hour, delta.rx, delta.tx);
+                        let bytes = serde_json::to_vec(&bucket)?;
+                        table.insert(key.as_str(), bytes.as_slice())?;
+                    }
+                }
+                Ok(())
+            })
             .map_err(map_err)
     }
 
@@ -102,9 +167,46 @@ impl StatsRepository for RedbStatsRepository {
         Ok(buckets)
     }
 
+    fn totals_many(
+        &self,
+        scopes: &[StatsScope],
+        from_hour: i64,
+        to_hour: i64,
+    ) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        self.store
+            .with_read_txn(|txn| {
+                let table = txn.open_table(Table::TrafficBuckets.definition())?;
+                let mut out = HashMap::with_capacity(scopes.len());
+                for scope in scopes {
+                    let prefix = scope.key_prefix();
+                    let mut totals = (0u64, 0u64);
+                    let upper = prefix_upper_bound(&prefix);
+                    match upper {
+                        Some(upper) => {
+                            for entry in table.range::<&str>(prefix.as_str()..upper.as_str())? {
+                                let (_, value) = entry?;
+                                let bucket: Bucket = serde_json::from_slice(value.value())?;
+                                accumulate(&mut totals, &bucket, from_hour, to_hour);
+                            }
+                        }
+                        None => {
+                            for entry in table.range::<&str>(prefix.as_str()..)? {
+                                let (_, value) = entry?;
+                                let bucket: Bucket = serde_json::from_slice(value.value())?;
+                                accumulate(&mut totals, &bucket, from_hour, to_hour);
+                            }
+                        }
+                    }
+                    out.insert(*scope, totals);
+                }
+                Ok(out)
+            })
+            .map_err(map_err)
+    }
+
     fn cleanup_before(&self, hour: i64) -> CoreResult<usize> {
         let keys = self.store.keys(Table::TrafficBuckets).map_err(map_err)?;
-        let mut removed = 0;
+        let mut stale = Vec::new();
         for key in keys {
             let Some((_, hour_part)) = key.rsplit_once('|') else {
                 continue;
@@ -113,14 +215,48 @@ impl StatsRepository for RedbStatsRepository {
                 continue;
             };
             if stored_hour < hour {
-                self.store
-                    .delete(Table::TrafficBuckets, &key)
-                    .map_err(map_err)?;
-                removed += 1;
+                stale.push(key);
             }
+        }
+        let mut removed = 0;
+        for chunk in stale.chunks(256) {
+            self.store
+                .with_write_txn(|txn| {
+                    let mut table = txn.open_table(Table::TrafficBuckets.definition())?;
+                    for key in chunk {
+                        table.remove(key.as_str())?;
+                    }
+                    Ok(())
+                })
+                .map_err(map_err)?;
+            removed += chunk.len();
         }
         Ok(removed)
     }
+}
+
+fn merge_bucket(current: Option<Bucket>, scope: StatsScope, hour: i64, rx: u64, tx: u64) -> Bucket {
+    match current {
+        Some(mut bucket) => {
+            bucket.rx = bucket.rx.saturating_add(rx);
+            bucket.tx = bucket.tx.saturating_add(tx);
+            bucket
+        }
+        None => Bucket {
+            scope,
+            hour,
+            rx,
+            tx,
+        },
+    }
+}
+
+fn accumulate(totals: &mut (u64, u64), bucket: &Bucket, from_hour: i64, to_hour: i64) {
+    if bucket.hour < from_hour || bucket.hour > to_hour {
+        return;
+    }
+    totals.0 = totals.0.saturating_add(bucket.rx);
+    totals.1 = totals.1.saturating_add(bucket.tx);
 }
 
 pub struct StatsHub {

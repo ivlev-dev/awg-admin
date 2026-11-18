@@ -243,8 +243,19 @@ fn password_change_and_role_update() {
     let user = create_user(&service, "user");
     let session = service.login("user", "password123", &metadata()).unwrap();
 
+    assert!(
+        service
+            .change_password(user.id, "", None, "newpassword123")
+            .is_err(),
+        "the current password is required"
+    );
+    assert!(
+        service
+            .change_password(user.id, "wrong-password", None, "newpassword123")
+            .is_err()
+    );
     service
-        .change_password(user.id, Some("password123"), "newpassword123")
+        .change_password(user.id, "password123", None, "newpassword123")
         .unwrap();
     assert!(service.login("user", "newpassword123", &metadata()).is_ok());
     assert!(service.login("user", "password123", &metadata()).is_err());
@@ -562,6 +573,9 @@ fn prune_removes_expired_records() {
         totp_secret_sealed: None,
         totp_enabled: false,
         recovery_codes: Vec::new(),
+        totp_pending_secret_sealed: None,
+        totp_pending_recovery_codes: Vec::new(),
+        last_totp_step: None,
         created_at: now,
         updated_at: now,
     };

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use chrono::{DateTime, Datelike, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -41,10 +43,33 @@ impl StatsScope {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CounterSample {
+    pub peer_id: Uuid,
     pub rx_total: u64,
     pub tx_total: u64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CounterKey {
+    pub node_id: Uuid,
+    pub interface_id: Uuid,
+    pub device_id: Uuid,
+    pub peer_id: Uuid,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CounterEntry {
+    pub key: CounterKey,
+    pub state: CounterState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BucketDelta {
+    pub scope: StatsScope,
+    pub hour: i64,
+    pub rx: u64,
+    pub tx: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -210,19 +235,8 @@ impl Aggregator {
 }
 
 pub trait StatsRepository: Send + Sync {
-    fn counter(
-        &self,
-        node_id: Uuid,
-        interface_id: Uuid,
-        device_id: Uuid,
-    ) -> awg_shared::CoreResult<Option<CounterState>>;
-    fn save_counter(
-        &self,
-        node_id: Uuid,
-        interface_id: Uuid,
-        device_id: Uuid,
-        state: &CounterState,
-    ) -> awg_shared::CoreResult<()>;
+    fn counter(&self, key: CounterKey) -> awg_shared::CoreResult<Option<CounterState>>;
+    fn save_counter(&self, key: CounterKey, state: &CounterState) -> awg_shared::CoreResult<()>;
     fn add_bucket(
         &self,
         scope: StatsScope,
@@ -237,6 +251,64 @@ pub trait StatsRepository: Send + Sync {
         to_hour: i64,
     ) -> awg_shared::CoreResult<Vec<Bucket>>;
     fn cleanup_before(&self, hour: i64) -> awg_shared::CoreResult<usize>;
+
+    fn counters(
+        &self,
+        keys: &[CounterKey],
+    ) -> awg_shared::CoreResult<HashMap<CounterKey, CounterState>> {
+        let mut out = HashMap::with_capacity(keys.len());
+        for key in keys {
+            if let Some(state) = self.counter(*key)? {
+                out.insert(*key, state);
+            }
+        }
+        Ok(out)
+    }
+
+    fn save_counters(&self, entries: &[CounterEntry]) -> awg_shared::CoreResult<()> {
+        for entry in entries {
+            self.save_counter(entry.key, &entry.state)?;
+        }
+        Ok(())
+    }
+
+    fn add_buckets_batch(&self, deltas: &[BucketDelta]) -> awg_shared::CoreResult<()> {
+        for delta in deltas {
+            self.add_bucket(delta.scope, delta.hour, delta.rx, delta.tx)?;
+        }
+        Ok(())
+    }
+
+    fn commit_snapshot(
+        &self,
+        counters: &[CounterEntry],
+        buckets: &[BucketDelta],
+    ) -> awg_shared::CoreResult<()> {
+        self.save_counters(counters)?;
+        self.add_buckets_batch(buckets)
+    }
+
+    fn totals_many(
+        &self,
+        scopes: &[StatsScope],
+        from_hour: i64,
+        to_hour: i64,
+    ) -> awg_shared::CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        let mut out = HashMap::with_capacity(scopes.len());
+        for scope in scopes {
+            let totals = self.series(*scope, from_hour, to_hour)?.into_iter().fold(
+                (0u64, 0u64),
+                |acc, bucket| {
+                    (
+                        acc.0.saturating_add(bucket.rx),
+                        acc.1.saturating_add(bucket.tx),
+                    )
+                },
+            );
+            out.insert(*scope, totals);
+        }
+        Ok(out)
+    }
 }
 
 pub trait StatsBroadcaster: Send + Sync {

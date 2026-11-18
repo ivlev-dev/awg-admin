@@ -13,6 +13,8 @@ use awg_shared::CoreError;
 pub enum ApiError {
     BadRequest(String),
     InvalidIdempotencyKey,
+    IdempotencyInProgress,
+    IdempotencyKeyMismatch,
     InvalidToken,
     Unauthorized(String),
     Forbidden(String),
@@ -65,6 +67,9 @@ impl ApiError {
         match self {
             ApiError::BadRequest(_) => StatusCode::BAD_REQUEST,
             ApiError::InvalidIdempotencyKey => StatusCode::BAD_REQUEST,
+            ApiError::IdempotencyInProgress | ApiError::IdempotencyKeyMismatch => {
+                StatusCode::CONFLICT
+            }
             ApiError::InvalidToken => StatusCode::BAD_REQUEST,
             ApiError::Unauthorized(_) | ApiError::TotpRequired | ApiError::TotpInvalid(_) => {
                 StatusCode::UNAUTHORIZED
@@ -88,6 +93,12 @@ impl ApiError {
             ApiError::InvalidIdempotencyKey => {
                 "idempotency key must be 8..128 characters of ASCII letters, digits, '-', '_' or '.'"
                     .to_string()
+            }
+            ApiError::IdempotencyInProgress => {
+                "a request with this idempotency key is still in progress".to_string()
+            }
+            ApiError::IdempotencyKeyMismatch => {
+                "idempotency key is already used by a different request body".to_string()
             }
             ApiError::InvalidToken => "password reset token is invalid or expired".to_string(),
             ApiError::Unauthorized(message) => message.clone(),
@@ -114,6 +125,8 @@ impl ApiError {
         match self {
             ApiError::BadRequest(_) => "bad_request",
             ApiError::InvalidIdempotencyKey => "invalid_idempotency_key",
+            ApiError::IdempotencyInProgress => "idempotency_in_progress",
+            ApiError::IdempotencyKeyMismatch => "idempotency_key_mismatch",
             ApiError::InvalidToken => "invalid_token",
             ApiError::Unauthorized(_) => "unauthorized",
             ApiError::Forbidden(_) => "forbidden",

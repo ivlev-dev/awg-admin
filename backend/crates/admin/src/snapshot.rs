@@ -60,6 +60,13 @@ impl SnapshotSource for SnapshotBuilder {
         let subscription_access = self.subscription_access()?;
 
         let devices = self.devices.list_all()?;
+        let usage_scopes: Vec<StatsScope> = {
+            let mut user_ids: Vec<Uuid> = devices.iter().map(|device| device.user_id).collect();
+            user_ids.sort_unstable();
+            user_ids.dedup();
+            user_ids.into_iter().map(StatsScope::User).collect()
+        };
+        let usage = self.stats.used_bytes_many(&usage_scopes)?;
         let mut devices_by_group: HashMap<Uuid, Vec<awg_clients::Device>> = HashMap::new();
         for device in devices {
             devices_by_group
@@ -69,14 +76,19 @@ impl SnapshotSource for SnapshotBuilder {
         }
 
         let peers = self.devices.all_peers()?;
-        let mut peers_by_interface: HashMap<Uuid, Vec<&DevicePeer>> = HashMap::new();
+        let mut peers_by_device_interface: HashMap<(Uuid, Uuid), Vec<&DevicePeer>> = HashMap::new();
+        let mut interface_devices: HashMap<Uuid, HashSet<Uuid>> = HashMap::new();
         for peer in &peers {
-            peers_by_interface
+            interface_devices
                 .entry(peer.interface_id)
+                .or_default()
+                .insert(peer.device_id);
+            peers_by_device_interface
+                .entry((peer.device_id, peer.interface_id))
                 .or_default()
                 .push(peer);
         }
-        for list in peers_by_interface.values_mut() {
+        for list in peers_by_device_interface.values_mut() {
             list.sort_by(|left, right| left.primary_order().cmp(&right.primary_order()));
         }
 
@@ -90,18 +102,15 @@ impl SnapshotSource for SnapshotBuilder {
             pool_nets.insert(pool.id, parse_net(&pool.cidr).ok());
         }
 
-        let mut used_cache: HashMap<Uuid, u64> = HashMap::new();
-
         for interface in interfaces {
             let group_devices: Vec<awg_clients::Device> = devices_by_group
                 .get(&interface.group_id)
                 .map(|devices| {
+                    let interface_peers = interface_devices.get(&interface.id);
                     devices
                         .iter()
                         .filter(|device| {
-                            peers_by_interface.get(&interface.id).is_some_and(|peers| {
-                                peers.iter().any(|peer| peer.device_id == device.id)
-                            })
+                            interface_peers.is_some_and(|ids| ids.contains(&device.id))
                         })
                         .cloned()
                         .collect()
@@ -136,7 +145,10 @@ impl SnapshotSource for SnapshotBuilder {
                 }
                 let (down, up) = match user_tariffs.get(&user.id) {
                     Some(tariff) => {
-                        let used = used_bytes_cached(&self.stats, &mut used_cache, user.id);
+                        let used = usage
+                            .get(&StatsScope::User(user.id))
+                            .copied()
+                            .unwrap_or_default();
                         if throttled(tariff, used, &subscription_access, user.id) {
                             (1, 1)
                         } else {
@@ -155,10 +167,14 @@ impl SnapshotSource for SnapshotBuilder {
             let mut peers = Vec::new();
             let mut peer_by_device: HashMap<Uuid, (Vec<String>, Vec<String>)> = HashMap::new();
             for device in group_devices.iter().filter(|d| !d.revoked) {
-                let Some(device_peers) = peers_by_interface.get(&interface.id) else {
+                let Some(device_peers) = peers_by_device_interface.get(&(device.id, interface.id))
+                else {
                     continue;
                 };
-                let used = used_bytes_cached(&self.stats, &mut used_cache, device.user_id);
+                let used = usage
+                    .get(&StatsScope::User(device.user_id))
+                    .copied()
+                    .unwrap_or_default();
                 let blocked = user_tariffs
                     .get(&device.user_id)
                     .map(|t| throttled(t, used, &subscription_access, device.user_id))
@@ -188,6 +204,9 @@ impl SnapshotSource for SnapshotBuilder {
                         if pool.group_id != interface.group_id {
                             continue;
                         }
+                        if !pool.enabled {
+                            continue;
+                        }
                         if let Some(net) = pool_nets.get(pool_id).copied().flatten()
                             && let std::net::IpAddr::V4(v4) = ip
                         {
@@ -199,6 +218,7 @@ impl SnapshotSource for SnapshotBuilder {
                         primary = Some((addresses.clone(), allowed.clone()));
                     }
                     peers.push(DesiredPeer {
+                        peer_id: peer.id,
                         device_id: device.id,
                         user_id: device.user_id,
                         public_key: peer.public_key.clone(),
@@ -282,14 +302,6 @@ fn throttled(
     user_id: Uuid,
 ) -> bool {
     tariff.period_usage_exceeded(used) || subscription_access.get(&user_id) == Some(&false)
-}
-
-fn used_bytes_cached(stats: &StatsService, cache: &mut HashMap<Uuid, u64>, user_id: Uuid) -> u64 {
-    *cache.entry(user_id).or_insert_with(|| {
-        stats
-            .used_bytes(StatsScope::User(user_id))
-            .unwrap_or_default()
-    })
 }
 
 fn first_ip(address: Option<&String>) -> Option<String> {
@@ -510,20 +522,13 @@ mod tests {
     }
 
     impl StatsRepository for CountingStats {
-        fn counter(
-            &self,
-            _node_id: Uuid,
-            _interface_id: Uuid,
-            _device_id: Uuid,
-        ) -> CoreResult<Option<CounterState>> {
+        fn counter(&self, _key: awg_statistics::CounterKey) -> CoreResult<Option<CounterState>> {
             Ok(None)
         }
 
         fn save_counter(
             &self,
-            _node_id: Uuid,
-            _interface_id: Uuid,
-            _device_id: Uuid,
+            _key: awg_statistics::CounterKey,
             _state: &CounterState,
         ) -> CoreResult<()> {
             Ok(())
@@ -666,6 +671,9 @@ mod tests {
             totp_secret_sealed: None,
             totp_enabled: false,
             recovery_codes: Vec::new(),
+            totp_pending_secret_sealed: None,
+            totp_pending_recovery_codes: Vec::new(),
+            last_totp_step: None,
             created_at: now,
             updated_at: now,
         }
@@ -1061,6 +1069,9 @@ mod tests {
                     let Some(pool) = pool_map.get(pool_id) else {
                         continue;
                     };
+                    if !pool.enabled {
+                        continue;
+                    }
                     if let Ok(net) = parse_net(&pool.cidr)
                         && let std::net::IpAddr::V4(v4) = ip
                     {
@@ -1070,6 +1081,7 @@ mod tests {
                 }
                 peer_by_device.insert(device.id, (addresses.clone(), allowed.clone()));
                 peers.push(DesiredPeer {
+                    peer_id: peer.id,
                     device_id: device.id,
                     user_id: device.user_id,
                     public_key: peer.public_key.clone(),
@@ -1279,6 +1291,43 @@ mod tests {
             .expect("forwarding rule phone -> laptop");
         assert_eq!(rule.from_ip, expected_from_ip);
         assert_ne!(rule.from_ip, "10.1.0.8");
+    }
+
+    #[test]
+    fn disabled_pool_addresses_are_not_emitted() {
+        let fixture = seed();
+        let state = fixture.builder.build(fixture.node_id).unwrap();
+        let devices = fixture.builder.devices.list_all().unwrap();
+        let laptop = devices.iter().find(|d| d.name == "laptop").unwrap();
+        let awg0 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg0")
+            .unwrap();
+        let peer = awg0
+            .peers
+            .iter()
+            .find(|peer| peer.device_id == laptop.id)
+            .expect("laptop peer on awg0");
+
+        assert!(
+            !peer
+                .addresses
+                .iter()
+                .any(|address| address.starts_with("10.4.0.9"))
+        );
+        assert!(!peer.allowed_ips.iter().any(|ip| ip == "10.4.0.9/32"));
+        assert!(
+            peer.addresses
+                .iter()
+                .any(|address| address.starts_with("10.1.0.3"))
+        );
+        assert!(
+            !awg0
+                .addresses
+                .iter()
+                .any(|address| address.starts_with("10.4.0.1"))
+        );
     }
 
     #[test]

@@ -79,6 +79,7 @@ message PeerStats {
   uint64 rx_total = 3;
   uint64 tx_total = 4;
   int64 last_handshake = 5;
+  string peer_id = 6;
 }
 
 message DesiredState {
@@ -128,6 +129,7 @@ message DesiredPeer {
   uint32 down_kbps = 6;
   uint32 up_kbps = 7;
   string user_id = 8;
+  string peer_id = 9;
 }
 
 message ForwardingRule {

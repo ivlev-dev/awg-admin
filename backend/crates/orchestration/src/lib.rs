@@ -2,7 +2,9 @@ pub mod application;
 pub mod domain;
 pub mod infrastructure;
 
-pub use application::{NodeDirectory, OrchestrationService, SnapshotSource, WorkerRegistry};
+pub use application::{
+    NodeDirectory, OrchestrationService, SessionId, SnapshotSource, WorkerRegistry,
+};
 pub use domain::{
     DesiredInterface, DesiredPeer, DesiredState, ForwardingRule, InterfaceCounters, PeerCounters,
     UserLimit, WorkerStats,

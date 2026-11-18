@@ -2,8 +2,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use redb::{
-    ConcurrencyMode, Database, ReadableDatabase, ReadableTable, TableDefinition,
-    backends::InMemoryBackend,
+    ConcurrencyMode, Database, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
+    WriteTransaction, backends::InMemoryBackend,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -282,11 +282,16 @@ impl Store {
         let mut removed = 0;
         {
             let mut t = txn.open_table(table.definition())?;
-            let keys: Vec<String> = t
-                .iter()?
-                .filter_map(|entry| entry.ok().map(|(k, _)| k.value().to_string()))
-                .filter(|k| k.starts_with(prefix))
-                .collect();
+            let keys: Vec<String> = match prefix_upper_bound(prefix) {
+                Some(upper) => t
+                    .range::<&str>(prefix..upper.as_str())?
+                    .map(|entry| entry.map(|(key, _)| key.value().to_string()))
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+                None => t
+                    .range::<&str>(prefix..)?
+                    .map(|entry| entry.map(|(key, _)| key.value().to_string()))
+                    .collect::<std::result::Result<Vec<_>, _>>()?,
+            };
             for key in keys {
                 t.remove(key.as_str())?;
                 removed += 1;
@@ -315,14 +320,66 @@ impl Store {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(table.definition())?;
         let mut out = Vec::new();
-        for entry in table.iter()? {
-            let (key, value) = entry?;
-            let key = key.value().to_string();
-            if key.starts_with(prefix) {
-                out.push((key, serde_json::from_slice(value.value())?));
+        let upper = prefix_upper_bound(prefix);
+        match upper {
+            Some(upper) => {
+                for entry in table.range::<&str>(prefix..upper.as_str())? {
+                    let (key, value) = entry?;
+                    out.push((
+                        key.value().to_string(),
+                        serde_json::from_slice(value.value())?,
+                    ));
+                }
+            }
+            None => {
+                for entry in table.range::<&str>(prefix..)? {
+                    let (key, value) = entry?;
+                    out.push((
+                        key.value().to_string(),
+                        serde_json::from_slice(value.value())?,
+                    ));
+                }
             }
         }
         Ok(out)
+    }
+
+    pub fn scan_rev<T: DeserializeOwned>(
+        &self,
+        table: Table,
+        before: Option<&str>,
+        limit: usize,
+        mut keep: impl FnMut(&str, &T) -> bool,
+    ) -> Result<(Vec<(String, T)>, bool)> {
+        if limit == 0 {
+            return Ok((Vec::new(), false));
+        }
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(table.definition())?;
+        let mut out: Vec<(String, T)> = Vec::with_capacity(limit);
+        let mut has_more = false;
+        macro_rules! drain {
+            ($range:expr) => {
+                for entry in $range {
+                    let (key, value) = entry?;
+                    let key = key.value().to_string();
+                    let value: T = serde_json::from_slice(value.value())?;
+                    if !keep(&key, &value) {
+                        continue;
+                    }
+                    if out.len() == limit {
+                        has_more = true;
+                        break;
+                    }
+                    out.push((key, value));
+                }
+            };
+        }
+        match before {
+            Some(cursor) => drain!(table.range::<&str>(..cursor)?.rev()),
+            None => drain!(table.range::<&str>(..)?.rev()),
+        }
+        Ok((out, has_more))
     }
 
     pub fn keys(&self, table: Table) -> Result<Vec<String>> {
@@ -336,9 +393,35 @@ impl Store {
         Ok(out)
     }
 
+    pub fn with_read_txn<R>(&self, apply: impl FnOnce(&ReadTransaction) -> Result<R>) -> Result<R> {
+        let txn = self.db.begin_read()?;
+        apply(&txn)
+    }
+
+    pub fn with_write_txn<R>(
+        &self,
+        apply: impl FnOnce(&WriteTransaction) -> Result<R>,
+    ) -> Result<R> {
+        let txn = self.db.begin_write()?;
+        let output = apply(&txn)?;
+        txn.commit()?;
+        Ok(output)
+    }
+
     pub fn count(&self, table: Table) -> Result<usize> {
         Ok(self.keys(table)?.len())
     }
+}
+
+pub fn prefix_upper_bound(prefix: &str) -> Option<String> {
+    let mut bytes = prefix.as_bytes().to_vec();
+    while let Some(last) = bytes.pop() {
+        if last < u8::MAX {
+            bytes.push(last + 1);
+            return String::from_utf8(bytes).ok();
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -406,6 +489,117 @@ mod tests {
 
         assert_eq!(removed, 1);
         assert_eq!(store.keys(Table::RateLimits).unwrap(), vec!["keep"]);
+    }
+
+    #[test]
+    fn list_prefix_reads_only_the_matching_range() {
+        let store = Store::open_in_memory().unwrap();
+        store
+            .put(Table::RateLimits, "aa:1", &Counter { value: 1 })
+            .unwrap();
+        store
+            .put(Table::RateLimits, "aa:2", &Counter { value: 2 })
+            .unwrap();
+        store
+            .put(Table::RateLimits, "aa0", &Counter { value: 9 })
+            .unwrap();
+        store
+            .put(Table::RateLimits, "ab", &"not a counter".to_string())
+            .unwrap();
+        store
+            .put(Table::RateLimits, "zz", &"not a counter".to_string())
+            .unwrap();
+
+        let entries: Vec<(String, Counter)> = store
+            .list_prefix(Table::RateLimits, "aa:")
+            .expect("unrelated values must not be deserialized");
+        assert_eq!(
+            entries,
+            vec![
+                ("aa:1".to_string(), Counter { value: 1 }),
+                ("aa:2".to_string(), Counter { value: 2 }),
+            ]
+        );
+        assert_eq!(store.count(Table::RateLimits).unwrap(), 5);
+    }
+
+    #[test]
+    fn delete_prefix_removes_only_the_matching_range() {
+        let store = Store::open_in_memory().unwrap();
+        for key in ["a", "b:1", "b:2", "b0", "c"] {
+            store
+                .put(Table::RateLimits, key, &Counter { value: 1 })
+                .unwrap();
+        }
+
+        assert_eq!(store.delete_prefix(Table::RateLimits, "b:").unwrap(), 2);
+
+        let keys = store.keys(Table::RateLimits).unwrap();
+        assert_eq!(keys, vec!["a", "b0", "c"]);
+    }
+
+    #[test]
+    fn empty_prefix_touches_all_keys() {
+        let store = Store::open_in_memory().unwrap();
+        for key in ["a", "b"] {
+            store
+                .put(Table::RateLimits, key, &Counter { value: 1 })
+                .unwrap();
+        }
+        assert_eq!(
+            store
+                .list_prefix::<Counter>(Table::RateLimits, "")
+                .unwrap()
+                .len(),
+            2
+        );
+        assert_eq!(store.delete_prefix(Table::RateLimits, "").unwrap(), 2);
+        assert_eq!(store.count(Table::RateLimits).unwrap(), 0);
+    }
+
+    #[test]
+    fn scan_rev_walks_backwards_with_a_limit() {
+        let store = Store::open_in_memory().unwrap();
+        for (key, value) in [("001", 1), ("002", 2), ("003", 3), ("004", 4)] {
+            store
+                .put(Table::RateLimits, key, &Counter { value })
+                .unwrap();
+        }
+
+        let (page, has_more) = store
+            .scan_rev::<Counter>(Table::RateLimits, None, 2, |_, _| true)
+            .unwrap();
+        assert!(has_more);
+        assert_eq!(
+            page.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
+            vec!["004", "003"]
+        );
+
+        let (page, has_more) = store
+            .scan_rev::<Counter>(Table::RateLimits, Some("003"), 2, |_, counter| {
+                counter.value != 2
+            })
+            .unwrap();
+        assert!(!has_more);
+        assert_eq!(
+            page.iter().map(|(key, _)| key.as_str()).collect::<Vec<_>>(),
+            vec!["001"]
+        );
+    }
+
+    #[test]
+    fn scan_rev_reports_more_when_a_filtered_row_follows() {
+        let store = Store::open_in_memory().unwrap();
+        for (key, value) in [("001", 1), ("002", 2), ("003", 3)] {
+            store
+                .put(Table::RateLimits, key, &Counter { value })
+                .unwrap();
+        }
+        let (page, has_more) = store
+            .scan_rev::<Counter>(Table::RateLimits, None, 1, |_, _| true)
+            .unwrap();
+        assert!(has_more);
+        assert_eq!(page.len(), 1);
     }
 
     #[test]

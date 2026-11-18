@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
 use awg_shared::crypto::Sealer;
@@ -19,6 +19,8 @@ const VERIFICATION_TTL_HOURS: i64 = 24;
 const PASSWORD_RESET_TTL_HOURS: i64 = 1;
 const RECOVERY_CODE_COUNT: usize = 8;
 const TOTP_ISSUER: &str = "awg-admin";
+const MAX_LOGIN_LEN: usize = 254;
+const MAX_PASSWORD_LEN: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct NewUser {
@@ -167,6 +169,9 @@ impl IdentityService {
         metadata: &SessionMetadata,
     ) -> CoreResult<AuthSession> {
         let login = login.trim();
+        if login.len() > MAX_LOGIN_LEN || password.len() > MAX_PASSWORD_LEN {
+            return Err(CoreError::Forbidden("invalid login or password".into()));
+        }
         let user = match self.users.find_by_email(login)? {
             Some(user) => Some(user),
             None => self.users.find_by_login(login)?,
@@ -279,6 +284,9 @@ impl IdentityService {
             totp_secret_sealed: None,
             totp_enabled: false,
             recovery_codes: Vec::new(),
+            totp_pending_secret_sealed: None,
+            totp_pending_recovery_codes: Vec::new(),
+            last_totp_step: None,
             created_at: now,
             updated_at: now,
         };
@@ -322,6 +330,9 @@ impl IdentityService {
             totp_secret_sealed: None,
             totp_enabled: false,
             recovery_codes: Vec::new(),
+            totp_pending_secret_sealed: None,
+            totp_pending_recovery_codes: Vec::new(),
+            last_totp_step: None,
             created_at: now,
             updated_at: now,
         };
@@ -489,45 +500,70 @@ impl IdentityService {
         Ok(user)
     }
 
-    pub fn setup_totp(&self, user_id: Uuid) -> CoreResult<TotpSetup> {
+    /// Generates a new TOTP secret. When 2FA is already enabled the caller
+    /// must prove ownership of the account with the current password and a
+    /// valid code; the new secret is staged as *pending* so that a repeated
+    /// setup never silently turns 2FA off.
+    pub fn setup_totp(
+        &self,
+        user_id: Uuid,
+        password: Option<&str>,
+        code: Option<&str>,
+    ) -> CoreResult<TotpSetup> {
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
-        let secret = Secret::generate();
-        let encoded = secret.to_base32();
-        let totp = build_totp(&user.login, secret)?;
-        let otpauth_url = totp
-            .to_url()
-            .map_err(|e| CoreError::Crypto(format!("otpauth url failed: {e}")))?;
-        let recovery_codes = (0..RECOVERY_CODE_COUNT)
-            .map(|_| generate_recovery_code())
-            .collect::<Vec<_>>();
-        let hashes = recovery_codes
-            .iter()
-            .map(|code| self.hasher.hash(code))
-            .collect::<CoreResult<Vec<_>>>()?;
-        user.totp_secret_sealed = Some(self.sealer.seal_str(&encoded)?);
-        user.totp_enabled = false;
-        user.recovery_codes = hashes;
+        let enabled = user.totp_enabled;
+        if enabled {
+            let password_ok = match password.filter(|value| !value.is_empty()) {
+                Some(password) => self.hasher.verify(password, &user.password_hash)?,
+                None => false,
+            };
+            if !password_ok {
+                return Err(CoreError::Forbidden("current password is wrong".into()));
+            }
+            let code = code
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .ok_or_else(|| CoreError::Invalid("invalid totp code".into()))?;
+            if !self.consume_auth_code(&mut user, code)? {
+                return Err(CoreError::Invalid("invalid totp code".into()));
+            }
+        }
+        let (setup, sealed, hashes) = self.generate_totp(&user.login)?;
+        if enabled {
+            user.totp_pending_secret_sealed = Some(sealed);
+            user.totp_pending_recovery_codes = hashes;
+        } else {
+            user.totp_secret_sealed = Some(sealed);
+            user.recovery_codes = hashes;
+        }
         user.updated_at = Utc::now();
         self.users.save(&user)?;
-        Ok(TotpSetup {
-            secret: encoded,
-            otpauth_url,
-            recovery_codes,
-        })
+        Ok(setup)
     }
 
     pub fn enable_totp(&self, user_id: Uuid, code: &str) -> CoreResult<()> {
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
-        let sealed = user
-            .totp_secret_sealed
+        let pending = user.totp_pending_secret_sealed.clone();
+        let sealed = pending
             .clone()
+            .or_else(|| user.totp_secret_sealed.clone())
             .ok_or_else(|| CoreError::Invalid("totp is not configured".into()))?;
-        if !self.verify_totp(&user.login, &sealed, code.trim())? {
+        let step = self
+            .verify_totp_step(&user.login, &sealed, code.trim())?
+            .ok_or_else(|| CoreError::Invalid("invalid totp code".into()))?;
+        if pending.is_none() && !totp_step_is_fresh(&user, step) {
             return Err(CoreError::Invalid("invalid totp code".into()));
         }
+        if pending.is_some() {
+            user.totp_secret_sealed = Some(sealed);
+            user.recovery_codes = std::mem::take(&mut user.totp_pending_recovery_codes);
+        }
+        user.totp_pending_secret_sealed = None;
+        user.totp_pending_recovery_codes.clear();
         user.totp_enabled = true;
+        user.last_totp_step = Some(step);
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         Ok(())
@@ -545,9 +581,48 @@ impl IdentityService {
         user.totp_secret_sealed = None;
         user.totp_enabled = false;
         user.recovery_codes.clear();
+        user.totp_pending_secret_sealed = None;
+        user.totp_pending_recovery_codes.clear();
+        user.last_totp_step = None;
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         Ok(())
+    }
+
+    fn generate_totp(&self, login: &str) -> CoreResult<(TotpSetup, String, Vec<String>)> {
+        let secret = Secret::generate();
+        let encoded = secret.to_base32();
+        let totp = build_totp(login, secret)?;
+        let otpauth_url = totp
+            .to_url()
+            .map_err(|e| CoreError::Crypto(format!("otpauth url failed: {e}")))?;
+        let recovery_codes = (0..RECOVERY_CODE_COUNT)
+            .map(|_| generate_recovery_code())
+            .collect::<Vec<_>>();
+        let hashes = recovery_codes
+            .iter()
+            .map(|code| self.hasher.hash(code))
+            .collect::<CoreResult<Vec<_>>>()?;
+        let sealed = self.sealer.seal_str(&encoded)?;
+        Ok((
+            TotpSetup {
+                secret: encoded,
+                otpauth_url,
+                recovery_codes,
+            },
+            sealed,
+            hashes,
+        ))
+    }
+
+    pub fn prune_email_verifications(&self, now: DateTime<Utc>) -> CoreResult<usize> {
+        self.verifications
+            .list()?
+            .into_iter()
+            .filter(|(_, verification)| verification.expires_at <= now)
+            .map(|(key, _)| self.verifications.delete(&key))
+            .collect::<CoreResult<Vec<()>>>()
+            .map(|removed| removed.len())
     }
 
     async fn issue_verification(&self, user: &User, email: &str) {
@@ -609,8 +684,14 @@ impl IdentityService {
             return Ok(false);
         }
         if let Some(sealed) = user.totp_secret_sealed.as_deref()
-            && self.verify_totp(&user.login, sealed, code)?
+            && let Some(step) = self.verify_totp_step(&user.login, sealed, code)?
         {
+            if !totp_step_is_fresh(user, step) {
+                return Ok(false);
+            }
+            user.last_totp_step = Some(step);
+            user.updated_at = Utc::now();
+            self.users.save(user)?;
             return Ok(true);
         }
         for index in 0..user.recovery_codes.len() {
@@ -624,12 +705,12 @@ impl IdentityService {
         Ok(false)
     }
 
-    fn verify_totp(&self, login: &str, sealed: &str, code: &str) -> CoreResult<bool> {
+    fn verify_totp_step(&self, login: &str, sealed: &str, code: &str) -> CoreResult<Option<u64>> {
         let encoded = self.sealer.open_str(sealed)?;
         let secret = Secret::try_from_base32(&encoded)
             .map_err(|e| CoreError::Crypto(format!("bad totp secret: {e}")))?;
         let totp = build_totp(login, secret)?;
-        Ok(totp.check_current(code).is_some())
+        Ok(totp.check_current(code))
     }
 
     pub fn update(&self, id: Uuid, changes: UserChanges) -> CoreResult<User> {
@@ -666,18 +747,30 @@ impl IdentityService {
         Ok(user)
     }
 
+    /// Changes the password after re-authenticating the caller. The current
+    /// password is always required; when TOTP is enabled a valid one-time code
+    /// may be supplied instead.
     pub fn change_password(
         &self,
         user_id: Uuid,
-        current: Option<&str>,
+        current: &str,
+        totp_code: Option<&str>,
         new_password: &str,
     ) -> CoreResult<()> {
         validate_password(new_password)?;
         let mut user = self.find(user_id)?;
-        if let Some(current) = current
-            && !self.hasher.verify(current, &user.password_hash)?
-        {
-            return Err(CoreError::Forbidden("current password is wrong".into()));
+        user.ensure_active()?;
+        let password_ok =
+            !current.is_empty() && self.hasher.verify(current, &user.password_hash)?;
+        if !password_ok {
+            let code_ok = user.totp_enabled
+                && match totp_code.map(str::trim).filter(|value| !value.is_empty()) {
+                    Some(code) => self.consume_auth_code(&mut user, code)?,
+                    None => false,
+                };
+            if !code_ok {
+                return Err(CoreError::Forbidden("current password is wrong".into()));
+            }
         }
         user.password_hash = self.hasher.hash(new_password)?;
         user.updated_at = Utc::now();
@@ -687,7 +780,13 @@ impl IdentityService {
     }
 
     pub fn reset_password_for_user(&self, user_id: Uuid, new_password: &str) -> CoreResult<()> {
-        self.change_password(user_id, None, new_password)
+        validate_password(new_password)?;
+        let mut user = self.find(user_id)?;
+        user.password_hash = self.hasher.hash(new_password)?;
+        user.updated_at = Utc::now();
+        self.users.save(&user)?;
+        self.tokens.revoke_all(user.id)?;
+        Ok(())
     }
 
     pub fn delete(&self, user_id: Uuid) -> CoreResult<()> {
@@ -709,6 +808,10 @@ impl IdentityService {
             expires_in: access_expires_in,
         })
     }
+}
+
+fn totp_step_is_fresh(user: &User, step: u64) -> bool {
+    user.last_totp_step.is_none_or(|last| step > last)
 }
 
 fn build_totp(login: &str, secret: Secret) -> CoreResult<Totp> {

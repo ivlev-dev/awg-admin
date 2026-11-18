@@ -14,7 +14,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, ForgotPasswordRequest,
     LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, ResendVerificationRequest,
-    ResetPasswordRequest, VerifyEmailRequest,
+    ResetPasswordRequest, SetupTotpRequest, VerifyEmailRequest,
 };
 use crate::state::AppState;
 use crate::views::{AuthView, SessionView, UserView};
@@ -25,7 +25,7 @@ pub async fn login(
     headers: HeaderMap,
     Json(request): Json<LoginRequest>,
 ) -> ApiResult<Json<AuthView>> {
-    let ip = client_ip(&headers, Some(peer));
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = rate_key(ip.as_deref(), &request.login);
     if let Err(retry_after) = state.login_limiter.check(&key) {
         crate::metrics::record_rate_limited("login");
@@ -47,7 +47,7 @@ pub async fn login(
         &request.login,
         &request.password,
         request.totp_code.as_deref(),
-        &session_metadata(&headers, Some(peer)),
+        &session_metadata(&headers, Some(peer), &state.config.trusted_proxies),
     ) {
         Ok(session) => session,
         Err(error) => {
@@ -88,7 +88,7 @@ pub async fn refresh(
     headers: HeaderMap,
     Json(request): Json<RefreshRequest>,
 ) -> ApiResult<Json<AuthView>> {
-    let ip = client_ip(&headers, Some(peer));
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = format!("refresh:{}", ip.unwrap_or_else(|| "unknown".into()));
     if let Err(retry_after) = state.refresh_limiter.check(&key) {
         crate::metrics::record_rate_limited("refresh");
@@ -101,7 +101,7 @@ pub async fn refresh(
         .identity
         .refresh(
             &request.refresh_token,
-            &session_metadata(&headers, Some(peer)),
+            &session_metadata(&headers, Some(peer), &state.config.trusted_proxies),
         )
         .map_err(ApiError::from)?;
     Ok(Json(AuthView {
@@ -129,7 +129,7 @@ pub async fn register(
     headers: HeaderMap,
     Json(request): Json<RegisterRequest>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
-    let ip = client_ip(&headers, Some(peer));
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = ip_key("register", ip.as_deref());
     if let Err(retry_after) = state.register_limiter.check(&key) {
         crate::metrics::record_rate_limited("register");
@@ -170,7 +170,7 @@ pub async fn resend_verification(
     headers: HeaderMap,
     Json(request): Json<ResendVerificationRequest>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
-    let ip = client_ip(&headers, Some(peer));
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = ip_key("resend", ip.as_deref());
     if let Err(retry_after) = state.resend_limiter.check(&key) {
         crate::metrics::record_rate_limited("resend_verification");
@@ -192,7 +192,7 @@ pub async fn forgot_password(
     headers: HeaderMap,
     Json(request): Json<ForgotPasswordRequest>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
-    let ip = client_ip(&headers, Some(peer));
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = rate_key(ip.as_deref(), &request.email);
     if let Err(retry_after) = state.forgot_limiter.check(&key) {
         crate::metrics::record_rate_limited("forgot_password");
@@ -226,10 +226,16 @@ pub async fn reset_password(
 pub async fn totp_setup(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
+    request: Option<Json<SetupTotpRequest>>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    let request = request.map(|Json(request)| request).unwrap_or_default();
     let setup = state
         .identity
-        .setup_totp(user.id())
+        .setup_totp(
+            user.id(),
+            request.password.as_deref(),
+            request.code.as_deref(),
+        )
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({
         "secret": setup.secret,
@@ -276,7 +282,8 @@ pub async fn change_password(
         .identity
         .change_password(
             user.id(),
-            request.current_password.as_deref(),
+            &request.current_password,
+            request.totp_code.as_deref(),
             &request.new_password,
         )
         .map_err(ApiError::from)?;
@@ -314,13 +321,17 @@ pub async fn logout_all(
     Ok(Json(serde_json::json!({ "ok": true, "revoked": revoked })))
 }
 
-fn session_metadata(headers: &HeaderMap, peer: Option<SocketAddr>) -> SessionMetadata {
+fn session_metadata(
+    headers: &HeaderMap,
+    peer: Option<SocketAddr>,
+    trusted: &[ipnet::IpNet],
+) -> SessionMetadata {
     SessionMetadata {
         user_agent: headers
             .get(header::USER_AGENT)
             .and_then(|value| value.to_str().ok())
             .map(|value| value.chars().take(256).collect()),
-        ip: client_ip(headers, peer),
+        ip: client_ip(peer, headers, trusted),
     }
 }
 
