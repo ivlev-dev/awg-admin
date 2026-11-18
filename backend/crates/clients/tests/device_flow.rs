@@ -249,11 +249,70 @@ fn creates_single_peer_and_enforces_tariff() {
     assert!(profiles[0].vpn_link.starts_with("vpn://"));
     assert!(profiles[0].conf.contains("RandomTrailers = on"));
     assert!(profiles[0].conf.contains("DisableCookies = off"));
+    let keepalive = profiles[0]
+        .conf
+        .lines()
+        .find_map(|line| line.strip_prefix("PersistentKeepalive = "))
+        .expect("keepalive line");
+    let (low, high) = keepalive.split_once('-').expect("keepalive range");
+    let low: u16 = low.parse().unwrap();
+    let high: u16 = high.parse().unwrap();
+    assert!(low >= 15 && high <= 25 && low < high);
 
     let group_devices = fixture.devices.list_all().unwrap();
     assert_eq!(group_devices.len(), 2);
     fixture.devices.delete(second.id).unwrap();
     assert_eq!(fixture.devices.peers_for(second.id).unwrap().len(), 0);
+}
+
+#[test]
+fn keepalive_range_follows_obfuscation_settings() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let settings = ObfuscationSettings {
+        keepalive_min: 40,
+        keepalive_max: 50,
+        ..Default::default()
+    };
+
+    let mut ranges = std::collections::HashSet::new();
+    for name in ["ka-a", "ka-b"] {
+        let device = fixture
+            .devices
+            .create(
+                &user,
+                &tariff,
+                NewDevice {
+                    user_id: user.id,
+                    group_id: Some(fixture.group_id),
+                    interface_id: Some(fixture.interface_id),
+                    name: name.into(),
+                    down_kbps: 1_000,
+                    up_kbps: 1_000,
+                    forwarding: Forwarding::default(),
+                },
+                &settings,
+            )
+            .unwrap();
+        let (_, profiles) = fixture.profiles.build_all(device.id).unwrap();
+        let line = profiles[0]
+            .conf
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("PersistentKeepalive = ")
+                    .map(str::to_string)
+            })
+            .expect("keepalive line");
+        let (low, high) = line.split_once('-').expect("range");
+        let low: u16 = low.parse().unwrap();
+        let high: u16 = high.parse().unwrap();
+        assert!(low >= 40);
+        assert!(high <= 50);
+        assert!(low < high);
+        ranges.insert((low, high));
+    }
+    assert_eq!(ranges.len(), 2);
 }
 
 #[test]

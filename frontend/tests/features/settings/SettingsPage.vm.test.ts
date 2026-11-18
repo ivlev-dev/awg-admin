@@ -28,6 +28,8 @@ const SETTINGS: Settings = {
     hosts: ["example.com", "google.com"],
     random_trailers: true,
     disable_cookies: true,
+    keepalive_min: 15,
+    keepalive_max: 25,
   },
   share_default_ttl_secs: 7200,
 };
@@ -223,6 +225,8 @@ describe("SettingsPageVM", () => {
     harness.vm.setNumeric("sMax", valueEvent("90"));
     harness.vm.setRandomTrailers(checkedEvent(false));
     harness.vm.setDisableCookies(checkedEvent(false));
+    harness.vm.setNumeric("keepaliveMin", valueEvent("10"));
+    harness.vm.setNumeric("keepaliveMax", valueEvent("30"));
     harness.vm.setHosts(valueEvent("a.example.com\nb.example.com"));
     harness.vm.setTtlHours(valueEvent("1.5"));
 
@@ -246,6 +250,8 @@ describe("SettingsPageVM", () => {
         hosts: ["a.example.com", "b.example.com"],
         random_trailers: false,
         disable_cookies: false,
+        keepalive_min: 10,
+        keepalive_max: 30,
       },
       share_default_ttl_secs: 5400,
     });
@@ -272,6 +278,8 @@ describe("SettingsPageVM", () => {
     harness.vm.setNumeric("jmaxExtraMax", valueEvent("-2"));
     harness.vm.setNumeric("sMin", valueEvent("3"));
     harness.vm.setNumeric("sMax", valueEvent("1"));
+    harness.vm.setNumeric("keepaliveMin", valueEvent("0"));
+    harness.vm.setNumeric("keepaliveMax", valueEvent(""))
 
     await harness.vm.save();
 
@@ -287,6 +295,8 @@ describe("SettingsPageVM", () => {
           jmax_extra_max: 0,
           s_min: 12,
           s_max: 12,
+          keepalive_min: 1,
+          keepalive_max: 25,
         }),
       }),
     );

@@ -76,6 +76,10 @@ pub struct ObfuscationSettings {
     pub hosts: Vec<String>,
     pub random_trailers: bool,
     pub disable_cookies: bool,
+    #[serde(default = "default_keepalive_low")]
+    pub keepalive_min: u16,
+    #[serde(default = "default_keepalive_high")]
+    pub keepalive_max: u16,
 }
 
 impl Default for ObfuscationSettings {
@@ -102,6 +106,8 @@ impl Default for ObfuscationSettings {
             ],
             random_trailers: true,
             disable_cookies: false,
+            keepalive_min: default_keepalive_low(),
+            keepalive_max: default_keepalive_high(),
         }
     }
 }
@@ -165,6 +171,10 @@ pub struct ClientObf {
     pub i4: String,
     pub i5: String,
     pub disable_cookies: bool,
+    #[serde(default = "default_keepalive_low")]
+    pub keepalive_low: u16,
+    #[serde(default = "default_keepalive_high")]
+    pub keepalive_high: u16,
 }
 
 pub fn generate_interface_obf(settings: &ObfuscationSettings) -> InterfaceObf {
@@ -222,6 +232,7 @@ fn draw_sizes(rng: &mut impl Rng, settings: &ObfuscationSettings) -> (u16, u16, 
 
 pub fn generate_client_obf(settings: &ObfuscationSettings) -> ClientObf {
     let mut rng = rand::rng();
+    let (keepalive_low, keepalive_high) = random_keepalive(settings, &mut rng);
     let jc_lo = settings.jc_min.min(settings.jc_max);
     let jc_hi = settings.jc_max.max(settings.jc_min);
     let jmin = rng.random_range(settings.jmin_min..=settings.jmin_max.max(settings.jmin_min));
@@ -250,7 +261,28 @@ pub fn generate_client_obf(settings: &ObfuscationSettings) -> ClientObf {
         i4: frames[3].clone(),
         i5: frames[4].clone(),
         disable_cookies: settings.disable_cookies,
+        keepalive_low,
+        keepalive_high,
     }
+}
+
+pub const fn default_keepalive_low() -> u16 {
+    15
+}
+
+pub const fn default_keepalive_high() -> u16 {
+    25
+}
+
+fn random_keepalive(settings: &ObfuscationSettings, rng: &mut impl Rng) -> (u16, u16) {
+    let low = settings.keepalive_min.min(settings.keepalive_max);
+    let high = settings.keepalive_min.max(settings.keepalive_max);
+    if high <= low {
+        return (low, high);
+    }
+    let first = rng.random_range(low..high);
+    let second = rng.random_range((first + 1)..=high);
+    (first, second)
 }
 
 fn build_packet(settings: &ObfuscationSettings, host: &str, rng: &mut impl Rng) -> String {
@@ -407,6 +439,85 @@ mod tests {
             assert_ne!(totals[0], totals[2]);
             assert_ne!(totals[1], totals[2]);
         }
+    }
+
+    #[test]
+    fn keepalive_range_is_random_within_limits() {
+        let settings = ObfuscationSettings {
+            keepalive_min: 20,
+            keepalive_max: 60,
+            ..Default::default()
+        };
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..200 {
+            let obf = generate_client_obf(&settings);
+            assert!(obf.keepalive_low >= 20);
+            assert!(obf.keepalive_high <= 60);
+            assert!(obf.keepalive_low < obf.keepalive_high);
+            seen.insert((obf.keepalive_low, obf.keepalive_high));
+        }
+        assert!(seen.len() > 10);
+    }
+
+    #[test]
+    fn legacy_json_without_keepalive_uses_defaults() {
+        let json = serde_json::json!({
+            "profile": "http3",
+            "intensity": "high",
+            "browser": "chrome",
+            "mtu": 1420,
+            "jc_min": 8,
+            "jc_max": 12,
+            "jmin_min": 40,
+            "jmin_max": 80,
+            "jmax_extra_min": 60,
+            "jmax_extra_max": 180,
+            "s_min": 12,
+            "s_max": 128,
+            "hosts": [],
+            "random_trailers": true,
+            "disable_cookies": false
+        });
+        let settings: ObfuscationSettings = serde_json::from_value(json).unwrap();
+        assert_eq!((settings.keepalive_min, settings.keepalive_max), (15, 25));
+
+        let peer = serde_json::json!({
+            "jc": 0,
+            "jmin": 0,
+            "jmax": 0,
+            "i1": "",
+            "i2": "",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+            "disable_cookies": false
+        });
+        let client: ClientObf = serde_json::from_value(peer).unwrap();
+        assert_eq!((client.keepalive_low, client.keepalive_high), (15, 25));
+    }
+
+    #[test]
+    fn keepalive_equal_bounds_render_single_value() {
+        let settings = ObfuscationSettings {
+            keepalive_min: 30,
+            keepalive_max: 30,
+            ..Default::default()
+        };
+        let obf = generate_client_obf(&settings);
+        assert_eq!((obf.keepalive_low, obf.keepalive_high), (30, 30));
+    }
+
+    #[test]
+    fn keepalive_swapped_bounds_are_normalized() {
+        let settings = ObfuscationSettings {
+            keepalive_min: 40,
+            keepalive_max: 10,
+            ..Default::default()
+        };
+        let obf = generate_client_obf(&settings);
+        assert!(obf.keepalive_low >= 10);
+        assert!(obf.keepalive_high <= 40);
+        assert!(obf.keepalive_low < obf.keepalive_high);
     }
 
     #[test]

@@ -20,7 +20,6 @@ pub struct ProfileService {
     sealer: Arc<Sealer>,
     dns: Vec<String>,
     allowed_ips: Vec<String>,
-    persistent_keepalive: (u16, u16),
 }
 
 impl ProfileService {
@@ -38,7 +37,6 @@ impl ProfileService {
             sealer,
             dns,
             allowed_ips: vec!["0.0.0.0/0".into(), "::/0".into()],
-            persistent_keepalive: (15, 25),
         }
     }
 
@@ -138,7 +136,6 @@ impl ProfileService {
             allowed_ips: &self.allowed_ips,
             obf: &interface.obf,
             client: &peer.client_obf,
-            persistent_keepalive: self.persistent_keepalive,
         });
 
         let vpn_link = vpn_encode(VpnBundle {

@@ -225,6 +225,8 @@ export interface ObfuscationSettings {
   hosts: string[];
   random_trailers: boolean;
   disable_cookies: boolean;
+  keepalive_min: number;
+  keepalive_max: number;
 }
 
 export interface Settings {

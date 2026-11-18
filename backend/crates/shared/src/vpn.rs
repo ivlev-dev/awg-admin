@@ -241,7 +241,9 @@ mod tests {
 
     fn sample_conf() -> String {
         let obf = crate::obf::generate_interface_obf(&ObfuscationSettings::default());
-        let client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        let mut client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        client.keepalive_low = 15;
+        client.keepalive_high = 25;
         let addr = vec!["10.1.0.2/24".to_string()];
         let dns = vec!["1.1.1.1".to_string()];
         let allowed = vec!["0.0.0.0/0".to_string()];
@@ -256,7 +258,6 @@ mod tests {
             allowed_ips: &allowed,
             obf: &obf,
             client: &client,
-            persistent_keepalive: (15, 25),
         })
     }
 
@@ -273,6 +274,8 @@ mod tests {
             i4: String::new(),
             i5: String::new(),
             disable_cookies: false,
+            keepalive_low: 15,
+            keepalive_high: 25,
         };
         let dns = vec!["1.1.1.1".to_string()];
         let link = vpn_encode(VpnBundle {
@@ -303,6 +306,8 @@ mod tests {
             i4: String::new(),
             i5: String::new(),
             disable_cookies: false,
+            keepalive_low: 15,
+            keepalive_high: 25,
         };
         let dns = vec!["1.1.1.1".to_string()];
         let link = vpn_encode(VpnBundle {

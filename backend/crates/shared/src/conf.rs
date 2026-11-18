@@ -168,6 +168,14 @@ pub fn parse_client_conf(text: &str) -> CoreResult<ParsedClientConf> {
         .ok_or_else(|| CoreError::Invalid("client config has no peer PublicKey".into()))?
         .to_string();
 
+    let mut client = client_obf_from_pairs(&parsed.interface).unwrap_or_else(default_client_obf);
+    if let Some(value) = field(peer, "PersistentKeepalive") {
+        let (low, high) = parse_range(value);
+        if high > 0 {
+            client.keepalive_low = low;
+            client.keepalive_high = high;
+        }
+    }
     Ok(ParsedClientConf {
         private_key,
         addresses: parsed.get("Address").map(split_list).unwrap_or_default(),
@@ -180,7 +188,7 @@ pub fn parse_client_conf(text: &str) -> CoreResult<ParsedClientConf> {
             .map(split_list)
             .unwrap_or_default(),
         obf: obf_from_pairs(&parsed.interface).unwrap_or_else(default_interface_obf),
-        client: client_obf_from_pairs(&parsed.interface).unwrap_or_else(default_client_obf),
+        client,
     })
 }
 
@@ -199,6 +207,17 @@ fn default_interface_obf() -> InterfaceObf {
     }
 }
 
+fn parse_range(value: &str) -> (u16, u16) {
+    let trimmed = value.trim();
+    let (low, high) = trimmed
+        .split_once('-')
+        .map(|(low, high)| (low.trim(), high.trim()))
+        .unwrap_or((trimmed, trimmed));
+    let low = low.parse().unwrap_or(0);
+    let high = high.parse().unwrap_or(low);
+    (low, high)
+}
+
 fn default_client_obf() -> ClientObf {
     ClientObf {
         jc: 8,
@@ -210,6 +229,8 @@ fn default_client_obf() -> ClientObf {
         i4: String::new(),
         i5: String::new(),
         disable_cookies: false,
+        keepalive_low: crate::obf::default_keepalive_low(),
+        keepalive_high: crate::obf::default_keepalive_high(),
     }
 }
 
@@ -242,6 +263,8 @@ fn client_obf_from_pairs(map: &BTreeMap<String, String>) -> Option<ClientObf> {
         i4: field(map, "I4").unwrap_or_default().to_string(),
         i5: field(map, "I5").unwrap_or_default().to_string(),
         disable_cookies: field(map, "DisableCookies").map(truthy).unwrap_or(false),
+        keepalive_low: crate::obf::default_keepalive_low(),
+        keepalive_high: crate::obf::default_keepalive_high(),
     })
 }
 
@@ -256,7 +279,6 @@ pub struct ClientConfParams<'a> {
     pub allowed_ips: &'a [String],
     pub obf: &'a InterfaceObf,
     pub client: &'a ClientObf,
-    pub persistent_keepalive: (u16, u16),
 }
 
 pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
@@ -320,7 +342,8 @@ pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
         params.allowed_ips.to_vec()
     };
     out.push_str(&format!("AllowedIPs = {}\n", allowed.join(", ")));
-    let (keepalive_low, keepalive_high) = params.persistent_keepalive;
+    let keepalive_low = params.client.keepalive_low;
+    let keepalive_high = params.client.keepalive_high;
     if keepalive_high > 0 {
         if keepalive_low == keepalive_high {
             out.push_str(&format!("PersistentKeepalive = {keepalive_high}\n"));
@@ -397,14 +420,51 @@ mod tests {
             allowed_ips: allowed,
             obf,
             client,
-            persistent_keepalive: (15, 25),
         }
+    }
+
+    #[test]
+    fn client_conf_keeps_dynamic_keepalive_range() {
+        let obf = crate::obf::generate_interface_obf(&ObfuscationSettings::default());
+        let mut client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        client.keepalive_low = 17;
+        client.keepalive_high = 43;
+        let addr = vec!["10.1.0.2/24".to_string()];
+        let dns = vec!["1.1.1.1".to_string()];
+        let allowed = vec!["0.0.0.0/0".to_string()];
+        let text = render_client_conf(sample_params(&obf, &client, &addr, &dns, &allowed));
+        assert!(text.contains("PersistentKeepalive = 17-43"));
+        let parsed = parse_client_conf(&text).unwrap();
+        assert_eq!(
+            (parsed.client.keepalive_low, parsed.client.keepalive_high),
+            (17, 43)
+        );
+    }
+
+    #[test]
+    fn client_conf_supports_single_keepalive_value() {
+        let obf = crate::obf::generate_interface_obf(&ObfuscationSettings::default());
+        let mut client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        client.keepalive_low = 21;
+        client.keepalive_high = 21;
+        let addr = vec!["10.1.0.2/24".to_string()];
+        let dns = vec!["1.1.1.1".to_string()];
+        let allowed = vec!["0.0.0.0/0".to_string()];
+        let text = render_client_conf(sample_params(&obf, &client, &addr, &dns, &allowed));
+        assert!(text.contains("PersistentKeepalive = 21\n"));
+        let parsed = parse_client_conf(&text).unwrap();
+        assert_eq!(
+            (parsed.client.keepalive_low, parsed.client.keepalive_high),
+            (21, 21)
+        );
     }
 
     #[test]
     fn client_conf_roundtrip_keeps_obfuscation() {
         let obf = crate::obf::generate_interface_obf(&ObfuscationSettings::default());
-        let client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        let mut client = crate::obf::generate_client_obf(&ObfuscationSettings::default());
+        client.keepalive_low = 15;
+        client.keepalive_high = 25;
         let addr = vec!["10.1.0.2/24".to_string()];
         let dns = vec!["1.1.1.1".to_string()];
         let allowed = vec!["0.0.0.0/0".to_string()];

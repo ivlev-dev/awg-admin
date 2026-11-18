@@ -177,6 +177,8 @@ const SETTINGS: Settings = {
     hosts: [],
     random_trailers: false,
     disable_cookies: false,
+    keepalive_min: 15,
+    keepalive_max: 25,
   },
   share_default_ttl_secs: 3600,
 };

@@ -284,6 +284,34 @@ export function SettingsPage(this: { vm: SettingsPageVM }) {
                 </div>
               </div>
 
+              <div class="field">
+                <label>{t("settings.field.keepalive")}</label>
+                <div class="row" style="gap:8px">
+                  <input
+                    class="input"
+                    type="number"
+                    min="1"
+                    max="120"
+                    placeholder={t("settings.field.min")}
+                    aria-label={t("settings.field.keepaliveMinAria")}
+                    value={this.vm.keepaliveMin}
+                    onInput={(event: InputEvent) => this.vm.setNumeric("keepaliveMin", event)}
+                  />
+                  <span class="muted">—</span>
+                  <input
+                    class="input"
+                    type="number"
+                    min="1"
+                    max="120"
+                    placeholder={t("settings.field.max")}
+                    aria-label={t("settings.field.keepaliveMaxAria")}
+                    value={this.vm.keepaliveMax}
+                    onInput={(event: InputEvent) => this.vm.setNumeric("keepaliveMax", event)}
+                  />
+                </div>
+                <div class="hint">{t("settings.field.keepaliveHint")}</div>
+              </div>
+
               <hr class="divider" />
 
               <div class="grid grid--2">

@@ -446,6 +446,8 @@ fn peer(
             i4: String::new(),
             i5: String::new(),
             disable_cookies: false,
+            keepalive_low: awg_shared::obf::default_keepalive_low(),
+            keepalive_high: awg_shared::obf::default_keepalive_high(),
         },
         created_at: Utc::now(),
     }

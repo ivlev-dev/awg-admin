@@ -41,7 +41,9 @@ export type NumericField =
   | "jmaxExtraMin"
   | "jmaxExtraMax"
   | "sMin"
-  | "sMax";
+  | "sMax"
+  | "keepaliveMin"
+  | "keepaliveMax";
 
 const S_FLOOR = 12;
 
@@ -117,6 +119,8 @@ export class SettingsPageVM {
   @reactive accessor sMax = "64";
   @reactive accessor randomTrailers = true;
   @reactive accessor disableCookies = false;
+  @reactive accessor keepaliveMin = "15";
+  @reactive accessor keepaliveMax = "25";
   @reactive accessor hosts = "";
   @reactive accessor ttlHours = "24";
 
@@ -237,6 +241,8 @@ export class SettingsPageVM {
       this.sMax,
       this.randomTrailers,
       this.disableCookies,
+      this.keepaliveMin,
+      this.keepaliveMax,
       this.hosts,
       this.ttlHours,
     ]);
@@ -336,6 +342,12 @@ export class SettingsPageVM {
       case "sMax":
         this.sMax = value;
         break;
+      case "keepaliveMin":
+        this.keepaliveMin = value;
+        break;
+      case "keepaliveMax":
+        this.keepaliveMax = value;
+        break;
     }
   }
 
@@ -371,6 +383,8 @@ export class SettingsPageVM {
     this.sMax = String(obf.s_max);
     this.randomTrailers = obf.random_trailers;
     this.disableCookies = obf.disable_cookies;
+    this.keepaliveMin = String(obf.keepalive_min);
+    this.keepaliveMax = String(obf.keepalive_max);
     this.hosts = obf.hosts.join("\n");
     this.ttlHours = formatHours(settings.share_default_ttl_secs);
   }
@@ -384,6 +398,8 @@ export class SettingsPageVM {
     const jmaxExtraMax = clamp(toNumber(this.jmaxExtraMax, 100), jmaxExtraMin, 1280);
     const sMin = Math.max(S_FLOOR, toNumber(this.sMin, S_FLOOR));
     const sMax = Math.max(sMin, toNumber(this.sMax, 64));
+    const keepaliveMin = clamp(toNumber(this.keepaliveMin, 15), 1, 120);
+    const keepaliveMax = clamp(toNumber(this.keepaliveMax, 25), keepaliveMin, 120);
 
     return {
       obfuscation: {
@@ -402,6 +418,8 @@ export class SettingsPageVM {
         hosts: parseHosts(this.hosts),
         random_trailers: this.randomTrailers,
         disable_cookies: this.disableCookies,
+        keepalive_min: keepaliveMin,
+        keepalive_max: keepaliveMax,
       },
       share_default_ttl_secs: this.ttlSeconds,
     };

@@ -51,6 +51,14 @@ pub async fn update(
                 "S padding must be at least 12 when header protection is on".into(),
             ));
         }
+        if obfuscation.keepalive_min == 0
+            || obfuscation.keepalive_max == 0
+            || obfuscation.keepalive_min > obfuscation.keepalive_max
+        {
+            return Err(ApiError::BadRequest(
+                "PersistentKeepalive range must be positive and ordered: min <= max".into(),
+            ));
+        }
         settings.obfuscation = obfuscation;
     }
     if let Some(ttl) = request.share_default_ttl_secs {
