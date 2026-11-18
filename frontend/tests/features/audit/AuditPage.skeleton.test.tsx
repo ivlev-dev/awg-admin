@@ -1,6 +1,7 @@
 import { createComponent } from "@ivlev-dev/silent-core";
 
 import { createAppContainer } from "@/app/di";
+import { ToastStore } from "@/app/toast";
 import { DefaultAuditService } from "@/application/audit/service";
 import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
@@ -39,9 +40,11 @@ describe("AuditPage loading state", () => {
             resolveList = resolve;
           }),
       ),
+      clear: vi.fn(async (): Promise<number> => 0),
     };
     const container = createAppContainer();
     container.bind(DefaultAuditService, () => new DefaultAuditService(repository));
+    container.bind(ToastStore, () => new ToastStore());
 
     const result = createComponent(AuditPage, {}, { container });
     await result.ready;

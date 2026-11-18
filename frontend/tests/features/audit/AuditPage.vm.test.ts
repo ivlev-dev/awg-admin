@@ -1,4 +1,5 @@
 import { DefaultAuditService } from "@/application/audit/service";
+import { ToastStore } from "@/app/toast";
 import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
 import { formatDateTimeI18n } from "@/i18n/format";
@@ -22,13 +23,22 @@ function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
 
 class FakeAuditRepository {
   readonly calls: AuditFilters[] = [];
+  readonly clearCalls: AuditFilters[] = [];
   readonly pages: AuditPageResult[] = [];
   failure: Error | null = null;
+  clearFailure: Error | null = null;
+  deleted = 0;
 
   async list(filters: AuditFilters): Promise<AuditPageResult> {
     this.calls.push({ ...filters });
     if (this.failure) throw this.failure;
     return this.pages.shift() ?? { items: [], next_cursor: null };
+  }
+
+  async clear(filters: AuditFilters): Promise<number> {
+    this.clearCalls.push({ ...filters });
+    if (this.clearFailure) throw this.clearFailure;
+    return this.deleted;
   }
 }
 
@@ -53,11 +63,17 @@ class MemoryStorage {
 }
 
 function makeVM(repository: FakeAuditRepository): AuditPageVM {
-  return new AuditPageVM(new DefaultAuditService(repository));
+  return new AuditPageVM(new DefaultAuditService(repository), new ToastStore());
 }
 
 function unix(value: string): number {
   return Math.floor(new Date(value).getTime() / 1000);
+}
+
+function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
+  const confirm = vi.fn(() => result);
+  vi.stubGlobal("confirm", confirm);
+  return confirm;
 }
 
 describe("AuditPageVM", () => {
@@ -364,6 +380,101 @@ describe("AuditPageVM", () => {
     vm.toggleDetails("e1");
     expect(vm.expandedId).toBeNull();
   });
+
+  it("разрешает очистку только при активных фильтрах", async () => {
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+
+    expect(vm.canClear).toBe(false);
+
+    vm.action = "POST";
+    expect(vm.canClear).toBe(true);
+
+    vm.loading = true;
+    expect(vm.canClear).toBe(false);
+    vm.loading = false;
+
+    vm.clearing = true;
+    expect(vm.canClear).toBe(false);
+    vm.clearing = false;
+
+    vm.action = "";
+    vm.entity = "  ";
+    expect(vm.canClear).toBe(false);
+
+    vm.actor = "admin";
+    expect(vm.canClear).toBe(true);
+  });
+
+  it("очищает по текущим фильтрам и обновляет журнал", async () => {
+    const confirm = stubConfirm(true);
+    const repository = new FakeAuditRepository();
+    repository.deleted = 7;
+    repository.pages.push({ items: [], next_cursor: null });
+    const toasts = new ToastStore();
+    const vm = new AuditPageVM(new DefaultAuditService(repository), toasts);
+    vm.action = "POST";
+    vm.entity = " devices ";
+    vm.actor = "admin";
+    vm.status = "500";
+    vm.from = "2024-01-01T10:00";
+    vm.to = "2024-01-02T10:00";
+
+    await vm.clearFiltered();
+
+    expect(confirm).toHaveBeenCalledWith(
+      "Удалить все события, подходящие под фильтр? Действие необратимо.",
+    );
+    expect(repository.clearCalls).toEqual([
+      {
+        action: "POST",
+        entity: "devices",
+        actor: "admin",
+        status: 500,
+        from: unix("2024-01-01T10:00"),
+        to: unix("2024-01-02T10:00"),
+      },
+    ]);
+    expect(repository.calls).toHaveLength(1);
+    expect(vm.entries).toEqual([]);
+    expect(vm.clearing).toBe(false);
+    expect(vm.loading).toBe(false);
+    expect(toasts.items.map((item) => item.message)).toEqual(["Удалено событий: 7"]);
+  });
+
+  it("не очищает без активных фильтров и без подтверждения", async () => {
+    const confirm = stubConfirm(true);
+    const repository = new FakeAuditRepository();
+    const vm = makeVM(repository);
+
+    await vm.clearFiltered();
+    expect(confirm).not.toHaveBeenCalled();
+    expect(repository.clearCalls).toHaveLength(0);
+
+    vm.action = "POST";
+    const declined = stubConfirm(false);
+    await vm.clearFiltered();
+
+    expect(declined).toHaveBeenCalledTimes(1);
+    expect(repository.clearCalls).toHaveLength(0);
+  });
+
+  it("показывает ошибку и тост при неудачной очистке", async () => {
+    stubConfirm(true);
+    const repository = new FakeAuditRepository();
+    repository.clearFailure = new Error("Сервис недоступен");
+    const toasts = new ToastStore();
+    const vm = new AuditPageVM(new DefaultAuditService(repository), toasts);
+    vm.action = "POST";
+
+    await vm.clearFiltered();
+
+    expect(vm.error).toBe("Сервис недоступен");
+    expect(vm.clearing).toBe(false);
+    expect(repository.clearCalls).toHaveLength(1);
+    expect(repository.calls).toHaveLength(0);
+    expect(toasts.items.map((item) => item.message)).toEqual(["Сервис недоступен"]);
+  });
 });
 
 describe("DefaultAuditService", () => {
@@ -407,5 +518,44 @@ describe("DefaultAuditService", () => {
       "Начало периода не может быть позже конца",
     );
     expect(repository.calls).toHaveLength(0);
+  });
+
+  it("передаёт в очистку только фильтры и возвращает количество", async () => {
+    const repository = new FakeAuditRepository();
+    repository.deleted = 4;
+    const service = new DefaultAuditService(repository);
+
+    const deleted = await service.clear({
+      action: " POST ",
+      entity: "",
+      actor: null,
+      status: 200,
+      from: 10,
+      to: 20,
+      limit: 5,
+      before: "cursor",
+    });
+
+    expect(deleted).toBe(4);
+    expect(repository.clearCalls).toEqual([
+      {
+        action: "POST",
+        entity: undefined,
+        actor: undefined,
+        status: 200,
+        from: 10,
+        to: 20,
+      },
+    ]);
+  });
+
+  it("не очищает при периоде с началом позже конца", async () => {
+    const repository = new FakeAuditRepository();
+    const service = new DefaultAuditService(repository);
+
+    await expect(service.clear({ from: 2_000, to: 1_000 })).rejects.toThrow(
+      "Начало периода не может быть позже конца",
+    );
+    expect(repository.clearCalls).toHaveLength(0);
   });
 });

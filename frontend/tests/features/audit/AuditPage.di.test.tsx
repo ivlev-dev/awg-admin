@@ -1,6 +1,7 @@
 import { createComponent } from "@ivlev-dev/silent-core";
 
 import { createAppContainer } from "@/app/di";
+import { ToastStore } from "@/app/toast";
 import { DefaultAuditService } from "@/application/audit/service";
 import type { AuditRepository } from "@/domain/audit/repository";
 import type { AuditEntry, AuditFilters, AuditPageResult } from "@/domain/audit/types";
@@ -27,6 +28,7 @@ function repository(): AuditRepository {
       items: [ENTRY],
       next_cursor: null,
     })),
+    clear: vi.fn(async (_filters: AuditFilters): Promise<number> => 0),
   };
 }
 
@@ -46,9 +48,11 @@ describe("AuditPageVM constructor DI", () => {
   it("переключает язык заголовков и пустого состояния", async () => {
     const empty: AuditRepository = {
       list: vi.fn(async (): Promise<AuditPageResult> => ({ items: [], next_cursor: null })),
+      clear: vi.fn(async (): Promise<number> => 0),
     };
     const container = createAppContainer();
     container.bind(DefaultAuditService, () => new DefaultAuditService(empty));
+    container.bind(ToastStore, () => new ToastStore());
 
     const result = createComponent(AuditPage, {}, { container });
     await result.ready;
@@ -81,8 +85,10 @@ describe("AuditPageVM constructor DI", () => {
       () =>
         new DefaultAuditService({
           list: vi.fn(async (): Promise<AuditPageResult> => ({ items: [entry], next_cursor: null })),
+          clear: vi.fn(async (): Promise<number> => 0),
         }),
     );
+    container.bind(ToastStore, () => new ToastStore());
 
     const result = createComponent(AuditPage, {}, { container });
     document.body.append(result.node);
@@ -120,6 +126,7 @@ describe("AuditPageVM constructor DI", () => {
     const auditRepository = repository();
     const container = createAppContainer();
     container.bind(DefaultAuditService, () => new DefaultAuditService(auditRepository));
+    container.bind(ToastStore, () => new ToastStore());
 
     const result = createComponent(AuditProbe, {}, { container });
     await result.ready;
@@ -159,6 +166,7 @@ describe("AuditPageVM constructor DI", () => {
     ];
     const repository: AuditRepository = {
       list: vi.fn(async (): Promise<AuditPageResult> => responses.shift() ?? { items: [], next_cursor: null }),
+      clear: vi.fn(async (): Promise<number> => 0),
     };
     localStorage.setItem(
       auditFiltersStorage.key,
@@ -166,6 +174,7 @@ describe("AuditPageVM constructor DI", () => {
     );
     const container = createAppContainer();
     container.bind(DefaultAuditService, () => new DefaultAuditService(repository));
+    container.bind(ToastStore, () => new ToastStore());
 
     const result = createComponent(AuditPage, {}, { container });
     document.body.append(result.node);

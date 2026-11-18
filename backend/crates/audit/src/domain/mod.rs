@@ -161,6 +161,7 @@ pub trait AuditRepository: Send + Sync {
         filter: &AuditFilter,
     ) -> CoreResult<AuditPage>;
     fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize>;
+    fn delete_filtered(&self, filter: &AuditFilter) -> CoreResult<usize>;
 
     fn list_page(&self, limit: usize, before: Option<&str>) -> CoreResult<AuditPage> {
         self.list_page_filtered(limit, before, &AuditFilter::default())

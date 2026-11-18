@@ -46,6 +46,11 @@ pub struct AuditPageResponse {
     pub next_cursor: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct AuditClearResponse {
+    pub deleted: usize,
+}
+
 pub async fn list(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -65,6 +70,24 @@ pub async fn list(
         items: page.items.iter().map(AuditEntryView::from).collect(),
         next_cursor: page.next_cursor,
     }))
+}
+
+pub async fn clear(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(query): Query<AuditQuery>,
+) -> Result<Json<AuditClearResponse>, AuditError> {
+    user.require_admin()?;
+    let filter = query.filter();
+    filter.validate().map_err(|error| match error {
+        CoreError::Invalid(message) => AuditError::InvalidFilter(message),
+        other => AuditError::Api(other.into()),
+    })?;
+    let deleted = state
+        .audit
+        .delete_filtered(&filter)
+        .map_err(ApiError::from)?;
+    Ok(Json(AuditClearResponse { deleted }))
 }
 
 pub enum AuditError {

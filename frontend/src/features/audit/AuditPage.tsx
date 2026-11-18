@@ -60,6 +60,14 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               >
                 <Icon name="download" size={14} class="" /> {t("audit.export")}
               </button>
+              <button
+                class="btn btn--sm btn--danger"
+                type="button"
+                disabled={!this.vm.canClear}
+                onClick={() => this.vm.clearFiltered()}
+              >
+                <Icon name="trash" size={14} class="" /> {t("audit.clear")}
+              </button>
             </div>
           </div>
 

@@ -1,6 +1,7 @@
 import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
+import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import type { AuditService } from "@/application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
@@ -134,6 +135,7 @@ export class AuditPageVM {
   @reactive accessor loading = false;
   @reactive accessor initialized = false;
   @reactive accessor loadingMore = false;
+  @reactive accessor clearing = false;
   @reactive accessor error: string | null = null;
   @reactive accessor cursor: string | null = null;
   @reactive accessor expandedId: string | null = null;
@@ -145,7 +147,10 @@ export class AuditPageVM {
   @reactive accessor from = "";
   @reactive accessor to = "";
 
-  constructor(private readonly auditService: AuditService) {
+  constructor(
+    private readonly auditService: AuditService,
+    private readonly toasts: ToastStore,
+  ) {
     const stored = auditFiltersStorage.read();
     this.action = stored.action;
     this.entity = stored.entity;
@@ -217,6 +222,11 @@ export class AuditPageVM {
     return this.entries.length > 0;
   }
 
+  @computed
+  get canClear(): boolean {
+    return !this.loading && !this.clearing && this.hasActiveFilters;
+  }
+
   setAction(value: string): void {
     this.action = value;
     this.persistFilters();
@@ -271,6 +281,24 @@ export class AuditPageVM {
 
   async refresh(): Promise<void> {
     await this.reload();
+  }
+
+  async clearFiltered(): Promise<void> {
+    if (!this.canClear) return;
+    if (!window.confirm(t("audit.clear.confirm"))) return;
+    this.clearing = true;
+    this.error = null;
+    try {
+      const deleted = await this.auditService.clear(this.filters(null));
+      this.toasts.success(t("audit.clear.success", { count: deleted }));
+      await this.refresh();
+    } catch (error) {
+      const message = userMessage(error, t("audit.clear.error"));
+      this.error = message;
+      this.toasts.error(message);
+    } finally {
+      this.clearing = false;
+    }
   }
 
   async reload(): Promise<void> {

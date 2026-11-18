@@ -82,6 +82,7 @@
 | GET | `/settings` | admin | — | `SettingsView` (obfuscation, share TTL, stats retention) |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | `SettingsView` |
 | GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
+| DELETE | `/audit` | admin | те же фильтры, что у `GET /audit` | `{deleted}` |
 | POST | `/import` | admin | `ImportRequest` (устаревший) | `{group_id,interface_id,imported_devices,failed_devices}` |
 | POST | `/import/preview` | admin | `BatchImportRequest` | `ImportPreviewView` (без записи в БД) |
 | POST | `/import/apply` | admin | `BatchImportRequest` | `ImportApplyView` |
@@ -821,6 +822,16 @@ GET /api/v1/audit?entity=users&limit=20&before=00010767000645000000:4f1f4f7a-1f0
 `400 bad_request`). Retention: записи старше
 `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) удаляются
 фоновой задачей раз в сутки.
+
+`DELETE /api/v1/audit` принимает те же фильтры, что и `GET`, и удаляет
+совпадающие записи в одной транзакции. Ответ — `{"deleted": N}`. Пустой фильтр
+удаляет весь журнал, поэтому UI требует хотя бы один активный фильтр. Сам
+запрос очистки фиксируется middleware как обычный `DELETE` после ответа.
+
+```bash
+DELETE /api/v1/audit?entity=devices&status=404
+DELETE /api/v1/audit?actor=admin&from=1767225600&to=1767312000
+```
 
 Автоматически фиксируются успешные (2xx) mutating-запросы `POST`, `PATCH`,
 `PUT`, `DELETE` под `/api/v1`: actor определяется по Bearer-токену (без токена —

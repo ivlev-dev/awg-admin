@@ -7,6 +7,7 @@ const MAX_LIMIT = 500;
 
 export interface AuditService {
   list(filters?: AuditFilters): Promise<AuditPageResult>;
+  clear(filters?: AuditFilters): Promise<number>;
 }
 
 function normalizeText(value: string | null | undefined): string | undefined {
@@ -55,5 +56,17 @@ export class DefaultAuditService implements AuditService {
 
   async list(filters: AuditFilters = {}): Promise<AuditPageResult> {
     return this.repository.list(normalizeAuditFilters(filters));
+  }
+
+  async clear(filters: AuditFilters = {}): Promise<number> {
+    const normalized = normalizeAuditFilters(filters);
+    return this.repository.clear({
+      action: normalized.action,
+      entity: normalized.entity,
+      actor: normalized.actor,
+      status: normalized.status,
+      from: normalized.from,
+      to: normalized.to,
+    });
   }
 }

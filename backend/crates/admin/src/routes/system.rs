@@ -23,7 +23,10 @@ pub fn router() -> Router<Arc<AppState>> {
             "/settings",
             get(controllers::settings::get).put(controllers::settings::update),
         )
-        .route("/audit", get(controllers::audit::list))
+        .route(
+            "/audit",
+            get(controllers::audit::list).delete(controllers::audit::clear),
+        )
         .route("/ws/stats", get(ws::stats_ws))
 }
 

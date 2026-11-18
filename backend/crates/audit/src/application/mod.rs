@@ -57,6 +57,11 @@ impl AuditService {
         self.repo.list_page_filtered(limit, before, filter)
     }
 
+    pub fn delete_filtered(&self, filter: &AuditFilter) -> CoreResult<usize> {
+        filter.validate()?;
+        self.repo.delete_filtered(filter)
+    }
+
     pub fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
         self.repo.prune(before)
     }

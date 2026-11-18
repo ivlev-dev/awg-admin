@@ -65,6 +65,7 @@ fn repository_respects_limit_and_zero() {
 struct RecordingRepository {
     entries: Mutex<Vec<AuditEntry>>,
     requested_limit: Mutex<Option<usize>>,
+    deleted_filters: Mutex<Vec<AuditFilter>>,
 }
 
 impl RecordingRepository {
@@ -72,6 +73,7 @@ impl RecordingRepository {
         Self {
             entries: Mutex::new(Vec::new()),
             requested_limit: Mutex::new(None),
+            deleted_filters: Mutex::new(Vec::new()),
         }
     }
 }
@@ -108,6 +110,14 @@ impl AuditRepository for RecordingRepository {
             }
         });
         Ok(removed)
+    }
+
+    fn delete_filtered(&self, filter: &AuditFilter) -> CoreResult<usize> {
+        self.deleted_filters.lock().unwrap().push(filter.clone());
+        let mut entries = self.entries.lock().unwrap();
+        let before = entries.len();
+        entries.retain(|entry| !filter.matches(entry));
+        Ok(before - entries.len())
     }
 }
 
@@ -488,4 +498,165 @@ fn service_clamps_limit_with_filter() {
         .list_page_filtered(MAX_AUDIT_LIMIT * 10, None, &AuditFilter::default())
         .unwrap();
     assert_eq!(*repo.requested_limit.lock().unwrap(), Some(MAX_AUDIT_LIMIT));
+}
+
+fn remaining_ids(repo: &RedbAuditRepository) -> Vec<Uuid> {
+    let mut ids: Vec<Uuid> = repo.list(100).unwrap().iter().map(|item| item.id).collect();
+    ids.sort();
+    ids
+}
+
+fn sorted(entries: &[&AuditEntry]) -> Vec<Uuid> {
+    let mut ids: Vec<Uuid> = entries.iter().map(|entry| entry.id).collect();
+    ids.sort();
+    ids
+}
+
+#[test]
+fn repository_delete_filtered_by_action() {
+    let (repo, entries) = seeded();
+
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            action: Some("POST".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 2);
+    assert_eq!(remaining_ids(&repo), sorted(&[&entries[1], &entries[3]]));
+}
+
+#[test]
+fn repository_delete_filtered_by_entity() {
+    let (repo, entries) = seeded();
+
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            entity: Some("devices".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 2);
+    assert_eq!(remaining_ids(&repo), sorted(&[&entries[2], &entries[3]]));
+}
+
+#[test]
+fn repository_delete_filtered_by_actor_case_insensitively() {
+    let (repo, entries) = seeded();
+
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            actor: Some("ADMIN".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 3);
+    assert_eq!(remaining_ids(&repo), sorted(&[&entries[1]]));
+}
+
+#[test]
+fn repository_delete_filtered_by_status() {
+    let (repo, entries) = seeded();
+
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            status: Some(200),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 1);
+    assert_eq!(
+        remaining_ids(&repo),
+        sorted(&[&entries[0], &entries[2], &entries[3]])
+    );
+}
+
+#[test]
+fn repository_delete_filtered_by_time_range() {
+    let (repo, entries) = seeded();
+
+    let from = (base() + Duration::seconds(10)).timestamp();
+    let to = (base() + Duration::seconds(20)).timestamp();
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            from: Some(from),
+            to: Some(to),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 2);
+    assert_eq!(remaining_ids(&repo), sorted(&[&entries[0], &entries[3]]));
+}
+
+#[test]
+fn repository_delete_filtered_empty_filter_removes_everything() {
+    let (repo, _) = seeded();
+
+    let deleted = repo.delete_filtered(&AuditFilter::default()).unwrap();
+
+    assert_eq!(deleted, 4);
+    assert!(repo.list(10).unwrap().is_empty());
+    assert_eq!(
+        repo.list_page_filtered(10, None, &AuditFilter::default())
+            .unwrap()
+            .items
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn repository_delete_filtered_without_matches_keeps_entries() {
+    let (repo, entries) = seeded();
+
+    let deleted = repo
+        .delete_filtered(&AuditFilter {
+            action: Some("PUT".into()),
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert_eq!(deleted, 0);
+    assert_eq!(
+        remaining_ids(&repo),
+        sorted(&[&entries[0], &entries[1], &entries[2], &entries[3]])
+    );
+}
+
+#[test]
+fn service_delete_filtered_delegates_validated_filter() {
+    let repo = Arc::new(RecordingRepository::new());
+    let service = AuditService::new(repo.clone());
+    let entry = entry(base(), "POST");
+    repo.record(&entry).unwrap();
+
+    let filter = AuditFilter {
+        action: Some("POST".into()),
+        ..Default::default()
+    };
+    let deleted = service.delete_filtered(&filter).unwrap();
+
+    assert_eq!(deleted, 1);
+    assert_eq!(*repo.deleted_filters.lock().unwrap(), vec![filter]);
+    assert!(repo.entries.lock().unwrap().is_empty());
+}
+
+#[test]
+fn service_delete_filtered_rejects_inverted_range() {
+    let repo = Arc::new(RecordingRepository::new());
+    let service = AuditService::new(repo.clone());
+
+    let filter = AuditFilter {
+        from: Some(20),
+        to: Some(10),
+        ..Default::default()
+    };
+
+    assert!(service.delete_filtered(&filter).is_err());
+    assert!(repo.deleted_filters.lock().unwrap().is_empty());
 }

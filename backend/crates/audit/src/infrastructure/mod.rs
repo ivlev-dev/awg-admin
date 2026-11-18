@@ -93,6 +93,13 @@ impl AuditRepository for RedbAuditRepository {
         Ok(AuditPage { items, next_cursor })
     }
 
+    fn delete_filtered(&self, filter: &AuditFilter) -> CoreResult<usize> {
+        filter.validate()?;
+        self.store
+            .retain::<AuditEntry>(Table::Audit, |_, entry| !filter.matches(entry))
+            .map_err(map_err)
+    }
+
     fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
         let keys = self.store.keys(Table::Audit).map_err(map_err)?;
         let mut removed = 0;
