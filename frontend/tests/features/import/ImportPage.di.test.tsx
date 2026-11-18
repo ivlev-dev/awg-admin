@@ -335,6 +335,12 @@ describe("ImportPageVM constructor DI", () => {
     expect(document.body.textContent).toContain("Шаг 1 из 4");
     expect(document.body.textContent).toContain("Импорт конфигурации");
 
+    await vi.waitFor(() => {
+      const groupToolbar = document.querySelector(".list-toolbar");
+      expect(groupToolbar?.querySelector("#import-node")).not.toBeNull();
+      expect(groupToolbar?.querySelector("#import-owner")).not.toBeNull();
+    });
+
     const nameInput = document.querySelector<HTMLInputElement>("#import-group-name");
     if (nameInput === null) throw new Error("group name input is missing");
     nameInput.value = "Imported";

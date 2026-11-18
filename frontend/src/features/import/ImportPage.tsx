@@ -112,8 +112,8 @@ function groupStep(vm: ImportVM) {
           />
         </div>
 
-        <div class="grid grid--2">
-          <div class="field">
+        <div class="list-toolbar">
+          <div class="field field--compact">
             <label for="import-node">{t("import.field.node")}</label>
             <Show
               when={!vm.nodesLoading}
@@ -139,7 +139,7 @@ function groupStep(vm: ImportVM) {
             </Show>
           </div>
 
-          <div class="field">
+          <div class="field field--compact">
             <label for="import-owner">{t("import.field.owner")}</label>
             <Show
               when={!vm.ownersLoading}
@@ -1045,8 +1045,8 @@ function clientsFormStep(vm: ImportVM) {
         </span>
       </div>
       <div class="card__body stack">
-        <div class="grid grid--2">
-          <div class="field">
+        <div class="list-toolbar">
+          <div class="field field--compact">
             <label for="import-client-owner">{t("import.clients.owner")}</label>
             <Show
               when={!vm.ownersLoading}
@@ -1067,7 +1067,7 @@ function clientsFormStep(vm: ImportVM) {
             </Show>
           </div>
 
-          <div class="field">
+          <div class="field field--compact">
             <label for="import-client-interface">{t("import.clients.interface")}</label>
             <Show
               when={!vm.interfacesLoading}

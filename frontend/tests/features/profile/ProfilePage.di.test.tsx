@@ -230,6 +230,45 @@ describe("ProfilePage sessions", () => {
     harness.dispose();
   });
 
+  it("filters sessions with the toolbar and shows a no-match state", async () => {
+    const harness = mount(authRepository());
+    const root = document.body;
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".table--sessions tbody tr")).toHaveLength(2);
+    });
+
+    const toolbar = root.querySelector(".list-toolbar");
+    expect(toolbar).not.toBeNull();
+
+    const search = root.querySelector<HTMLInputElement>("#sessions-search");
+    if (search === null) throw new Error("sessions search input is missing");
+    search.value = "203.0.113";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".table--sessions tbody tr")).toHaveLength(1);
+    });
+
+    search.value = "unknown-host";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    await vi.waitFor(() => {
+      expect(root.textContent).toContain("Ничего не найдено");
+    });
+    expect(root.querySelector(".table--sessions")).toBeNull();
+
+    const reset = buttonByText(root, "Сбросить");
+    if (reset === null) throw new Error("reset button is missing");
+    reset.click();
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll(".table--sessions tbody tr")).toHaveLength(2);
+    });
+
+    harness.dispose();
+  });
+
   it("renders the empty state without sessions", async () => {
     const harness = mount(authRepository({ sessions: async () => [] }));
     const root = document.body;

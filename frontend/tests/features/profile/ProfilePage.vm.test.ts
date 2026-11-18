@@ -265,6 +265,12 @@ function valueEvent(value: string): Event {
   return event;
 }
 
+function checkedEvent(checked: boolean): Event {
+  const event = new Event("change");
+  Object.defineProperty(event, "target", { value: { checked } });
+  return event;
+}
+
 function stubConfirm(result: boolean): ReturnType<typeof vi.fn> {
   const confirm = vi.fn(() => result);
   vi.stubGlobal("confirm", confirm);
@@ -516,6 +522,75 @@ describe("ProfilePageVM", () => {
     await harness.vm.loadSessions();
 
     expect(harness.vm.sessionsError).toBe("Не удалось загрузить сессии");
+  });
+
+  it("фильтрует сессии по устройству без учёта регистра", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+    await harness.vm.loadSessions();
+
+    harness.vm.setSessionsSearch(valueEvent("FiReFoX"));
+
+    expect(harness.vm.sessionsFilterActive).toBe(true);
+    expect(harness.vm.filteredSessionRows.map((row) => row.jti)).toEqual(["jti-new-active"]);
+    expect(harness.vm.filteredSessionsEmpty).toBe(false);
+  });
+
+  it("фильтрует сессии по IP", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+    await harness.vm.loadSessions();
+
+    harness.vm.setSessionsSearch(valueEvent("203.0.113"));
+
+    expect(harness.vm.filteredSessionRows.map((row) => row.jti)).toEqual(["jti-old-active"]);
+  });
+
+  it("показывает только активные сессии", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+    await harness.vm.loadSessions();
+
+    harness.vm.setSessionsOnlyActive(checkedEvent(true));
+
+    expect(harness.vm.sessionsOnlyActive).toBe(true);
+    expect(harness.vm.filteredSessionRows.map((row) => row.jti)).toEqual([
+      "jti-new-active",
+      "jti-old-active",
+    ]);
+    expect(harness.vm.filteredSessionRows.every((row) => row.active)).toBe(true);
+  });
+
+  it("показывает пустой результат фильтра отдельно от отсутствия сессий", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+    await harness.vm.loadSessions();
+
+    harness.vm.setSessionsSearch(valueEvent("нет такой сессии"));
+
+    expect(harness.vm.filteredSessionRows).toEqual([]);
+    expect(harness.vm.filteredSessionsEmpty).toBe(true);
+    expect(harness.vm.sessionsEmpty).toBe(false);
+  });
+
+  it("сбрасывает фильтры сессий", async () => {
+    const harness = makeHarness(ADMIN, {
+      sessions: async () => SESSIONS.map((session) => ({ ...session })),
+    });
+    await harness.vm.loadSessions();
+
+    harness.vm.setSessionsSearch(valueEvent("firefox"));
+    harness.vm.setSessionsOnlyActive(checkedEvent(true));
+    harness.vm.resetSessionFilters();
+
+    expect(harness.vm.sessionsSearch).toBe("");
+    expect(harness.vm.sessionsOnlyActive).toBe(false);
+    expect(harness.vm.sessionsFilterActive).toBe(false);
+    expect(harness.vm.filteredSessionRows).toHaveLength(4);
   });
 
   it("завершает одну сессию после подтверждения и обновляет список", async () => {

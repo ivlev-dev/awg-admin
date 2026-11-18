@@ -256,6 +256,34 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 when={!this.vm.sessionsLoading}
                 fallback={<SkeletonTable rows={3} columns={5} />}
               >
+                <Show when={!this.vm.sessionsEmpty}>
+                  <div class="list-toolbar">
+                    <div class="field">
+                      <label for="sessions-search">{t("profile.sessions.filter.search")}</label>
+                      <input
+                        id="sessions-search"
+                        class="input"
+                        type="search"
+                        placeholder={t("profile.sessions.filter.searchPlaceholder")}
+                        value={this.vm.sessionsSearch}
+                        onInput={(event: InputEvent) => this.vm.setSessionsSearch(event)}
+                      />
+                    </div>
+                    <label class="checkbox">
+                      <input
+                        type="checkbox"
+                        checked={this.vm.sessionsOnlyActive}
+                        onChange={(event: Event) => this.vm.setSessionsOnlyActive(event)}
+                      />
+                      <span>{t("profile.sessions.filter.onlyActive")}</span>
+                    </label>
+                    <Show when={this.vm.sessionsFilterActive}>
+                      <button class="btn btn--sm" type="button" onClick={() => this.vm.resetSessionFilters()}>
+                        {t("profile.sessions.filter.reset")}
+                      </button>
+                    </Show>
+                  </div>
+                </Show>
                 <Show
                   when={!this.vm.sessionsEmpty}
                   fallback={
@@ -265,66 +293,77 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                     </div>
                   }
                 >
-                  <div class="data-scroll table-wrap--cards">
-                    <table class="table table--cards table--fixed table--sessions">
-                      <thead>
-                        <tr>
-                          <th>{t("profile.sessions.column.device")}</th>
-                          <th>{t("profile.sessions.column.ip")}</th>
-                          <th>{t("profile.sessions.column.created")}</th>
-                          <th>{t("profile.sessions.column.expires")}</th>
-                          <th>{t("profile.sessions.column.status")}</th>
-                          <th>{t("profile.sessions.column.actions")}</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <For each={this.vm.sessionRows}>
-                          {(row) => (
-                            <tr>
-                              <td data-label={t("profile.sessions.column.device")}>
-                                <div class="cell-name">
-                                  <span class="cell-avatar" aria-hidden="true">
-                                    {row.device.charAt(0).toUpperCase()}
-                                  </span>
-                                  <span class="cell-name__text">
-                                    <span class="strong" title={row.deviceTitle}>
-                                      {row.device}
+                  <Show
+                    when={!this.vm.filteredSessionsEmpty}
+                    fallback={
+                      <div class="empty">
+                        <div class="empty__title">{t("profile.sessions.filter.empty.title")}</div>
+                        <div class="small">{t("profile.sessions.filter.empty.text")}</div>
+                      </div>
+                    }
+                  >
+                    <div class="data-scroll table-wrap--cards">
+                      <table class="table table--cards table--fixed table--sessions">
+                        <thead>
+                          <tr>
+                            <th>{t("profile.sessions.column.device")}</th>
+                            <th>{t("profile.sessions.column.ip")}</th>
+                            <th>{t("profile.sessions.column.created")}</th>
+                            <th>{t("profile.sessions.column.expires")}</th>
+                            <th>{t("profile.sessions.column.status")}</th>
+                            <th>{t("profile.sessions.column.actions")}</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          <For each={this.vm.filteredSessionRows}>
+                            {(row) => (
+                              <tr>
+                                <td data-label={t("profile.sessions.column.device")}>
+                                  <div class="cell-name">
+                                    <span class="cell-avatar" aria-hidden="true">
+                                      {row.device.charAt(0).toUpperCase()}
                                     </span>
-                                  </span>
-                                </div>
-                              </td>
-                              <td data-label={t("profile.sessions.column.ip")}>
-                                <span class="small mono">{row.ip}</span>
-                              </td>
-                              <td data-label={t("profile.sessions.column.created")}>
-                                <span class="small nowrap mono">{row.createdLabel}</span>
-                              </td>
-                              <td data-label={t("profile.sessions.column.expires")}>
-                                <span class="small nowrap mono">{row.expiresLabel}</span>
-                              </td>
-                              <td data-label={t("profile.sessions.column.status")}>
-                                <span class={`badge ${row.statusClass}`}>{row.statusLabel}</span>
-                              </td>
-                              <td data-label={t("profile.sessions.column.actions")}>
-                                <button
-                                  class="btn btn--icon btn--danger"
-                                  type="button"
-                                  aria-label={t("profile.sessions.revoke")}
-                                  title={t("profile.sessions.revoke")}
-                                  disabled={!row.revocable || row.busy || this.vm.sessionsBusy}
-                                  onClick={() => this.vm.revokeSession(row.jti)}
-                                >
-                                  <Icon name="trash" size={16} class="" />
-                                </button>
-                              </td>
-                            </tr>
-                          )}
-                        </For>
-                      </tbody>
-                    </table>
-                  </div>
+                                    <span class="cell-name__text">
+                                      <span class="strong" title={row.deviceTitle}>
+                                        {row.device}
+                                      </span>
+                                    </span>
+                                  </div>
+                                </td>
+                                <td data-label={t("profile.sessions.column.ip")}>
+                                  <span class="small mono">{row.ip}</span>
+                                </td>
+                                <td data-label={t("profile.sessions.column.created")}>
+                                  <span class="small nowrap mono">{row.createdLabel}</span>
+                                </td>
+                                <td data-label={t("profile.sessions.column.expires")}>
+                                  <span class="small nowrap mono">{row.expiresLabel}</span>
+                                </td>
+                                <td data-label={t("profile.sessions.column.status")}>
+                                  <span class={`badge ${row.statusClass}`}>{row.statusLabel}</span>
+                                </td>
+                                <td data-label={t("profile.sessions.column.actions")}>
+                                  <button
+                                    class="btn btn--icon btn--danger"
+                                    type="button"
+                                    aria-label={t("profile.sessions.revoke")}
+                                    title={t("profile.sessions.revoke")}
+                                    disabled={!row.revocable || row.busy || this.vm.sessionsBusy}
+                                    onClick={() => this.vm.revokeSession(row.jti)}
+                                  >
+                                    <Icon name="trash" size={16} class="" />
+                                  </button>
+                                </td>
+                              </tr>
+                            )}
+                          </For>
+                        </tbody>
+                      </table>
+                    </div>
+                  </Show>
                 </Show>
               </Show>
+
               <div class="xs muted">{t("profile.sessions.note")}</div>
             </div>
           </section>

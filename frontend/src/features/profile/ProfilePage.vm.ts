@@ -45,6 +45,7 @@ export interface SessionRow {
   expiresLabel: string;
   statusLabel: string;
   statusClass: string;
+  active: boolean;
   revocable: boolean;
   busy: boolean;
 }
@@ -136,6 +137,8 @@ export class ProfilePageVM {
   @reactive accessor sessionsError: string | null = null;
   @reactive accessor sessionsBusy = false;
   @reactive accessor sessionsBusyJti: string | null = null;
+  @reactive accessor sessionsSearch = "";
+  @reactive accessor sessionsOnlyActive = false;
 
   created(): void {
     void this.loadQuota();
@@ -202,6 +205,7 @@ export class ProfilePageVM {
             statusLabel: t(`profile.sessions.status.${state}`),
             statusClass:
               state === "active" ? "badge--green" : state === "revoked" ? "badge--red" : "badge--gray",
+            active: state === "active",
             revocable: state === "active",
             busy: this.sessionsBusyJti === session.jti,
           } satisfies SessionRow,
@@ -214,6 +218,43 @@ export class ProfilePageVM {
         return Date.parse(right.session.created_at) - Date.parse(left.session.created_at);
       })
       .map(({ row }) => row);
+  }
+
+  @computed
+  get sessionsFilterActive(): boolean {
+    return this.sessionsSearch.trim().length > 0 || this.sessionsOnlyActive;
+  }
+
+  @computed
+  get filteredSessionRows(): SessionRow[] {
+    const query = this.sessionsSearch.trim().toLowerCase();
+    return this.sessionRows.filter((row) => {
+      if (this.sessionsOnlyActive && !row.active) return false;
+      if (query.length === 0) return true;
+      return (
+        row.device.toLowerCase().includes(query) ||
+        row.deviceTitle.toLowerCase().includes(query) ||
+        row.ip.toLowerCase().includes(query)
+      );
+    });
+  }
+
+  @computed
+  get filteredSessionsEmpty(): boolean {
+    return !this.sessionsEmpty && this.filteredSessionRows.length === 0;
+  }
+
+  setSessionsSearch(event: Event): void {
+    this.sessionsSearch = (event.target as HTMLInputElement).value;
+  }
+
+  setSessionsOnlyActive(event: Event): void {
+    this.sessionsOnlyActive = (event.target as HTMLInputElement).checked;
+  }
+
+  resetSessionFilters(): void {
+    this.sessionsSearch = "";
+    this.sessionsOnlyActive = false;
   }
 
   async revokeSession(jti: string): Promise<void> {
