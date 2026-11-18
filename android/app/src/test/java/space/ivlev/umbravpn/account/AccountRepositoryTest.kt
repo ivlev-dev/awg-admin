@@ -338,6 +338,124 @@ class AccountRepositoryTest {
     }
 
     @Test
+    fun bootstrapParsesInterfacesAndDevicePeers() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.OK, bootstrapJson())
+            }
+
+        val snapshot = env.accountRepository.bootstrap().requireSuccess()
+
+        assertEquals(2, snapshot.interfaces.size)
+        val first = snapshot.interfaces.first()
+        assertEquals("iface-1", first.id)
+        assertEquals("awg0", first.name)
+        assertEquals("node-1", first.nodeId)
+        assertEquals("Frankfurt", first.nodeName)
+        val peers = snapshot.devices.single().peers
+        assertEquals(listOf("iface-1", "iface-2"), peers.map { it.interfaceId })
+        assertEquals(listOf("awg0", "awg1"), peers.map { it.interfaceName })
+        assertEquals(listOf("peer-key-1", "peer-key-2"), peers.map { it.publicKey })
+    }
+
+    @Test
+    fun createDeviceSendsSelectedInterfaces() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when {
+                    request.url.encodedPath == "/api/v1/app/devices" &&
+                        request.method == HttpMethod.Post ->
+                        jsonResponse(HttpStatusCode.Created, appDeviceWithConfigsJson("Phone"))
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        env.accountRepository.createDevice("Phone", listOf("iface-1", "iface-2")).requireSuccess()
+
+        val body = env.requests.single().body.toByteArray().decodeToString()
+        assertTrue(body.contains("\"name\":\"Phone\""))
+        assertTrue(body.contains("\"interface_ids\":[\"iface-1\",\"iface-2\"]"))
+    }
+
+    @Test
+    fun createDeviceParsesConfigsWithFallbackToPrimary() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when {
+                    request.url.encodedPath == "/api/v1/app/devices" &&
+                        request.method == HttpMethod.Post ->
+                        jsonResponse(HttpStatusCode.Created, appDeviceWithConfigsJson("Phone"))
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        val created = env.accountRepository.createDevice("Phone").requireSuccess()
+
+        assertEquals("0123456789abcdef", created.config.revision)
+        assertEquals(2, created.configs.size)
+        assertEquals(2, created.allConfigs.size)
+        assertEquals(listOf("iface-1", "iface-2"), created.configs.map { it.interfaceId })
+        assertEquals("fedcba9876543210", created.configs[1].revision)
+        assertEquals(2, created.device.peers.size)
+    }
+
+    @Test
+    fun createDeviceWithoutConfigsFallsBackToSingleConfig() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.Created, appDeviceJson("Phone"))
+            }
+
+        val created = env.accountRepository.createDevice("Phone").requireSuccess()
+
+        assertEquals(listOf(created.config), created.configs)
+        assertEquals(listOf(created.config), created.allConfigs)
+    }
+
+    @Test
+    fun deviceConfigsParsesAllInterfaces() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices/device-1/configs" ->
+                        jsonResponse(
+                            HttpStatusCode.OK,
+                            """
+                            [
+                              {
+                                "interface_id": "iface-1",
+                                "interface_name": "awg0",
+                                "node_id": "node-1",
+                                "endpoint": "vpn.example.com:51820",
+                                "addresses": ["10.8.0.2/32"],
+                                "conf": "[Interface]",
+                                "revision": "rev-1"
+                              },
+                              {
+                                "interface_id": "iface-2",
+                                "interface_name": "awg1",
+                                "node_id": "node-2",
+                                "endpoint": "ams.example.com:51820",
+                                "addresses": ["10.9.0.2/32"],
+                                "conf": "[Interface]",
+                                "revision": "rev-2"
+                              }
+                            ]
+                            """
+                                .trimIndent(),
+                        )
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        val configs = env.accountRepository.deviceConfigs("device-1").requireSuccess()
+
+        assertEquals(2, configs.size)
+        assertEquals(listOf("iface-1", "iface-2"), configs.map { it.interfaceId })
+        assertEquals(listOf("rev-1", "rev-2"), configs.map { it.revision })
+    }
+
+    @Test
     fun createDeviceConflictReturnsApiError() = runTest {
         val env =
             createEnvironment(initialSession = storedSession()) {

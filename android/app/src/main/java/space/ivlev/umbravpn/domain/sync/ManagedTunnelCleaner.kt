@@ -14,7 +14,7 @@ class ManagedTunnelCleaner(
     override suspend fun clear() {
         for (binding in managedTunnelRepository.getAll()) {
             tunnelRepository.getById(binding.tunnelId)?.let { tunnelRepository.delete(it) }
-            managedTunnelRepository.unbind(binding.deviceId)
+            managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId)
         }
     }
 }

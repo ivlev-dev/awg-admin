@@ -4,6 +4,7 @@ export interface DeviceInput {
   user_id: string | null;
   group_id: string | null;
   interface_id?: string;
+  interface_ids?: string[];
   name: string;
   down_kbps: number;
   up_kbps: number;

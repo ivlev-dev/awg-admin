@@ -180,6 +180,7 @@ internal class FakeAccountRepository : AccountRepository {
         )
 
     val createdNames = mutableListOf<String>()
+    val createdInterfaceIds = mutableListOf<List<String>>()
     val renamed = mutableListOf<Pair<String, String>>()
     val deleted = mutableListOf<String>()
     var bootstrapCalls = 0
@@ -189,12 +190,25 @@ internal class FakeAccountRepository : AccountRepository {
         return bootstrapResult
     }
 
-    override suspend fun createDevice(name: String): AccountResult<CreatedDevice> {
+    override suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String>,
+    ): AccountResult<CreatedDevice> {
         createdNames += name
+        createdInterfaceIds += interfaceIds
         return createResult
     }
 
     override suspend fun deviceConfig(id: String): AccountResult<DeviceConfig> = configResult
+
+    override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
+        resultOf(configResult)
+
+    private fun resultOf(result: AccountResult<DeviceConfig>): AccountResult<List<DeviceConfig>> =
+        when (result) {
+            is AccountResult.Success -> AccountResult.Success(listOf(result.value))
+            is AccountResult.Failure -> result
+        }
 
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> {
         renamed += id to name

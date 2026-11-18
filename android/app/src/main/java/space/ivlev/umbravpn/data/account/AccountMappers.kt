@@ -4,6 +4,7 @@ import java.time.Instant
 import space.ivlev.umbravpn.domain.model.account.AccountAccess
 import space.ivlev.umbravpn.domain.model.account.AccountAccessReason
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
+import space.ivlev.umbravpn.domain.model.account.AccountInterface
 import space.ivlev.umbravpn.domain.model.account.AccountQuota
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.AccountSubscription
@@ -11,6 +12,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountTariff
 import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.DevicePeer
 import space.ivlev.umbravpn.domain.model.account.SubscriptionStatus
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
@@ -81,7 +83,16 @@ internal fun DeviceDto.toDomain(): AccountDevice =
         revoked = revoked,
         external = external,
         addresses = addresses,
+        peers = peers.map(DevicePeerDto::toDomain),
         createdAt = createdAt.toInstantOrNull(),
+    )
+
+internal fun DevicePeerDto.toDomain(): DevicePeer =
+    DevicePeer(
+        interfaceId = interfaceId,
+        interfaceName = interfaceName,
+        publicKey = publicKey,
+        addresses = addresses,
     )
 
 internal fun DeviceConfigDto.toDomain(): DeviceConfig =
@@ -101,9 +112,13 @@ internal fun BootstrapDto.toDomain(): AccountSnapshot =
         tariff = tariff?.toDomain(),
         quota = quota?.toDomain() ?: emptyQuota(),
         devices = devices.map(DeviceDto::toDomain),
+        interfaces = interfaces.map(InterfaceDto::toDomain),
         subscription = subscription?.toDomain(),
         access = access?.toDomain() ?: AccountAccess(),
     )
+
+internal fun InterfaceDto.toDomain(): AccountInterface =
+    AccountInterface(id = id, name = name, nodeId = nodeId, nodeName = nodeName)
 
 internal fun SubscriptionDto.toDomain(): AccountSubscription =
     AccountSubscription(
@@ -124,7 +139,11 @@ internal fun AccessDto.toDomain(): AccountAccess =
     )
 
 internal fun AppDeviceDto.toDomain(): CreatedDevice =
-    CreatedDevice(device = device.toDomain(), config = config.toDomain())
+    CreatedDevice(
+        device = device.toDomain(),
+        config = config.toDomain(),
+        configs = configs.ifEmpty { listOf(config) }.map(DeviceConfigDto::toDomain),
+    )
 
 internal fun String?.toInstantOrNull(): Instant? =
     this?.trim()

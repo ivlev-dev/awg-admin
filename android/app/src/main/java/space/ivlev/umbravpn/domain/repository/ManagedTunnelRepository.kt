@@ -8,13 +8,15 @@ interface ManagedTunnelRepository {
 
     suspend fun getAll(): List<ManagedTunnel>
 
-    suspend fun getByDeviceId(deviceId: String): ManagedTunnel?
+    suspend fun getByDevice(deviceId: String): List<ManagedTunnel>
 
     suspend fun getByTunnelId(tunnelId: Int): ManagedTunnel?
 
     suspend fun bind(binding: ManagedTunnel)
 
-    suspend fun unbind(deviceId: String)
+    suspend fun unbind(deviceId: String, interfaceId: String)
+
+    suspend fun unbindDevice(deviceId: String)
 
     suspend fun unbindByTunnelId(tunnelId: Int)
 }

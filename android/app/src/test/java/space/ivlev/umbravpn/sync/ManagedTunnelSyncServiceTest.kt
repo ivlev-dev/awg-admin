@@ -38,7 +38,7 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(normalizeQuickConfig(config.conf), tunnel.quickConfig)
         assertEquals(0, tunnel.position)
 
-        val binding = env.managed.getByDeviceId(device.id)
+        val binding = env.managed.getByDevice(device.id).singleOrNull()
         assertNotNull(binding)
         assertEquals(tunnel.id, binding?.tunnelId)
         assertEquals("Pixel", binding?.deviceName)
@@ -74,7 +74,7 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(SyncResult.Success(removed = 1), result)
         assertTrue(env.createdDeviceNames.isEmpty())
         assertTrue(env.tunnels.tunnels.isEmpty())
-        assertNull(env.managed.getByDeviceId("device-old"))
+        assertTrue(env.managed.getByDevice("device-old").isEmpty())
     }
 
     @Test
@@ -122,7 +122,7 @@ class ManagedTunnelSyncServiceTest {
         val tunnel = env.tunnels.tunnels.single()
         assertEquals(7, tunnel.id)
         assertEquals(existing, tunnel)
-        assertEquals(7, env.managed.getByDeviceId("device-1")?.tunnelId)
+        assertEquals(7, env.managed.getByDevice("device-1").single().tunnelId)
     }
 
     @Test
@@ -174,7 +174,7 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(5, tunnel.groupId)
         assertTrue(tunnel.isMetered)
 
-        val updatedBinding = env.managed.getByDeviceId("device-1")
+        val updatedBinding = env.managed.getByDevice("device-1").singleOrNull()
         assertEquals("rev-2", updatedBinding?.revision)
         assertEquals("new.example.com:51820", updatedBinding?.endpoint)
     }
@@ -290,7 +290,7 @@ class ManagedTunnelSyncServiceTest {
 
         val imported = env.tunnels.tunnels.single { it.id != manual.id }
         assertEquals("Pixel (2)", imported.name)
-        assertEquals("Pixel", env.managed.getByDeviceId("device-1")?.deviceName)
+        assertEquals("Pixel", env.managed.getByDevice("device-1").single().deviceName)
         assertEquals(9, env.tunnels.findByTunnelName("Pixel")?.id)
     }
 
@@ -315,7 +315,7 @@ class ManagedTunnelSyncServiceTest {
         val renamed = env.tunnels.getById(7)
         assertEquals("New name (2)", renamed?.name)
         assertEquals(2, renamed?.position)
-        val binding = env.managed.getByDeviceId("device-1")
+        val binding = env.managed.getByDevice("device-1").singleOrNull()
         assertEquals("New name", binding?.deviceName)
         assertEquals("New name", env.tunnels.getById(9)?.name)
     }
@@ -395,18 +395,278 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(0, env.tunnels.deleteCount)
     }
 
+    @Test
+    fun multipleConfigsCreateTunnelPerInterface() = runTest {
+        val firstConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820", address = "10.8.0.3/32")
+        val env =
+            syncEnvironment(
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    conf = secondConf,
+                                    revision = "rev-2",
+                                    endpoint = "second.example.com:51820",
+                                    interfaceId = "iface-2",
+                                    interfaceName = "awg1",
+                                ),
+                                deviceConfig(
+                                    conf = firstConf,
+                                    revision = "rev-1",
+                                    interfaceId = "iface-1",
+                                    interfaceName = "awg0",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(created = 2), result)
+        assertEquals(
+            setOf("iface-1", "iface-2"),
+            env.managed.getByDevice("device-1").map { it.interfaceId }.toSet(),
+        )
+        assertEquals(setOf("Pixel", "Pixel · awg1"), env.tunnels.tunnels.map { it.name }.toSet())
+        val primary = env.managed.getByDevice("device-1").single { it.interfaceId == "iface-1" }
+        val secondary = env.managed.getByDevice("device-1").single { it.interfaceId == "iface-2" }
+        assertEquals("rev-1", primary.revision)
+        assertEquals("rev-2", secondary.revision)
+        assertEquals("Pixel", env.tunnels.getById(primary.tunnelId)?.name)
+        assertEquals("Pixel · awg1", env.tunnels.getById(secondary.tunnelId)?.name)
+        assertEquals(
+            primary.tunnelId,
+            env.tunnels.tunnels.minByOrNull { it.position }?.id,
+        )
+    }
+
+    @Test
+    fun revisionChangeUpdatesOnlyAffectedInterface() = runTest {
+        val firstConf = quickConfig()
+        val oldSecondConf = quickConfig(endpoint = "old.example.com:51820")
+        val newSecondConf = quickConfig(endpoint = "new.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                            position = 0,
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · awg1",
+                            quickConfig = normalizeQuickConfig(oldSecondConf),
+                            position = 1,
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(tunnelId = 7, interfaceId = "iface-1", revision = "rev-1"),
+                        managedBinding(
+                            tunnelId = 8,
+                            interfaceId = "iface-2",
+                            revision = "rev-2",
+                            deviceName = "Pixel",
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(conf = firstConf, revision = "rev-1"),
+                                deviceConfig(
+                                    conf = newSecondConf,
+                                    revision = "rev-3",
+                                    endpoint = "new.example.com:51820",
+                                    interfaceId = "iface-2",
+                                    interfaceName = "awg1",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1), result)
+        assertEquals(normalizeQuickConfig(firstConf), env.tunnels.getById(7)?.quickConfig)
+        assertEquals(normalizeQuickConfig(newSecondConf), env.tunnels.getById(8)?.quickConfig)
+        assertEquals(
+            "rev-3",
+            env.managed.getByDevice("device-1").single { it.interfaceId == "iface-2" }.revision,
+        )
+        assertEquals(
+            "rev-1",
+            env.managed.getByDevice("device-1").single { it.interfaceId == "iface-1" }.revision,
+        )
+    }
+
+    @Test
+    fun removedInterfaceDeletesOnlyItsTunnel() = runTest {
+        val firstConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · awg1",
+                            quickConfig = normalizeQuickConfig(secondConf),
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(tunnelId = 7, interfaceId = "iface-1"),
+                        managedBinding(tunnelId = 8, interfaceId = "iface-2"),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    conf = secondConf,
+                                    revision = "rev-1",
+                                    endpoint = "second.example.com:51820",
+                                    interfaceId = "iface-2",
+                                    interfaceName = "awg1",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1, removed = 1), result)
+        assertEquals(listOf(8), env.tunnels.tunnels.map { it.id })
+        assertEquals("Pixel", env.tunnels.getById(8)?.name)
+        assertEquals(
+            listOf("iface-2"),
+            env.managed.getByDevice("device-1").map { it.interfaceId },
+        )
+    }
+
+    @Test
+    fun repeatedSyncWithoutChangesDoesNothing() = runTest {
+        val firstConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                            position = 0,
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · awg1",
+                            quickConfig = normalizeQuickConfig(secondConf),
+                            position = 1,
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(tunnelId = 7, interfaceId = "iface-1"),
+                        managedBinding(tunnelId = 8, interfaceId = "iface-2"),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(conf = firstConf, revision = "rev-1"),
+                                deviceConfig(
+                                    conf = secondConf,
+                                    revision = "rev-1",
+                                    endpoint = "second.example.com:51820",
+                                    interfaceId = "iface-2",
+                                    interfaceName = "awg1",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(), result)
+        assertEquals(0, env.tunnels.saveCount)
+        assertEquals(0, env.tunnels.deleteCount)
+        assertEquals(2, env.managed.bindings.size)
+    }
+
+    @Test
+    fun legacyBindingWithoutInterfaceIsReusedForPrimaryConfig() = runTest {
+        val env =
+            syncEnvironment(
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings =
+                    listOf(
+                        ManagedTunnel(
+                            deviceId = "device-1",
+                            tunnelId = 7,
+                            deviceName = "Pixel",
+                            interfaceId = "",
+                            endpoint = "vpn.example.com:51820",
+                            revision = "rev-1",
+                            syncedAt = 1L,
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(interfaceId = "iface-1", interfaceName = "awg0"),
+                                deviceConfig(
+                                    conf = quickConfig(endpoint = "second.example.com:51820"),
+                                    revision = "rev-2",
+                                    endpoint = "second.example.com:51820",
+                                    interfaceId = "iface-2",
+                                    interfaceName = "awg1",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(created = 1), result)
+        val bindings = env.managed.getByDevice("device-1")
+        assertEquals(setOf("iface-1", "iface-2"), bindings.map { it.interfaceId }.toSet())
+        assertEquals(7, bindings.single { it.interfaceId == "iface-1" }.tunnelId)
+        assertEquals(2, env.tunnels.tunnels.size)
+        assertEquals(setOf("Pixel", "Pixel · awg1"), env.tunnels.tunnels.map { it.name }.toSet())
+    }
+
     private fun managedBinding(
         tunnelId: Int,
         deviceId: String = "device-1",
         deviceName: String = "Pixel",
+        interfaceId: String = "iface-1",
+        revision: String = "rev-1",
     ): ManagedTunnel =
         ManagedTunnel(
             deviceId = deviceId,
             tunnelId = tunnelId,
             deviceName = deviceName,
-            interfaceId = "iface-1",
+            interfaceId = interfaceId,
             endpoint = "vpn.example.com:51820",
-            revision = "rev-1",
+            revision = revision,
             syncedAt = 1L,
         )
 }

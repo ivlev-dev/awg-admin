@@ -92,10 +92,11 @@ internal fun deviceConfig(
     revision: String = "rev-1",
     endpoint: String = "vpn.example.com:51820",
     interfaceId: String = "iface-1",
+    interfaceName: String = "awg0",
 ): DeviceConfig =
     DeviceConfig(
         interfaceId = interfaceId,
-        interfaceName = "awg0",
+        interfaceName = interfaceName,
         nodeId = "node-1",
         endpoint = endpoint,
         addresses = listOf("10.8.0.2/32"),
@@ -130,16 +131,22 @@ internal class FakeAccountRepository(
         private set
 
     val createdDeviceNames = mutableListOf<String>()
+    val createdInterfaceIds = mutableListOf<List<String>>()
     var createDeviceResult: AccountResult<CreatedDevice>? = null
     val deviceConfigResults = mutableMapOf<String, AccountResult<DeviceConfig>>()
+    val deviceConfigsResults = mutableMapOf<String, AccountResult<List<DeviceConfig>>>()
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
         return bootstrapResult
     }
 
-    override suspend fun createDevice(name: String): AccountResult<CreatedDevice> {
+    override suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String>,
+    ): AccountResult<CreatedDevice> {
         createdDeviceNames += name
+        createdInterfaceIds += interfaceIds
         return createDeviceResult
             ?: AccountResult.Failure(AccountError.Unexpected("createDevice not stubbed"))
     }
@@ -147,6 +154,16 @@ internal class FakeAccountRepository(
     override suspend fun deviceConfig(id: String): AccountResult<DeviceConfig> =
         deviceConfigResults[id]
             ?: AccountResult.Failure(AccountError.Unexpected("no config for $id"))
+
+    override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
+        deviceConfigsResults[id]
+            ?: deviceConfigResults[id]?.let { result ->
+                when (result) {
+                    is AccountResult.Success -> AccountResult.Success(listOf(result.value))
+                    is AccountResult.Failure -> result
+                }
+            }
+            ?: AccountResult.Failure(AccountError.Unexpected("no configs for $id"))
 
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         AccountResult.Failure(AccountError.Unexpected("renameDevice not supported"))
@@ -165,17 +182,25 @@ internal class FakeManagedTunnelRepository(initial: List<ManagedTunnel> = emptyL
 
     override suspend fun getAll(): List<ManagedTunnel> = state.value
 
-    override suspend fun getByDeviceId(deviceId: String): ManagedTunnel? =
-        state.value.firstOrNull { it.deviceId == deviceId }
+    override suspend fun getByDevice(deviceId: String): List<ManagedTunnel> =
+        state.value.filter { it.deviceId == deviceId }
 
     override suspend fun getByTunnelId(tunnelId: Int): ManagedTunnel? =
         state.value.firstOrNull { it.tunnelId == tunnelId }
 
     override suspend fun bind(binding: ManagedTunnel) {
-        state.value = state.value.filterNot { it.deviceId == binding.deviceId } + binding
+        state.value =
+            state.value.filterNot {
+                it.deviceId == binding.deviceId && it.interfaceId == binding.interfaceId
+            } + binding
     }
 
-    override suspend fun unbind(deviceId: String) {
+    override suspend fun unbind(deviceId: String, interfaceId: String) {
+        state.value =
+            state.value.filterNot { it.deviceId == deviceId && it.interfaceId == interfaceId }
+    }
+
+    override suspend fun unbindDevice(deviceId: String) {
         state.value = state.value.filterNot { it.deviceId == deviceId }
     }
 

@@ -42,6 +42,11 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
               {this.vm.revoked ? t("clients.status.revoked") : t("clients.status.active")}
             </span>
             <span class="client-subnav__address mono">{this.vm.addresses[0] ?? "—"}</span>
+            <Show when={this.vm.tunnelCount > 0}>
+              <span class="badge badge--blue" title={this.vm.tunnelsLabel}>
+                {this.vm.tunnelsCountLabel}
+              </span>
+            </Show>
           </div>
           <nav class="client-subnav__links" aria-label={t("clients.details.nav.aria")}>
             <button
@@ -174,6 +179,8 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                       <dd>{this.vm.device?.name ?? "—"}</dd>
                       <dt>{t("clients.details.interface")}</dt>
                       <dd>{this.vm.interfaceLabel}</dd>
+                      <dt>{t("clients.details.tunnels")}</dt>
+                      <dd>{this.vm.tunnelsLabel}</dd>
                       <dt>{t("clients.details.node")}</dt>
                       <dd>{this.vm.nodeLabel}</dd>
                       <dt>{t("clients.details.field.limitDown")}</dt>
@@ -207,17 +214,25 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     <hr class="divider" />
 
                     <div>
-                      <div class="xs muted" style="margin-bottom:6px">{t("clients.details.peers")}</div>
+                      <div class="xs muted" style="margin-bottom:6px">{t("clients.details.tunnels")}</div>
                       <Show
-                        when={this.vm.peers.length > 0}
-                        fallback={<span class="small muted">{t("clients.details.peersEmpty")}</span>}
+                        when={this.vm.tunnels.length > 0}
+                        fallback={<span class="small muted">{t("clients.details.tunnelsEmpty")}</span>}
                       >
                         <div class="stack-sm">
-                          <For each={this.vm.peers}>
-                            {(peer) => (
-                              <div class="row-between">
-                                <span class="small strong">{peer.interface_name}</span>
-                                <span class="xs mono muted">{peer.public_key.slice(0, 12)}…</span>
+                          <For each={this.vm.tunnels}>
+                            {(tunnel) => (
+                              <div class="row-between wrap">
+                                <span class="small strong">{tunnel.interfaceName}</span>
+                                <span class="xs mono muted">
+                                  {tunnel.addresses.length > 0 ? tunnel.addresses.join(", ") : "—"}
+                                </span>
+                                <Show when={tunnel.endpoint}>
+                                  <span class="xs mono muted">{tunnel.endpoint}</span>
+                                </Show>
+                                <Show when={tunnel.publicKey}>
+                                  <span class="xs mono muted">{tunnel.publicKey.slice(0, 12)}…</span>
+                                </Show>
                               </div>
                             )}
                           </For>
@@ -542,12 +557,14 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                     }
                   >
                     <div class="stack">
-                      <div class="tabs">
+                      <div class="tabs" role="tablist" aria-label={t("clients.details.profiles.title")}>
                         <For each={this.vm.profiles}>
                           {(profile) => (
                             <button
                               class={`tab ${this.vm.activeProfileId === profile.interface_id ? "is-active" : ""}`}
                               type="button"
+                              role="tab"
+                              aria-selected={this.vm.activeProfileId === profile.interface_id}
                               onClick={() => this.vm.selectProfile(profile.interface_id)}
                             >
                               {profile.interface_name}

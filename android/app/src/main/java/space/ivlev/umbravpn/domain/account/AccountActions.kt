@@ -10,11 +10,16 @@ class AccountActions(private val accountRepository: AccountRepository) {
     suspend fun bootstrap(): ActionResult<AccountSnapshot> =
         accountRepository.bootstrap().toResult(AccountActionKind.Generic)
 
-    suspend fun createDevice(name: String): ActionResult<CreatedDevice> {
+    suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String> = emptyList(),
+    ): ActionResult<CreatedDevice> {
         val error = AccountValidation.deviceNameError(name)
         if (error != null) return ActionResult.Failure(error)
 
-        return accountRepository.createDevice(name.trim()).toResult(AccountActionKind.Device)
+        return accountRepository
+            .createDevice(name.trim(), interfaceIds.distinct())
+            .toResult(AccountActionKind.Device)
     }
 
     suspend fun renameDevice(id: String, name: String): ActionResult<AccountDevice> {

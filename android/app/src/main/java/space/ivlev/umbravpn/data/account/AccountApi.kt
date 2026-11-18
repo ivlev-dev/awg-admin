@@ -174,14 +174,22 @@ class AccountApi(
         return result
     }
 
-    suspend fun createDevice(name: String): AccountResult<CreatedDevice> =
+    suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String> = emptyList(),
+    ): AccountResult<CreatedDevice> =
         execute(
             authenticated = true,
             send = { baseUrl, token ->
                 client.post(endpoint(baseUrl, "app/devices")) {
                     bearer(token)
                     contentType(ContentType.Application.Json)
-                    setBody(CreateDeviceRequestDto(name = name))
+                    setBody(
+                        CreateDeviceRequestDto(
+                            name = name,
+                            interfaceIds = interfaceIds.takeIf { it.isNotEmpty() },
+                        ),
+                    )
                 }
             },
             decode = { body -> json.decodeFromString<AppDeviceDto>(body).toDomain() },
@@ -194,6 +202,17 @@ class AccountApi(
                 client.get(endpoint(baseUrl, "app/devices/$id/config")) { bearer(token) }
             },
             decode = { body -> json.decodeFromString<DeviceConfigDto>(body).toDomain() },
+        )
+
+    suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
+        execute(
+            authenticated = true,
+            send = { baseUrl, token ->
+                client.get(endpoint(baseUrl, "app/devices/$id/configs")) { bearer(token) }
+            },
+            decode = { body ->
+                json.decodeFromString<List<DeviceConfigDto>>(body).map(DeviceConfigDto::toDomain)
+            },
         )
 
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =

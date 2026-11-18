@@ -1,4 +1,4 @@
-import { createComponent } from "@ivlev-dev/silent-core";
+import { createComponent, flushSync } from "@ivlev-dev/silent-core";
 
 import { DefaultDevicesService } from "@/application/devices/service";
 import { DefaultInterfacesService } from "@/application/interfaces/service";
@@ -105,6 +105,13 @@ const INTERFACE_2: InterfaceInfo = {
   node_name: "node-2",
   name: "wg1",
   public_key: "pub-2",
+};
+
+const INTERFACE_3: InterfaceInfo = {
+  ...INTERFACE,
+  id: "i3",
+  name: "wg2",
+  public_key: "pub-3",
 };
 
 const DEVICE: Device = {
@@ -429,7 +436,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = " Pixel ";
     vm.setFormUser(OWNER.id);
-    vm.setFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500);
     vm.setFormUpKbps(750);
     vm.formForwarding = true;
@@ -440,6 +447,7 @@ describe("ClientsPageVM", () => {
       user_id: "u2",
       group_id: "g1",
       interface_id: "i1",
+      interface_ids: ["i1"],
       name: "Pixel",
       down_kbps: 1500,
       up_kbps: 750,
@@ -462,7 +470,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Round";
     vm.setFormUser(OWNER.id);
-    vm.setFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500.4);
     vm.setFormUpKbps(-10);
 
@@ -509,10 +517,10 @@ describe("ClientsPageVM", () => {
 
     vm.openCreate();
     vm.setFormUser(MEMBER.id);
-    expect(vm.formInterfaceId).toBe(INTERFACE_2.id);
+    expect(vm.formInterfaceIds).toEqual([INTERFACE_2.id]);
 
     vm.setFormUser(OWNER.id);
-    expect(vm.formInterfaceId).toBe(INTERFACE.id);
+    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
   });
 
   it("создаёт устройство для собственного аккаунта обычного пользователя", async () => {
@@ -521,9 +529,9 @@ describe("ClientsPageVM", () => {
 
     vm.openCreate();
     expect(vm.formUserId).toBe(OWNER.id);
-    expect(vm.formInterfaceId).toBe(INTERFACE.id);
+    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
     vm.formName = "Phone";
-    vm.setFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -550,14 +558,14 @@ describe("ClientsPageVM", () => {
     vm.setFormUser(OWNER.id);
 
     expect(vm.formInterfaceOptions).toHaveLength(2);
-    expect(vm.formInterfaceId).toBe("");
+    expect(vm.formInterfaceIds).toEqual([]);
     expect(vm.canCreate).toBe(false);
     await vm.create();
 
     expect(devices.repository.createDevice).not.toHaveBeenCalled();
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "error",
-      message: "Выберите интерфейс для устройства",
+      message: "Выберите хотя бы один интерфейс для устройства",
     });
   });
 
@@ -569,7 +577,7 @@ describe("ClientsPageVM", () => {
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
 
-    expect(vm.formInterfaceId).toBe(INTERFACE.id);
+    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
     expect(vm.canCreate).toBe(true);
 
     await vm.create();
@@ -577,6 +585,104 @@ describe("ClientsPageVM", () => {
     expect(devices.repository.createDevice).toHaveBeenCalledWith(
       expect.objectContaining({ interface_id: INTERFACE.id }),
     );
+  });
+
+  it("создаёт устройство сразу на нескольких интерфейсах", async () => {
+    const { vm, devices } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_3]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.formName = "Multi";
+    vm.setFormUser(OWNER.id);
+
+    expect(vm.formInterfacesPinned).toBe(false);
+    expect(vm.formInterfaceIds).toEqual([]);
+    vm.toggleFormInterface(INTERFACE_3.id);
+    vm.toggleFormInterface(INTERFACE.id);
+
+    expect(vm.selectedFormInterfaceIds).toEqual(["i1", "i3"]);
+    expect(vm.formTunnelsLabel).toBe("Будет создано туннелей: 2");
+
+    await vm.create();
+
+    expect(devices.repository.createDevice).toHaveBeenCalledWith({
+      user_id: OWNER.id,
+      group_id: GROUP.id,
+      interface_id: "i1",
+      interface_ids: ["i1", "i3"],
+      name: "Multi",
+      down_kbps: 0,
+      up_kbps: 0,
+      forwarding: { to_own_devices: false, allowed_devices: [] },
+    });
+  });
+
+  it("не создаёт устройство, если снять все интерфейсы", async () => {
+    const { vm, devices, toasts } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_3]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.formName = "Multi";
+    vm.setFormUser(OWNER.id);
+    vm.toggleFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
+
+    expect(vm.selectedFormInterfaceIds).toEqual([]);
+    expect(vm.canCreate).toBe(false);
+
+    await vm.create();
+
+    expect(devices.repository.createDevice).not.toHaveBeenCalled();
+    expect(toasts.items.at(-1)).toMatchObject({
+      kind: "error",
+      message: "Выберите хотя бы один интерфейс для устройства",
+    });
+  });
+
+  it("показывает закреплённый интерфейс выбранным и недоступным", async () => {
+    const { vm } = setup("admin", [DEVICE], [INTERFACE]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.setFormUser(OWNER.id);
+
+    expect(vm.formInterfacesPinned).toBe(true);
+    expect(vm.pinnedFormInterfaceId).toBe(INTERFACE.id);
+    expect(vm.selectedFormInterfaceIds).toEqual([INTERFACE.id]);
+
+    const option = vm.filteredFormInterfaceOptions[0];
+    expect(option).toMatchObject({
+      value: INTERFACE.id,
+      disabled: true,
+      hint: "Закреплён",
+    });
+    expect(vm.isFormInterfaceSelected(INTERFACE.id)).toBe(true);
+
+    vm.toggleFormInterface(INTERFACE.id);
+    expect(vm.selectedFormInterfaceIds).toEqual([INTERFACE.id]);
+  });
+
+  it("блокирует интерфейсы другой группы и фильтрует список поиском", async () => {
+    const otherGroup: InterfaceInfo = { ...INTERFACE_3, id: "i4", name: "wg3", group_id: "g2" };
+    const { vm } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_3, otherGroup]);
+    await vm.load();
+
+    vm.openCreate();
+    vm.setFormUser(OWNER.id);
+    vm.toggleFormInterface(INTERFACE.id);
+
+    expect(vm.formInterfaceGroupId).toBe(GROUP.id);
+    expect(vm.isFormInterfaceDisabled(INTERFACE_3.id)).toBe(false);
+    expect(vm.isFormInterfaceDisabled(otherGroup.id)).toBe(true);
+    expect(vm.formInterfaceHint(otherGroup.id)).toBe("Другая группа");
+    vm.toggleFormInterface(otherGroup.id);
+    expect(vm.selectedFormInterfaceIds).toEqual([INTERFACE.id]);
+
+    vm.setFormInterfaceQuery({ target: { value: "wg2" } } as unknown as Event);
+    expect(vm.filteredFormInterfaceOptions.map((option) => option.value)).toEqual(["i3"]);
+
+    vm.setFormInterfaceQuery({ target: { value: "" } } as unknown as Event);
+    expect(vm.filteredFormInterfaceOptions).toHaveLength(3);
   });
 
   it("показывает ошибку создания и оставляет форму открытой", async () => {
@@ -589,7 +695,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
-    vm.setFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -687,7 +793,7 @@ describe("ClientsPageVM", () => {
     vm.openCreate();
     vm.formName = "Pixel";
     vm.setFormUser(OWNER.id);
-    vm.setFormInterface(INTERFACE.id);
+    vm.toggleFormInterface(INTERFACE.id);
 
     await vm.create();
 
@@ -695,7 +801,7 @@ describe("ClientsPageVM", () => {
     expect(vm.formDirty).toBe(false);
   });
 
-  it("фильтрует устройства по запросу и интерфейсу", async () => {
+  it("фильтрует устройства по запросу и интерфейсу, учитывая пиры", async () => {
     const { vm } = setup("admin", [DEVICE, PHONE]);
     await vm.load();
 
@@ -710,11 +816,11 @@ describe("ClientsPageVM", () => {
     expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
 
     vm.setInterfaceFilter("i2");
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d2"]);
+    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1", "d2"]);
 
     vm.query = "10.0.1.2";
     vm.appliedQuery = "10.0.1.2";
-    expect(vm.filteredDevices).toEqual([]);
+    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
 
     vm.setInterfaceFilter("");
     expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
@@ -800,8 +906,13 @@ describe("ClientsPageVM", () => {
     expect(vm.userEmail("unknown")).toBe("—");
     expect(vm.interfaceSummary(DEVICE)).toBe("wg0 · node-1");
     expect(vm.interfaceSummary({ ...DEVICE, interface_name: "", node_name: "" })).toBe("—");
-    expect(vm.peersLabel(DEVICE)).toBe("2 пира");
     expect(vm.interfaceNames(DEVICE)).toBe("wg0, wg1");
+    expect(vm.tunnelCount(DEVICE)).toBe(2);
+    expect(vm.tunnelsLabel(DEVICE)).toBe("2 туннеля");
+    expect(vm.interfaceNameList(DEVICE)).toEqual(["wg0", "wg1"]);
+    expect(vm.tunnelCount(PHONE)).toBe(1);
+    expect(vm.tunnelsLabel(PHONE)).toBe("1 туннель");
+    expect(vm.interfaceNames(PHONE)).toBe("wg1");
   });
 
   it("переключает язык заголовка и таблицы", async () => {
@@ -868,6 +979,8 @@ describe("ClientsPageVM", () => {
     expect(root.querySelector("td[data-label='Владелец'] .cell-stack")).not.toBeNull();
     expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("wg0");
     expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("node-1");
+    expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("2 туннеля");
+    expect(root.querySelectorAll("td[data-label='Интерфейс'] .badge.badge--gray")).toHaveLength(2);
     expect(root.querySelector(".entity-card__sub")?.textContent).toContain("wg0 · node-1");
     expect(root.querySelector(".entity-card__meta")?.textContent).toContain("node-1");
     expect(root.querySelector("tbody tr td.cell-actions button")).not.toBeNull();
@@ -932,6 +1045,49 @@ describe("ClientsPageVM", () => {
 
     expect(vm).toBeInstanceOf(ClientsPageVM);
     expect(await container.resolve(ClientsPageVM)).toBe(vm);
+  });
+
+  it("рендерит закреплённый интерфейс в мультивыборе создания", async () => {
+    const devices = devicesHarness([DEVICE]);
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesHarness([INTERFACE, INTERFACE_2])));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
+    container.bind(Session, () => makeSession(OWNER));
+    container.bind(Router, () => new Router());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const result = createComponent(ClientsPage, {}, { container });
+    await result.ready;
+    const root = result.node as ParentNode;
+
+    await vi.waitFor(() => {
+      expect(root.querySelector("[data-device]")).not.toBeNull();
+    });
+
+    const newButton = Array.from(root.querySelectorAll<HTMLButtonElement>("button")).find((button) =>
+      button.textContent?.includes("Новое устройство"),
+    );
+    expect(newButton).toBeDefined();
+    document.body.appendChild(result.node);
+    newButton?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      expect(document.body.querySelector(".interface-checklist")).not.toBeNull();
+    });
+
+    const inputs = Array.from(
+      document.body.querySelectorAll<HTMLInputElement>(".interface-checklist input[type=checkbox]"),
+    );
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]?.checked).toBe(true);
+    expect(inputs[0]?.disabled).toBe(true);
+    expect(document.body.textContent).toContain("Закреплён");
+    expect(document.body.textContent).toContain("Будет создано туннелей: 1");
+
+    result.dispose();
+    document.body.replaceChildren();
   });
 
   describe("массовые действия", () => {

@@ -25,6 +25,9 @@ export class HttpDevicesRepository implements DevicesRepository {
       user_id: input.user_id,
       group_id: input.group_id,
       ...(input.interface_id ? { interface_id: input.interface_id } : {}),
+      ...(input.interface_ids && input.interface_ids.length > 0
+        ? { interface_ids: input.interface_ids }
+        : {}),
       name: input.name,
       down_kbps: input.down_kbps,
       up_kbps: input.up_kbps,

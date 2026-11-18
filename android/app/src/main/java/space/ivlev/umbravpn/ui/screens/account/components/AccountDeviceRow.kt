@@ -96,6 +96,22 @@ fun AccountDeviceRow(
                     color = MaterialTheme.colorScheme.outline,
                 )
             }
+            if (device.peers.size > 1) {
+                val interfaceNames =
+                    device.peers.map { it.interfaceName }.filter { it.isNotBlank() }
+                Text(
+                    text = stringResource(R.string.account_device_tunnels_count, device.peers.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                if (interfaceNames.isNotEmpty()) {
+                    Text(
+                        text = interfaceNames.joinToString(", "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.outline,
+                    )
+                }
+            }
         }
     }
 

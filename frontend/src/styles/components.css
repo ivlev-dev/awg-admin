@@ -83,6 +83,27 @@
 }
 .tab.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 
+.interface-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 6px;
+  border: var(--hairline) solid var(--border);
+  border-radius: var(--r-2);
+  background: var(--surface-2);
+}
+.interface-option {
+  width: 100%;
+  padding: 6px 8px;
+  border-radius: 8px;
+  align-items: flex-start;
+}
+.interface-option:hover { background: color-mix(in oklab, var(--md-on-surface) 6%, transparent); }
+.interface-option.is-disabled { cursor: not-allowed; opacity: 0.7; }
+.interface-option__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
 .table-wrap { width: 100%; overflow-x: auto; }
 .table { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
 .table th {

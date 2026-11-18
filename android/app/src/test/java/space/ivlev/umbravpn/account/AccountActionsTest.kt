@@ -45,6 +45,20 @@ class AccountActionsTest {
     }
 
     @Test
+    fun createDevicePassesSelectedInterfaces() = runTest {
+        actions.createDevice("Laptop", listOf("iface-1", "iface-2", "iface-1"))
+
+        assertEquals(listOf(listOf("iface-1", "iface-2")), repository.createdInterfaceIds)
+    }
+
+    @Test
+    fun createDeviceWithoutInterfacesSendsEmptySelection() = runTest {
+        actions.createDevice("Laptop")
+
+        assertEquals(listOf(emptyList<String>()), repository.createdInterfaceIds)
+    }
+
+    @Test
     fun createDeviceRejectsBlankNameWithoutRequest() = runTest {
         val outcome = actions.createDevice("   ")
 

@@ -7,8 +7,16 @@ data class AccountSnapshot(
     val tariff: AccountTariff?,
     val quota: AccountQuota,
     val devices: List<AccountDevice>,
+    val interfaces: List<AccountInterface> = emptyList(),
     val subscription: AccountSubscription? = null,
     val access: AccountAccess = AccountAccess(),
+)
+
+data class AccountInterface(
+    val id: String,
+    val name: String,
+    val nodeId: String = "",
+    val nodeName: String = "",
 )
 
 data class AccountTariff(
@@ -46,7 +54,15 @@ data class AccountDevice(
     val revoked: Boolean,
     val external: Boolean,
     val addresses: List<String>,
+    val peers: List<DevicePeer> = emptyList(),
     val createdAt: Instant?,
+)
+
+data class DevicePeer(
+    val interfaceId: String,
+    val interfaceName: String,
+    val publicKey: String = "",
+    val addresses: List<String> = emptyList(),
 )
 
 data class DeviceConfig(
@@ -59,4 +75,11 @@ data class DeviceConfig(
     val revision: String,
 )
 
-data class CreatedDevice(val device: AccountDevice, val config: DeviceConfig)
+data class CreatedDevice(
+    val device: AccountDevice,
+    val config: DeviceConfig,
+    val configs: List<DeviceConfig> = listOf(config),
+) {
+    val allConfigs: List<DeviceConfig>
+        get() = configs.ifEmpty { listOf(config) }
+}

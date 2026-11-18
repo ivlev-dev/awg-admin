@@ -38,10 +38,13 @@ export class DefaultDevicesService implements DevicesService {
   }
 
   async createDevice(input: DeviceInput): Promise<Device> {
+    const interfaceIds = normalizeInterfaceIds(input);
+    const primary = interfaceIds[0];
     return this.repository.createDevice({
       user_id: input.user_id,
       group_id: input.group_id,
-      ...(input.interface_id ? { interface_id: input.interface_id } : {}),
+      ...(primary ? { interface_id: primary } : {}),
+      ...(interfaceIds.length > 0 ? { interface_ids: interfaceIds } : {}),
       name: requireText(input.name, "Имя устройства"),
       down_kbps: requireRate(input.down_kbps, "Скорость скачивания"),
       up_kbps: requireRate(input.up_kbps, "Скорость отдачи"),
@@ -120,4 +123,11 @@ export class DefaultDevicesService implements DevicesService {
     const normalized = ids.map((id) => requireId(id, "Устройство"));
     return this.repository.bulk(action, normalized);
   }
+}
+
+function normalizeInterfaceIds(input: DeviceInput): string[] {
+  const ids: string[] = [];
+  if (input.interface_id) ids.push(input.interface_id.trim());
+  for (const id of input.interface_ids ?? []) ids.push(id.trim());
+  return Array.from(new Set(ids.filter((id) => id.length > 0)));
 }

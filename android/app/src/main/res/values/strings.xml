@@ -656,7 +656,12 @@
     <string name="account_all_devices">All devices</string>
     <string name="account_no_devices">No devices yet. Add one to get a ready WireGuard config.</string>
     <string name="account_add_device">Add device</string>
-    <string name="account_add_device_hint">A new device and configuration will be created on the server.</string>
+    <string name="account_add_device_hint">A new device and configurations for the selected interfaces will be created on the server.</string>
+    <string name="account_add_device_interfaces">Interfaces</string>
+    <string name="account_add_device_tunnels_count">Tunnels to create: %1$d</string>
+    <string name="account_error_interfaces_empty">Select at least one interface</string>
+    <string name="account_device_tunnels_count">Tunnels: %1$d</string>
+    <string name="account_device_interfaces">Interfaces</string>
     <string name="account_device_name">Device name</string>
     <string name="account_rename_device">Rename</string>
     <string name="account_delete_device">Delete device</string>

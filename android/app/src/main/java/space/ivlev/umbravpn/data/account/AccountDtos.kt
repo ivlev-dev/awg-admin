@@ -30,7 +30,11 @@ internal data class RefreshRequestDto(@SerialName("refresh_token") val refreshTo
 @Serializable
 internal data class LogoutRequestDto(@SerialName("refresh_token") val refreshToken: String)
 
-@Serializable internal data class CreateDeviceRequestDto(val name: String)
+@Serializable
+internal data class CreateDeviceRequestDto(
+    val name: String,
+    @SerialName("interface_ids") val interfaceIds: List<String>? = null,
+)
 
 @Serializable internal data class RenameDeviceRequestDto(val name: String)
 
@@ -68,8 +72,17 @@ internal data class BootstrapDto(
     val tariff: TariffDto? = null,
     val quota: QuotaDto? = null,
     val devices: List<DeviceDto> = emptyList(),
+    val interfaces: List<InterfaceDto> = emptyList(),
     val subscription: SubscriptionDto? = null,
     val access: AccessDto? = null,
+)
+
+@Serializable
+internal data class InterfaceDto(
+    val id: String,
+    val name: String = "",
+    @SerialName("node_id") val nodeId: String = "",
+    @SerialName("node_name") val nodeName: String = "",
 )
 
 @Serializable
@@ -128,7 +141,16 @@ internal data class DeviceDto(
     val revoked: Boolean = false,
     val external: Boolean = false,
     val addresses: List<String> = emptyList(),
+    val peers: List<DevicePeerDto> = emptyList(),
     @SerialName("created_at") val createdAt: String? = null,
+)
+
+@Serializable
+internal data class DevicePeerDto(
+    @SerialName("interface_id") val interfaceId: String = "",
+    @SerialName("interface_name") val interfaceName: String = "",
+    @SerialName("public_key") val publicKey: String = "",
+    val addresses: List<String> = emptyList(),
 )
 
 @Serializable
@@ -146,4 +168,5 @@ internal data class DeviceConfigDto(
 internal data class AppDeviceDto(
     val device: DeviceDto,
     val config: DeviceConfigDto,
+    val configs: List<DeviceConfigDto> = emptyList(),
 )

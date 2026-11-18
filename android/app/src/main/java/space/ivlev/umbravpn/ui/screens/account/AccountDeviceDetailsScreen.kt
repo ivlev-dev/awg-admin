@@ -90,6 +90,21 @@ fun AccountDeviceDetailsScreen(
                 label = stringResource(R.string.account_device_interface),
                 value = device.interfaceName.ifBlank { stringResource(R.string.account_unknown) },
             )
+            if (device.peers.isNotEmpty()) {
+                AccountInfoRow(
+                    label = stringResource(R.string.account_device_interfaces),
+                    value =
+                        stringResource(R.string.account_device_tunnels_count, device.peers.size),
+                )
+                val interfaceNames =
+                    device.peers.map { it.interfaceName }.filter { it.isNotBlank() }
+                if (interfaceNames.isNotEmpty()) {
+                    AccountInfoRow(
+                        label = stringResource(R.string.account_add_device_interfaces),
+                        value = interfaceNames.joinToString(", "),
+                    )
+                }
+            }
             AccountInfoRow(
                 label = stringResource(R.string.account_node),
                 value = device.nodeName.ifBlank { stringResource(R.string.account_unknown) },

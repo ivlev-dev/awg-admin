@@ -448,6 +448,12 @@ describe("ClientDetailsVM", () => {
     expect(vm.monthTx).toBe("2.0 МБ");
     expect(vm.addresses).toEqual(["10.0.0.2"]);
     expect(vm.peers).toHaveLength(1);
+    expect(vm.tunnelCount).toBe(2);
+    expect(vm.tunnels.map((tunnel) => tunnel.interfaceName)).toEqual(["wg0", "wg1"]);
+    expect(vm.tunnels[0]?.endpoint).toBe("vpn.example.com:51820");
+    expect(vm.tunnels[1]?.addresses).toEqual(["10.0.1.2"]);
+    expect(vm.tunnelsLabel).toBe("2 туннеля");
+    expect(vm.tunnelsCountLabel).toBe("Туннелей: 2");
     expect(vm.otherDevices.map((device) => device.id)).toEqual(["d2"]);
   });
 
@@ -484,6 +490,26 @@ describe("ClientDetailsVM", () => {
     expect(vm.activeProfile?.interface_name).toBe("wg0");
     expect(vm.shareInterfaceId).toBe("i1");
     expect(vm.canShowVpnQr).toBe(true);
+    expect(vm.tunnelCount).toBe(1);
+    expect(vm.tunnelsLabel).toBe("1 туннель");
+  });
+
+  it("строит список туннелей по пирам, если профилей нет", async () => {
+    const { vm } = setup("admin", QUOTA, [USER_QUOTA], []);
+
+    await vm.load();
+
+    expect(vm.profiles).toEqual([]);
+    expect(vm.tunnels).toEqual([
+      {
+        interfaceId: "i1",
+        interfaceName: "wg0",
+        addresses: ["10.0.0.2"],
+        endpoint: "",
+        publicKey: "aaaaaaaaaaaa",
+      },
+    ]);
+    expect(vm.tunnelsCountLabel).toBe("Туннелей: 1");
   });
 
   it("получает отдельный профиль через DevicesService", async () => {
@@ -1380,6 +1406,8 @@ describe("ClientDetailsVM", () => {
     expect(result.node.textContent).toContain("Только выбранные");
     expect(result.node.textContent).toContain("wg0");
     expect(result.node.textContent).toContain("node-1");
+    expect(result.node.textContent).toContain("Туннелей: 2");
+    expect(result.node.textContent).toContain("vpn.example.com:51820");
     const root = result.node as Element;
     expect(root.querySelector(".client-subnav")).not.toBeNull();
     expect(root.querySelectorAll(".client-section")).toHaveLength(6);

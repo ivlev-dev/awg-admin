@@ -19,7 +19,7 @@ import type {
   ShareLinkState,
 } from "@/domain/types";
 import { t, type TranslationKey } from "@/i18n";
-import { formatBytesI18n, formatRateI18n } from "@/i18n/format";
+import { formatBytesI18n, formatRateI18n, pluralI18n } from "@/i18n/format";
 
 export type ForwardingMode = "off" | "all" | "selected";
 
@@ -38,6 +38,14 @@ export interface ForwardingPair {
   allowed: boolean;
   detail: string;
   disabled: boolean;
+}
+
+export interface TunnelRow {
+  readonly interfaceId: string;
+  readonly interfaceName: string;
+  readonly addresses: readonly string[];
+  readonly endpoint: string;
+  readonly publicKey: string;
 }
 
 const FORWARDING_MODES: ForwardingMode[] = ["off", "all", "selected"];
@@ -138,6 +146,45 @@ export class ClientDetailsVM {
   @computed
   get peers(): PeerInfo[] {
     return this.device?.peers ?? [];
+  }
+
+  @computed
+  get tunnels(): TunnelRow[] {
+    if (this.profiles.length > 0) {
+      return this.profiles.map((profile) => {
+        const peer = this.peers.find((item) => item.interface_id === profile.interface_id);
+        return {
+          interfaceId: profile.interface_id,
+          interfaceName: profile.interface_name,
+          addresses: profile.addresses.length > 0 ? profile.addresses : peer?.addresses ?? [],
+          endpoint: profile.endpoint,
+          publicKey: peer?.public_key ?? "",
+        };
+      });
+    }
+    return this.peers.map((peer) => ({
+      interfaceId: peer.interface_id,
+      interfaceName: peer.interface_name,
+      addresses: peer.addresses,
+      endpoint: "",
+      publicKey: peer.public_key,
+    }));
+  }
+
+  @computed
+  get tunnelCount(): number {
+    return this.tunnels.length;
+  }
+
+  @computed
+  get tunnelsLabel(): string {
+    const count = this.tunnelCount;
+    return `${count} ${pluralI18n(count, "common.tunnels.one", "common.tunnels.few", "common.tunnels.many")}`;
+  }
+
+  @computed
+  get tunnelsCountLabel(): string {
+    return t("clients.details.tunnelsCount", { count: this.tunnelCount });
   }
 
   @computed
@@ -858,7 +905,10 @@ export class ClientDetailsVM {
   }
 
   interfaceName(interfaceId: string): string {
-    return this.profiles.find((profile) => profile.interface_id === interfaceId)?.interface_name ?? interfaceId;
+    const profile = this.profiles.find((item) => item.interface_id === interfaceId);
+    if (profile) return profile.interface_name;
+    const peer = this.peers.find((item) => item.interface_id === interfaceId);
+    return peer?.interface_name ?? interfaceId;
   }
 
   scrollToSection(id: string): void {

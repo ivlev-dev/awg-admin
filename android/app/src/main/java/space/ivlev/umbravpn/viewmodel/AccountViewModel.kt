@@ -112,11 +112,11 @@ class AccountViewModel(
         reduce { state.copy(dialog = null, dialogError = null) }
     }
 
-    fun createDevice(name: String) = intent {
+    fun createDevice(name: String, interfaceIds: List<String> = emptyList()) = intent {
         if (state.isActionInProgress) return@intent
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
 
-        when (val outcome = accountActions.createDevice(name)) {
+        when (val outcome = accountActions.createDevice(name, interfaceIds)) {
             is ActionResult.Success -> {
                 val snapshot = state.snapshot
                 reduce {

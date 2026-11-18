@@ -187,6 +187,72 @@ internal fun authJson(
     """
         .trimIndent()
 
+internal fun appDeviceWithConfigsJson(deviceName: String = "Pixel"): String =
+    """
+    {
+      "device": {
+        "id": "device-1",
+        "user_id": "user-1",
+        "group_id": "group-1",
+        "interface_id": "iface-1",
+        "interface_name": "awg0",
+        "node_id": "node-1",
+        "node_name": "Frankfurt",
+        "name": "$deviceName",
+        "down_kbps": 0,
+        "up_kbps": 0,
+        "revoked": false,
+        "external": false,
+        "created_at": "2026-01-03T09:00:00Z",
+        "peers": [
+          {
+            "interface_id": "iface-1",
+            "interface_name": "awg0",
+            "public_key": "peer-key-1",
+            "addresses": ["10.8.0.2/32"]
+          },
+          {
+            "interface_id": "iface-2",
+            "interface_name": "awg1",
+            "public_key": "peer-key-2",
+            "addresses": ["10.9.0.2/32"]
+          }
+        ],
+        "addresses": ["10.8.0.2/32"]
+      },
+      "config": {
+        "interface_id": "iface-1",
+        "interface_name": "awg0",
+        "node_id": "node-1",
+        "endpoint": "vpn.example.com:51820",
+        "addresses": ["10.8.0.2/32"],
+        "conf": "[Interface]\nPrivateKey = secret\n",
+        "revision": "0123456789abcdef"
+      },
+      "configs": [
+        {
+          "interface_id": "iface-1",
+          "interface_name": "awg0",
+          "node_id": "node-1",
+          "endpoint": "vpn.example.com:51820",
+          "addresses": ["10.8.0.2/32"],
+          "conf": "[Interface]\nPrivateKey = secret\n",
+          "revision": "0123456789abcdef"
+        },
+        {
+          "interface_id": "iface-2",
+          "interface_name": "awg1",
+          "node_id": "node-2",
+          "endpoint": "ams.example.com:51820",
+          "addresses": ["10.9.0.2/32"],
+          "conf": "[Interface]\nPrivateKey = second-secret\n",
+          "revision": "fedcba9876543210"
+        }
+      ]
+    }
+    """
+        .trimIndent()
+
 internal fun bootstrapJson(): String =
     """
     {
@@ -239,8 +305,35 @@ internal fun bootstrapJson(): String =
           "revoked": false,
           "external": false,
           "created_at": "2026-01-03T09:00:00Z",
-          "peers": [],
+          "peers": [
+            {
+              "interface_id": "iface-1",
+              "interface_name": "awg0",
+              "public_key": "peer-key-1",
+              "addresses": ["10.8.0.2/32"]
+            },
+            {
+              "interface_id": "iface-2",
+              "interface_name": "awg1",
+              "public_key": "peer-key-2",
+              "addresses": ["10.9.0.2/32"]
+            }
+          ],
           "addresses": ["10.8.0.2/32"]
+        }
+      ],
+      "interfaces": [
+        {
+          "id": "iface-1",
+          "name": "awg0",
+          "node_id": "node-1",
+          "node_name": "Frankfurt"
+        },
+        {
+          "id": "iface-2",
+          "name": "awg1",
+          "node_id": "node-2",
+          "node_name": "Amsterdam"
         }
       ]
     }

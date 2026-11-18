@@ -9,9 +9,14 @@ import space.ivlev.umbravpn.domain.model.account.DeviceConfig
 interface AccountRepository {
     suspend fun bootstrap(): AccountResult<AccountSnapshot>
 
-    suspend fun createDevice(name: String): AccountResult<CreatedDevice>
+    suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String> = emptyList(),
+    ): AccountResult<CreatedDevice>
 
     suspend fun deviceConfig(id: String): AccountResult<DeviceConfig>
+
+    suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>>
 
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice>
 

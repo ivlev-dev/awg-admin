@@ -29,10 +29,15 @@ export interface InterfaceOption {
   readonly label: string;
 }
 
+export interface InterfaceCheckboxOption extends InterfaceOption {
+  readonly disabled: boolean;
+  readonly hint: string;
+}
+
 export interface ClientFormState {
   readonly name: string;
   readonly userId: string;
-  readonly interfaceId: string;
+  readonly interfaceIds: readonly string[];
   readonly downKbps: number;
   readonly upKbps: number;
   readonly forwarding: boolean;
@@ -83,7 +88,8 @@ export class ClientsPageVM {
 
   @reactive accessor formName = "";
   @reactive accessor formUserId = "";
-  @reactive accessor formInterfaceId = "";
+  @reactive accessor formInterfaceIds: string[] = [];
+  @reactive accessor formInterfaceQuery = "";
   @reactive accessor formDownKbps = 0;
   @reactive accessor formUpKbps = 0;
   @reactive accessor formForwarding = false;
@@ -120,11 +126,51 @@ export class ClientsPageVM {
   }
 
   @computed
+  get formInterfacesPinned(): boolean {
+    return this.formInterfaceOptions.length === 1;
+  }
+
+  @computed
+  get pinnedFormInterfaceId(): string {
+    return this.formInterfacesPinned ? this.formInterfaceOptions[0]?.value ?? "" : "";
+  }
+
+  @computed
+  get selectedFormInterfaceIds(): string[] {
+    const available = this.formInterfaceOptions.map((option) => option.value);
+    if (this.formInterfacesPinned) return available;
+    return available.filter((id) => this.formInterfaceIds.includes(id));
+  }
+
+  @computed
+  get selectedFormInterfaceCount(): number {
+    return this.selectedFormInterfaceIds.length;
+  }
+
+  @computed
+  get filteredFormInterfaceOptions(): InterfaceCheckboxOption[] {
+    const query = this.formInterfaceQuery.trim().toLowerCase();
+    return this.formInterfaceOptions
+      .filter((option) => query.length === 0 || option.label.toLowerCase().includes(query))
+      .map((option) => ({
+        ...option,
+        disabled: this.isFormInterfaceDisabled(option.value),
+        hint: this.formInterfaceHint(option.value),
+      }));
+  }
+
+  @computed
+  get formTunnelsLabel(): string {
+    const count = this.selectedFormInterfaceCount;
+    return t("clients.form.tunnelsWillCreate", { count });
+  }
+
+  @computed
   get filteredDevices(): Device[] {
     const query = this.appliedQuery.trim().toLowerCase();
     const interfaceId = this.interfaceFilter;
     const filtered = this.devices.filter((device) => {
-      if (interfaceId && device.interface_id !== interfaceId) return false;
+      if (interfaceId && !hasInterface(device, interfaceId)) return false;
       if (this.statusFilter === "active" && device.revoked) return false;
       if (this.statusFilter === "revoked" && !device.revoked) return false;
       if (!query) return true;
@@ -224,23 +270,20 @@ export class ClientsPageVM {
   }
 
   @computed
-  get selectedInterfaceId(): string {
-    const explicit = this.interfaces.find((item) => item.id === this.formInterfaceId);
-    if (explicit) return explicit.id;
-    return this.singleInterfaceForNode(this.userNodeId(this.formUserId));
-  }
-
-  @computed
   get formInterfaceGroupId(): string | null {
-    return this.interfaces.find((item) => item.id === this.selectedInterfaceId)?.group_id ?? null;
+    const primary = this.selectedFormInterfaceIds[0];
+    if (!primary) return null;
+    return this.interfaceGroupId(primary) || null;
   }
 
   @computed
   get canCreate(): boolean {
     if (this.submitting || this.formName.trim().length === 0) return false;
     if (this.isAdmin && this.formUserId.length === 0) return false;
-    if (!this.isAdmin) return true;
-    return this.selectedInterfaceId.length > 0;
+    if (this.isAdmin || this.formInterfaceOptions.length > 0) {
+      return this.selectedFormInterfaceCount > 0;
+    }
+    return true;
   }
 
   @computed
@@ -250,11 +293,41 @@ export class ClientsPageVM {
     return !sameClientForm(snapshot, this.formState());
   }
 
+  isFormInterfaceSelected(id: string): boolean {
+    return this.selectedFormInterfaceIds.includes(id);
+  }
+
+  isFormInterfaceDisabled(id: string): boolean {
+    if (this.formInterfacesPinned) return true;
+    if (this.isFormInterfaceSelected(id)) return false;
+    const groupId = this.formInterfaceGroupId;
+    if (groupId === null) return false;
+    const optionGroup = this.interfaceGroupId(id);
+    return optionGroup.length > 0 && optionGroup !== groupId;
+  }
+
+  formInterfaceHint(id: string): string {
+    if (this.formInterfacesPinned) return t("clients.form.interfacePinned");
+    if (!this.isFormInterfaceDisabled(id)) return "";
+    return t("clients.form.interfaceOtherGroup");
+  }
+
+  toggleFormInterface(id: string): void {
+    if (this.formInterfacesPinned || this.isFormInterfaceDisabled(id)) return;
+    this.formInterfaceIds = this.formInterfaceIds.includes(id)
+      ? this.formInterfaceIds.filter((value) => value !== id)
+      : [...this.formInterfaceIds, id];
+  }
+
+  setFormInterfaceQuery(event: Event): void {
+    this.formInterfaceQuery = (event.target as HTMLInputElement).value;
+  }
+
   private formState(): ClientFormState {
     return {
       name: this.formName,
       userId: this.formUserId,
-      interfaceId: this.formInterfaceId,
+      interfaceIds: [...this.formInterfaceIds],
       downKbps: this.formDownKbps,
       upKbps: this.formUpKbps,
       forwarding: this.formForwarding,
@@ -308,15 +381,7 @@ export class ClientsPageVM {
 
   setFormUser(value: string): void {
     this.formUserId = value;
-    const nodeId = this.userNodeId(value);
-    const current = this.interfaces.find((item) => item.id === this.formInterfaceId);
-    if (!current || !isInterfaceOnNode(current, nodeId)) {
-      this.formInterfaceId = this.singleInterfaceForNode(nodeId);
-    }
-  }
-
-  setFormInterface(value: string): void {
-    this.formInterfaceId = value;
+    this.formInterfaceIds = this.defaultInterfaceIds();
   }
 
   setFormDownKbps(value: number): void {
@@ -333,13 +398,10 @@ export class ClientsPageVM {
 
   openCreate(): void {
     const userId = this.isAdmin ? "" : this.session.user?.id ?? "";
-    const nodeId = this.userNodeId(userId);
-    const preferred = this.interfaces.find((item) => item.id === this.interfaceFilter);
     this.formName = "";
     this.formUserId = userId;
-    this.formInterfaceId = preferred && isInterfaceOnNode(preferred, nodeId)
-      ? preferred.id
-      : this.singleInterfaceForNode(nodeId);
+    this.formInterfaceQuery = "";
+    this.formInterfaceIds = this.defaultInterfaceIds();
     this.formDownKbps = 0;
     this.formUpKbps = 0;
     this.formForwarding = false;
@@ -371,8 +433,8 @@ export class ClientsPageVM {
       this.toasts.error(t("clients.error.user"));
       return;
     }
-    const interfaceId = this.selectedInterfaceId;
-    if (this.isAdmin && interfaceId.length === 0) {
+    const interfaceIds = this.selectedFormInterfaceIds;
+    if ((this.isAdmin || this.formInterfaceOptions.length > 0) && interfaceIds.length === 0) {
       this.toasts.error(t("clients.error.interface"));
       return;
     }
@@ -381,7 +443,7 @@ export class ClientsPageVM {
       const device = await this.devicesService.createDevice({
         user_id: userId,
         group_id: this.formInterfaceGroupId,
-        ...(interfaceId.length > 0 ? { interface_id: interfaceId } : {}),
+        ...(interfaceIds.length > 0 ? { interface_ids: [...interfaceIds] } : {}),
         name,
         down_kbps: this.formDownKbps,
         up_kbps: this.formUpKbps,
@@ -419,14 +481,24 @@ export class ClientsPageVM {
       : device.interface_name;
   }
 
-  peersLabel(device: Device): string {
-    const count = device.peers.length;
-    return `${count} ${pluralI18n(count, "common.peers.one", "common.peers.few", "common.peers.many")}`;
+  tunnelCount(device: Device): number {
+    if (device.peers.length > 0) return device.peers.length;
+    return device.interface_id ? 1 : 0;
+  }
+
+  tunnelsLabel(device: Device): string {
+    const count = this.tunnelCount(device);
+    return `${count} ${pluralI18n(count, "common.tunnels.one", "common.tunnels.few", "common.tunnels.many")}`;
   }
 
   interfaceNames(device: Device): string {
+    return this.interfaceNameList(device).join(", ");
+  }
+
+  interfaceNameList(device: Device): string[] {
     const names = Array.from(new Set(device.peers.map((peer) => peer.interface_name)));
-    return names.length > 0 ? names.join(", ") : "—";
+    if (names.length > 0) return names;
+    return device.interface_name ? [device.interface_name] : [];
   }
 
   private userNodeId(userId: string): string {
@@ -439,10 +511,17 @@ export class ClientsPageVM {
     return this.interfaces.filter((item) => isInterfaceOnNode(item, nodeId));
   }
 
-  private singleInterfaceForNode(nodeId: string): string {
-    if (nodeId.length === 0) return "";
-    const matches = this.interfacesForNode(nodeId);
-    return matches.length === 1 ? matches[0]?.id ?? "" : "";
+  private interfaceGroupId(interfaceId: string): string {
+    return this.interfaces.find((item) => item.id === interfaceId)?.group_id ?? "";
+  }
+
+  private defaultInterfaceIds(): string[] {
+    const pinned = this.pinnedFormInterfaceId;
+    if (pinned.length > 0) return [pinned];
+    const available = this.formInterfaceOptions.map((option) => option.value);
+    if (available.length === 0) return [];
+    if (available.includes(this.interfaceFilter)) return [this.interfaceFilter];
+    return [];
   }
 
   private persistFilters(): void {
@@ -459,6 +538,11 @@ function interfaceLabel(item: InterfaceInfo): string {
 
 function isInterfaceOnNode(item: InterfaceInfo, nodeId: string): boolean {
   return nodeId.length === 0 || item.node_id === nodeId;
+}
+
+function hasInterface(device: Device, interfaceId: string): boolean {
+  if (device.interface_id === interfaceId) return true;
+  return device.peers.some((peer) => peer.interface_id === interfaceId);
 }
 
 function validateClientsFilters(value: unknown): ClientsFilters | null {
@@ -481,9 +565,14 @@ function sameClientForm(left: ClientFormState, right: ClientFormState): boolean 
   return (
     left.name === right.name &&
     left.userId === right.userId &&
-    left.interfaceId === right.interfaceId &&
+    sameInterfaceIds(left.interfaceIds, right.interfaceIds) &&
     left.downKbps === right.downKbps &&
     left.upKbps === right.upKbps &&
     left.forwarding === right.forwarding
   );
+}
+
+function sameInterfaceIds(left: readonly string[], right: readonly string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((value, index) => value === right[index]);
 }

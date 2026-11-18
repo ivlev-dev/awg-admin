@@ -21,6 +21,7 @@ import space.ivlev.umbravpn.data.migrations.MIGRATION_23_24
 import space.ivlev.umbravpn.data.migrations.MIGRATION_25_26
 import space.ivlev.umbravpn.data.migrations.MIGRATION_28_29
 import space.ivlev.umbravpn.data.migrations.MIGRATION_42_43
+import space.ivlev.umbravpn.data.migrations.MIGRATION_43_44
 import space.ivlev.umbravpn.data.repository.DataStoreAppStateRepository
 import space.ivlev.umbravpn.data.repository.InstalledAndroidPackageRepository
 import space.ivlev.umbravpn.data.repository.RoomAutoTunnelSettingsRepository
@@ -59,6 +60,7 @@ val databaseModule = module {
                 MIGRATION_25_26,
                 MIGRATION_28_29,
                 MIGRATION_42_43,
+                MIGRATION_43_44,
             )
             .fallbackToDestructiveMigration(true)
             .addCallback(get())

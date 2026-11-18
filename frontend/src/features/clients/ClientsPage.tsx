@@ -214,6 +214,16 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           <div class="cell-name__text">
                             <span class="small strong">{device.interface_name || "—"}</span>
                             <span class="xs muted">{device.node_name || "—"}</span>
+                            <span class="row wrap" style="gap:4px;margin-top:4px">
+                              <span class="badge badge--blue" title={t("clients.column.tunnels")}>
+                                {this.vm.tunnelsLabel(device)}
+                              </span>
+                              <Show when={this.vm.tunnelCount(device) > 1}>
+                                <For each={this.vm.interfaceNameList(device)}>
+                                  {(name) => <span class="badge badge--gray mono">{name}</span>}
+                                </For>
+                              </Show>
+                            </span>
                           </div>
                         </td>
                         <td class="col-address" data-label={t("clients.column.addresses")}>
@@ -297,8 +307,8 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                           <dd><span class="nowrap">↓ {rateLabel(device.down_kbps)}</span><br /><span class="nowrap">↑ {rateLabel(device.up_kbps)}</span></dd>
                         </div>
                         <div>
-                          <dt>{t("clients.column.peers")}</dt>
-                          <dd>{this.vm.peersLabel(device)} · {this.vm.interfaceNames(device)}</dd>
+                          <dt>{t("clients.column.tunnels")}</dt>
+                          <dd>{this.vm.tunnelsLabel(device)} · {this.vm.interfaceNames(device) || "—"}</dd>
                         </div>
                         <div>
                           <dt>{t("clients.column.owner")}</dt>
@@ -393,20 +403,57 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 />
               </div>
             </Show>
-            <Show when={this.vm.isAdmin}>
+            <Show when={this.vm.isAdmin || this.vm.formInterfaceOptions.length > 0}>
               <div class="field">
-                <label for="client-interface">{t("clients.form.interface")}</label>
-                <Select
-                  id="client-interface"
-                  value={this.vm.formInterfaceId}
-                  options={[{ value: "", label: t("clients.form.interfaceNone") }, ...this.vm.formInterfaceOptions]}
-                  onChange={(value) => this.vm.setFormInterface(value)}
-                  ariaLabel={t("clients.form.interface")}
-                />
-                <div class="hint">{t("clients.form.interfaceHint")}</div>
+                <span class="xs muted">{t("clients.form.interfaces")}</span>
+                <Show
+                  when={this.vm.formInterfaceOptions.length > 0}
+                  fallback={<div class="hint">{t("clients.form.interfacesEmpty")}</div>}
+                >
+                  <input
+                    class="input"
+                    type="search"
+                    aria-label={t("clients.form.interfacesSearch")}
+                    placeholder={t("clients.form.interfacesSearch")}
+                    value={this.vm.formInterfaceQuery}
+                    onInput={(event: Event) => this.vm.setFormInterfaceQuery(event)}
+                  />
+                  <Show when={this.vm.formInterfacesPinned}>
+                    <div class="hint">{t("clients.form.interfacesPinned")}</div>
+                  </Show>
+                  <div
+                    class="interface-checklist"
+                    role="group"
+                    aria-label={t("clients.form.interfaces")}
+                  >
+                    <For each={this.vm.filteredFormInterfaceOptions}>
+                      {(option) => (
+                        <label class={`checkbox interface-option${option.disabled ? " is-disabled" : ""}`}>
+                          <input
+                            type="checkbox"
+                            checked={this.vm.isFormInterfaceSelected(option.value)}
+                            disabled={option.disabled}
+                            onChange={() => this.vm.toggleFormInterface(option.value)}
+                          />
+                          <span class="interface-option__text">
+                            <span>{option.label}</span>
+                            <Show when={option.hint}>
+                              <span class="xs muted">{option.hint}</span>
+                            </Show>
+                          </span>
+                        </label>
+                      )}
+                    </For>
+                  </div>
+                  <div class="hint">{t("clients.form.interfacesHint")}</div>
+                  <div class="hint">{t("clients.form.interfaceHint")}</div>
+                  <Show when={this.vm.selectedFormInterfaceCount > 0}>
+                    <div class="hint">{this.vm.formTunnelsLabel}</div>
+                  </Show>
+                </Show>
               </div>
             </Show>
-            <Show when={!this.vm.isAdmin}>
+            <Show when={!this.vm.isAdmin && this.vm.formInterfaceOptions.length === 0}>
               <div class="hint">{t("clients.form.interfaceAuto")}</div>
             </Show>
           </div>

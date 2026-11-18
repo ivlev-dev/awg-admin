@@ -552,7 +552,7 @@
     <string name="account_all_devices">Все устройства</string>
     <string name="account_no_devices">Пока нет устройств. Добавьте устройство, чтобы получить готовый конфиг WireGuard.</string>
     <string name="account_add_device">Добавить устройство</string>
-    <string name="account_add_device_hint">На сервере будет создано новое устройство и конфигурация.</string>
+    <string name="account_add_device_hint">На сервере будет создано новое устройство и конфигурации для выбранных интерфейсов.</string>
     <string name="account_device_name">Имя устройства</string>
     <string name="account_rename_device">Переименовать</string>
     <string name="account_delete_device">Удалить устройство</string>
@@ -660,4 +660,7 @@
     <string name="account_error_account_disabled">Аккаунт отключён администратором</string>
     <string name="account_error_tariff_required">Тариф не назначен, обратитесь к администратору</string>
     <string name="account_error_subscription_inactive">Подписка неактивна, продлите её для доступа</string>
+    <string name="account_add_device_interfaces">Интерфейсы</string>
+    <string name="account_add_device_tunnels_count">Будет создано туннелей: %1$d</string>
+    <string name="account_device_interfaces">Интерфейсы</string>
 </resources>

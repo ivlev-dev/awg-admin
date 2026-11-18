@@ -412,6 +412,59 @@ val MIGRATION_25_26 =
         }
     }
 
+val MIGRATION_43_44 =
+    object : Migration(43, 44) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS `managed_tunnel_new` (
+                    `device_id` TEXT NOT NULL,
+                    `tunnel_id` INTEGER NOT NULL,
+                    `device_name` TEXT NOT NULL,
+                    `interface_id` TEXT NOT NULL,
+                    `endpoint` TEXT,
+                    `revision` TEXT NOT NULL,
+                    `synced_at` INTEGER NOT NULL,
+                    PRIMARY KEY(`device_id`, `interface_id`)
+                )
+                """
+                    .trimIndent(),
+            )
+            db.execSQL(
+                """
+                INSERT OR REPLACE INTO `managed_tunnel_new` (
+                    `device_id`,
+                    `tunnel_id`,
+                    `device_name`,
+                    `interface_id`,
+                    `endpoint`,
+                    `revision`,
+                    `synced_at`
+                )
+                SELECT
+                    `device_id`,
+                    `tunnel_id`,
+                    `device_name`,
+                    COALESCE(`interface_id`, ''),
+                    `endpoint`,
+                    `revision`,
+                    `synced_at`
+                FROM `managed_tunnel`
+                """
+                    .trimIndent(),
+            )
+            db.execSQL("DROP TABLE `managed_tunnel`")
+            db.execSQL("ALTER TABLE `managed_tunnel_new` RENAME TO `managed_tunnel`")
+            db.execSQL(
+                """
+                CREATE UNIQUE INDEX IF NOT EXISTS `index_managed_tunnel_tunnel_id`
+                ON `managed_tunnel` (`tunnel_id`)
+                """
+                    .trimIndent(),
+            )
+        }
+    }
+
 val MIGRATION_42_43 =
     object : Migration(42, 43) {
         override fun migrate(db: SupportSQLiteDatabase) {

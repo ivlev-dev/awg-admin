@@ -11,11 +11,16 @@ import space.ivlev.umbravpn.domain.repository.AccountRepository
 class KtorAccountRepository(private val api: AccountApi) : AccountRepository {
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> = api.bootstrap()
 
-    override suspend fun createDevice(name: String): AccountResult<CreatedDevice> =
-        api.createDevice(name)
+    override suspend fun createDevice(
+        name: String,
+        interfaceIds: List<String>,
+    ): AccountResult<CreatedDevice> = api.createDevice(name, interfaceIds)
 
     override suspend fun deviceConfig(id: String): AccountResult<DeviceConfig> =
         api.deviceConfig(id)
+
+    override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
+        api.deviceConfigs(id)
 
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         api.renameDevice(id, name)

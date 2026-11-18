@@ -17,8 +17,8 @@ class RoomManagedTunnelRepository(private val managedTunnelDao: ManagedTunnelDao
     override suspend fun getAll(): List<ManagedTunnel> =
         managedTunnelDao.getAll().map { it.toDomain() }
 
-    override suspend fun getByDeviceId(deviceId: String): ManagedTunnel? =
-        managedTunnelDao.getByDeviceId(deviceId)?.toDomain()
+    override suspend fun getByDevice(deviceId: String): List<ManagedTunnel> =
+        managedTunnelDao.getByDevice(deviceId).map { it.toDomain() }
 
     override suspend fun getByTunnelId(tunnelId: Int): ManagedTunnel? =
         managedTunnelDao.getByTunnelId(tunnelId)?.toDomain()
@@ -27,7 +27,11 @@ class RoomManagedTunnelRepository(private val managedTunnelDao: ManagedTunnelDao
         managedTunnelDao.upsert(binding.toEntity())
     }
 
-    override suspend fun unbind(deviceId: String) {
+    override suspend fun unbind(deviceId: String, interfaceId: String) {
+        managedTunnelDao.deleteByKey(deviceId, interfaceId)
+    }
+
+    override suspend fun unbindDevice(deviceId: String) {
         managedTunnelDao.deleteByDeviceId(deviceId)
     }
 

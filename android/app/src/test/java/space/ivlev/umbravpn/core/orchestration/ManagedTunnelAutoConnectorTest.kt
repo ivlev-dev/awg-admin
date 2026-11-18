@@ -265,7 +265,7 @@ class ManagedTunnelAutoConnectorTest {
             deviceId = deviceId,
             tunnelId = tunnelId,
             deviceName = deviceId,
-            interfaceId = null,
+            interfaceId = "",
             endpoint = null,
             revision = "rev-1",
             syncedAt = 0L,
