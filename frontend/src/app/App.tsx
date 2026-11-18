@@ -291,6 +291,8 @@ export function App(this: { vm: AppVM }) {
       <ToastStack
         items={this.vm.toasts.items}
         onDismiss={(id: number) => this.vm.toasts.dismiss(id)}
+        onPause={(id: number) => this.vm.toasts.pause(id)}
+        onResume={(id: number) => this.vm.toasts.resume(id)}
       />
     </>
   );

@@ -10,6 +10,7 @@ export const enCommon = {
   "common.online": "Online",
   "common.cancelShort": "Cancel",
   "common.confirm": "Confirm",
+  "common.dismissToast": "Dismiss notification",
   "common.saveShort": "Save",
   "common.delete": "Delete",
   "common.copy": "Copy",

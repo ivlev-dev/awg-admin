@@ -10,6 +10,7 @@ export const ruCommon = {
   "common.online": "Online",
   "common.cancelShort": "Отмена",
   "common.confirm": "Подтвердить",
+  "common.dismissToast": "Закрыть уведомление",
   "common.saveShort": "Сохранить",
   "common.delete": "Удалить",
   "common.copy": "Копировать",

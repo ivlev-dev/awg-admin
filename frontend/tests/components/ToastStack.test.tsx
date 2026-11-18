@@ -40,19 +40,42 @@ describe("ToastStack", () => {
     result.dispose();
   });
 
-  it("закрывает уведомление по клику", () => {
+  it("закрывает уведомление кнопкой", () => {
     const onDismiss = vi.fn();
     const result = createComponent(ToastStack, { items: ITEMS, onDismiss });
+    document.body.appendChild(result.node);
     const node = queryAll(result.node, ".toast").find((item) => item.textContent?.includes("Готово"));
     if (!node) throw new Error("Уведомление не найдено");
-    document.body.appendChild(result.node);
+    const close = query(node, ".toast__close");
+    if (!(close instanceof HTMLButtonElement)) throw new Error("Кнопка закрытия не найдена");
 
-    node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(close.getAttribute("aria-label")).toBe("Закрыть уведомление");
+    close.click();
 
     expect(onDismiss).toHaveBeenCalledWith(2);
 
     result.dispose();
     document.body.replaceChildren();
+  });
+
+  it("ставит автоскрытие на паузу при наведении и фокусе", () => {
+    const onPause = vi.fn();
+    const onResume = vi.fn();
+    const result = createComponent(ToastStack, { items: ITEMS, onDismiss: vi.fn(), onPause, onResume });
+    const node = queryAll(result.node, ".toast").find((item) => item.textContent?.includes("Готово"));
+    if (!node) throw new Error("Уведомление не найдено");
+
+    node.dispatchEvent(new MouseEvent("mouseenter", { bubbles: false }));
+    node.dispatchEvent(new MouseEvent("mouseleave", { bubbles: false }));
+    node.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    node.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+
+    expect(onPause).toHaveBeenNthCalledWith(1, 2);
+    expect(onPause).toHaveBeenNthCalledWith(2, 2);
+    expect(onResume).toHaveBeenNthCalledWith(1, 2);
+    expect(onResume).toHaveBeenNthCalledWith(2, 2);
+
+    result.dispose();
   });
 
   it("не рендерит тосты без элементов", () => {
