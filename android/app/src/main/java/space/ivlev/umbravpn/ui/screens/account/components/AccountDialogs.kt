@@ -36,6 +36,7 @@ fun AccountDialogs(
     onRenameDevice: (String, String) -> Unit,
     onDeleteDevice: (String) -> Unit,
     onAddTunnel: (String, String, String) -> Unit,
+    onRenameTunnel: (String, String, String) -> Unit,
     onDeleteTunnel: (String, String) -> Unit,
     onLogout: () -> Unit,
     onChangeServer: (String) -> Unit,
@@ -268,6 +269,29 @@ fun AccountDialogs(
                 confirmText = stringResource(R.string.create),
                 confirmEnabled =
                     AccountTunnelDraft.isValid(selectedId, label) && !state.isActionInProgress,
+            )
+        }
+        is AccountDialog.RenameTunnel -> {
+            var label by rememberSaveable(dialog) { mutableStateOf(dialog.currentLabel) }
+            val labelError = AccountTunnelDraft.labelError(label)
+            InfoDialog(
+                onAttest = { onRenameTunnel(dialog.deviceId, dialog.peerId, label) },
+                onDismiss = onDismiss,
+                title = stringResource(R.string.account_rename_tunnel),
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AccountFormField(
+                            value = label,
+                            onValueChange = { label = it },
+                            label = stringResource(R.string.account_tunnel_label),
+                            error = labelError,
+                            enabled = !state.isActionInProgress,
+                        )
+                        state.dialogError?.let { AccountErrorCard(it) }
+                    }
+                },
+                confirmText = stringResource(R.string.save),
+                confirmEnabled = labelError == null && !state.isActionInProgress,
             )
         }
         is AccountDialog.DeleteTunnel -> {

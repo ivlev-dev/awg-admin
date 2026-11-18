@@ -666,4 +666,15 @@
     <string name="account_add_tunnel">Добавить туннель</string>
     <string name="account_delete_tunnel">Удалить туннель</string>
     <string name="account_delete_tunnel_message">Удалить туннель «%1$s»? Он будет удалён с этого устройства.</string>
+    <string name="account_rename_tunnel">Переименовать туннель</string>
+    <string name="account_tunnel_label">Название туннеля</string>
+    <string name="tunnel_managed_badge">Из панели</string>
+    <string name="tunnels_sync">Синхронизация</string>
+    <string name="tunnels_sync_channel_description">Уведомления об обновлении и удалении туннелей из панели</string>
+    <string name="tunnels_sync_updated_title">Туннели обновлены: %1$d</string>
+    <string name="tunnels_sync_removed_title">Туннели удалены: %1$d</string>
+    <string name="tunnels_sync_removed_text">%1$s (%2$s)</string>
+    <string name="tunnels_sync_reason_revoked">доступ отозван</string>
+    <string name="tunnels_sync_reason_deleted">устройство удалено</string>
+    <string name="tunnels_sync_reason_peer_removed">пир удалён</string>
 </resources>

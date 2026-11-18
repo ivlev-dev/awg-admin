@@ -269,6 +269,22 @@ class AccountApi(
             path = "app/devices/$deviceId/tunnels/$peerId",
         )
 
+    suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): AccountResult<AccountDevice> =
+        execute(
+            authenticated = true,
+            method = HttpMethod.Patch,
+            path = "app/devices/$deviceId/tunnels/$peerId",
+            configure = {
+                contentType(ContentType.Application.Json)
+                setBody(RenameTunnelRequestDto(label = label))
+            },
+            decode = { body -> json.decodeFromString<AppDeviceDto>(body).device.toDomain() },
+        )
+
     suspend fun deleteDevice(id: String): AccountResult<Unit> =
         executeUnit(
             authenticated = true,

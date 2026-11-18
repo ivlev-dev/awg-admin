@@ -25,6 +25,10 @@ import space.ivlev.umbravpn.domain.security.TokenStore
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleaner
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.notification.AndroidNotificationService.NotificationChannels
+import space.ivlev.umbravpn.notification.ManagedTunnelSyncNotifier
+import space.ivlev.umbravpn.notification.NotificationService
+import space.ivlev.umbravpn.util.permission.NotificationPermissionHelper
 
 val accountModule = module {
     single<AccountSettingsRepository> { DataStoreAccountSettingsRepository(get()) }
@@ -64,6 +68,26 @@ val accountModule = module {
             managedTunnelRepository = get(),
             tunnelRepository = get(),
             deviceNameProvider = { defaultManagedDeviceName() },
+        )
+    }
+    single {
+        val notificationService = get<NotificationService>()
+        val context = androidContext()
+        ManagedTunnelSyncNotifier(
+            events = get<ManagedTunnelSyncService>().events,
+            scope = get(named(Scope.APPLICATION)),
+            isNotificationAllowed = { NotificationPermissionHelper.isPermissionGranted(context) },
+            string = { id, args -> context.getString(id, *args) },
+            show = { title, text ->
+                notificationService.show(
+                    NotificationService.SYNC_NOTIFICATION_ID,
+                    notificationService.createNotification(
+                        channel = NotificationChannels.Sync,
+                        title = title,
+                        description = text,
+                    ),
+                )
+            },
         )
     }
 }

@@ -44,6 +44,7 @@ enum class AccountMessage {
     DeviceDeleted,
     TunnelAdded,
     TunnelDeleted,
+    TunnelRenamed,
     ServerChanged,
     LoggedOut,
     EmailResent,

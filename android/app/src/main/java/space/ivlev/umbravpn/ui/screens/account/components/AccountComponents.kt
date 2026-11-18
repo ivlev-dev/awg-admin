@@ -71,6 +71,7 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.DeviceDeleted -> R.string.account_device_deleted
         AccountMessage.TunnelAdded -> R.string.account_tunnel_added
         AccountMessage.TunnelDeleted -> R.string.account_tunnel_deleted
+        AccountMessage.TunnelRenamed -> R.string.account_tunnel_renamed
         AccountMessage.ServerChanged -> R.string.account_server_changed
         AccountMessage.LoggedOut -> R.string.account_logged_out
         AccountMessage.EmailResent -> R.string.account_email_resent

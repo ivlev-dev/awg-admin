@@ -3,6 +3,7 @@ package space.ivlev.umbravpn.ui.state
 import com.wgtunnel.backend.state.BackendStatus
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.TunnelGroup
+import space.ivlev.umbravpn.domain.model.account.ManagedTunnel
 
 data class TunnelsUiState(
     val tunnels: List<TunnelConfig> = emptyList(),
@@ -16,6 +17,7 @@ data class TunnelsUiState(
     val reorderScopeGroupId: Int? = null,
     val reorderLatencies: Map<Int, Double> = emptyMap(),
     val pingLatencies: Map<Int, Double> = emptyMap(),
+    val managedTunnelIds: Set<Int> = emptySet(),
 ) {
     val hasActiveTunnel: Boolean
         get() = backendStatus.activeTunnels.isNotEmpty()
@@ -51,3 +53,5 @@ data class TunnelsUiState(
                 scopeGroupId = if (isReorderMode) reorderScopeGroupId else null,
             )
 }
+
+fun List<ManagedTunnel>.toManagedTunnelIds(): Set<Int> = mapTo(mutableSetOf()) { it.tunnelId }

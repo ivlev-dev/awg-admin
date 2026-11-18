@@ -906,6 +906,73 @@ class ManagedTunnelSyncServiceTest {
         assertEquals(listOf(7), env.tunnels.tunnels.map { it.id })
     }
 
+    @Test
+    fun peerLabelChangeRenamesTunnel() = runTest {
+        val firstConf = quickConfig()
+        val secondConf = quickConfig(endpoint = "second.example.com:51820")
+        val env =
+            syncEnvironment(
+                tunnels =
+                    listOf(
+                        TunnelConfig(
+                            id = 7,
+                            name = "Pixel",
+                            quickConfig = normalizeQuickConfig(firstConf),
+                            position = 0,
+                        ),
+                        TunnelConfig(
+                            id = 8,
+                            name = "Pixel · old",
+                            quickConfig = normalizeQuickConfig(secondConf),
+                            position = 1,
+                        ),
+                    ),
+                bindings =
+                    listOf(
+                        managedBinding(
+                            tunnelId = 7,
+                            peerId = "peer-1",
+                            label = "primary",
+                        ),
+                        managedBinding(
+                            tunnelId = 8,
+                            peerId = "peer-2",
+                            label = "old",
+                            revision = "rev-2",
+                        ),
+                    ),
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    conf = firstConf,
+                                    revision = "rev-1",
+                                    peerId = "peer-1",
+                                    label = "primary",
+                                ),
+                                deviceConfig(
+                                    conf = secondConf,
+                                    revision = "rev-2",
+                                    endpoint = "second.example.com:51820",
+                                    peerId = "peer-2",
+                                    label = "renamed",
+                                ),
+                            ),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Success(updated = 1), result)
+        assertEquals("Pixel · renamed", env.tunnels.getById(8)?.name)
+        assertEquals(
+            "renamed",
+            env.managed.getByDevice("device-1").single { it.peerId == "peer-2" }.label,
+        )
+    }
+
     private fun managedBinding(
         tunnelId: Int,
         deviceId: String = "device-1",

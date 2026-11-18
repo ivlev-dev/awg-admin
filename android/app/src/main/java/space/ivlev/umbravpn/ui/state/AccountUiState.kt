@@ -14,6 +14,12 @@ sealed interface AccountDialog {
 
     data class AddTunnel(val deviceId: String) : AccountDialog
 
+    data class RenameTunnel(
+        val deviceId: String,
+        val peerId: String,
+        val currentLabel: String,
+    ) : AccountDialog
+
     data class DeleteTunnel(
         val deviceId: String,
         val peerId: String,

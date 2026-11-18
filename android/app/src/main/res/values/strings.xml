@@ -430,6 +430,18 @@
     <string name="app_channel_id" translatable="false">App Channel</string>
     <string name="app">App</string>
     <string name="app_channel_description">A channel for general application notifications, like version updates</string>
+    <string name="sync_channel_id" translatable="false">Sync Channel</string>
+    <string name="tunnels_sync">Sync</string>
+    <string name="tunnels_sync_channel_description">Notifications about managed tunnel updates and removals</string>
+    <string name="tunnels_sync_updated_title">Tunnels updated: %1$d</string>
+    <string name="tunnels_sync_removed_title">Tunnels removed: %1$d</string>
+    <string name="tunnels_sync_updated_text">%1$s</string>
+    <string name="tunnels_sync_removed_text">%1$s (%2$s)</string>
+    <string name="tunnels_sync_more_names">+%1$d</string>
+    <string name="tunnels_sync_reason_revoked">access revoked</string>
+    <string name="tunnels_sync_reason_deleted">device deleted</string>
+    <string name="tunnels_sync_reason_peer_removed">peer removed</string>
+    <string name="tunnel_managed_badge">From panel</string>
     <string name="stop_all">Stop all</string>
     <string name="tunnel_state_establishing_connection">Establishing connection</string>
     <string name="peer_endpoints">Peer endpoints</string>
@@ -670,6 +682,8 @@
     <string name="account_tunnel_added">Tunnel added</string>
     <string name="account_tunnel_deleted">Tunnel deleted</string>
     <string name="account_tunnel_label">Tunnel label</string>
+    <string name="account_rename_tunnel">Rename tunnel</string>
+    <string name="account_tunnel_renamed">Tunnel renamed</string>
     <string name="account_tunnel_interface">Interface</string>
     <string name="account_tunnel_no_interfaces">No interfaces available on the server.</string>
     <string name="account_tunnel_default_label">Use the interface name by default</string>

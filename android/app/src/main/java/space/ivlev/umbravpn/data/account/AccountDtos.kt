@@ -38,6 +38,8 @@ internal data class CreateDeviceRequestDto(
 
 @Serializable internal data class RenameDeviceRequestDto(val name: String)
 
+@Serializable internal data class RenameTunnelRequestDto(val label: String)
+
 @Serializable
 internal data class AuthResponseDto(
     val token: String,

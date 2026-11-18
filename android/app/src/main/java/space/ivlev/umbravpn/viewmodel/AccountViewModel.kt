@@ -141,6 +141,16 @@ class AccountViewModel(
         }
     }
 
+    fun showRenameTunnel(deviceId: String, peerId: String, label: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce {
+            state.copy(
+                dialog = AccountDialog.RenameTunnel(deviceId, peerId, label),
+                dialogError = null,
+            )
+        }
+    }
+
     fun showLogout() = intent { reduce { state.copy(dialog = AccountDialog.Logout) } }
 
     fun showChangeServer() = intent {
@@ -303,6 +313,33 @@ class AccountViewModel(
             }
             is ActionResult.Failure ->
                 reduce { state.copy(isActionInProgress = false, dialogError = outcome.message) }
+        }
+    }
+
+    fun renameTunnel(deviceId: String, peerId: String, label: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce { state.copy(isActionInProgress = true, dialogError = null) }
+
+        when (val outcome = accountActions.renameDeviceTunnel(deviceId, peerId, label)) {
+            is ActionResult.Success -> {
+                val snapshot = state.snapshot
+                reduce {
+                    state.copy(
+                        isActionInProgress = false,
+                        dialog = null,
+                        dialogError = null,
+                        snapshot = snapshot?.replaceDevice(outcome.value),
+                    )
+                }
+                syncTunnels()
+                postSideEffect(AccountSideEffect.Notice(AccountMessage.TunnelRenamed))
+            }
+            is ActionResult.Failure -> {
+                reduce { state.copy(isActionInProgress = false, dialogError = outcome.message) }
+                postSideEffect(
+                    AccountSideEffect.Notice(outcome.message, isError = true),
+                )
+            }
         }
     }
 

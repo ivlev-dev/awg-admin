@@ -199,6 +199,18 @@ internal class FakeAccountRepository(
         return removeTunnelResult
     }
 
+    var renameTunnelResult: AccountResult<AccountDevice> = AccountResult.Success(accountDevice())
+    val renamedTunnels = mutableListOf<Triple<String, String, String>>()
+
+    override suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): AccountResult<AccountDevice> {
+        renamedTunnels += Triple(deviceId, peerId, label)
+        return renameTunnelResult
+    }
+
     override suspend fun deleteDevice(id: String): AccountResult<Unit> = AccountResult.Success(Unit)
 }
 

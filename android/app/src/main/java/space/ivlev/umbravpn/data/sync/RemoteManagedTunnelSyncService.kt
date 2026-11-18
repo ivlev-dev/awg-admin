@@ -2,7 +2,10 @@ package space.ivlev.umbravpn.data.sync
 
 import com.wgtunnel.parser.Config
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import space.ivlev.umbravpn.domain.model.TunnelConfig
@@ -17,6 +20,8 @@ import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.ManagedTunnelRepository
 import space.ivlev.umbravpn.domain.repository.TunnelRepository
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.sync.SyncEvent
+import space.ivlev.umbravpn.domain.sync.SyncRemovalReason
 import space.ivlev.umbravpn.domain.sync.SyncResult
 import timber.log.Timber
 
@@ -31,6 +36,9 @@ class RemoteManagedTunnelSyncService(
 ) : ManagedTunnelSyncService {
 
     private val mutex = Mutex()
+    private val _events = MutableSharedFlow<SyncEvent>(extraBufferCapacity = EVENT_BUFFER_CAPACITY)
+
+    override val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 
     override suspend fun sync(): SyncResult = mutex.withLock { performSync() }
 
@@ -43,6 +51,7 @@ class RemoteManagedTunnelSyncService(
                 is AccountResult.Failure -> return result.error.toSyncResult()
                 is AccountResult.Success -> result.value
             }
+        val snapshotDevices = snapshot.devices
 
         val activeDevices: List<AccountDevice>
         val configs: Map<String, List<DeviceConfig>>
@@ -112,11 +121,16 @@ class RemoteManagedTunnelSyncService(
                 .mapTo(mutableSetOf()) { BindingKey(it.deviceId, it.interfaceId, it.peerId) }
 
         var removedCount = 0
+        val removedNames = mutableListOf<String>()
+        val removalReasons = mutableListOf<SyncRemovalReason>()
         for (binding in bindings) {
             val key = BindingKey(binding.deviceId, binding.interfaceId, binding.peerId)
             val desired = key in desiredKeys || key in reusableLegacyKeys
             if (desired) continue
-            tunnelRepository.getById(binding.tunnelId)?.let { tunnelRepository.delete(it) }
+            val tunnel = tunnelRepository.getById(binding.tunnelId)
+            removedNames += tunnel?.name ?: binding.deviceName
+            removalReasons += removalReason(snapshotDevices, binding.deviceId)
+            tunnel?.let { tunnelRepository.delete(it) }
             managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId, binding.peerId)
             removedCount++
         }
@@ -126,6 +140,7 @@ class RemoteManagedTunnelSyncService(
         var nextPosition = (remainingTunnels.maxOfOrNull { it.position } ?: -1) + 1
         var createdCount = 0
         var updatedCount = 0
+        val updatedNames = mutableListOf<String>()
         val matched = mutableSetOf<BindingKey>()
         val consumedTunnelIds = mutableSetOf<Int>()
 
@@ -208,6 +223,7 @@ class RemoteManagedTunnelSyncService(
                             usedNames += name
                         }
                         updatedCount++
+                        updatedNames += name
                     }
                     if (binding.interfaceId != key.interfaceId || binding.peerId != key.peerId) {
                         managedTunnelRepository.unbind(
@@ -236,10 +252,21 @@ class RemoteManagedTunnelSyncService(
                 binding.deviceId in activeDeviceIds &&
                     BindingKey(binding.deviceId, binding.interfaceId, binding.peerId) in matched
             if (active) continue
-            tunnelRepository.getById(binding.tunnelId)?.let { tunnelRepository.delete(it) }
+            val tunnel = tunnelRepository.getById(binding.tunnelId)
+            removedNames += tunnel?.name ?: binding.deviceName
+            removalReasons += removalReason(snapshotDevices, binding.deviceId)
+            tunnel?.let { tunnelRepository.delete(it) }
             managedTunnelRepository.unbind(binding.deviceId, binding.interfaceId, binding.peerId)
             removedCount++
         }
+
+        emitEvents(
+            updatedCount = updatedCount,
+            updatedNames = updatedNames,
+            removedCount = removedCount,
+            removedNames = removedNames,
+            removalReasons = removalReasons,
+        )
 
         return SyncResult.Success(
             created = createdCount,
@@ -247,6 +274,48 @@ class RemoteManagedTunnelSyncService(
             removed = removedCount,
         )
     }
+
+    private fun emitEvents(
+        updatedCount: Int,
+        updatedNames: List<String>,
+        removedCount: Int,
+        removedNames: List<String>,
+        removalReasons: List<SyncRemovalReason>,
+    ) {
+        if (updatedCount > 0) {
+            _events.tryEmit(
+                SyncEvent.Updated(count = updatedCount, names = updatedNames.distinct()),
+            )
+        }
+        if (removedCount > 0) {
+            _events.tryEmit(
+                SyncEvent.Removed(
+                    count = removedCount,
+                    names = removedNames.distinct(),
+                    reason = dominantRemovalReason(removalReasons),
+                ),
+            )
+        }
+    }
+
+    private fun removalReason(
+        devices: List<AccountDevice>,
+        deviceId: String,
+    ): SyncRemovalReason {
+        val device = devices.firstOrNull { it.id == deviceId }
+        return when {
+            device == null -> SyncRemovalReason.Deleted
+            device.revoked -> SyncRemovalReason.Revoked
+            else -> SyncRemovalReason.PeerRemoved
+        }
+    }
+
+    private fun dominantRemovalReason(reasons: List<SyncRemovalReason>): SyncRemovalReason =
+        when {
+            SyncRemovalReason.Revoked in reasons -> SyncRemovalReason.Revoked
+            SyncRemovalReason.Deleted in reasons -> SyncRemovalReason.Deleted
+            else -> SyncRemovalReason.PeerRemoved
+        }
 
     private fun findBinding(
         deviceBindings: List<ManagedTunnel>,
@@ -281,6 +350,7 @@ class RemoteManagedTunnelSyncService(
         const val SAVE_ERROR_MESSAGE = "Failed to persist tunnel"
         const val UNKNOWN_ERROR_MESSAGE = "Unknown sync error"
         const val ACCESS_RESTRICTED_MESSAGE = "Account access is restricted"
+        const val EVENT_BUFFER_CAPACITY = 16
     }
 }
 

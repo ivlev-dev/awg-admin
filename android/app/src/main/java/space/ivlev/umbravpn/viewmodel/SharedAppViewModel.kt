@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.dokar.sonner.ToastType
 import com.wgtunnel.parser.archive.ConfigArchive
 import java.io.IOException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -36,12 +37,15 @@ import space.ivlev.umbravpn.domain.model.TunnelGroup
 import space.ivlev.umbravpn.domain.repository.AppStateRepository
 import space.ivlev.umbravpn.domain.repository.GeneralSettingRepository
 import space.ivlev.umbravpn.domain.repository.GlobalEffectRepository
+import space.ivlev.umbravpn.domain.repository.ManagedTunnelRepository
 import space.ivlev.umbravpn.domain.repository.SelectedTunnelsRepository
 import space.ivlev.umbravpn.domain.repository.TunnelGroupRepository
 import space.ivlev.umbravpn.domain.repository.TunnelRepository
 import space.ivlev.umbravpn.domain.repository.TunnelsSelection
 import space.ivlev.umbravpn.domain.sideeffect.GlobalSideEffect
 import space.ivlev.umbravpn.domain.sideeffect.NotificationPendingAction
+import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.sync.SyncResult
 import space.ivlev.umbravpn.service.ServiceManager
 import space.ivlev.umbravpn.ui.sideeffect.LocalSideEffect
 import space.ivlev.umbravpn.ui.state.DisplayTunnelState
@@ -52,6 +56,7 @@ import space.ivlev.umbravpn.ui.state.nextRootPosition
 import space.ivlev.umbravpn.ui.state.shiftRootPositionsBy
 import space.ivlev.umbravpn.ui.state.sortGroupChildrenByName
 import space.ivlev.umbravpn.ui.state.sortRootByName
+import space.ivlev.umbravpn.ui.state.toManagedTunnelIds
 import space.ivlev.umbravpn.ui.state.ungroupKeepingOrder
 import space.ivlev.umbravpn.ui.state.uniqueDisplayName
 import space.ivlev.umbravpn.ui.theme.Theme
@@ -70,6 +75,8 @@ class SharedAppViewModel(
     private val globalEffectRepository: GlobalEffectRepository,
     private val tunnelRepository: TunnelRepository,
     private val tunnelGroupRepository: TunnelGroupRepository,
+    private val managedTunnelRepository: ManagedTunnelRepository,
+    private val managedTunnelSyncService: ManagedTunnelSyncService,
     private val settingsRepository: GeneralSettingRepository,
     private val selectedTunnelsRepository: SelectedTunnelsRepository,
     private val tunnelBackendCoordinator: TunnelBackendCoordinator,
@@ -139,6 +146,38 @@ class SharedAppViewModel(
     private val reorderDraft = MutableStateFlow<ReorderDraft?>(null)
     private val pingLatencies = MutableStateFlow<Map<Int, Double>>(emptyMap())
     private val pingInFlight = MutableStateFlow(false)
+    private val syncingTunnels = MutableStateFlow(false)
+
+    val isSyncingTunnels = syncingTunnels.asStateFlow()
+
+    fun refreshTunnels() = intent {
+        if (syncingTunnels.value) return@intent
+        syncingTunnels.value = true
+        try {
+            when (val result = managedTunnelSyncService.sync()) {
+                SyncResult.NotConfigured,
+                is SyncResult.Success -> Unit
+                SyncResult.Offline -> postSyncError(R.string.account_error_network)
+                SyncResult.SessionExpired -> postSyncError(R.string.account_error_session_expired)
+                is SyncResult.Failed -> postSyncError(R.string.unknown_error)
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            postSyncError(R.string.unknown_error)
+        } finally {
+            syncingTunnels.value = false
+        }
+    }
+
+    private suspend fun postSyncError(messageRes: Int) {
+        postSideEffect(
+            GlobalSideEffect.Snackbar(
+                StringValue.StringResource(messageRes),
+                ToastType.Error,
+            ),
+        )
+    }
 
     val tunnelsUiState =
         combine(
@@ -168,10 +207,12 @@ class SharedAppViewModel(
                     )
                 },
                 pingLatencies,
-            ) { ui, latencies ->
+                managedTunnelRepository.flow,
+            ) { ui, latencies, managedTunnels ->
                 ui.copy(
                     pingLatencies =
                         if (ui.backendStatus.activeTunnels.isEmpty()) latencies else emptyMap(),
+                    managedTunnelIds = managedTunnels.toManagedTunnelIds(),
                 )
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000L), TunnelsUiState())

@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -28,8 +29,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.dokar.sonner.ToastType
 import org.koin.androidx.compose.koinViewModel
+import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
+import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.account.AccountFormat
 import space.ivlev.umbravpn.domain.account.AccountMessage
@@ -41,17 +45,33 @@ import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
 import space.ivlev.umbravpn.ui.screens.account.components.AccountInfoRow
 import space.ivlev.umbravpn.ui.screens.account.components.AccountSecondaryButton
+import space.ivlev.umbravpn.ui.screens.account.components.accountMessageRes
+import space.ivlev.umbravpn.ui.state.AccountSideEffect
+import space.ivlev.umbravpn.util.StringValue
 import space.ivlev.umbravpn.viewmodel.AccountViewModel
+import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 
 @Composable
 fun AccountDeviceDetailsScreen(
     id: String,
     viewModel: AccountViewModel = koinViewModel(),
+    sharedViewModel: SharedAppViewModel = koinActivityViewModel(),
 ) {
     val state by viewModel.collectAsState()
     val device = state.devices.firstOrNull { it.id == id }
 
     LaunchedEffect(id) { viewModel.loadDeviceEndpoint(id) }
+
+    viewModel.collectSideEffect { effect ->
+        when (effect) {
+            AccountSideEffect.SignedOut -> Unit
+            is AccountSideEffect.Notice ->
+                sharedViewModel.showSnackMessage(
+                    StringValue.StringResource(accountMessageRes(effect.message)),
+                    if (effect.isError) ToastType.Error else ToastType.Success,
+                )
+        }
+    }
 
     AccountDialogs(
         state = state,
@@ -60,6 +80,7 @@ fun AccountDeviceDetailsScreen(
         onRenameDevice = viewModel::renameDevice,
         onDeleteDevice = viewModel::deleteDevice,
         onAddTunnel = viewModel::addTunnel,
+        onRenameTunnel = viewModel::renameTunnel,
         onDeleteTunnel = viewModel::deleteTunnel,
         onLogout = viewModel::logout,
         onChangeServer = viewModel::changeServer,
@@ -190,6 +211,13 @@ private fun TunnelsCard(device: AccountDevice, viewModel: AccountViewModel) {
                     peer = peer,
                     label = label,
                     canDelete = canDelete,
+                    onRename = {
+                        viewModel.showRenameTunnel(
+                            deviceId = device.id,
+                            peerId = peer.peerId,
+                            label = label,
+                        )
+                    },
                     onDelete = {
                         viewModel.showDeleteTunnel(
                             deviceId = device.id,
@@ -213,6 +241,7 @@ private fun TunnelRow(
     peer: DevicePeer,
     label: String,
     canDelete: Boolean,
+    onRename: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val details =
@@ -240,6 +269,18 @@ private fun TunnelRow(
                         color = MaterialTheme.colorScheme.outline,
                     )
                 }
+            }
+            IconButton(onClick = onRename, enabled = peer.peerId.isNotBlank()) {
+                Icon(
+                    Icons.Outlined.Edit,
+                    contentDescription = stringResource(R.string.account_rename_tunnel),
+                    tint =
+                        if (peer.peerId.isNotBlank()) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
+                        },
+                )
             }
             IconButton(onClick = onDelete, enabled = canDelete && peer.peerId.isNotBlank()) {
                 Icon(

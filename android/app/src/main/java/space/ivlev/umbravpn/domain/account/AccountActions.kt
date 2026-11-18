@@ -65,6 +65,22 @@ class AccountActions(private val accountRepository: AccountRepository) {
             .toResult(AccountActionKind.Tunnel)
     }
 
+    suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): ActionResult<AccountDevice> {
+        if (deviceId.isBlank() || peerId.isBlank()) {
+            return ActionResult.Failure(AccountMessage.NotFound)
+        }
+        val error = AccountTunnelDraft.labelError(label)
+        if (error != null) return ActionResult.Failure(error)
+
+        return accountRepository
+            .renameDeviceTunnel(deviceId, peerId, label.trim())
+            .toResult(AccountActionKind.Tunnel)
+    }
+
     suspend fun deviceEndpoint(id: String): ActionResult<String> =
         when (val result = accountRepository.deviceConfig(id)) {
             is AccountResult.Success -> ActionResult.Success(result.value.endpoint.ifBlank { "" })

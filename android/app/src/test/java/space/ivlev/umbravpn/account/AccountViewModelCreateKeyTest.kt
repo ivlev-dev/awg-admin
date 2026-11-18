@@ -3,6 +3,7 @@ package space.ivlev.umbravpn.account
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -27,6 +28,7 @@ import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.sync.SyncEvent
 import space.ivlev.umbravpn.domain.sync.SyncResult
 import space.ivlev.umbravpn.sync.FakeManagedTunnelRepository
 import space.ivlev.umbravpn.sync.InMemoryTunnelRepository
@@ -163,6 +165,8 @@ class AccountViewModelCreateKeyTest {
     private fun buildViewModel(): AccountViewModel {
         val syncService =
             object : ManagedTunnelSyncService {
+                override val events = MutableSharedFlow<SyncEvent>()
+
                 override suspend fun sync(): SyncResult = SyncResult.Success()
             }
         val cleaner =

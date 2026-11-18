@@ -2,6 +2,7 @@ package space.ivlev.umbravpn.account
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -31,6 +32,7 @@ import space.ivlev.umbravpn.domain.model.account.DevicePeer
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.sync.SyncEvent
 import space.ivlev.umbravpn.domain.sync.SyncResult
 import space.ivlev.umbravpn.sync.FakeManagedTunnelRepository
 import space.ivlev.umbravpn.sync.InMemoryTunnelRepository
@@ -181,6 +183,84 @@ class AccountViewModelTunnelTest {
             assertEquals(2, state().devices.single().peers.size)
         }
 
+    @Test
+    fun renameTunnelSuccessUpdatesPeerLabelAndSyncs() =
+        runTest(dispatcher) {
+            loadSnapshot()
+            repository.renameTunnelResult =
+                AccountResult.Success(
+                    testDevice(
+                        peers =
+                            listOf(
+                                DevicePeer(
+                                    interfaceId = "iface-1",
+                                    interfaceName = "awg0",
+                                    peerId = "peer-1",
+                                ),
+                                DevicePeer(
+                                    interfaceId = "iface-1",
+                                    interfaceName = "awg0",
+                                    peerId = "peer-2",
+                                    label = "renamed",
+                                ),
+                            ),
+                    ),
+                )
+
+            viewModel.showRenameTunnel("device-1", "peer-2", "extra")
+            settle()
+            assertTrue(state().dialog is AccountDialog.RenameTunnel)
+
+            viewModel.renameTunnel("device-1", "peer-2", "renamed")
+            settle()
+
+            assertEquals(
+                listOf(Triple("device-1", "peer-2", "renamed")),
+                repository.renamedTunnels,
+            )
+            assertNull(state().dialog)
+            assertEquals(
+                "renamed",
+                state().devices.single().peers.single { it.peerId == "peer-2" }.label,
+            )
+            assertEquals(1, syncCalls)
+        }
+
+    @Test
+    fun renameTunnelFailureKeepsDialogAndShowsError() =
+        runTest(dispatcher) {
+            loadSnapshot()
+            repository.renameTunnelResult = AccountResult.Failure(AccountError.Network)
+
+            viewModel.showRenameTunnel("device-1", "peer-2", "extra")
+            settle()
+            viewModel.renameTunnel("device-1", "peer-2", "renamed")
+            settle()
+
+            assertTrue(state().dialog is AccountDialog.RenameTunnel)
+            assertEquals(AccountMessage.Network, state().dialogError)
+            assertEquals(0, syncCalls)
+            assertEquals(
+                "extra",
+                state().devices.single().peers.single { it.peerId == "peer-2" }.label,
+            )
+        }
+
+    @Test
+    fun renameTunnelWithBlankLabelIsRejectedBeforeRequest() =
+        runTest(dispatcher) {
+            loadSnapshot()
+
+            viewModel.showRenameTunnel("device-1", "peer-2", "extra")
+            settle()
+            viewModel.renameTunnel("device-1", "peer-2", "   ")
+            settle()
+
+            assertEquals(AccountMessage.EmptyTunnelLabel, state().dialogError)
+            assertTrue(repository.renamedTunnels.isEmpty())
+            assertTrue(state().dialog is AccountDialog.RenameTunnel)
+        }
+
     private suspend fun loadSnapshot() {
         repository.bootstrapResult =
             AccountResult.Success(
@@ -231,6 +311,8 @@ class AccountViewModelTunnelTest {
     private fun buildViewModel(): AccountViewModel {
         val syncService =
             object : ManagedTunnelSyncService {
+                override val events = MutableSharedFlow<SyncEvent>()
+
                 override suspend fun sync(): SyncResult {
                     syncCalls++
                     return SyncResult.Success()

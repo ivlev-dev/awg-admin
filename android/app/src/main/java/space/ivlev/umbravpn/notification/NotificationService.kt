@@ -52,6 +52,7 @@ interface NotificationService {
         const val PROXY_NOTIFICATION_ID = 103
         const val TUNNEL_ERROR_NOTIFICATION_ID = 101
         const val TUNNEL_MESSAGES_NOTIFICATION_ID = 102
+        const val SYNC_NOTIFICATION_ID = 104
         const val UPDATE_AVAILABLE_NOTIFICATION_ID = 125
         const val UPDATE_READY_NOTIFICATION_ID = 126
         const val UPDATE_FAILED_NOTIFICATION_ID = 127

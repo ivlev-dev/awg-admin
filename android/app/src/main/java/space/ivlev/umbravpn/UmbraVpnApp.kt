@@ -50,6 +50,7 @@ import space.ivlev.umbravpn.domain.enums.TunnelActionSource
 import space.ivlev.umbravpn.domain.events.TunnelActionEvent
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AuthRepository
+import space.ivlev.umbravpn.notification.ManagedTunnelSyncNotifier
 import space.ivlev.umbravpn.notification.NotificationService
 import space.ivlev.umbravpn.util.Constants
 import space.ivlev.umbravpn.util.ReleaseTree
@@ -69,6 +70,8 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
     private val tunnelCoordinator: TunnelCoordinator by inject()
 
     private val managedTunnelSyncStarter: ManagedTunnelSyncStarter by inject()
+
+    private val managedTunnelSyncNotifier: ManagedTunnelSyncNotifier by inject()
 
     private val managedTunnelAutoConnector: ManagedTunnelAutoConnector by inject()
 
@@ -150,6 +153,7 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
             ManagedTunnelSyncWorker.start(this)
         }
         managedTunnelSyncStarter.start()
+        managedTunnelSyncNotifier.start()
 
         applicationScope.launch {
             tunnelCoordinator.actions.collect { event ->

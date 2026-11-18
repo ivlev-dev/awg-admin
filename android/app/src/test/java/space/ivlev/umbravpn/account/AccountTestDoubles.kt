@@ -211,6 +211,9 @@ internal class FakeAccountRepository : AccountRepository {
             ),
         )
     var removeTunnelResult: AccountResult<Unit> = AccountResult.Success(Unit)
+    var renameTunnelResult: AccountResult<AccountDevice> =
+        AccountResult.Success(testDevice(name = "Renamed"))
+    val renamedTunnels = mutableListOf<Triple<String, String, String>>()
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
@@ -261,6 +264,15 @@ internal class FakeAccountRepository : AccountRepository {
     ): AccountResult<Unit> {
         removedTunnels += deviceId to peerId
         return removeTunnelResult
+    }
+
+    override suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): AccountResult<AccountDevice> {
+        renamedTunnels += Triple(deviceId, peerId, label)
+        return renameTunnelResult
     }
 
     override suspend fun deleteDevice(id: String): AccountResult<Unit> {

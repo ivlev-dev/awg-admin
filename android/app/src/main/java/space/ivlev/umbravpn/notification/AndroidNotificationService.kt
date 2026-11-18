@@ -239,6 +239,8 @@ class AndroidNotificationService(
                 Builder(context, context.getString(R.string.errors_channel_id))
             NotificationChannels.Events ->
                 Builder(context, context.getString(R.string.events_channel_id))
+            NotificationChannels.Sync ->
+                Builder(context, context.getString(R.string.sync_channel_id))
         }
     }
 
@@ -268,9 +270,12 @@ class AndroidNotificationService(
         data object App :
             NotificationChannels(channelId = R.string.app_channel_id, importance = IMPORTANCE_LOW)
 
+        data object Sync :
+            NotificationChannels(channelId = R.string.sync_channel_id, importance = IMPORTANCE_LOW)
+
         companion object {
             val all: List<NotificationChannels> =
-                listOf(Errors, Events, App, Tunnel.VPN, Tunnel.Proxy)
+                listOf(Errors, Events, App, Sync, Tunnel.VPN, Tunnel.Proxy)
         }
     }
 
@@ -287,6 +292,8 @@ class AndroidNotificationService(
                 NotificationChannels.Events ->
                     R.string.events to R.string.events_channel_description
                 NotificationChannels.App -> R.string.app to R.string.app_channel_description
+                NotificationChannels.Sync ->
+                    R.string.tunnels_sync to R.string.tunnels_sync_channel_description
             }
 
         return NotificationChannel(

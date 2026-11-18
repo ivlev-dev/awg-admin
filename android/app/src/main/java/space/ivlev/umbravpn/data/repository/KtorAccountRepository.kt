@@ -36,6 +36,12 @@ class KtorAccountRepository(private val api: AccountApi) : AccountRepository {
         peerId: String,
     ): AccountResult<Unit> = api.removeDeviceTunnel(deviceId, peerId)
 
+    override suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): AccountResult<AccountDevice> = api.renameDeviceTunnel(deviceId, peerId, label)
+
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         api.renameDevice(id, name)
 

@@ -180,6 +180,42 @@ class AccountTunnelApiTest {
         assertTrue(error is AccountError.Api)
         assertEquals(409, (error as AccountError.Api).status)
     }
+
+    @Test
+    fun renameTunnelSendsPatchWithLabelAndNoIdempotencyKey() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.OK, renamedTunnelResponseJson())
+            }
+
+        val device =
+            env.accountRepository
+                .renameDeviceTunnel("device-1", "peer-2", "renamed")
+                .requireSuccess()
+
+        val request = env.requests.single()
+        assertEquals(HttpMethod.Patch, request.method)
+        assertEquals("/api/v1/app/devices/device-1/tunnels/peer-2", request.url.encodedPath)
+        assertEquals("""{"label":"renamed"}""", request.body.toByteArray().decodeToString())
+        assertNull(request.headers[IDEMPOTENCY_KEY_HEADER])
+        assertEquals("renamed", device.peers.single { it.peerId == "peer-2" }.label)
+    }
+
+    @Test
+    fun renameTunnelNotFoundIsMappedToApiError() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "tunnel not found"))
+            }
+
+        val error =
+            env.accountRepository
+                .renameDeviceTunnel("device-1", "peer-2", "renamed")
+                .requireFailure()
+
+        assertTrue(error is AccountError.Api)
+        assertEquals(404, (error as AccountError.Api).status)
+    }
 }
 
 private fun bootstrapWithPeersJson(): String =
@@ -244,6 +280,65 @@ private fun bootstrapWithPeersJson(): String =
       "interfaces": [
         {"id": "iface-1", "name": "awg0", "node_id": "node-1", "node_name": "Frankfurt"}
       ]
+    }
+    """
+        .trimIndent()
+
+private fun renamedTunnelResponseJson(): String =
+    """
+    {
+      "device": ${deviceWithRenamedPeerJson()},
+      "config": {
+        "peer_id": "peer-1",
+        "label": "primary",
+        "interface_id": "iface-1",
+        "interface_name": "awg0",
+        "node_id": "node-1",
+        "endpoint": "vpn.example.com:51820",
+        "addresses": ["10.8.0.2/32"],
+        "conf": "[Interface]\nPrivateKey = secret\n",
+        "revision": "rev-1"
+      },
+      "configs": []
+    }
+    """
+        .trimIndent()
+
+private fun deviceWithRenamedPeerJson(): String =
+    """
+    {
+      "id": "device-1",
+      "user_id": "user-1",
+      "group_id": "group-1",
+      "interface_id": "iface-1",
+      "interface_name": "awg0",
+      "node_id": "node-1",
+      "node_name": "Frankfurt",
+      "name": "Pixel",
+      "down_kbps": 0,
+      "up_kbps": 0,
+      "revoked": false,
+      "external": false,
+      "created_at": "2026-01-03T09:00:00Z",
+      "peers": [
+        {
+          "peer_id": "peer-1",
+          "label": "primary",
+          "interface_id": "iface-1",
+          "interface_name": "awg0",
+          "public_key": "peer-key-1",
+          "addresses": ["10.8.0.2/32"]
+        },
+        {
+          "peer_id": "peer-2",
+          "label": "renamed",
+          "interface_id": "iface-1",
+          "interface_name": "awg0",
+          "public_key": "peer-key-2",
+          "addresses": ["10.8.0.3/32"]
+        }
+      ],
+      "addresses": ["10.8.0.2/32", "10.8.0.3/32"]
     }
     """
         .trimIndent()

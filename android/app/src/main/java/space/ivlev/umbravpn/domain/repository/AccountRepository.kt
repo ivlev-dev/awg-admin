@@ -28,6 +28,12 @@ interface AccountRepository {
 
     suspend fun removeDeviceTunnel(deviceId: String, peerId: String): AccountResult<Unit>
 
+    suspend fun renameDeviceTunnel(
+        deviceId: String,
+        peerId: String,
+        label: String,
+    ): AccountResult<AccountDevice>
+
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice>
 
     suspend fun deleteDevice(id: String): AccountResult<Unit>
