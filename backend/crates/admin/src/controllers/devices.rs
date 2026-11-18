@@ -15,7 +15,10 @@ use awg_tariffs::Tariff;
 
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
-use crate::models::{CreateDeviceRequest, CreateShareRequest, UpdateDeviceRequest};
+use crate::models::{
+    CreateDeviceRequest, CreateShareRequest, CreateTunnelRequest, UpdateDeviceRequest,
+    UpdateTunnelRequest,
+};
 use crate::publish::publish_group;
 use crate::state::AppState;
 use crate::views::{DeviceView, ProfileView, ShareLinkView};
@@ -177,6 +180,89 @@ pub async fn profile(
     Ok(Json(ProfileView::from(profile)))
 }
 
+pub async fn profile_by_peer(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path((id, peer_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<Json<ProfileView>> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    let profile = state
+        .profiles
+        .build_peer(id, peer_id)
+        .map_err(ApiError::from)?;
+    Ok(Json(ProfileView::from(profile)))
+}
+
+pub async fn create_tunnel(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(request): Json<CreateTunnelRequest>,
+) -> ApiResult<Json<DeviceView>> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    let owner = state
+        .identity
+        .find(device.user_id)
+        .map_err(ApiError::from)?;
+    let tariff = state
+        .devices
+        .tariff_for(&owner)
+        .map_err(ApiError::from)?
+        .unwrap_or_else(unlimited_tariff);
+    let settings = state.settings.get().map_err(ApiError::from)?;
+    state
+        .devices
+        .add_peer(
+            &owner,
+            &tariff,
+            id,
+            request.interface_id,
+            request.label,
+            &settings.obfuscation,
+        )
+        .map_err(ApiError::from)?;
+    publish_group(&state, device.group_id);
+    Ok(Json(build_view(&state, &device)?))
+}
+
+pub async fn update_tunnel(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path((id, peer_id)): Path<(Uuid, Uuid)>,
+    Json(request): Json<UpdateTunnelRequest>,
+) -> ApiResult<Json<DeviceView>> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    let peer = state.devices.peer(peer_id).map_err(ApiError::from)?;
+    if peer.device_id != id {
+        return Err(ApiError::NotFound("device peer".into()));
+    }
+    state
+        .devices
+        .rename_peer(peer_id, request.label)
+        .map_err(ApiError::from)?;
+    publish_group(&state, device.group_id);
+    Ok(Json(build_view(&state, &device)?))
+}
+
+pub async fn delete_tunnel(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Path((id, peer_id)): Path<(Uuid, Uuid)>,
+) -> ApiResult<axum::http::StatusCode> {
+    let device = state.devices.get(id).map_err(ApiError::from)?;
+    user.require_self_or_admin(device.user_id)?;
+    let peer = state.devices.peer(peer_id).map_err(ApiError::from)?;
+    if peer.device_id != id {
+        return Err(ApiError::NotFound("device peer".into()));
+    }
+    state.devices.remove_peer(peer_id).map_err(ApiError::from)?;
+    publish_group(&state, device.group_id);
+    Ok(axum::http::StatusCode::NO_CONTENT)
+}
+
 pub async fn create_share(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -321,7 +407,7 @@ fn assemble_view(
     node_names: &HashMap<Uuid, String>,
     pool_nets: &HashMap<Uuid, Ipv4Net>,
 ) -> DeviceView {
-    let names: Vec<(Uuid, String, Vec<String>)> = peers
+    let names: Vec<(Uuid, Uuid, String, Vec<String>)> = peers
         .iter()
         .map(|peer| {
             let name = interfaces
@@ -336,7 +422,7 @@ fn assemble_view(
                     _ => None,
                 })
                 .collect();
-            (peer.interface_id, name, addresses)
+            (peer.id, peer.interface_id, name, addresses)
         })
         .collect();
     let (interface_name, node_id) = interfaces
@@ -433,7 +519,7 @@ mod tests {
                         addresses.push(address_with_prefix(*v4, network.pool_net(pool).unwrap()));
                     }
                 }
-                names.push((peer.interface_id, interface_name, addresses));
+                names.push((peer.id, peer.interface_id, interface_name, addresses));
             }
             let interface = interfaces
                 .iter()

@@ -42,8 +42,12 @@ pub struct Device {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevicePeer {
+    #[serde(default)]
+    pub id: Uuid,
     pub device_id: Uuid,
     pub interface_id: Uuid,
+    #[serde(default)]
+    pub label: String,
     pub public_key: String,
     pub private_key_sealed: String,
     pub preshared_key_sealed: String,
@@ -53,9 +57,31 @@ pub struct DevicePeer {
 }
 
 impl DevicePeer {
-    pub fn key(device_id: Uuid, interface_id: Uuid) -> String {
-        format!("{device_id}:{interface_id}")
+    pub fn key(&self) -> String {
+        Self::storage_key(self.device_id, self.interface_id, self.id)
     }
+
+    pub fn storage_key(device_id: Uuid, interface_id: Uuid, peer_id: Uuid) -> String {
+        format!("{device_id}:{interface_id}:{peer_id}")
+    }
+
+    pub fn primary_order(&self) -> (&str, Uuid) {
+        (self.label.as_str(), self.id)
+    }
+
+    pub fn is_primary_of(&self, other: &DevicePeer) -> bool {
+        self.primary_order() < other.primary_order()
+    }
+}
+
+pub fn validate_peer_label(label: &str) -> CoreResult<()> {
+    let trimmed = label.trim();
+    if trimmed.is_empty() || trimmed.len() > 64 {
+        return Err(CoreError::Invalid(
+            "peer label must be 1..64 characters".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub trait DeviceRepository: Send + Sync {
@@ -69,6 +95,9 @@ pub trait DeviceRepository: Send + Sync {
 
 pub trait DevicePeerRepository: Send + Sync {
     fn find(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<Option<DevicePeer>>;
+    fn find_peer(&self, peer_id: Uuid) -> CoreResult<Option<DevicePeer>> {
+        Ok(self.list()?.into_iter().find(|peer| peer.id == peer_id))
+    }
     fn list(&self) -> CoreResult<Vec<DevicePeer>>;
     fn by_device(&self, device_id: Uuid) -> CoreResult<Vec<DevicePeer>>;
     fn by_interface(&self, interface_id: Uuid) -> CoreResult<Vec<DevicePeer>>;
@@ -85,6 +114,7 @@ pub trait DevicePeerRepository: Send + Sync {
     }
     fn save(&self, peer: &DevicePeer) -> CoreResult<()>;
     fn delete_for_device(&self, device_id: Uuid) -> CoreResult<usize>;
+    fn delete_peer(&self, peer_id: Uuid) -> CoreResult<()>;
     fn delete(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<()>;
 }
 
@@ -370,6 +400,52 @@ mod tests {
         assert_eq!(share_link(None, 3).remaining_uses(), None);
         assert_eq!(share_link(Some(5), 2).remaining_uses(), Some(3));
         assert_eq!(share_link(Some(2), 7).remaining_uses(), Some(0));
+    }
+
+    #[test]
+    fn peer_key_includes_peer_id_and_legacy_json_defaults() {
+        let now = Utc::now();
+        let device_id = Uuid::new_v4();
+        let interface_id = Uuid::new_v4();
+        let peer_id = Uuid::new_v4();
+        let json = serde_json::json!({
+            "device_id": device_id,
+            "interface_id": interface_id,
+            "public_key": "key",
+            "private_key_sealed": "",
+            "preshared_key_sealed": "",
+            "ips": {},
+            "client_obf": {
+                "jc": 0, "jmin": 0, "jmax": 0,
+                "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
+                "disable_cookies": false,
+                "keepalive_low": 10, "keepalive_high": 50
+            },
+            "created_at": now,
+        });
+        let legacy: DevicePeer = serde_json::from_value(json).unwrap();
+        assert!(legacy.id.is_nil());
+        assert!(legacy.label.is_empty());
+        assert_eq!(
+            legacy.key(),
+            DevicePeer::storage_key(device_id, interface_id, Uuid::nil())
+        );
+
+        let peer = DevicePeer {
+            id: peer_id,
+            label: "phone".into(),
+            ..legacy
+        };
+        assert_eq!(peer.key(), format!("{device_id}:{interface_id}:{peer_id}"));
+    }
+
+    #[test]
+    fn peer_label_is_validated() {
+        assert!(validate_peer_label("phone").is_ok());
+        assert!(validate_peer_label("").is_err());
+        assert!(validate_peer_label("   ").is_err());
+        assert!(validate_peer_label(&"a".repeat(65)).is_err());
+        assert!(validate_peer_label(&"a".repeat(64)).is_ok());
     }
 
     #[test]

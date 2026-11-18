@@ -50,6 +50,17 @@ pub struct UpdateDeviceRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CreateTunnelRequest {
+    pub interface_id: Uuid,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateTunnelRequest {
+    pub label: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateShareRequest {
     pub interface_id: Uuid,
     pub format: ShareFormat,

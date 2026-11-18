@@ -21,7 +21,7 @@ use awg_tariffs::{LimitPolicy, Tariff, TariffService};
 
 use crate::domain::{
     Device, DevicePeer, DevicePeerRepository, DeviceRepository, Forwarding, ForwardingPolicy,
-    validate_device_name,
+    validate_device_name, validate_peer_label,
 };
 
 #[derive(Debug, Clone)]
@@ -46,6 +46,8 @@ pub struct PeerChangeSet {
 
 #[derive(Debug, Clone)]
 pub struct DeviceProfile {
+    pub peer_id: Uuid,
+    pub label: String,
     pub interface_id: Uuid,
     pub interface_name: String,
     pub node_id: Uuid,
@@ -164,40 +166,19 @@ impl DeviceService {
 
         let mut peers = Vec::with_capacity(interfaces.len());
         for interface in &interfaces {
-            let interface_group = self.network.get_group(interface.group_id)?;
-            let pools = self.network.list_pools(interface_group.id)?;
-            let enabled_pools: Vec<_> = pools.into_iter().filter(|p| p.enabled).collect();
-            if enabled_pools.is_empty() {
-                return Err(CoreError::Conflict(
-                    "group has no enabled address pools".into(),
-                ));
-            }
-
-            let mut ips = std::collections::BTreeMap::new();
-            for pool in &enabled_pools {
-                let net = self.network.pool_net(pool)?;
-                let gateway = pool
-                    .gateway
-                    .as_deref()
-                    .and_then(|g| g.split('/').next())
-                    .and_then(|g| g.parse().ok());
-                let ip = awg_network::SubnetAllocator::allocate(
-                    net,
-                    &to_v4(&used),
-                    seed_from_uuid(device.id)
-                        ^ seed_from_uuid(pool.id)
-                        ^ seed_from_uuid(interface.id),
-                    gateway,
-                )?;
-                used.insert(IpAddr::V4(ip));
-                ips.insert(pool.id, IpAddr::V4(ip));
-            }
+            let ips = self.allocate_ips(
+                interface.group_id,
+                seed_from_uuid(device.id) ^ seed_from_uuid(interface.id),
+                &mut used,
+            )?;
 
             let keypair = generate_keypair();
             let psk = random_key();
             peers.push(DevicePeer {
+                id: Uuid::new_v4(),
                 device_id: device.id,
                 interface_id: interface.id,
+                label: interface.name.clone(),
                 public_key: keypair.public_key,
                 private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
                 preshared_key_sealed: self.sealer.seal_str(&psk)?,
@@ -214,6 +195,157 @@ impl DeviceService {
             return Err(error);
         }
         Ok(device)
+    }
+
+    fn allocate_ips(
+        &self,
+        group_id: Uuid,
+        seed: u64,
+        used: &mut HashSet<IpAddr>,
+    ) -> CoreResult<std::collections::BTreeMap<Uuid, IpAddr>> {
+        let interface_group = self.network.get_group(group_id)?;
+        let pools = self.network.list_pools(interface_group.id)?;
+        let enabled_pools: Vec<_> = pools.into_iter().filter(|p| p.enabled).collect();
+        if enabled_pools.is_empty() {
+            return Err(CoreError::Conflict(
+                "group has no enabled address pools".into(),
+            ));
+        }
+
+        let mut ips = std::collections::BTreeMap::new();
+        for pool in &enabled_pools {
+            let net = self.network.pool_net(pool)?;
+            let gateway = pool
+                .gateway
+                .as_deref()
+                .and_then(|g| g.split('/').next())
+                .and_then(|g| g.parse().ok());
+            let ip = awg_network::SubnetAllocator::allocate(
+                net,
+                &to_v4(used),
+                seed ^ seed_from_uuid(pool.id),
+                gateway,
+            )?;
+            used.insert(IpAddr::V4(ip));
+            ips.insert(pool.id, IpAddr::V4(ip));
+        }
+        Ok(ips)
+    }
+
+    pub fn add_peer(
+        &self,
+        user: &User,
+        _tariff: &Tariff,
+        device_id: Uuid,
+        interface_id: Uuid,
+        label: Option<String>,
+        settings: &ObfuscationSettings,
+    ) -> CoreResult<DevicePeer> {
+        user.ensure_active()?;
+        let device = self.get(device_id)?;
+        if device.user_id != user.id {
+            return Err(CoreError::Forbidden(
+                "device belongs to another user".into(),
+            ));
+        }
+        if device.revoked {
+            return Err(CoreError::Conflict("device is revoked".into()));
+        }
+        if device.external {
+            return Err(CoreError::Conflict(
+                "external device cannot host additional peers".into(),
+            ));
+        }
+        let interface = self.ensure_interface_enabled(self.network.get_interface(interface_id)?)?;
+        if interface.group_id != device.group_id {
+            return Err(CoreError::Forbidden(
+                "interface belongs to another group".into(),
+            ));
+        }
+        if let Some(node_id) = user.node_id
+            && interface.node_id != node_id
+        {
+            return Err(CoreError::Forbidden(
+                "interface belongs to another node".into(),
+            ));
+        }
+        if !device.interface_id.is_nil()
+            && let Ok(primary) = self.network.get_interface(device.interface_id)
+            && primary.node_id != interface.node_id
+        {
+            return Err(CoreError::Forbidden(
+                "interface belongs to another node".into(),
+            ));
+        }
+
+        let label = match label {
+            Some(label) => {
+                validate_peer_label(&label)?;
+                label.trim().to_string()
+            }
+            None => interface.name.clone(),
+        };
+
+        let all_peers = self.peers.list()?;
+        let mut used: HashSet<IpAddr> = all_peers
+            .iter()
+            .flat_map(|p| p.ips.values().copied())
+            .collect();
+        let peer_id = Uuid::new_v4();
+        let ips = self.allocate_ips(
+            interface.group_id,
+            seed_from_uuid(device.id) ^ seed_from_uuid(interface.id) ^ seed_from_uuid(peer_id),
+            &mut used,
+        )?;
+
+        let keypair = generate_keypair();
+        let psk = random_key();
+        let peer = DevicePeer {
+            id: peer_id,
+            device_id,
+            interface_id,
+            label,
+            public_key: keypair.public_key,
+            private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
+            preshared_key_sealed: self.sealer.seal_str(&psk)?,
+            ips,
+            client_obf: generate_client_obf(settings),
+            created_at: Utc::now(),
+        };
+        self.peers.save(&peer)?;
+        Ok(peer)
+    }
+
+    pub fn remove_peer(&self, peer_id: Uuid) -> CoreResult<DevicePeer> {
+        let peer = self
+            .peers
+            .find_peer(peer_id)?
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        let peers = self.peers.by_device(peer.device_id)?;
+        if peers.len() <= 1 {
+            return Err(CoreError::Conflict(
+                "device must keep at least one peer".into(),
+            ));
+        }
+        self.peers.delete_peer(peer_id)?;
+        Ok(peer)
+    }
+
+    pub fn rename_peer(&self, peer_id: Uuid, label: String) -> CoreResult<DevicePeer> {
+        validate_peer_label(&label)?;
+        let mut peer = self
+            .peers
+            .find_peer(peer_id)?
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        peer.label = label.trim().to_string();
+        self.peers.save(&peer)?;
+        Ok(peer)
+    }
+
+    pub fn peer(&self, peer_id: Uuid) -> CoreResult<DevicePeer> {
+        self.peers
+            .find_peer(peer_id)?
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))
     }
 
     fn resolve_interfaces(
@@ -438,8 +570,10 @@ impl DeviceService {
             updated_at: now,
         };
         let peer = DevicePeer {
+            id: Uuid::new_v4(),
             device_id: device.id,
             interface_id,
+            label: name.trim().to_string(),
             public_key: public_key.to_string(),
             private_key_sealed: self.sealer.seal_str(private_key)?,
             preshared_key_sealed: self.sealer.seal_str(preshared_key)?,
@@ -490,8 +624,10 @@ impl DeviceService {
             updated_at: now,
         };
         let peer = DevicePeer {
+            id: Uuid::new_v4(),
             device_id: device.id,
             interface_id,
+            label: name.trim().to_string(),
             public_key: public_key.to_string(),
             private_key_sealed: String::new(),
             preshared_key_sealed: if preshared_key.is_empty() {

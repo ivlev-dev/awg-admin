@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 7;
+pub const CURRENT_SCHEMA_VERSION: u32 = 8;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -47,6 +47,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         to: 7,
         apply: v7_idempotency,
     },
+    MigrationStep {
+        from: 7,
+        to: 8,
+        apply: v8_peer_ids,
+    },
 ];
 
 const BILLING_TABLES: &[Table] = &[
@@ -78,6 +83,101 @@ fn v3_rate_limits(txn: &WriteTransaction) -> Result<()> {
 fn v7_idempotency(txn: &WriteTransaction) -> Result<()> {
     for table in IDEMPOTENCY_TABLES {
         txn.open_table(table.definition())?;
+    }
+    Ok(())
+}
+
+fn v8_peer_ids(txn: &WriteTransaction) -> Result<()> {
+    let mut interface_names: std::collections::BTreeMap<String, String> =
+        std::collections::BTreeMap::new();
+    for (_, interface) in read_values(txn, Table::Interfaces)? {
+        let (Some(id), Some(name)) = (
+            interface.get("id").and_then(Value::as_str),
+            interface.get("name").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        interface_names.insert(id.to_string(), name.to_string());
+    }
+
+    let mut writes: Vec<(String, Value)> = Vec::new();
+    let mut removals: Vec<String> = Vec::new();
+
+    for (key, mut peer) in read_values(txn, Table::DevicePeers)? {
+        let parts: Vec<&str> = key.split(':').collect();
+        let device_id = peer
+            .get("device_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| parts.first().map(|part| part.to_string()));
+        let interface_id = peer
+            .get("interface_id")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .or_else(|| parts.get(1).map(|part| part.to_string()));
+        let (Some(device_id), Some(interface_id)) = (device_id, interface_id) else {
+            continue;
+        };
+        if uuid::Uuid::parse_str(&device_id).is_err()
+            || uuid::Uuid::parse_str(&interface_id).is_err()
+        {
+            continue;
+        }
+
+        let existing = peer
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|raw| uuid::Uuid::parse_str(raw).ok())
+            .filter(|id| !id.is_nil())
+            .or_else(|| {
+                parts
+                    .get(2)
+                    .and_then(|raw| uuid::Uuid::parse_str(raw).ok())
+                    .filter(|id| !id.is_nil())
+            });
+        let peer_id = existing.unwrap_or_else(uuid::Uuid::new_v4);
+        let label = peer
+            .get("label")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|label| !label.is_empty())
+            .map(str::to_string)
+            .or_else(|| interface_names.get(&interface_id).cloned())
+            .unwrap_or_else(|| "default".to_string());
+
+        let target = format!("{device_id}:{interface_id}:{peer_id}");
+        let current_id = peer
+            .get("id")
+            .and_then(Value::as_str)
+            .and_then(|raw| uuid::Uuid::parse_str(raw).ok());
+        let is_current = key == target
+            && current_id == Some(peer_id)
+            && peer.get("label").and_then(Value::as_str) == Some(label.as_str())
+            && peer.get("device_id").and_then(Value::as_str) == Some(device_id.as_str())
+            && peer.get("interface_id").and_then(Value::as_str) == Some(interface_id.as_str());
+        if is_current {
+            continue;
+        }
+
+        peer["id"] = json!(peer_id);
+        peer["device_id"] = json!(device_id);
+        peer["interface_id"] = json!(interface_id);
+        peer["label"] = json!(label);
+        writes.push((target.clone(), peer));
+        if key != target {
+            removals.push(key);
+        }
+    }
+
+    if !writes.is_empty() || !removals.is_empty() {
+        let mut table = txn.open_table(Table::DevicePeers.definition())?;
+        for (key, value) in writes {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
+        for key in removals {
+            table.remove(key.as_str())?;
+        }
     }
     Ok(())
 }
@@ -1073,6 +1173,168 @@ mod tests {
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+    }
+
+    #[test]
+    fn migration_v8_assigns_peer_ids_and_labels() {
+        let db = in_memory();
+        seed_legacy(&db, Some(7));
+        let device = uuid::Uuid::new_v4();
+        let interface = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut interfaces = txn.open_table(Table::Interfaces.definition()).unwrap();
+                interfaces
+                    .insert(
+                        interface.to_string().as_str(),
+                        json!({"id": interface, "name": "awg0"})
+                            .to_string()
+                            .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            {
+                let mut peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+                peers
+                    .insert(
+                        format!("{device}:{interface}").as_str(),
+                        json!({
+                            "device_id": device,
+                            "interface_id": interface,
+                            "public_key": "legacy-key",
+                            "private_key_sealed": "",
+                            "preshared_key_sealed": "",
+                            "ips": {},
+                            "client_obf": {
+                                "jc": 0, "jmin": 0, "jmax": 0,
+                                "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
+                                "disable_cookies": false,
+                                "keepalive_low": 10, "keepalive_high": 50
+                            },
+                            "created_at": "2026-01-01T00:00:00Z"
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 7, 8).unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+        let entries: Vec<_> = peers.iter().unwrap().map(|entry| entry.unwrap()).collect();
+        assert_eq!(entries.len(), 1);
+        let (key, value) = &entries[0];
+        let value: Value = serde_json::from_slice(value.value()).unwrap();
+        let id = value["id"].as_str().expect("peer id is assigned");
+        uuid::Uuid::parse_str(id).unwrap();
+        assert_eq!(value["label"], "awg0");
+        assert_eq!(value["public_key"], "legacy-key");
+        assert_eq!(key.value(), format!("{device}:{interface}:{id}").as_str());
+    }
+
+    #[test]
+    fn migration_v8_defaults_label_without_interface() {
+        let db = in_memory();
+        seed_legacy(&db, Some(7));
+        let device = uuid::Uuid::new_v4();
+        let interface = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+                peers
+                    .insert(
+                        format!("{device}:{interface}").as_str(),
+                        json!({
+                            "device_id": device,
+                            "interface_id": interface,
+                            "public_key": "orphan-key"
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 7, 8).unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+        let entry = peers.iter().unwrap().next().unwrap().unwrap();
+        let value: Value = serde_json::from_slice(entry.1.value()).unwrap();
+        assert_eq!(value["label"], "default");
+        assert!(value["id"].as_str().is_some());
+    }
+
+    #[test]
+    fn migration_v8_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(7));
+        let device = uuid::Uuid::new_v4();
+        let interface = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+                peers
+                    .insert(
+                        format!("{device}:{interface}").as_str(),
+                        json!({
+                            "device_id": device,
+                            "interface_id": interface,
+                            "public_key": "legacy-key"
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 7, 8).unwrap();
+        let first: Vec<(String, Value)> = {
+            let txn = db.begin_read().unwrap();
+            let table = txn.open_table(Table::DevicePeers.definition()).unwrap();
+            table
+                .iter()
+                .unwrap()
+                .map(|entry| {
+                    let (key, value) = entry.unwrap();
+                    (
+                        key.value().to_string(),
+                        serde_json::from_slice(value.value()).unwrap(),
+                    )
+                })
+                .collect()
+        };
+
+        let txn = db.begin_write().unwrap();
+        v8_peer_ids(&txn).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let table = txn.open_table(Table::DevicePeers.definition()).unwrap();
+        let second: Vec<(String, Value)> = table
+            .iter()
+            .unwrap()
+            .map(|entry| {
+                let (key, value) = entry.unwrap();
+                (
+                    key.value().to_string(),
+                    serde_json::from_slice(value.value()).unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(first, second);
+        assert_eq!(read_version(&db).unwrap(), Some(8));
     }
 
     #[test]

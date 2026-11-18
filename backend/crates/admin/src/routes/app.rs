@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::{get, patch, post};
+use axum::routing::{delete, get, patch, post};
 
 use crate::controllers;
 use crate::state::AppState;
@@ -21,5 +21,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/app/devices/{id}/configs",
             get(controllers::app::device_configs),
+        )
+        .route(
+            "/app/devices/{id}/tunnels",
+            post(controllers::app::create_tunnel),
+        )
+        .route(
+            "/app/devices/{id}/tunnels/{peer_id}",
+            delete(controllers::app::delete_tunnel),
         )
 }

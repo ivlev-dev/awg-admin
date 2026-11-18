@@ -8,6 +8,8 @@ use awg_clients::{
 
 #[derive(Debug, Serialize)]
 pub struct PeerView {
+    pub peer_id: Uuid,
+    pub label: String,
     pub interface_id: Uuid,
     pub interface_name: String,
     pub public_key: String,
@@ -39,7 +41,7 @@ impl DeviceView {
     pub fn build(
         device: &Device,
         peers: &[DevicePeer],
-        names: &[(Uuid, String, Vec<String>)],
+        names: &[(Uuid, Uuid, String, Vec<String>)],
         interface_name: &str,
         node_id: Uuid,
         node_name: &str,
@@ -49,10 +51,12 @@ impl DeviceView {
             .map(|peer| {
                 let (name, addresses) = names
                     .iter()
-                    .find(|(id, _, _)| *id == peer.interface_id)
-                    .map(|(_, name, addresses)| (name.clone(), addresses.clone()))
+                    .find(|(peer_id, _, _, _)| *peer_id == peer.id)
+                    .map(|(_, _, name, addresses)| (name.clone(), addresses.clone()))
                     .unwrap_or_default();
                 PeerView {
+                    peer_id: peer.id,
+                    label: peer.label.clone(),
                     interface_id: peer.interface_id,
                     interface_name: name,
                     public_key: peer.public_key.clone(),
@@ -89,6 +93,8 @@ impl DeviceView {
 
 #[derive(Debug, Serialize)]
 pub struct ProfileView {
+    pub peer_id: Uuid,
+    pub label: String,
     pub interface_id: Uuid,
     pub interface_name: String,
     pub node_id: Uuid,
@@ -101,6 +107,8 @@ pub struct ProfileView {
 impl From<DeviceProfile> for ProfileView {
     fn from(profile: DeviceProfile) -> Self {
         Self {
+            peer_id: profile.peer_id,
+            label: profile.label,
             interface_id: profile.interface_id,
             interface_name: profile.interface_name,
             node_id: profile.node_id,

@@ -1243,3 +1243,230 @@ fn requested_disabled_interface_is_rejected() {
         .expect_err("interface is disabled");
     assert!(matches!(error, CoreError::Conflict(_)));
 }
+
+#[test]
+fn add_peer_creates_an_extra_tunnel_on_the_same_interface() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let peer = fixture
+        .devices
+        .add_peer(
+            &user,
+            &tariff,
+            device.id,
+            fixture.interface_ids[0],
+            Some("second".into()),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    assert_eq!(peer.label, "second");
+    assert_eq!(peer.interface_id, fixture.interface_ids[0]);
+
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 3);
+    let mut addresses: Vec<IpAddr> = peers
+        .iter()
+        .flat_map(|peer| peer.ips.values().copied())
+        .collect();
+    let total = addresses.len();
+    addresses.sort();
+    addresses.dedup();
+    assert_eq!(addresses.len(), total, "peer addresses must be unique");
+
+    let (_, profiles) = fixture.profiles.build_all(device.id).unwrap();
+    assert_eq!(profiles.len(), 3);
+    assert_eq!(
+        profiles
+            .iter()
+            .filter(|profile| profile.interface_id == fixture.interface_ids[0])
+            .count(),
+        2
+    );
+
+    let primary = fixture
+        .profiles
+        .build_one(device.id, fixture.interface_ids[0])
+        .unwrap();
+    assert_eq!(primary.label, "awg0");
+
+    let by_peer = fixture.profiles.build_peer(device.id, peer.id).unwrap();
+    assert_eq!(by_peer.peer_id, peer.id);
+    assert_eq!(by_peer.label, "second");
+    assert_ne!(primary.conf, by_peer.conf);
+}
+
+#[test]
+fn add_peer_rejects_a_foreign_interface() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let other_group = fixture
+        .network
+        .create_group("Other", "", "10.30.0.0/16", false)
+        .unwrap();
+    fixture
+        .network
+        .add_pool(
+            other_group.id,
+            NewPool {
+                name: "clients".into(),
+                cidr: "10.30.0.0/24".into(),
+                mode: PoolMode::Auto,
+                gateway: None,
+            },
+        )
+        .unwrap();
+    let other_interface = fixture
+        .network
+        .add_interface(
+            other_group.id,
+            fixture.node_id,
+            NewInterface {
+                name: "awg9".into(),
+                label: "awg9".into(),
+                endpoint_host: "vpn.example.com".into(),
+                endpoint_port: 51820,
+                listen_port: 51820,
+                mtu: 1420,
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let error = fixture
+        .devices
+        .add_peer(
+            &user,
+            &tariff,
+            device.id,
+            other_interface.id,
+            None,
+            &ObfuscationSettings::default(),
+        )
+        .expect_err("interface belongs to another group");
+    assert!(matches!(error, CoreError::Forbidden(_)));
+    assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 2);
+}
+
+#[test]
+fn add_peer_rejects_a_foreign_device() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let mut stranger = user.clone();
+    stranger.id = Uuid::new_v4();
+
+    let error = fixture
+        .devices
+        .add_peer(
+            &stranger,
+            &tariff,
+            device.id,
+            fixture.interface_ids[0],
+            None,
+            &ObfuscationSettings::default(),
+        )
+        .expect_err("device belongs to another user");
+    assert!(matches!(error, CoreError::Forbidden(_)));
+}
+
+#[test]
+fn remove_peer_keeps_at_least_one_tunnel() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 2);
+
+    let removed = fixture.devices.remove_peer(peers[0].id).unwrap();
+    assert_eq!(removed.id, peers[0].id);
+    assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 1);
+    assert!(fixture.devices.peer(peers[0].id).is_err());
+
+    let last = fixture.devices.peers_for(device.id).unwrap().remove(0);
+    let error = fixture
+        .devices
+        .remove_peer(last.id)
+        .expect_err("last peer must stay");
+    assert!(matches!(error, CoreError::Conflict(_)));
+}
+
+#[test]
+fn rename_peer_changes_primary_order_and_label() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            multi_device(&fixture, &user),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let extra = fixture
+        .devices
+        .add_peer(
+            &user,
+            &tariff,
+            device.id,
+            fixture.interface_ids[0],
+            Some("zzz".into()),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let renamed = fixture.devices.rename_peer(extra.id, "aaa".into()).unwrap();
+    assert_eq!(renamed.label, "aaa");
+    let primary = fixture
+        .profiles
+        .build_one(device.id, fixture.interface_ids[0])
+        .unwrap();
+    assert_eq!(primary.peer_id, extra.id);
+
+    let error = fixture
+        .devices
+        .rename_peer(extra.id, "   ".into())
+        .expect_err("empty label");
+    assert!(matches!(error, CoreError::Invalid(_)));
+}

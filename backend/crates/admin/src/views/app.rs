@@ -42,6 +42,8 @@ impl From<&Tariff> for AppTariffView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct DeviceConfigView {
+    pub peer_id: Uuid,
+    pub label: String,
     pub interface_id: Uuid,
     pub interface_name: String,
     pub node_id: Uuid,
@@ -55,6 +57,8 @@ impl From<DeviceProfile> for DeviceConfigView {
     fn from(profile: DeviceProfile) -> Self {
         let revision = revision(&profile.conf);
         Self {
+            peer_id: profile.peer_id,
+            label: profile.label,
             interface_id: profile.interface_id,
             interface_name: profile.interface_name,
             node_id: profile.node_id,

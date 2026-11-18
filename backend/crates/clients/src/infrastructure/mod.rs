@@ -126,12 +126,20 @@ impl ShareLinkRepository for RedbShareLinkRepository {
 
 impl DevicePeerRepository for RedbDevicePeerRepository {
     fn find(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<Option<DevicePeer>> {
-        self.store
-            .get(
-                Table::DevicePeers,
-                &DevicePeer::key(device_id, interface_id),
-            )
-            .map_err(map_err)
+        let prefix = format!("{device_id}:{interface_id}:");
+        let mut peers: Vec<DevicePeer> = self
+            .store
+            .list_prefix(Table::DevicePeers, &prefix)
+            .map_err(map_err)?
+            .into_iter()
+            .map(|(_, peer)| peer)
+            .collect();
+        peers.sort_by(|left, right| left.primary_order().cmp(&right.primary_order()));
+        Ok(peers.into_iter().next())
+    }
+
+    fn find_peer(&self, peer_id: Uuid) -> CoreResult<Option<DevicePeer>> {
+        Ok(self.list()?.into_iter().find(|peer| peer.id == peer_id))
     }
 
     fn list(&self) -> CoreResult<Vec<DevicePeer>> {
@@ -156,11 +164,7 @@ impl DevicePeerRepository for RedbDevicePeerRepository {
 
     fn save(&self, peer: &DevicePeer) -> CoreResult<()> {
         self.store
-            .put(
-                Table::DevicePeers,
-                &DevicePeer::key(peer.device_id, peer.interface_id),
-                peer,
-            )
+            .put(Table::DevicePeers, &peer.key(), peer)
             .map_err(map_err)
     }
 
@@ -170,12 +174,19 @@ impl DevicePeerRepository for RedbDevicePeerRepository {
             .map_err(map_err)
     }
 
+    fn delete_peer(&self, peer_id: Uuid) -> CoreResult<()> {
+        let Some(peer) = self.find_peer(peer_id)? else {
+            return Ok(());
+        };
+        self.store
+            .delete(Table::DevicePeers, &peer.key())
+            .map_err(map_err)
+    }
+
     fn delete(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<()> {
         self.store
-            .delete(
-                Table::DevicePeers,
-                &DevicePeer::key(device_id, interface_id),
-            )
+            .delete_prefix(Table::DevicePeers, &format!("{device_id}:{interface_id}:"))
+            .map(|_| ())
             .map_err(map_err)
     }
 }

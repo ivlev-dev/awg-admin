@@ -59,12 +59,13 @@ impl ProfileService {
         }
         let mut profiles = Vec::with_capacity(peers.len());
         for peer in &peers {
-            profiles.push(self.build(device_id, &device, peer, &pool_map)?);
+            profiles.push(self.build(&device, peer, &pool_map)?);
         }
         profiles.sort_by(|left, right| {
             left.interface_name
                 .cmp(&right.interface_name)
-                .then_with(|| left.interface_id.cmp(&right.interface_id))
+                .then_with(|| left.label.cmp(&right.label))
+                .then_with(|| left.peer_id.cmp(&right.peer_id))
         });
         Ok((device, profiles))
     }
@@ -86,12 +87,32 @@ impl ProfileService {
             .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
         let pools = self.network.list_pools(device.group_id)?;
         let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
-        self.build(device_id, &device, &peer, &pool_map)
+        self.build(&device, &peer, &pool_map)
+    }
+
+    pub fn build_peer(&self, device_id: Uuid, peer_id: Uuid) -> CoreResult<DeviceProfile> {
+        let device = self
+            .devices
+            .find(device_id)?
+            .ok_or_else(|| CoreError::NotFound("device".into()))?;
+        if device.revoked {
+            return Err(CoreError::Forbidden("device is revoked".into()));
+        }
+        if device.external {
+            return Err(external_profile_error());
+        }
+        let peer = self
+            .peers
+            .find_peer(peer_id)?
+            .filter(|peer| peer.device_id == device_id)
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        let pools = self.network.list_pools(device.group_id)?;
+        let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
+        self.build(&device, &peer, &pool_map)
     }
 
     fn build(
         &self,
-        _device_id: Uuid,
         device: &Device,
         peer: &DevicePeer,
         pools: &HashMap<Uuid, &awg_network::CidrPool>,
@@ -147,6 +168,8 @@ impl ProfileService {
         })?;
 
         Ok(DeviceProfile {
+            peer_id: peer.id,
+            label: peer.label.clone(),
             interface_id: interface.id,
             interface_name: interface.name,
             node_id: interface.node_id,

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::Router;
-use axum::routing::{delete, get, post};
+use axum::routing::{delete, get, patch, post};
 
 use crate::controllers;
 use crate::state::AppState;
@@ -26,6 +26,18 @@ pub fn router() -> Router<Arc<AppState>> {
         .route(
             "/devices/{id}/profiles/{interface_id}",
             get(controllers::devices::profile),
+        )
+        .route(
+            "/devices/{id}/profiles/by-peer/{peer_id}",
+            get(controllers::devices::profile_by_peer),
+        )
+        .route(
+            "/devices/{id}/tunnels",
+            post(controllers::devices::create_tunnel),
+        )
+        .route(
+            "/devices/{id}/tunnels/{peer_id}",
+            patch(controllers::devices::update_tunnel).delete(controllers::devices::delete_tunnel),
         )
         .route(
             "/devices/{id}/shares",

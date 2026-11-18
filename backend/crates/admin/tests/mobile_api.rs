@@ -1253,3 +1253,218 @@ async fn idempotency_record_survives_a_router_restart() {
         1
     );
 }
+
+#[tokio::test]
+async fn admin_tunnels_support_add_list_rename_and_delete() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let interface_id = env.interface_ids[0];
+
+    let (status, created) = call(
+        router(&env),
+        "POST",
+        "/api/v1/devices",
+        &token,
+        Some(json!({
+            "user_id": env.owner_id,
+            "name": "Phone",
+            "interface_ids": [interface_id],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{created}");
+    let device_id = created["id"].as_str().unwrap().to_string();
+    assert_eq!(created["peers"].as_array().unwrap().len(), 1);
+    assert!(created["peers"][0]["peer_id"].is_string());
+    assert!(created["peers"][0]["label"].is_string());
+
+    let (status, added) = call(
+        router(&env),
+        "POST",
+        &format!("/api/v1/devices/{device_id}/tunnels"),
+        &token,
+        Some(json!({ "interface_id": interface_id, "label": "extra" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{added}");
+    let peers = added["peers"].as_array().unwrap();
+    assert_eq!(peers.len(), 2);
+    let extra = peers
+        .iter()
+        .find(|peer| peer["label"] == "extra")
+        .expect("extra tunnel is exposed");
+    let peer_id = extra["peer_id"].as_str().unwrap().to_string();
+    assert_eq!(extra["interface_id"], interface_id.to_string());
+
+    let (status, profiles) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device_id}/profiles"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{profiles}");
+    let profiles = profiles.as_array().unwrap();
+    assert_eq!(profiles.len(), 2);
+    assert!(
+        profiles
+            .iter()
+            .all(|profile| profile["peer_id"].is_string())
+    );
+    assert!(profiles.iter().any(|profile| profile["label"] == "extra"));
+
+    let (status, profile) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device_id}/profiles/by-peer/{peer_id}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{profile}");
+    assert_eq!(profile["peer_id"], peer_id);
+    assert_eq!(profile["label"], "extra");
+
+    let (status, renamed) = call(
+        router(&env),
+        "PATCH",
+        &format!("/api/v1/devices/{device_id}/tunnels/{peer_id}"),
+        &token,
+        Some(json!({ "label": "renamed" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{renamed}");
+    assert!(
+        renamed["peers"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|peer| peer["peer_id"] == peer_id && peer["label"] == "renamed")
+    );
+
+    let (status, _) = call(
+        router(&env),
+        "DELETE",
+        &format!("/api/v1/devices/{device_id}/tunnels/{peer_id}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device_id}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["peers"].as_array().unwrap().len(), 1);
+    let last_peer = body["peers"][0]["peer_id"].as_str().unwrap().to_string();
+
+    let (status, body) = call(
+        router(&env),
+        "DELETE",
+        &format!("/api/v1/devices/{device_id}/tunnels/{last_peer}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT, "{body}");
+}
+
+#[tokio::test]
+async fn app_tunnels_are_scoped_to_the_owner() {
+    let env = app_env();
+    let created = create_device(router(&env), &env.owner_token, "Phone").await;
+    let device_id = created["device"]["id"].as_str().unwrap().to_string();
+    let primary_interface = created["device"]["interface_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let other_interface = env
+        .interface_ids
+        .iter()
+        .map(uuid::Uuid::to_string)
+        .find(|id| id != &primary_interface)
+        .unwrap();
+
+    let (status, added) = call(
+        router(&env),
+        "POST",
+        &format!("/api/v1/app/devices/{device_id}/tunnels"),
+        &env.owner_token,
+        Some(json!({ "interface_id": other_interface, "label": "second" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{added}");
+    let configs = added["configs"].as_array().unwrap();
+    assert_eq!(configs.len(), 2);
+    assert!(configs.iter().all(|config| config["peer_id"].is_string()));
+    let second = configs
+        .iter()
+        .find(|config| config["label"] == "second")
+        .expect("added tunnel has a config");
+    let peer_id = second["peer_id"].as_str().unwrap().to_string();
+
+    let (status, fetched) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/app/devices/{device_id}/configs"),
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fetched}");
+    assert_eq!(fetched.as_array().unwrap().len(), 2);
+    assert!(
+        fetched
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|config| { config["peer_id"].is_string() && config["label"].is_string() })
+    );
+
+    let (status, primary) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/app/devices/{device_id}/config"),
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{primary}");
+    assert!(primary["peer_id"].is_string());
+
+    let (status, body) = call(
+        router(&env),
+        "DELETE",
+        &format!("/api/v1/app/devices/{device_id}/tunnels/{peer_id}"),
+        &env.other_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    let (status, _) = call(
+        router(&env),
+        "DELETE",
+        &format!("/api/v1/app/devices/{device_id}/tunnels/{peer_id}"),
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NO_CONTENT);
+    let (status, fetched) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/app/devices/{device_id}/configs"),
+        &env.owner_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{fetched}");
+    assert_eq!(fetched.as_array().unwrap().len(), 1);
+}

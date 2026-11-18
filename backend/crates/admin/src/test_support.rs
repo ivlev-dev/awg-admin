@@ -84,6 +84,10 @@ impl DevicePeerRepository for CountingPeers {
         self.inner.delete_for_device(device_id)
     }
 
+    fn delete_peer(&self, peer_id: Uuid) -> CoreResult<()> {
+        self.inner.delete_peer(peer_id)
+    }
+
     fn delete(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<()> {
         self.inner.delete(device_id, interface_id)
     }
@@ -430,8 +434,10 @@ fn peer(
     ips: BTreeMap<Uuid, IpAddr>,
 ) -> DevicePeer {
     DevicePeer {
+        id: Uuid::new_v4(),
         device_id: device.id,
         interface_id,
+        label: public_key.into(),
         public_key: public_key.into(),
         private_key_sealed: String::new(),
         preshared_key_sealed: String::new(),

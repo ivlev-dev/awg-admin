@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ipnet::Ipv4Net;
@@ -69,11 +69,15 @@ impl SnapshotSource for SnapshotBuilder {
         }
 
         let peers = self.devices.all_peers()?;
-        let mut peer_index: HashMap<(Uuid, Uuid), &DevicePeer> = HashMap::new();
+        let mut peers_by_interface: HashMap<Uuid, Vec<&DevicePeer>> = HashMap::new();
         for peer in &peers {
-            peer_index
-                .entry((peer.device_id, peer.interface_id))
-                .or_insert(peer);
+            peers_by_interface
+                .entry(peer.interface_id)
+                .or_default()
+                .push(peer);
+        }
+        for list in peers_by_interface.values_mut() {
+            list.sort_by(|left, right| left.primary_order().cmp(&right.primary_order()));
         }
 
         let pools = self.network.list_all_pools()?;
@@ -94,7 +98,11 @@ impl SnapshotSource for SnapshotBuilder {
                 .map(|devices| {
                     devices
                         .iter()
-                        .filter(|device| peer_index.contains_key(&(device.id, interface.id)))
+                        .filter(|device| {
+                            peers_by_interface.get(&interface.id).is_some_and(|peers| {
+                                peers.iter().any(|peer| peer.device_id == device.id)
+                            })
+                        })
                         .cloned()
                         .collect()
                 })
@@ -147,10 +155,9 @@ impl SnapshotSource for SnapshotBuilder {
             let mut peers = Vec::new();
             let mut peer_by_device: HashMap<Uuid, (Vec<String>, Vec<String>)> = HashMap::new();
             for device in group_devices.iter().filter(|d| !d.revoked) {
-                let Some(peer) = peer_index.get(&(device.id, interface.id)).copied() else {
+                let Some(device_peers) = peers_by_interface.get(&interface.id) else {
                     continue;
                 };
-                let preshared_key = self.devices.peer_preshared_key(peer)?;
                 let used = used_bytes_cached(&self.stats, &mut used_cache, device.user_id);
                 let blocked = user_tariffs
                     .get(&device.user_id)
@@ -161,33 +168,50 @@ impl SnapshotSource for SnapshotBuilder {
                 } else {
                     (device.down_kbps, device.up_kbps)
                 };
-                let mut addresses = Vec::new();
-                let mut allowed = Vec::new();
-                for (pool_id, ip) in &peer.ips {
-                    let Some(pool) = pool_by_id.get(pool_id) else {
-                        continue;
-                    };
-                    if pool.group_id != interface.group_id {
+                let mut primary: Option<(Vec<String>, Vec<String>)> = None;
+                let mut seen_keys: HashSet<String> = HashSet::new();
+                for peer in device_peers
+                    .iter()
+                    .copied()
+                    .filter(|peer| peer.device_id == device.id)
+                {
+                    if !seen_keys.insert(peer.public_key.clone()) {
                         continue;
                     }
-                    if let Some(net) = pool_nets.get(pool_id).copied().flatten()
-                        && let std::net::IpAddr::V4(v4) = ip
-                    {
-                        addresses.push(address_with_prefix(*v4, net));
-                        allowed.push(format!("{v4}/32"));
+                    let preshared_key = self.devices.peer_preshared_key(peer)?;
+                    let mut addresses = Vec::new();
+                    let mut allowed = Vec::new();
+                    for (pool_id, ip) in &peer.ips {
+                        let Some(pool) = pool_by_id.get(pool_id) else {
+                            continue;
+                        };
+                        if pool.group_id != interface.group_id {
+                            continue;
+                        }
+                        if let Some(net) = pool_nets.get(pool_id).copied().flatten()
+                            && let std::net::IpAddr::V4(v4) = ip
+                        {
+                            addresses.push(address_with_prefix(*v4, net));
+                            allowed.push(format!("{v4}/32"));
+                        }
                     }
+                    if primary.is_none() {
+                        primary = Some((addresses.clone(), allowed.clone()));
+                    }
+                    peers.push(DesiredPeer {
+                        device_id: device.id,
+                        user_id: device.user_id,
+                        public_key: peer.public_key.clone(),
+                        preshared_key,
+                        allowed_ips: allowed,
+                        addresses,
+                        down_kbps: down,
+                        up_kbps: up,
+                    });
                 }
-                peer_by_device.insert(device.id, (addresses.clone(), allowed.clone()));
-                peers.push(DesiredPeer {
-                    device_id: device.id,
-                    user_id: device.user_id,
-                    public_key: peer.public_key.clone(),
-                    preshared_key,
-                    allowed_ips: allowed,
-                    addresses,
-                    down_kbps: down,
-                    up_kbps: up,
-                });
+                if let Some(pair) = primary {
+                    peer_by_device.insert(device.id, pair);
+                }
             }
 
             let mut forwarding = Vec::new();
@@ -383,6 +407,10 @@ mod tests {
             self.inner.find(device_id, interface_id)
         }
 
+        fn find_peer(&self, peer_id: Uuid) -> CoreResult<Option<DevicePeer>> {
+            self.inner.find_peer(peer_id)
+        }
+
         fn list(&self) -> CoreResult<Vec<DevicePeer>> {
             self.list_calls.fetch_add(1, Ordering::SeqCst);
             self.inner.list()
@@ -403,6 +431,10 @@ mod tests {
 
         fn delete_for_device(&self, device_id: Uuid) -> CoreResult<usize> {
             self.inner.delete_for_device(device_id)
+        }
+
+        fn delete_peer(&self, peer_id: Uuid) -> CoreResult<()> {
+            self.inner.delete_peer(peer_id)
         }
 
         fn delete(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<()> {
@@ -605,8 +637,10 @@ mod tests {
         ips: BTreeMap<Uuid, IpAddr>,
     ) -> DevicePeer {
         DevicePeer {
+            id: Uuid::new_v4(),
             device_id: device.id,
             interface_id,
+            label: public_key.into(),
             public_key: public_key.into(),
             private_key_sealed: sealer.seal_str("private-key").unwrap(),
             preshared_key_sealed: sealer.seal_str("preshared-key").unwrap(),
@@ -1157,6 +1191,94 @@ mod tests {
         assert_eq!(on_a0_addresses, vec!["10.1.0.2/24", "10.2.0.5/24"]);
         assert_eq!(on_a1.addresses, vec!["10.1.0.6/24"]);
         assert_ne!(on_a0.addresses, on_a1.addresses);
+    }
+
+    #[test]
+    fn extra_peer_on_the_same_interface_reaches_desired_state() {
+        let fixture = seed();
+        let devices = fixture.builder.devices.list_all().unwrap();
+        let phone = devices.iter().find(|d| d.name == "phone").unwrap();
+        let existing = fixture
+            .builder
+            .devices
+            .peers_for(phone.id)
+            .unwrap()
+            .into_iter()
+            .find(|peer| peer.interface_id != fixture.iface_a1_id)
+            .unwrap();
+        let pool_id = fixture
+            .builder
+            .network
+            .list_pools(phone.group_id)
+            .unwrap()
+            .into_iter()
+            .find(|pool| pool.cidr == "10.1.0.0/24")
+            .unwrap()
+            .id;
+        let mut extra = existing.clone();
+        extra.id = Uuid::new_v4();
+        extra.public_key = "key-phone-a0-extra".into();
+        extra.label = "zz-extra".into();
+        extra.ips = BTreeMap::from([(pool_id, IpAddr::V4(Ipv4Addr::new(10, 1, 0, 8)))]);
+        fixture.peers.save(&extra).unwrap();
+
+        let state = fixture.builder.build(fixture.node_id).unwrap();
+        let awg0 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg0")
+            .unwrap();
+        let phone_peers: Vec<_> = awg0
+            .peers
+            .iter()
+            .filter(|peer| peer.device_id == phone.id)
+            .collect();
+        assert_eq!(phone_peers.len(), 2);
+        let keys: Vec<&str> = phone_peers
+            .iter()
+            .map(|peer| peer.public_key.as_str())
+            .collect();
+        assert!(keys.contains(&"key-phone-a0"));
+        assert!(keys.contains(&"key-phone-a0-extra"));
+        assert!(
+            phone_peers
+                .iter()
+                .any(|peer| peer.allowed_ips.contains(&"10.1.0.8/32".to_string()))
+        );
+        let mut all_allowed: Vec<&String> = phone_peers
+            .iter()
+            .flat_map(|peer| &peer.allowed_ips)
+            .collect();
+        all_allowed.sort();
+        all_allowed.dedup();
+        assert_eq!(
+            all_allowed.len(),
+            phone_peers
+                .iter()
+                .map(|p| p.allowed_ips.len())
+                .sum::<usize>()
+        );
+
+        let primary_peer = phone_peers
+            .iter()
+            .find(|peer| peer.public_key == "key-phone-a0")
+            .unwrap();
+        let expected_from_ip = primary_peer
+            .addresses
+            .first()
+            .unwrap()
+            .split('/')
+            .next()
+            .unwrap()
+            .to_string();
+        let laptop = devices.iter().find(|d| d.name == "laptop").unwrap();
+        let rule = awg0
+            .forwarding
+            .iter()
+            .find(|rule| rule.from_device_id == phone.id && rule.to_device_id == laptop.id)
+            .expect("forwarding rule phone -> laptop");
+        assert_eq!(rule.from_ip, expected_from_ip);
+        assert_ne!(rule.from_ip, "10.1.0.8");
     }
 
     #[test]

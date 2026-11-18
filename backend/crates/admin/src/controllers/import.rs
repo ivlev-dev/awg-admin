@@ -2401,6 +2401,10 @@ mod tests {
             self.inner.delete_for_device(device_id)
         }
 
+        fn delete_peer(&self, peer_id: Uuid) -> Result<(), CoreError> {
+            self.inner.delete_peer(peer_id)
+        }
+
         fn delete(&self, device_id: Uuid, interface_id: Uuid) -> Result<(), CoreError> {
             self.inner.delete(device_id, interface_id)
         }

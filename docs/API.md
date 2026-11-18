@@ -73,8 +73,12 @@
 | PATCH | `/devices/{id}` | self/admin | `UpdateDeviceRequest` | `DeviceView` |
 | DELETE | `/devices/{id}` | self/admin | — | `{ok:true}` |
 | POST | `/devices/bulk` | self/admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
-| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` (по одному на каждый интерфейс/пир устройства, отсортировано по `interface_name`) |
-| GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` |
+| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` (по одному на каждый пир устройства, отсортировано по `interface_name`, `label`, `peer_id`) |
+| GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` (primary-пир интерфейса) |
+| GET | `/devices/{id}/profiles/by-peer/{peer_id}` | self/admin | — | `ProfileView` конкретного пира |
+| POST | `/devices/{id}/tunnels` | self/admin | `{interface_id, label?}` | `DeviceView` (создан новый пир) |
+| PATCH | `/devices/{id}/tunnels/{peer_id}` | self/admin | `{label}` | `DeviceView` |
+| DELETE | `/devices/{id}/tunnels/{peer_id}` | self/admin | — | `204` (последний пир удалить нельзя — `409`) |
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
 | DELETE | `/devices/{id}/shares` | self/admin | — | `{revoked:N}` (отзыв всех ссылок устройства) |
@@ -98,7 +102,9 @@
 | GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, доступные интерфейсы) |
 | POST | `/app/devices` | user | `{name, interface_ids?}`, заголовок `Idempotency-Key` (опционально) | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
 | GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` (primary-интерфейс) |
-| GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все интерфейсы) |
+| GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все пиры) |
+| POST | `/app/devices/{id}/tunnels` | self/admin | `{interface_id, label?}` | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
+| DELETE | `/app/devices/{id}/tunnels/{peer_id}` | self/admin | — | `204` (последний пир удалить нельзя — `409`) |
 | PATCH | `/app/devices/{id}` | self/admin | `{name}` | `DeviceView` |
 | DELETE | `/app/devices/{id}` | self/admin | — | `204` |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
@@ -202,8 +208,11 @@
 - `interface_name` — имя интерфейса;
 - `node_id` — нода интерфейса;
 - `node_name` — имя ноды;
-- `peers[]` — все пиры устройства (`interface_id`, `interface_name`,
-  `public_key`, `addresses`).
+- `peers[]` — все пиры устройства (`peer_id`, `label`, `interface_id`,
+  `interface_name`, `public_key`, `addresses`). Один интерфейс может содержать
+  несколько пиров; `peer_id` уникален в пределах базы и используется в
+  `/tunnels/{peer_id}` и `/profiles/by-peer/{peer_id}`. `label` — имя туннеля
+  (по умолчанию имя интерфейса), 1..64 символа.
 
 `CreateDeviceRequest` принимает `interface_id?: string` (устаревшее, один
 интерфейс), `interface_ids?: string[]` (список интерфейсов) и необязательный
@@ -236,14 +245,33 @@
 (primary) интерфейс списка; `DeviceView.peers[]` содержит все пиры.
 Лимиты тарифа (`max_devices`, суммарная полоса группы) считаются один раз на
 устройство, а не на пир. IP выделяется каждому пиру отдельно из enabled-пулов
-группы его интерфейса; в пределах одного интерфейса адреса не повторяются,
-между интерфейсами уникальность также сохраняется.
+группы его интерфейса; адреса уникальны между всеми пирами всех устройств.
 
 `PATCH /devices/{id}` интерфейсы не меняет. `GET /devices/{id}/profiles`
 возвращает по профилю на каждый пир устройства, отсортированные по
-`interface_name` (затем по `interface_id`).
-`GET /devices/{id}/profiles/{interface_id}` возвращает профиль конкретного
-пира, для отсутствующего интерфейса — `404`.
+`interface_name`, затем по `label`, затем по `peer_id`. Профиль содержит
+`peer_id`, `label`, `interface_id`, `interface_name`.
+`GET /devices/{id}/profiles/{interface_id}` возвращает профиль primary-пира
+интерфейса (первый по `label`, затем по `peer_id`) для совместимости;
+`GET /devices/{id}/profiles/by-peer/{peer_id}` — профиль конкретного пира.
+Неизвестный интерфейс или пир другого устройства — `404`.
+
+Дополнительные туннели на уже подключённом интерфейсе:
+
+- `POST /devices/{id}/tunnels` `{"interface_id":"uuid","label":"laptop"}` →
+  `DeviceView`. Создаёт ещё один пир на интерфейсе: проверяются владелец
+  устройства, активность устройства (revoked → `409`), включённость
+  интерфейса (`409`) и принадлежность интерфейса группе и ноде устройства
+  (`403`). `label` необязателен; по умолчанию — имя интерфейса; пустой или
+  длиннее 64 символов — `400`. Лимит `max_devices` и суммарная полоса группы
+  не пересчитываются: пир использует лимиты устройства. Новому пиру
+  выделяются свободные IP из пулов группы. Внешнему устройству (импорт из
+  серверного конфига) добавить пир нельзя — `409`.
+- `PATCH /devices/{id}/tunnels/{peer_id}` `{"label":"new"}` → `DeviceView`;
+  пир должен принадлежать этому устройству (`404`), `label` — 1..64 символа.
+- `DELETE /devices/{id}/tunnels/{peer_id}` → `204`; удаление последнего пира
+  устройства запрещено (`409`), иначе пир удаляется и группа публикуется на
+  ноды.
 
 ## Мобильное приложение (Android)
 
@@ -263,19 +291,26 @@
   Без тарифа у пользователя — `409 tariff_required` (`tariff is required`).
   `interface_ids` необязателен; правила выбора те же, что у `POST /devices`
   (тариф → список интерфейсов → автоопределение). `configs` содержит конфиг
-  на каждый интерфейс (отсортировано по `interface_name`), `config` —
-  primary-интерфейс (`device.interface_id`). Устройство с несколькими
-  интерфейсами создаёт по пиру на каждый из них, но занимает одну позицию в
-  лимите `max_devices`. Проверки «интерфейс другой ноды/группы/выключен» и
-  лимит устройств тарифа сохраняются (`403`/`409`). Forwarding по умолчанию —
-  как у `POST /devices`.
-- `GET /app/devices/{id}/config` → `AppConfigView` для primary-интерфейса.
+  на каждый пир (отсортировано по `interface_name`, `label`, `peer_id`),
+  `config` — primary-пир primary-интерфейса (`device.interface_id`).
+  Устройство с несколькими интерфейсами создаёт по пиру на каждый из них, но
+  занимает одну позицию в лимите `max_devices`. Проверки «интерфейс другой
+  ноды/группы/выключен» и лимит устройств тарифа сохраняются (`403`/`409`).
+  Forwarding по умолчанию — как у `POST /devices`.
+- `GET /app/devices/{id}/config` → `AppConfigView` для primary-пира
+  primary-интерфейса.
   Доступ не блокируется ни квотой, ни статусом подписки: конфиг уже выдан,
   ограничение трафика применяется на ноде (см. «Троттлинг доступа»).
-- `GET /app/devices/{id}/configs` → `AppConfigView[]` для всех интерфейсов
-  устройства (те же поля: `interface_id`, `interface_name`, `node_id`,
-  `endpoint`, `addresses`, `conf`, `revision`), отсортировано по
-  `interface_name`. Чужое устройство — `403 forbidden`.
+- `GET /app/devices/{id}/configs` → `AppConfigView[]` для всех пиров
+  устройства (поля: `peer_id`, `label`, `interface_id`, `interface_name`,
+  `node_id`, `endpoint`, `addresses`, `conf`, `revision`), отсортировано по
+  `interface_name`, `label`, `peer_id`. Чужое устройство — `403 forbidden`.
+- `POST /app/devices/{id}/tunnels` `{"interface_id":"uuid","label":"second"}`
+  → `{device, config, configs}`; правила те же, что у админской ручки
+  `POST /devices/{id}/tunnels`, доступ — только к своим устройствам
+  (чужое — `403`). Без тарифа — `409 tariff_required`.
+- `DELETE /app/devices/{id}/tunnels/{peer_id}` → `204`; чужое устройство —
+  `403`, последний пир — `409`.
 - `PATCH /app/devices/{id}` `{"name":"New"}` → `DeviceView`; пустое имя или
   длиннее 64 символов — `400 bad_request`.
 - `DELETE /app/devices/{id}` → `204`, устройство удаляется вместе со всеми
