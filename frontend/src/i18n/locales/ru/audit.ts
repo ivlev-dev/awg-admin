@@ -49,4 +49,13 @@ export const ruAudit = {
   "audit.loadMore": "Загрузить ещё",
   "audit.error.load": "Не удалось загрузить журнал аудита",
   "audit.error.period": "Начало периода не может быть позже конца",
+  "audit.presets.save": "Сохранить фильтр",
+  "audit.presets.name": "Название фильтра",
+  "audit.presets.placeholder": "Например, ошибки за неделю",
+  "audit.presets.apply": "Пресеты",
+  "audit.presets.delete": "Удалить пресет",
+  "audit.presets.empty": "Пресетов пока нет",
+  "audit.presets.limit": "Нельзя сохранить больше 10 пресетов",
+  "audit.presets.saved": "Фильтр сохранён",
+  "audit.presets.removed": "Пресет удалён",
 } as const;

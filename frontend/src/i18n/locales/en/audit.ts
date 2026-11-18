@@ -49,4 +49,13 @@ export const enAudit = {
   "audit.loadMore": "Load more",
   "audit.error.load": "Failed to load the audit log",
   "audit.error.period": "The start of the period cannot be later than the end",
+  "audit.presets.save": "Save filter",
+  "audit.presets.name": "Filter name",
+  "audit.presets.placeholder": "e.g. errors this week",
+  "audit.presets.apply": "Presets",
+  "audit.presets.delete": "Delete preset",
+  "audit.presets.empty": "No presets yet",
+  "audit.presets.limit": "You cannot save more than 10 presets",
+  "audit.presets.saved": "Filter saved",
+  "audit.presets.removed": "Preset deleted",
 } as const;

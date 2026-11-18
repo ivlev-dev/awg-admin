@@ -764,3 +764,87 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   .audit-drawer,
   .audit-drawer-backdrop { animation: none; }
 }
+
+.preset-anchor { position: relative; display: flex; }
+.preset-backdrop { position: fixed; inset: 0; z-index: 19; }
+.preset-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  min-width: 240px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  background: var(--md-surface-container-high);
+  border-radius: var(--shape-md);
+  box-shadow: var(--shadow-2);
+  padding: 6px;
+}
+.preset-menu__row { display: flex; align-items: center; gap: 4px; }
+.preset-menu__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--shape-sm);
+  background: transparent;
+  color: var(--md-on-surface);
+  font-family: inherit;
+  font-size: var(--t-xs);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.preset-menu__item:hover { background: color-mix(in oklab, var(--md-on-surface) 8%, transparent); }
+.preset-menu__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preset-menu__remove {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--shape-sm);
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.preset-menu__remove:hover {
+  background: var(--md-error-container);
+  color: var(--md-on-error-container);
+}
+.preset-menu__empty {
+  padding: 8px 10px;
+  color: var(--md-on-surface-variant);
+  font-size: var(--t-xs);
+}
+.preset-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0 0 12px;
+}
+.preset-form .field { flex: 1 1 240px; margin: 0; }
+.preset-form .field label { font-size: var(--t-2xs); color: var(--md-on-surface-variant); }
+
+@media (max-width: 767px) {
+  .preset-anchor { flex: 1 1 auto; }
+  .preset-anchor > .btn { width: 100%; }
+  .preset-menu {
+    right: auto;
+    left: 0;
+    min-width: min(240px, calc(100vw - 32px));
+  }
+  .preset-form .field { flex: 1 1 100%; }
+}

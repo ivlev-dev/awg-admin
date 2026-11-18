@@ -31,6 +31,65 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
         </div>
       </div>
 
+      <Show when={this.vm.device}>
+        <div class="client-subnav">
+          <div class="client-subnav__meta">
+            <span class="client-subnav__name">
+              {this.vm.device?.name ?? t("clients.details.title")}
+            </span>
+            <span class={`badge ${this.vm.revoked ? "badge--red" : "badge--green"}`}>
+              <span class={`dot ${this.vm.revoked ? "dot--red" : "dot--green"}`}></span>
+              {this.vm.revoked ? t("clients.status.revoked") : t("clients.status.active")}
+            </span>
+            <span class="client-subnav__address mono">{this.vm.addresses[0] ?? "—"}</span>
+          </div>
+          <nav class="client-subnav__links" aria-label={t("clients.details.nav.aria")}>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-stats")}
+            >
+              {t("clients.details.nav.stats")}
+            </button>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-overview")}
+            >
+              {t("clients.details.nav.overview")}
+            </button>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-settings")}
+            >
+              {t("clients.details.nav.settings")}
+            </button>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-forwarding")}
+            >
+              {t("clients.details.nav.forwarding")}
+            </button>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-profiles")}
+            >
+              {t("clients.details.nav.profiles")}
+            </button>
+            <button
+              class="client-subnav__link"
+              type="button"
+              onClick={() => this.vm.scrollToSection("client-share")}
+            >
+              {t("clients.details.nav.share")}
+            </button>
+          </nav>
+        </div>
+      </Show>
+
       <Show when={this.vm.error}>
         <div class="alert alert--error">{this.vm.error}</div>
       </Show>
@@ -54,7 +113,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
         }
       >
         <div class="stack">
-          <div class="grid grid--4">
+          <div class="grid grid--4 client-section" id="client-stats" tabindex={-1}>
             <div class="stat">
               <div class="stat__label"><span class="dot dot--green"></span>{t("clients.details.stats.rxToday")}</div>
               <div class="stat__value">{this.vm.todayRx}</div>
@@ -93,10 +152,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
           >
             <div class="stack">
               <div class="grid grid--2">
-                <section class="card">
+                <section class="card client-section" id="client-overview" tabindex={-1}>
                   <div class="card__head">
                     <div>
-                      <div class="card__title">{t("clients.details.title")}</div>
+                      <h2 class="card__title" tabindex={-1}>{t("clients.details.title")}</h2>
                       <div class="card__sub">{t("clients.details.created", { date: formatDateTimeI18n(this.vm.device?.created_at ?? null) })}</div>
                     </div>
                     <span class={`badge ${this.vm.revoked ? "badge--red" : "badge--green"}`}>
@@ -189,10 +248,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                   </div>
                 </section>
 
-                <section class="card">
+                <section class="card client-section" id="client-settings" tabindex={-1}>
                   <div class="card__head">
                     <div>
-                      <div class="card__title">{t("clients.details.edit.title")}</div>
+                      <h2 class="card__title" tabindex={-1}>{t("clients.details.edit.title")}</h2>
                       <div class="card__sub">{t("clients.details.edit.subtitle")}</div>
                     </div>
                   </div>
@@ -324,10 +383,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                 </section>
               </div>
 
-              <section class="card">
+              <section class="card client-section" id="client-forwarding" tabindex={-1}>
                 <div class="card__head">
                   <div>
-                    <div class="card__title">{t("clients.details.forwarding.matrix.title")}</div>
+                    <h2 class="card__title" tabindex={-1}>{t("clients.details.forwarding.matrix.title")}</h2>
                     <div class="card__sub">
                       {t("clients.details.forwarding.matrix.subtitle")}
                     </div>
@@ -453,10 +512,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                 </div>
               </section>
 
-              <section class="card">
+              <section class="card client-section" id="client-profiles" tabindex={-1}>
                 <div class="card__head">
                   <div>
-                    <div class="card__title">{t("clients.details.profiles.title")}</div>
+                    <h2 class="card__title" tabindex={-1}>{t("clients.details.profiles.title")}</h2>
                     <div class="card__sub">{t("clients.details.profiles.subtitle")}</div>
                   </div>
                 </div>
@@ -522,10 +581,10 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                 </div>
               </section>
 
-              <section class="card">
+              <section class="card client-section" id="client-share" tabindex={-1}>
                 <div class="card__head">
                   <div>
-                    <div class="card__title">{t("clients.details.share.title")}</div>
+                    <h2 class="card__title" tabindex={-1}>{t("clients.details.share.title")}</h2>
                     <div class="card__sub">{t("clients.details.share.subtitle")}</div>
                   </div>
                   <button

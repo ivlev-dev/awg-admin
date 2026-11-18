@@ -21,6 +21,9 @@ const STATUSES = [200, 201, 204, 400, 401, 403, 404, 409, 429, 500] as const;
 const QUERY_LIMIT = 200;
 const DATE_LIMIT = 32;
 const LOCAL_DATE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+const PRESET_LIMIT = 10;
+const PRESET_NAME_LIMIT = 80;
+const PRESET_ID_LIMIT = 64;
 
 export interface AuditFiltersState {
   action: string;
@@ -29,6 +32,12 @@ export interface AuditFiltersState {
   status: string;
   from: string;
   to: string;
+}
+
+export interface AuditPreset {
+  id: string;
+  name: string;
+  filters: AuditFiltersState;
 }
 
 const EMPTY_FILTERS: AuditFiltersState = {
@@ -44,6 +53,12 @@ export const auditFiltersStorage = persistedSignal<AuditFiltersState>(
   "awg.ui.audit.filters",
   EMPTY_FILTERS,
   validateAuditFilters,
+);
+
+export const auditPresetsStorage = persistedSignal<AuditPreset[]>(
+  "awg.ui.audit.presets",
+  [],
+  validateAuditPresets,
 );
 
 export interface AuditRowView {
@@ -156,6 +171,11 @@ export class AuditPageVM {
   @reactive accessor from = "";
   @reactive accessor to = "";
 
+  @reactive accessor presets: AuditPreset[] = [];
+  @reactive accessor presetFormOpen = false;
+  @reactive accessor presetName = "";
+  @reactive accessor presetMenuOpen = false;
+
   constructor(
     private readonly auditService: AuditService,
     private readonly toasts: ToastStore,
@@ -167,6 +187,7 @@ export class AuditPageVM {
     this.status = stored.status;
     this.from = stored.from;
     this.to = stored.to;
+    this.presets = auditPresetsStorage.read();
   }
 
   created(): void {
@@ -268,6 +289,16 @@ export class AuditPageVM {
     return !this.loading && !this.clearing && this.hasActiveFilters;
   }
 
+  @computed
+  get canSavePreset(): boolean {
+    return this.presetName.trim() !== "" && this.hasActiveFilters;
+  }
+
+  @computed
+  get canAddPreset(): boolean {
+    return this.presets.length < PRESET_LIMIT;
+  }
+
   setAction(value: string): void {
     this.action = value;
     this.persistFilters();
@@ -296,6 +327,72 @@ export class AuditPageVM {
   setTo(event: Event): void {
     this.to = readInput(event);
     this.persistFilters();
+  }
+
+  setPresetName(event: Event): void {
+    this.presetName = readInput(event).slice(0, PRESET_NAME_LIMIT);
+  }
+
+  openPresetForm(): void {
+    if (!this.hasActiveFilters) return;
+    this.presetFormOpen = true;
+    this.presetName = "";
+    this.presetMenuOpen = false;
+  }
+
+  closePresetForm(): void {
+    this.presetFormOpen = false;
+    this.presetName = "";
+  }
+
+  togglePresetMenu(): void {
+    this.presetMenuOpen = !this.presetMenuOpen;
+  }
+
+  closePresetMenu(): void {
+    this.presetMenuOpen = false;
+  }
+
+  savePreset(): void {
+    if (!this.canSavePreset) return;
+    if (this.presets.length >= PRESET_LIMIT) {
+      this.toasts.error(t("audit.presets.limit"));
+      return;
+    }
+    const preset: AuditPreset = {
+      id: createPresetId(),
+      name: this.presetName.trim(),
+      filters: this.currentFilters(),
+    };
+    this.persistPresets([...this.presets, preset]);
+    this.presetFormOpen = false;
+    this.presetName = "";
+    this.toasts.success(t("audit.presets.saved"));
+  }
+
+  async applyPreset(id: string): Promise<void> {
+    const preset = this.presets.find((item) => item.id === id);
+    if (preset === undefined) return;
+    this.action = preset.filters.action;
+    this.entity = preset.filters.entity;
+    this.actor = preset.filters.actor;
+    this.status = preset.filters.status;
+    this.from = preset.filters.from;
+    this.to = preset.filters.to;
+    this.detailsRow = null;
+    this.presetFormOpen = false;
+    this.presetName = "";
+    this.presetMenuOpen = false;
+    this.persistFilters();
+    await this.apply();
+  }
+
+  deletePreset(id: string): void {
+    const next = this.presets.filter((item) => item.id !== id);
+    if (next.length === this.presets.length) return;
+    this.persistPresets(next);
+    if (next.length === 0) this.presetMenuOpen = false;
+    this.toasts.success(t("audit.presets.removed"));
   }
 
   async apply(): Promise<void> {
@@ -455,14 +552,23 @@ export class AuditPageVM {
   }
 
   private persistFilters(): void {
-    auditFiltersStorage.write({
+    auditFiltersStorage.write(this.currentFilters());
+  }
+
+  private currentFilters(): AuditFiltersState {
+    return {
       action: this.action,
       entity: this.entity,
       actor: this.actor,
       status: this.status,
       from: this.from,
       to: this.to,
-    });
+    };
+  }
+
+  private persistPresets(presets: AuditPreset[]): void {
+    this.presets = presets;
+    auditPresetsStorage.write(presets);
   }
 
   private periodError(): string | null {
@@ -504,4 +610,33 @@ function validateAuditFilters(value: unknown): AuditFiltersState | null {
 function dateField(value: unknown): string | null {
   if (typeof value !== "string" || value.length > DATE_LIMIT) return null;
   return value === "" || LOCAL_DATE.test(value) ? value : null;
+}
+
+function validateAuditPresets(value: unknown): AuditPreset[] | null {
+  if (!Array.isArray(value)) return null;
+  const presets: AuditPreset[] = [];
+  for (const item of value) {
+    if (presets.length >= PRESET_LIMIT) break;
+    const preset = parseAuditPreset(item);
+    if (preset !== null) presets.push(preset);
+  }
+  return presets;
+}
+
+function parseAuditPreset(value: unknown): AuditPreset | null {
+  if (!isRecord(value)) return null;
+  const id = stringField(value, "id", PRESET_ID_LIMIT);
+  const name = stringField(value, "name", PRESET_NAME_LIMIT);
+  if (id === null || id.trim() === "" || name === null || name.trim() === "") return null;
+  const filters = validateAuditFilters(value["filters"]);
+  if (filters === null) return null;
+  return { id, name, filters };
+}
+
+function createPresetId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  const random = Math.random().toString(36).slice(2, 10);
+  return `preset-${Date.now().toString(36)}-${random}`;
 }

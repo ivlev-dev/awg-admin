@@ -25,7 +25,12 @@ const DEFAULT_ENDPOINT_PORT = "443";
 const DEFAULT_LISTEN_PORT = "51820";
 const DEFAULT_MTU = "1420";
 
+const NAME_MAX_LENGTH = 15;
+const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+
 export type InterfacesSortKey = "name" | "group" | "node" | "endpoint" | "peers" | "status";
+export type CreateField = "name" | "endpointHost" | "endpointPort" | "listenPort" | "mtu";
+export type EditField = "host" | "endpointPort" | "listenPort" | "mtu";
 
 export class InterfacesPageVM {
   @reactive accessor interfaces: InterfaceInfo[] = [];
@@ -50,6 +55,10 @@ export class InterfacesPageVM {
   @reactive accessor formListenPort = DEFAULT_LISTEN_PORT;
   @reactive accessor formMtu = DEFAULT_MTU;
   @reactive accessor formError: string | null = null;
+
+  @reactive accessor touchedFields: string[] = [];
+  @reactive accessor createSubmitted = false;
+  @reactive accessor editSubmitted = false;
 
   @reactive accessor editing: InterfaceInfo | null = null;
   @reactive accessor editLabel = "";
@@ -136,15 +145,60 @@ export class InterfacesPageVM {
   }
 
   @computed
+  get nameError(): string | null {
+    return nameProblem(this.formName);
+  }
+
+  @computed
+  get endpointHostError(): string | null {
+    return hostProblem(this.formEndpointHost);
+  }
+
+  @computed
+  get endpointPortError(): string | null {
+    return isPort(this.formEndpointPort) ? null : t("interfaces.error.port");
+  }
+
+  @computed
+  get listenPortError(): string | null {
+    return isPort(this.formListenPort) ? null : t("interfaces.error.port");
+  }
+
+  @computed
+  get mtuError(): string | null {
+    return isMtu(this.formMtu) ? null : t("interfaces.error.mtu");
+  }
+
+  @computed
+  get editHostError(): string | null {
+    return hostProblem(this.editHost);
+  }
+
+  @computed
+  get editEndpointPortError(): string | null {
+    return isPort(this.editEndpointPort) ? null : t("interfaces.error.port");
+  }
+
+  @computed
+  get editListenPortError(): string | null {
+    return isPort(this.editListenPort) ? null : t("interfaces.error.port");
+  }
+
+  @computed
+  get editMtuError(): string | null {
+    return isMtu(this.editMtu) ? null : t("interfaces.error.mtu");
+  }
+
+  @computed
   get canCreate(): boolean {
     return (
       this.formGroupId.length > 0 &&
       this.formNodeId.length > 0 &&
-      this.formName.trim().length > 0 &&
-      this.formEndpointHost.trim().length > 0 &&
-      isPort(this.formEndpointPort) &&
-      isPort(this.formListenPort) &&
-      isMtu(this.formMtu) &&
+      this.nameError === null &&
+      this.endpointHostError === null &&
+      this.endpointPortError === null &&
+      this.listenPortError === null &&
+      this.mtuError === null &&
       !this.busy
     );
   }
@@ -153,12 +207,35 @@ export class InterfacesPageVM {
   get canSaveEdit(): boolean {
     return (
       this.editing !== null &&
-      this.editHost.trim().length > 0 &&
-      isPort(this.editEndpointPort) &&
-      isPort(this.editListenPort) &&
-      isMtu(this.editMtu) &&
+      this.editHostError === null &&
+      this.editEndpointPortError === null &&
+      this.editListenPortError === null &&
+      this.editMtuError === null &&
       !this.busy
     );
+  }
+
+  markTouched(field: string): void {
+    if (this.touchedFields.includes(field)) return;
+    this.touchedFields = [...this.touchedFields, field];
+  }
+
+  isTouched(field: string): boolean {
+    return this.touchedFields.includes(field);
+  }
+
+  showCreateError(field: CreateField): boolean {
+    return this.createSubmitted || this.isTouched(field);
+  }
+
+  showEditError(field: EditField): boolean {
+    return this.editSubmitted || this.isTouched(`edit.${field}`);
+  }
+
+  private resetValidation(): void {
+    this.touchedFields = [];
+    this.createSubmitted = false;
+    this.editSubmitted = false;
   }
 
   async load(): Promise<void> {
@@ -202,6 +279,7 @@ export class InterfacesPageVM {
   openCreate(): void {
     this.createOpen = true;
     this.formError = null;
+    this.resetValidation();
     this.formGroupId = this.isAdmin
       ? this.groupFilter || this.groups[0]?.id || ""
       : this.ownGroupId ?? "";
@@ -246,6 +324,7 @@ export class InterfacesPageVM {
     }
     this.createOpen = false;
     this.formError = null;
+    this.resetValidation();
   }
 
   setFormGroup(value: string): void {
@@ -282,6 +361,7 @@ export class InterfacesPageVM {
 
   async submitCreate(event: Event): Promise<void> {
     event.preventDefault();
+    this.createSubmitted = true;
     if (!this.canCreate) return;
     this.busy = true;
     this.formError = null;
@@ -300,6 +380,7 @@ export class InterfacesPageVM {
       this.interfaces = [...this.interfaces, created];
       this.createOpen = false;
       this.createSnapshot = this.formState();
+      this.resetValidation();
       this.toasts.success(t("interfaces.toast.created", { name: created.name }));
     } catch (error) {
       const message = messageOf(error, t("interfaces.error.create"));
@@ -313,6 +394,7 @@ export class InterfacesPageVM {
   openEdit(item: InterfaceInfo): void {
     this.editing = item;
     this.editError = null;
+    this.resetValidation();
     this.editLabel = item.label;
     this.editHost = item.endpoint_host;
     this.editEndpointPort = String(item.endpoint_port);
@@ -351,6 +433,7 @@ export class InterfacesPageVM {
     }
     this.editing = null;
     this.editError = null;
+    this.resetValidation();
   }
 
   setEditLabel(event: Event): void {
@@ -379,6 +462,7 @@ export class InterfacesPageVM {
 
   async submitEdit(event: Event): Promise<void> {
     event.preventDefault();
+    this.editSubmitted = true;
     const current = this.editing;
     if (!current || !this.canSaveEdit) return;
     this.busy = true;
@@ -395,6 +479,7 @@ export class InterfacesPageVM {
       this.replace(updated);
       this.editSnapshot = this.editState();
       this.editing = null;
+      this.resetValidation();
       this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
     } catch (error) {
       const message = messageOf(error, t("interfaces.error.update"));
@@ -596,5 +681,19 @@ function isMtu(value: string): boolean {
   if (!/^\d+$/.test(value.trim())) return false;
   const mtu = Number(value);
   return mtu >= 576 && mtu <= 9000;
+}
+
+function nameProblem(value: string): string | null {
+  const name = value.trim();
+  if (name.length === 0) return t("interfaces.error.name");
+  if (name.length > NAME_MAX_LENGTH) return t("interfaces.error.nameLength");
+  if (!NAME_PATTERN.test(name)) return t("interfaces.error.name");
+  return null;
+}
+
+function hostProblem(value: string): string | null {
+  const host = value.trim();
+  if (host.length === 0 || /\s/.test(host)) return t("interfaces.error.host");
+  return null;
 }
 

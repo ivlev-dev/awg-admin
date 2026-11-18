@@ -724,3 +724,86 @@
 
 .card[tabindex] { cursor: default; }
 .card[tabindex]:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+.client-subnav {
+  position: sticky;
+  top: var(--shell-header);
+  z-index: 6;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: color-mix(in oklab, var(--md-surface) 92%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--md-outline-variant);
+}
+
+.client-subnav__meta { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 0 1 auto; }
+.client-subnav__meta .badge { flex: none; }
+.client-subnav__name {
+  min-width: 0;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--t-sm);
+  font-weight: 700;
+}
+.client-subnav__address {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--md-on-surface-variant);
+  font-size: var(--t-xs);
+}
+
+.client-subnav__links {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  margin-left: auto;
+  padding: 2px 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.client-subnav__links::-webkit-scrollbar { display: none; }
+
+.client-subnav__link {
+  flex: none;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--md-on-surface-variant);
+  font: inherit;
+  font-size: var(--t-xs);
+  font-weight: 650;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.client-subnav__link:hover { background: var(--md-surface-container); color: var(--md-on-surface); }
+.client-subnav__link:focus-visible { outline: 2px solid var(--md-primary); outline-offset: 2px; }
+
+.client-section { scroll-margin-top: calc(var(--shell-header) + 64px); }
+
+.card__title[tabindex]:focus { outline: none; }
+.card__title[tabindex]:focus-visible {
+  outline: 2px solid var(--md-primary);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+
+@media (max-width: 767px) {
+  .client-subnav {
+    gap: 8px;
+    padding: 8px max(12px, env(safe-area-inset-right)) 8px max(12px, env(safe-area-inset-left));
+  }
+  .client-subnav__name { max-width: 38vw; }
+  .client-subnav__address { display: none; }
+  .client-subnav__link { padding: 6px 8px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .client-subnav__link { transition: none; }
+}

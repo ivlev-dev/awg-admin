@@ -63,6 +63,61 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 <Icon name="download" size={14} class="" /> {t("audit.export")}
               </button>
               <button
+                class="btn btn--sm"
+                type="button"
+                disabled={!this.vm.hasActiveFilters}
+                onClick={() => this.vm.openPresetForm()}
+              >
+                <Icon name="plus" size={14} class="" /> {t("audit.presets.save")}
+              </button>
+              <Show when={this.vm.presets.length > 0}>
+                <div class="preset-anchor">
+                  <button
+                    class="btn btn--sm"
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={this.vm.presetMenuOpen ? "true" : "false"}
+                    onClick={() => this.vm.togglePresetMenu()}
+                  >
+                    <Icon name="chevron" size={14} class="" /> {t("audit.presets.apply")}
+                  </button>
+                  <Show when={this.vm.presetMenuOpen}>
+                    <div class="preset-backdrop" onClick={() => this.vm.closePresetMenu()}></div>
+                    <div class="preset-menu" role="menu">
+                      <Show
+                        when={this.vm.presets.length > 0}
+                        fallback={<div class="preset-menu__empty">{t("audit.presets.empty")}</div>}
+                      >
+                        <For each={this.vm.presets}>
+                          {(preset) => (
+                            <div class="preset-menu__row">
+                              <button
+                                class="preset-menu__item"
+                                type="button"
+                                role="menuitem"
+                                title={preset.name}
+                                onClick={() => void this.vm.applyPreset(preset.id)}
+                              >
+                                <span class="preset-menu__name">{preset.name}</span>
+                              </button>
+                              <button
+                                class="preset-menu__remove"
+                                type="button"
+                                aria-label={t("audit.presets.delete")}
+                                title={t("audit.presets.delete")}
+                                onClick={() => this.vm.deletePreset(preset.id)}
+                              >
+                                ×
+                              </button>
+                            </div>
+                          )}
+                        </For>
+                      </Show>
+                    </div>
+                  </Show>
+                </div>
+              </Show>
+              <button
                 class="btn btn--sm btn--danger"
                 type="button"
                 disabled={!this.vm.canClear}
@@ -155,6 +210,44 @@ export function AuditPage(this: { vm: AuditPageVM }) {
             </button>
           </div>
         </div>
+
+        <Show when={this.vm.presetFormOpen}>
+          <div class="preset-form">
+            <div class="field">
+              <label for="audit-preset-name">{t("audit.presets.name")}</label>
+              <input
+                id="audit-preset-name"
+                class="input"
+                type="text"
+                maxlength="80"
+                placeholder={t("audit.presets.placeholder")}
+                value={this.vm.presetName}
+                onInput={(event: Event) => this.vm.setPresetName(event)}
+                onKeyDown={(event: KeyboardEvent) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    this.vm.savePreset();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    this.vm.closePresetForm();
+                  }
+                }}
+              />
+            </div>
+            <button
+              class="btn btn--primary btn--sm"
+              type="button"
+              disabled={!this.vm.canSavePreset}
+              onClick={() => this.vm.savePreset()}
+            >
+              {t("common.saveShort")}
+            </button>
+            <button class="btn btn--sm" type="button" onClick={() => this.vm.closePresetForm()}>
+              {t("common.cancelShort")}
+            </button>
+          </div>
+        </Show>
 
         <Show when={this.vm.activeFilterChips.length > 0}>
           <div class="filter-chips">

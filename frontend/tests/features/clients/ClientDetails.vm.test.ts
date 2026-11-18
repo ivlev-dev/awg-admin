@@ -1238,6 +1238,63 @@ describe("ClientDetailsVM", () => {
     expect(vm.qrValue).toBe("");
   });
 
+  it("прокручивает к секции и ставит фокус на её заголовок", () => {
+    const { vm } = setup("admin");
+    const scrollIntoView = vi.fn();
+    const focus = vi.fn();
+    const heading = { focus } as unknown as HTMLElement;
+    const section = {
+      scrollIntoView,
+      querySelector: vi.fn(() => heading),
+      focus: vi.fn(),
+    } as unknown as HTMLElement;
+    const getElementById = vi.spyOn(document, "getElementById").mockReturnValue(section);
+
+    vm.scrollToSection("client-profiles");
+
+    expect(getElementById).toHaveBeenCalledWith("client-profiles");
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(focus).toHaveBeenCalledTimes(1);
+  });
+
+  it("не падает, если секция для прокрутки не найдена", () => {
+    const { vm } = setup("admin");
+    vi.spyOn(document, "getElementById").mockReturnValue(null);
+
+    expect(() => vm.scrollToSection("client-missing")).not.toThrow();
+  });
+
+  it("прокручивает без анимации при prefers-reduced-motion", () => {
+    const { vm } = setup("admin");
+    const scrollIntoView = vi.fn();
+    const section = {
+      scrollIntoView,
+      querySelector: vi.fn(() => null),
+      focus: vi.fn(),
+    } as unknown as HTMLElement;
+    vi.spyOn(document, "getElementById").mockReturnValue(section);
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true }) as MediaQueryList));
+
+    vm.scrollToSection("client-stats");
+
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+  });
+
+  it("фокусирует саму секцию, если заголовка нет", () => {
+    const { vm } = setup("admin");
+    const focus = vi.fn();
+    const section = {
+      scrollIntoView: vi.fn(),
+      querySelector: vi.fn(() => null),
+      focus,
+    } as unknown as HTMLElement;
+    vi.spyOn(document, "getElementById").mockReturnValue(section);
+
+    vm.scrollToSection("client-stats");
+
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+  });
+
   it("открывает модалки QR из share-ссылки и профиля", async () => {
     const { devicesService, groupsService, quota, session, router, toasts } = setup("admin");
     const container = createAppContainer();
@@ -1316,6 +1373,10 @@ describe("ClientDetailsVM", () => {
     expect(result.node.textContent).toContain("Симметрично");
     expect(result.node.textContent).toContain("Только выбранные");
     const root = result.node as Element;
+    expect(root.querySelector(".client-subnav")).not.toBeNull();
+    expect(root.querySelectorAll(".client-section")).toHaveLength(6);
+    expect(root.querySelector("#client-profiles")).not.toBeNull();
+    expect(root.querySelector("#client-forwarding .card__title")).not.toBeNull();
     const radios = Array.from(root.querySelectorAll<HTMLInputElement>('input[name="forwarding-mode"]'));
     expect(radios).toHaveLength(3);
     expect(radios.filter((radio) => radio.checked).map((radio) => radio.value)).toEqual(["off"]);
