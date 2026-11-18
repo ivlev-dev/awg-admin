@@ -6,10 +6,13 @@ import type { User } from "@/domain/types";
 import { ApiError } from "@/infrastructure/http/errors";
 import type { TokenStore } from "@/infrastructure/storage";
 
+const LOGOUT_TIMEOUT_MS = 1500;
+
 export class Session implements AuthSessionState {
   @reactive accessor user: User | null = null;
   @reactive accessor ready = false;
   @reactive accessor busy = false;
+  @reactive accessor loggingOut = false;
   @reactive accessor error: string | null = null;
   @reactive accessor errorCode: string | null = null;
   @reactive accessor totpRequired = false;
@@ -33,11 +36,14 @@ export class Session implements AuthSessionState {
 
   async init(): Promise<void> {
     if (this.ready) return;
-    if (!this.tokens.access()) {
+    const access = this.tokens.access();
+    const refresh = this.tokens.refresh();
+    if (!access && !refresh) {
       this.ready = true;
       return;
     }
     try {
+      if (!access && refresh) await this.auth.refresh(refresh);
       this.user = await this.auth.me();
     } catch {
       this.tokens.clear();
@@ -70,16 +76,18 @@ export class Session implements AuthSessionState {
   }
 
   async logout(): Promise<void> {
+    if (this.loggingOut) return;
     const refresh = this.tokens.refresh();
-    if (refresh) {
-      try {
-        await this.auth.logout(refresh);
-      } catch {
-        // Token is cleared locally even when the server is unreachable.
-      }
-    }
+    this.loggingOut = true;
     this.tokens.clear();
     this.user = null;
+    try {
+      if (refresh) await withTimeout(this.auth.logout(refresh), LOGOUT_TIMEOUT_MS);
+    } catch {
+      // Локальная сессия уже очищена, сетевой logout — best effort.
+    } finally {
+      this.loggingOut = false;
+    }
   }
 
   async reload(): Promise<void> {
@@ -96,5 +104,19 @@ export class Session implements AuthSessionState {
 
   get authenticated(): boolean {
     return this.user !== null;
+  }
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error("timeout")), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
   }
 }

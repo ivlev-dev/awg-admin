@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import type { AuthService } from "@/application/auth/service";
@@ -8,11 +8,13 @@ import { t } from "@/i18n";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 const COOLDOWN_SECONDS = 60;
 
-export class ForgotPasswordVM {
+export class ForgotPasswordVM extends ViewModel {
   constructor(
     private readonly auth: AuthService,
     private readonly router: Router,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor email = "";
   @reactive accessor submitting = false;
@@ -23,6 +25,10 @@ export class ForgotPasswordVM {
   @reactive accessor resendError: string | null = null;
 
   private timer: number | null = null;
+
+  override unmounted(): void {
+    this.stopCooldown();
+  }
 
   @computed
   get emailValid(): boolean {

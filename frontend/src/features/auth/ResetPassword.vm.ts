@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import type { AuthService } from "@/application/auth/service";
@@ -24,11 +24,13 @@ function errorCode(error: unknown): string {
   return typeof candidate.code === "string" ? candidate.code : "";
 }
 
-export class ResetPasswordVM {
+export class ResetPasswordVM extends ViewModel {
   constructor(
     private readonly auth: AuthService,
     private readonly router: Router,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor password = "";
   @reactive accessor repeatPassword = "";
@@ -37,7 +39,7 @@ export class ResetPasswordVM {
   @reactive accessor status: ResetPasswordStatus = "form";
   @reactive accessor error: string | null = null;
 
-  created(): void {
+  override created(): void {
     if (!this.token) {
       this.status = "invalid";
       this.error = t("auth.reset.error.missing");

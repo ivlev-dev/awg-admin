@@ -60,6 +60,7 @@ export interface AppOptions {
   tokens?: TokenStore;
   config?: ApiConfig;
   onNetworkError?: (error: ApiError) => void;
+  onForbidden?: (error: ApiError) => void;
 }
 
 export interface AppContainerOptions extends AppOptions {}
@@ -82,6 +83,7 @@ export function createAppServices(options: AppOptions = {}): AppServices {
     transport,
     auth: authRepository,
     ...(options.onNetworkError ? { onNetworkError: options.onNetworkError } : {}),
+    ...(options.onForbidden ? { onForbidden: options.onForbidden } : {}),
   });
   const repositories = backend.repositories;
   return {

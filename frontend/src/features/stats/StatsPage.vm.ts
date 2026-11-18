@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -10,6 +10,7 @@ import { formatRateBps } from "@/application/stats/rate";
 import type { StatsService } from "@/application/stats/service";
 import type { UsersService } from "@/application/users/service";
 import type { Device, Group, InterfaceInfo, StatsPoint, TrafficTotals, User } from "@/domain/types";
+import { csvCell } from "@/domain/format";
 import type { LiveStats } from "@/infrastructure/stats";
 import { t, type TranslationKey } from "@/i18n";
 import { formatBytesI18n } from "@/i18n/format";
@@ -90,10 +91,6 @@ function deltaLabel(deltaPercent: number | null): string {
   return `${sign}${rounded}%`;
 }
 
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 async function mapWithLimit<T, R>(
   items: readonly T[],
   limit: number,
@@ -115,7 +112,7 @@ async function mapWithLimit<T, R>(
   return results;
 }
 
-export class StatsVM {
+export class StatsVM extends ViewModel {
   @reactive accessor scope: Scope = "user";
   @reactive accessor entityId: string | null = null;
   @reactive accessor rangeKey: RangeKey = "24h";
@@ -152,10 +149,11 @@ export class StatsVM {
     private readonly router: Router,
     private readonly toasts: ToastStore,
   ) {
+    super();
     this.scope = session.isAdmin ? "global" : "user";
   }
 
-  async created(): Promise<void> {
+  override async created(): Promise<void> {
     if (!this.session.authenticated) {
       this.initialized = true;
       return;
@@ -170,7 +168,7 @@ export class StatsVM {
     }
   }
 
-  unmounted(): void {
+  override unmounted(): void {
     if (!this.liveEnabled) return;
     this.liveStats.disconnect();
     this.liveStats.reset();

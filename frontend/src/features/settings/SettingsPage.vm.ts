@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { density, setDensity, type TableDensity } from "@/app/density";
@@ -94,11 +94,13 @@ function describeChoice<T extends string>(
   return definition ? t(definition.descriptionKey) : "";
 }
 
-export class SettingsPageVM {
+export class SettingsPageVM extends ViewModel {
   constructor(
     private readonly settingsService: SettingsService,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor loading = true;
   @reactive accessor loaded = false;
@@ -132,13 +134,14 @@ export class SettingsPageVM {
     event.returnValue = "";
   };
 
-  created(): void {
+  override created(): void {
     window.addEventListener("beforeunload", this.handleBeforeUnload);
     void this.load();
   }
 
-  dispose(): void {
+  override dispose(): void {
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
+    super.dispose();
   }
 
   @computed

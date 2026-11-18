@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { GROUPS_SECTION_ENABLED } from "@/app/features";
@@ -33,7 +33,7 @@ export type InterfacesSortKey = "name" | "group" | "node" | "endpoint" | "peers"
 export type CreateField = "name" | "endpointHost" | "endpointPort" | "listenPort" | "mtu";
 export type EditField = "host" | "endpointPort" | "listenPort" | "mtu";
 
-export class InterfacesPageVM {
+export class InterfacesPageVM extends ViewModel {
   @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor groups: Group[] = [];
   @reactive accessor nodes: NodeInfo[] = [];
@@ -82,9 +82,11 @@ export class InterfacesPageVM {
     private readonly nodesService: NodesService,
     private readonly session: Session,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  override created(): void {
     void this.load();
   }
 

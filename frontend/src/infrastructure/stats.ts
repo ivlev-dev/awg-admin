@@ -43,6 +43,7 @@ export class LiveStats {
   private attempt = 0;
   private timer: number | null = null;
   private closedByUser = false;
+  private generation = 0;
 
   constructor(private readonly tokens: TokenStore) {
   }
@@ -55,15 +56,17 @@ export class LiveStats {
     const changed = this.scope?.scope !== scope || this.scope?.id !== id;
     this.scope = { scope, id };
     this.closedByUser = false;
-    if (!changed && this.socket && this.socket.readyState <= WebSocket.OPEN) return;
+    if (!changed && this.socket !== null && this.socket.readyState <= WebSocket.OPEN) return;
     this.open();
   }
 
   disconnect(): void {
     this.closedByUser = true;
-    if (this.timer !== null) window.clearTimeout(this.timer);
-    this.socket?.close();
+    this.generation += 1;
+    this.clearTimer();
+    const socket = this.socket;
     this.socket = null;
+    socket?.close();
     this.connected = false;
   }
 
@@ -72,22 +75,35 @@ export class LiveStats {
   }
 
   private open(): void {
+    this.clearTimer();
     const token = this.tokens.access();
-    if (!token || !this.scope) return;
-    this.socket?.close();
+    const scope = this.scope;
+    if (!token || !scope) return;
+
+    this.generation += 1;
+    const generation = this.generation;
+    const previous = this.socket;
+    this.socket = null;
+    this.connected = false;
+    previous?.close();
+
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const params = new URLSearchParams({ token, scope: this.scope.scope });
-    if (this.scope.id) params.set("id", this.scope.id);
+    const params = new URLSearchParams({ token, scope: scope.scope });
+    if (scope.id) params.set("id", scope.id);
     const url = `${protocol}//${window.location.host}/api/v1/ws/stats?${params.toString()}`;
     const socket = new WebSocket(url);
     this.socket = socket;
+    const isCurrent = (): boolean =>
+      this.socket === socket && this.generation === generation;
 
     socket.addEventListener("open", () => {
+      if (!isCurrent()) return;
       this.connected = true;
       this.error = null;
       this.attempt = 0;
     });
     socket.addEventListener("message", (event) => {
+      if (!isCurrent()) return;
       try {
         this.handle(JSON.parse(String(event.data)) as Payload);
       } catch {
@@ -95,10 +111,12 @@ export class LiveStats {
       }
     });
     socket.addEventListener("close", () => {
+      if (!isCurrent()) return;
       this.connected = false;
-      if (!this.closedByUser) this.scheduleReconnect();
+      if (!this.closedByUser) this.scheduleReconnect(generation);
     });
     socket.addEventListener("error", () => {
+      if (!isCurrent()) return;
       this.error = "Нет соединения со статистикой";
     });
   }
@@ -120,9 +138,21 @@ export class LiveStats {
     }
   }
 
-  private scheduleReconnect(): void {
+  private scheduleReconnect(generation: number): void {
+    if (generation !== this.generation) return;
     this.attempt += 1;
     const delay = Math.min(15_000, 1000 * 2 ** Math.min(this.attempt, 4));
-    this.timer = window.setTimeout(() => this.open(), delay);
+    this.clearTimer();
+    this.timer = window.setTimeout(() => {
+      this.timer = null;
+      if (generation !== this.generation) return;
+      this.open();
+    }, delay);
+  }
+
+  private clearTimer(): void {
+    if (this.timer === null) return;
+    window.clearTimeout(this.timer);
+    this.timer = null;
   }
 }

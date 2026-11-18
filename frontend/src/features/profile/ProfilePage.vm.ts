@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
@@ -104,7 +104,7 @@ const THEME_DEFINITIONS: ThemeDefinition[] = [
   { value: "dark", labelKey: "profile.theme.dark", descriptionKey: "profile.theme.dark.description" },
 ];
 
-export class ProfilePageVM {
+export class ProfilePageVM extends ViewModel {
   constructor(
     private readonly session: Session,
     private readonly auth: AuthService,
@@ -112,7 +112,9 @@ export class ProfilePageVM {
     private readonly router: Router,
     private readonly theme: ThemeStore,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor currentPassword = "";
   @reactive accessor nextPassword = "";
@@ -141,7 +143,7 @@ export class ProfilePageVM {
   @reactive accessor sessionsSearch = "";
   @reactive accessor sessionsOnlyActive = false;
 
-  created(): void {
+  override created(): void {
     void this.loadQuota();
     void this.loadSessions();
   }
@@ -334,6 +336,11 @@ export class ProfilePageVM {
   @computed
   get isAdmin(): boolean {
     return this.session.isAdmin;
+  }
+
+  @computed
+  get loggingOut(): boolean {
+    return this.session.loggingOut;
   }
 
   @computed
@@ -654,6 +661,7 @@ export class ProfilePageVM {
   }
 
   async logout(): Promise<void> {
+    if (this.session.loggingOut) return;
     await this.session.logout();
     this.router.replace("/login");
   }

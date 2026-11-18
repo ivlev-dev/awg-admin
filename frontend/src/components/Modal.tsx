@@ -2,6 +2,7 @@ import { Show } from "@ivlev-dev/silent-core";
 
 import type { ModalProps, ModalVM } from "./Modal.vm";
 import { Icon } from "./Icon";
+import { t } from "@/i18n";
 
 export type { ModalProps } from "./Modal.vm";
 
@@ -18,14 +19,15 @@ export function Modal(this: { vm: ModalVM }, props: ModalProps) {
           role="dialog"
           aria-modal="true"
           aria-labelledby={props.title ? this.vm.titleId : undefined}
-          aria-label={props.title ? undefined : props.ariaLabel ?? "Диалог"}
+          aria-label={props.title ? undefined : props.ariaLabel ?? t("common.dialog")}
+          aria-describedby={props.describedBy}
           tabindex={-1}
           ref={(element: Element | null) => this.vm.attachRoot(element)}
         >
           <div class="modal__head">
             <h2 class="card__title" id={this.vm.titleId}>{props.title}</h2>
             <Show when={props.closable !== false}>
-              <button class="btn btn--ghost btn--icon" type="button" onClick={props.onClose} aria-label="Закрыть">
+              <button class="btn btn--ghost btn--icon" type="button" onClick={props.onClose} aria-label={t("common.close")}>
                 <Icon name="close" size={18} />
               </button>
             </Show>

@@ -487,12 +487,13 @@ describe("TariffsPageVM", () => {
 
     await vm.remove(PRO.id);
 
-    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(expect.objectContaining({
       title: "Удаление тарифа",
       message: "Удалить тариф?",
+      details: "Пользователи с этим тарифом потеряют лимиты. Действие необратимо.",
       confirmLabel: "Удалить",
       tone: "danger",
-    });
+    }));
     expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([TARIFF.id]);
     expect(toastMessages(toasts)).toContain("Тариф удалён");
   });
@@ -685,12 +686,13 @@ describe("TariffsPageVM bulk delete", () => {
     vm.toggleSelected(PRO.id);
     await vm.bulkDelete();
 
-    expect(confirmMock.askConfirm).toHaveBeenCalledWith({
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(expect.objectContaining({
       title: "Удаление тарифов",
       message: "Удалить выбранные записи (2)?",
+      details: "Удалить выбранные тарифы (2)? Пользователи с этими тарифами потеряют лимиты. Действие необратимо.",
       confirmLabel: "Удалить",
       tone: "danger",
-    });
+    }));
     expect(repo.bulk).toHaveBeenCalledTimes(1);
     expect(repo.bulk).toHaveBeenCalledWith("delete", [TARIFF.id, PRO.id]);
     expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);

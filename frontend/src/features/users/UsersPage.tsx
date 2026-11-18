@@ -3,6 +3,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 import type { UsersPageVM } from "./UsersPage.vm";
 import type { UserQuotaSnapshot } from "@/application/quota/service";
 import { BulkBar } from "@/components/BulkBar";
+import { ErrorState } from "@/components/ErrorState";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
@@ -47,23 +48,16 @@ export function UsersPage(this: { vm: UsersPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Доступ</div>
-        <h1>Пользователи</h1>
-        <p>Учётки панели, роли, тарифы и привязка к нодам.</p>
+        <div class="page-head__eyebrow">{t("users.eyebrow")}</div>
+        <h1>{t("users.title")}</h1>
+        <p>{t("users.subtitle")}</p>
       </div>
 
-      <Show when={this.vm.error}>
-        <div class="alert alert--error">
-          <div class="row-between wrap">
-            <span>{this.vm.error}</span>
-            <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-              <Icon name="refresh" size={14} class="" /> Повторить
-            </button>
-          </div>
-        </div>
+      <Show when={this.vm.error && this.vm.users.length > 0}>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => { void this.vm.load(); }} />
       </Show>
 
-      <div class="tabs tabs--fill" role="group" aria-label="Пользователи">
+      <div class="tabs tabs--fill" role="group" aria-label={t("users.tabsLabel")}>
         <button
           class={`tab ${this.vm.tab === "active" ? "is-active" : ""}`}
           type="button"
@@ -83,19 +77,24 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       </div>
 
       <Show when={this.vm.tab === "active"}>
-        <section class="card card--flush" aria-busy={this.vm.loading ? "true" : "false"}>
+        <section class="card card--flush" aria-busy={this.vm.loading || this.vm.refreshing ? "true" : "false"}>
           <div class="data-toolbar">
             <div class="data-toolbar__top">
               <div>
-                <div class="data-toolbar__title">Учётные записи</div>
+                <div class="data-toolbar__title">{t("users.table.title")}</div>
                 <div class="data-toolbar__sub">{this.vm.activeCountLabel}</div>
               </div>
               <div class="data-toolbar__actions">
-                <button class="btn" type="button" onClick={() => this.vm.load()}>
-                  <Icon name="refresh" size={14} class="" /> Обновить
+                <button
+                  class="btn"
+                  type="button"
+                  disabled={this.vm.loading || this.vm.refreshing}
+                  onClick={() => { void this.vm.load(); }}
+                >
+                  <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
                 </button>
                 <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                  <Icon name="plus" size={16} class="" /> Новый пользователь
+                  <Icon name="plus" size={16} class="" /> {t("users.new")}
                 </button>
               </div>
             </div>
@@ -121,7 +120,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     { value: "admin", label: t("users.role.admin") },
                     { value: "user", label: t("users.role.user") },
                   ]}
-                  onChange={(value) => { this.vm.roleFilter = value as "all" | "admin" | "user"; }}
+                  onChange={(value) => this.vm.setRoleFilter(value)}
                   ariaLabel={t("users.filter.role")}
                 />
               </div>
@@ -135,7 +134,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     { value: "active", label: t("users.status.active") },
                     { value: "disabled", label: t("users.status.disabled") },
                   ]}
-                  onChange={(value) => { this.vm.statusFilter = value as "all" | "active" | "disabled"; }}
+                  onChange={(value) => this.vm.setStatusFilter(value)}
                   ariaLabel={t("users.filter.status")}
                 />
               </div>
@@ -148,7 +147,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                     { value: "all", label: t("users.filter.allNodes") },
                     ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name })),
                   ]}
-                  onChange={(value) => { this.vm.nodeFilter = value; }}
+                  onChange={(value) => this.vm.setNodeFilter(value)}
                   ariaLabel={t("users.filter.node")}
                 />
               </div>
@@ -160,209 +159,139 @@ export function UsersPage(this: { vm: UsersPageVM }) {
             </div>
           </div>
 
+          <Show when={this.vm.quotaError}>
+            <div class="alert alert--warn alert--with-action">
+              <Icon name="warning" size={16} class="" />
+              <span>{t("quota.error.load")}</span>
+              <button class="btn btn--sm" type="button" onClick={() => { void this.vm.load(); }}>
+                {t("common.retry")}
+              </button>
+            </div>
+          </Show>
+
           <div class="data-scroll table-wrap--cards">
             <Show when={!this.vm.loading} fallback={<SkeletonTable rows={5} columns={7} />}>
               <Show
-                when={this.vm.filteredActiveUsers.length > 0}
+                when={!(this.vm.error && this.vm.users.length === 0)}
                 fallback={
-                  <div class="empty">
-                    <div class="empty__icon"><Icon name="users" size={28} class="" /></div>
-                    <div class="empty__title">
-                      {this.vm.activeUsers.length === 0 ? "Нет пользователей" : t("filters.emptyTitle")}
-                    </div>
-                    <div class="empty__text">
-                      {this.vm.activeUsers.length === 0
-                        ? "Создайте первую учётную запись."
-                        : t("filters.emptyText")}
-                    </div>
+                  <div class="empty" role="alert">
+                    <div class="empty__icon"><Icon name="warning" size={28} class="" /></div>
+                    <div class="empty__title">{t("users.error.load")}</div>
+                    <div class="empty__text">{this.vm.error}</div>
                     <div style="margin-top:14px">
-                      <Show
-                        when={this.vm.activeUsers.length > 0}
-                        fallback={
-                          <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
-                            <Icon name="plus" size={14} class="" /> Новый пользователь
-                          </button>
-                        }
-                      >
-                        <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
-                          <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                        </button>
-                      </Show>
+                      <button class="btn btn--primary btn--sm" type="button" onClick={() => { void this.vm.load(); }}>
+                        <Icon name="refresh" size={14} class="" /> {t("common.retry")}
+                      </button>
                     </div>
                   </div>
                 }
               >
-                <table class="table table--cards table--users table--fixed table--desktop">
-                  <thead>
-                    <tr>
-                      <th class="cell-select">
-                        <input
-                          type="checkbox"
-                          aria-label={t("users.selectAll")}
-                          checked={this.vm.allFilteredSelected}
-                          onChange={() => this.vm.toggleSelectAll()}
-                        />
-                      </th>
-                      <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "email")}>
-                        <button type="button" onClick={() => this.vm.sortBy("email")}>
-                          {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
-                        </button>
-                      </th>
-                      <th class="is-sortable" style="width:140px" aria-sort={ariaSort(this.vm.sort, "role")}>
-                        <button type="button" onClick={() => this.vm.sortBy("role")}>
-                          Роль <span class="sort-indicator">{this.vm.sortMark("role")}</span>
-                        </button>
-                      </th>
-                      <th style="width:128px">Тариф/нода</th>
-                      <th style="width:126px">Квота</th>
-                      <th class="is-sortable" style="width:120px" aria-sort={ariaSort(this.vm.sort, "status")}>
-                        <button type="button" onClick={() => this.vm.sortBy("status")}>
-                          {t("users.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
-                        </button>
-                      </th>
-                      <th style="width:230px" aria-label="Действия"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={this.vm.filteredActiveUsers}>
-                      {(user) => (
-                        <tr class={this.vm.isSelected(user.id) ? "is-selected" : ""}>
-                          <td class="cell-select">
-                            <input
-                              type="checkbox"
-                              aria-label={this.vm.userEmail(user)}
-                              checked={this.vm.isSelected(user.id)}
-                              onChange={() => this.vm.toggleSelected(user.id)}
-                            />
-                          </td>
-                          <td data-label={t("users.column.email")}>
-                            <div class="cell-name">
-                              <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
-                              <span class="cell-name__text">
-                                <span class="strong" title={this.vm.userEmail(user)}>
-                                  {this.vm.userEmail(user)}
-                                </span>
-                              </span>
-                            </div>
-                          </td>
-                          <td data-label="Роль">
-                            <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
-                              {user.role === "admin" ? "Администратор" : "Пользователь"}
-                            </span>
-                          </td>
-                          <td data-label="Тариф/нода">
-                            <div class="cell-name__text cell-stack">
-                              <span class="small strong" title={this.vm.tariffName(user.tariff_id)}>
-                                {this.vm.tariffName(user.tariff_id)}
-                              </span>
-                              <span class="xs muted" title={this.vm.nodeName(user.node_id)}>
-                                {this.vm.nodeName(user.node_id)}
-                              </span>
-                            </div>
-                          </td>
-                          <td data-label="Квота">
-                            <Show
-                              when={this.vm.quotaFor(user.id)}
-                              fallback={<span class="xs muted">—</span>}
-                            >
-                              <div class="stack-sm user-quota" title={this.vm.quotaTitle(user.id)}>
-                                <Show when={this.vm.quotaHasPercent(user.id)}>
-                                  <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
-                                    <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
-                                  </div>
-                                </Show>
-                                <span class="cell-quota">
-                                  {this.vm.quotaPercentLabel(user.id)} · {this.vm.quotaStatusLabel(user.id)}
+                <Show
+                  when={this.vm.filteredActiveUsers.length > 0}
+                  fallback={
+                    <div class="empty">
+                      <div class="empty__icon"><Icon name="users" size={28} class="" /></div>
+                      <div class="empty__title">
+                        {this.vm.activeUsers.length === 0 ? t("users.empty.title") : t("filters.emptyTitle")}
+                      </div>
+                      <div class="empty__text">
+                        {this.vm.activeUsers.length === 0 ? t("users.empty.text") : t("filters.emptyText")}
+                      </div>
+                      <div style="margin-top:14px">
+                        <Show
+                          when={this.vm.activeUsers.length > 0}
+                          fallback={
+                            <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
+                              <Icon name="plus" size={14} class="" /> {t("users.new")}
+                            </button>
+                          }
+                        >
+                          <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                            <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                          </button>
+                        </Show>
+                      </div>
+                    </div>
+                  }
+                >
+                  <table class="table table--cards table--users table--desktop" aria-label={t("users.table.title")}>
+                    <thead>
+                      <tr>
+                        <th class="cell-select">
+                          <input
+                            type="checkbox"
+                            aria-label={t("users.selectAll")}
+                            checked={this.vm.allFilteredSelected}
+                            onChange={() => this.vm.toggleSelectAll()}
+                          />
+                        </th>
+                        <th class="is-sortable col-user" aria-sort={ariaSort(this.vm.sort, "email")}>
+                          <button type="button" onClick={() => this.vm.sortBy("email")}>
+                            {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
+                          </button>
+                        </th>
+                        <th class="is-sortable col-role" aria-sort={ariaSort(this.vm.sort, "role")}>
+                          <button type="button" onClick={() => this.vm.sortBy("role")}>
+                            {t("users.column.role")} <span class="sort-indicator">{this.vm.sortMark("role")}</span>
+                          </button>
+                        </th>
+                        <th class="col-tariff">{t("users.column.tariffNode")}</th>
+                        <th class="col-quota">{t("users.column.quota")}</th>
+                        <th class="is-sortable col-status" aria-sort={ariaSort(this.vm.sort, "status")}>
+                          <button type="button" onClick={() => this.vm.sortBy("status")}>
+                            {t("users.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                          </button>
+                        </th>
+                        <th class="col-actions" aria-label={t("users.column.actions")}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={this.vm.pagedActiveUsers}>
+                        {(user) => (
+                          <tr class={this.vm.isSelected(user.id) ? "is-selected" : ""}>
+                            <td class="cell-select">
+                              <input
+                                type="checkbox"
+                                aria-label={t("users.selectRow", { email: this.vm.userEmail(user) })}
+                                checked={this.vm.isSelected(user.id)}
+                                onChange={() => this.vm.toggleSelected(user.id)}
+                              />
+                            </td>
+                            <td class="col-user" data-label={t("users.column.email")}>
+                              <div class="cell-name">
+                                <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
+                                <span class="cell-name__text">
+                                  <span class="strong" title={this.vm.userEmail(user)}>
+                                    {this.vm.userEmail(user)}
+                                  </span>
                                 </span>
                               </div>
-                            </Show>
-                          </td>
-                          <td data-label={t("users.column.status")}>
-                            <span class={statusChipClass(user)}>
-                              <span class="status-chip__dot"></span>
-                              {this.vm.statusLabel(user)}
-                            </span>
-                          </td>
-                          <td class="cell-actions">
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label="Редактировать" title="Редактировать">
-                              <Icon name="edit" size={14} class="" />
-                            </button>
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label="Сбросить пароль" title="Сбросить пароль">
-                              <Icon name="shield" size={14} class="" />
-                            </button>
-                            <button
-                              class="btn btn--sm btn--ghost btn--icon"
-                              type="button"
-                              disabled={user.id === this.vm.selfId}
-                              title={user.id === this.vm.selfId ? t("users.selfDisable") : user.disabled ? t("users.action.enable") : t("users.action.disable")}
-                              onClick={() => this.vm.toggleDisabled(user)}
-                              aria-label="Включить или отключить"
-                            >
-                              <Icon name={user.disabled ? "check" : "warning"} size={14} class="" />
-                            </button>
-                            <button
-                              class="btn btn--sm btn--danger btn--icon"
-                              type="button"
-                              disabled={user.id === this.vm.selfId}
-                              onClick={() => this.vm.remove(user)}
-                              aria-label="Удалить" title="Удалить"
-                            >
-                              <Icon name="trash" size={14} class="" />
-                            </button>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-                <div class="entity-list">
-                  <For each={this.vm.filteredActiveUsers}>
-                    {(user) => (
-                      <article class={`entity-card${this.vm.isSelected(user.id) ? " is-selected" : ""}`}>
-                        <div class="entity-card__head">
-                          <label class="check">
-                            <input
-                              type="checkbox"
-                              aria-label={this.vm.userEmail(user)}
-                              checked={this.vm.isSelected(user.id)}
-                              onChange={() => this.vm.toggleSelected(user.id)}
-                            />
-                            <span><Icon name="check" size={12} class="" /></span>
-                          </label>
-                          <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
-                          <div class="entity-card__title">
-                            <span class="entity-card__name">{this.vm.userEmail(user)}</span>
-                          </div>
-                          <span class={statusChipClass(user)}>
-                            <span class="status-chip__dot"></span>
-                            {this.vm.statusLabel(user)}
-                          </span>
-                        </div>
-                        <dl class="entity-card__meta">
-                          <div>
-                            <dt>Роль</dt>
-                            <dd>
+                            </td>
+                            <td class="col-role" data-label={t("users.column.role")}>
                               <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
-                                {user.role === "admin" ? "Администратор" : "Пользователь"}
+                                {user.role === "admin" ? t("users.role.admin") : t("users.role.user")}
                               </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Тариф</dt>
-                            <dd>{this.vm.tariffName(user.tariff_id)}</dd>
-                          </div>
-                          <div>
-                            <dt>{t("users.column.node")}</dt>
-                            <dd>{this.vm.nodeName(user.node_id)}</dd>
-                          </div>
-                          <div>
-                            <dt>Квота</dt>
-                            <dd>
+                            </td>
+                            <td class="col-tariff" data-label={t("users.column.tariffNode")}>
+                              <div class="cell-name__text cell-stack">
+                                <span class="small strong" title={this.vm.tariffName(user.tariff_id)}>
+                                  {this.vm.tariffName(user.tariff_id)}
+                                </span>
+                                <span class="xs muted" title={this.vm.nodeName(user.node_id)}>
+                                  {this.vm.nodeName(user.node_id)}
+                                </span>
+                              </div>
+                            </td>
+                            <td class="col-quota" data-label={t("users.column.quota")}>
                               <Show
                                 when={this.vm.quotaFor(user.id)}
-                                fallback={<span class="xs muted">—</span>}
+                                fallback={
+                                  <span class="xs muted">
+                                    {this.vm.quotaError !== null ? t("users.quota.missing") : "—"}
+                                  </span>
+                                }
                               >
-                                <div class="entity-card__metric">
+                                <div class="stack-sm user-quota" title={this.vm.quotaTitle(user.id)}>
                                   <Show when={this.vm.quotaHasPercent(user.id)}>
                                     <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
                                       <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
@@ -373,33 +302,80 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                                   </span>
                                 </div>
                               </Show>
-                            </dd>
-                          </div>
-                        </dl>
-                        <div class="entity-card__foot">
-                          <button
-                            class="btn btn--text btn--sm"
-                            type="button"
-                            aria-label="Редактировать" title="Редактировать"
-                            onClick={() => this.vm.openEdit(user)}
-                          >
-                            Редактировать
-                          </button>
-                          <button
-                            class="btn btn--text btn--sm"
-                            type="button"
-                            disabled={user.id === this.vm.selfId}
-                            aria-label="Включить или отключить"
-                            title={user.id === this.vm.selfId ? t("users.selfDisable") : user.disabled ? t("users.action.enable") : t("users.action.disable")}
-                            onClick={() => this.vm.toggleDisabled(user)}
-                          >
-                            {user.disabled ? "Разблокировать" : "Блокировать"}
-                          </button>
-                        </div>
-                      </article>
-                    )}
-                  </For>
-                </div>
+                            </td>
+                            <td class="col-status" data-label={t("users.column.status")}>
+                              <span class={statusChipClass(user)}>
+                                <span class="status-chip__dot"></span>
+                                {this.vm.statusLabel(user)}
+                              </span>
+                            </td>
+                            <td class="cell-actions col-actions">
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(user)} aria-label={t("users.action.edit")} title={t("users.action.edit")}>
+                                <Icon name="edit" size={14} class="" />
+                              </button>
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openReset(user)} aria-label={t("users.action.reset")} title={t("users.action.reset")}>
+                                <Icon name="shield" size={14} class="" />
+                              </button>
+                              <button
+                                class="btn btn--sm btn--ghost btn--icon"
+                                type="button"
+                                disabled={user.id === this.vm.selfId}
+                                title={user.id === this.vm.selfId ? t("users.selfDisable") : user.disabled ? t("users.action.enable") : t("users.action.disable")}
+                                onClick={() => { void this.vm.toggleDisabled(user); }}
+                                aria-label={t("users.action.toggle")}
+                              >
+                                <Icon name={user.disabled ? "check" : "warning"} size={14} class="" />
+                              </button>
+                              <button
+                                class="btn btn--sm btn--danger btn--icon"
+                                type="button"
+                                disabled={user.id === this.vm.selfId}
+                                onClick={() => { void this.vm.remove(user); }}
+                                aria-label={t("users.action.delete")} title={t("users.action.delete")}
+                              >
+                                <Icon name="trash" size={14} class="" />
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+
+                  <div class="data-pagination">
+                    <span class="small muted" aria-live="polite">{this.vm.pageSummary}</span>
+                    <div class="row" style="gap:8px;align-items:center">
+                      <span class="small muted">{t("users.pagination.size")}</span>
+                      <Select
+                        value={String(this.vm.pageSize)}
+                        options={this.vm.pageSizeOptions}
+                        onChange={(value) => this.vm.setPageSize(value)}
+                        ariaLabel={t("users.pagination.size")}
+                      />
+                      <button
+                        class="btn btn--sm btn--ghost btn--icon"
+                        type="button"
+                        aria-label={t("users.pagination.prev")}
+                        disabled={this.vm.currentPage <= 1}
+                        onClick={() => this.vm.goToPage(this.vm.currentPage - 1)}
+                      >
+                        <Icon name="chevron" size={14} class="" />
+                      </button>
+                      <span class="small" aria-label={t("users.pagination.page", { page: this.vm.currentPage, pages: this.vm.pageCount })}>
+                        {this.vm.currentPage} / {this.vm.pageCount}
+                      </span>
+                      <button
+                        class="btn btn--sm btn--ghost btn--icon"
+                        type="button"
+                        aria-label={t("users.pagination.next")}
+                        disabled={this.vm.currentPage >= this.vm.pageCount}
+                        onClick={() => this.vm.goToPage(this.vm.currentPage + 1)}
+                      >
+                        <Icon name="chevron" size={14} class="" />
+                      </button>
+                    </div>
+                  </div>
+                </Show>
               </Show>
             </Show>
           </div>
@@ -419,17 +395,10 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       </Show>
 
       <Show when={this.vm.tab === "pending"}>
-        <Show when={this.vm.pendingError}>
-          <div class="alert alert--error">
-            <div class="row-between wrap">
-              <span>{this.vm.pendingError}</span>
-              <button class="btn btn--sm" type="button" onClick={() => this.vm.load()}>
-                <Icon name="refresh" size={14} class="" /> Повторить
-              </button>
-            </div>
-          </div>
+        <Show when={this.vm.pendingError && this.vm.pending.length > 0}>
+          <ErrorState message={this.vm.pendingError ?? ""} onRetry={() => { void this.vm.load(); }} />
         </Show>
-        <section class="card card--flush" aria-busy={this.vm.pendingLoading ? "true" : "false"}>
+        <section class="card card--flush" aria-busy={this.vm.pendingLoading || this.vm.refreshing ? "true" : "false"}>
           <div class="data-toolbar">
             <div class="data-toolbar__top">
               <div>
@@ -437,7 +406,12 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 <div class="data-toolbar__sub">{this.vm.pendingCountLabel}</div>
               </div>
               <div class="data-toolbar__actions">
-                <button class="btn" type="button" onClick={() => this.vm.load()}>
+                <button
+                  class="btn"
+                  type="button"
+                  disabled={this.vm.pendingLoading || this.vm.refreshing}
+                  onClick={() => { void this.vm.load(); }}
+                >
                   <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
                 </button>
               </div>
@@ -465,146 +439,84 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           <div class="data-scroll table-wrap--cards">
             <Show when={!this.vm.pendingLoading} fallback={<SkeletonTable rows={3} columns={4} />}>
               <Show
-                when={this.vm.filteredPending.length > 0}
+                when={!(this.vm.pendingError && this.vm.pending.length === 0)}
                 fallback={
-                  <div class="empty">
-                    <div class="empty__icon"><Icon name="clock" size={28} class="" /></div>
-                    <div class="empty__title">
-                      {this.vm.pending.length === 0
-                        ? t("users.pending.emptyTitle")
-                        : t("filters.emptyTitle")}
+                  <div class="empty" role="alert">
+                    <div class="empty__icon"><Icon name="warning" size={28} class="" /></div>
+                    <div class="empty__title">{t("users.pending.error.load")}</div>
+                    <div class="empty__text">{this.vm.pendingError}</div>
+                    <div style="margin-top:14px">
+                      <button class="btn btn--primary btn--sm" type="button" onClick={() => { void this.vm.load(); }}>
+                        <Icon name="refresh" size={14} class="" /> {t("common.retry")}
+                      </button>
                     </div>
-                    <div class="empty__text">
-                      {this.vm.pending.length === 0
-                        ? t("users.pending.emptyText")
-                        : t("filters.emptyText")}
-                    </div>
-                    <Show when={this.vm.pending.length > 0}>
-                      <div style="margin-top:14px">
-                        <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
-                          <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                        </button>
-                      </div>
-                    </Show>
                   </div>
                 }
               >
-                <table class="table table--cards table--users-pending table--fixed table--desktop">
-                  <thead>
-                    <tr>
-                      <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "email")}>
-                        <button type="button" onClick={() => this.vm.sortBy("email")}>
-                          {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
-                        </button>
-                      </th>
-                      <th style="width:160px">{t("users.pending.createdAt")}</th>
-                      <th style="width:268px" aria-label="Действия"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <For each={this.vm.filteredPending}>
-                      {(user) => (
-                        <tr>
-                          <td data-label={t("users.column.email")}>
-                            <div class="cell-name">
-                              <span class="cell-avatar">
-                                {this.vm.userEmail(user).slice(0, 1).toUpperCase()}
-                              </span>
-                              <span class="cell-name__text">
-                                <span class="strong" title={this.vm.userEmail(user)}>
-                                  {this.vm.userEmail(user)}
+                <Show
+                  when={this.vm.filteredPending.length > 0}
+                  fallback={
+                    <div class="empty">
+                      <div class="empty__icon"><Icon name="clock" size={28} class="" /></div>
+                      <div class="empty__title">
+                        {this.vm.pending.length === 0 ? t("users.pending.emptyTitle") : t("filters.emptyTitle")}
+                      </div>
+                      <div class="empty__text">
+                        {this.vm.pending.length === 0 ? t("users.pending.emptyText") : t("filters.emptyText")}
+                      </div>
+                      <Show when={this.vm.pending.length > 0}>
+                        <div style="margin-top:14px">
+                          <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
+                            <Icon name="close" size={14} class="" /> {t("filters.reset")}
+                          </button>
+                        </div>
+                      </Show>
+                    </div>
+                  }
+                >
+                  <table class="table table--cards table--users-pending table--desktop" aria-label={t("users.pending.title")}>
+                    <thead>
+                      <tr>
+                        <th class="is-sortable col-user" aria-sort={ariaSort(this.vm.sort, "email")}>
+                          <button type="button" onClick={() => this.vm.sortBy("email")}>
+                            {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
+                          </button>
+                        </th>
+                        <th class="col-created">{t("users.pending.createdAt")}</th>
+                        <th class="col-actions" aria-label={t("users.column.actions")}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <For each={this.vm.filteredPending}>
+                        {(user) => (
+                          <tr>
+                            <td class="col-user" data-label={t("users.column.email")}>
+                              <div class="cell-name">
+                                <span class="cell-avatar">
+                                  {this.vm.userEmail(user).slice(0, 1).toUpperCase()}
                                 </span>
-                              </span>
-                            </div>
-                          </td>
-                          <td data-label={t("users.pending.createdAt")}>{this.vm.requestDateLabel(user)}</td>
-                          <td class="cell-actions">
-                            <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openApprove(user)}>
-                              <Icon name="check" size={14} class="" /> {t("users.pending.approve")}
-                            </button>
-                            <button class="btn btn--sm btn--danger" type="button" onClick={() => this.vm.reject(user)}>
-                              <Icon name="close" size={14} class="" /> {t("users.pending.reject")}
-                            </button>
-                          </td>
-                        </tr>
-                      )}
-                    </For>
-                  </tbody>
-                </table>
-                <div class="entity-list">
-                  <For each={this.vm.filteredPending}>
-                    {(user) => (
-                      <article class="entity-card">
-                        <div class="entity-card__head">
-                          <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
-                          <div class="entity-card__title">
-                            <span class="entity-card__name">{this.vm.userEmail(user)}</span>
-                          </div>
-                          <span class={statusChipClass(user)}>
-                            <span class="status-chip__dot"></span>
-                            {this.vm.statusLabel(user)}
-                          </span>
-                        </div>
-                        <dl class="entity-card__meta">
-                          <div>
-                            <dt>Роль</dt>
-                            <dd>
-                              <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
-                                {user.role === "admin" ? "Администратор" : "Пользователь"}
-                              </span>
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>Тариф</dt>
-                            <dd>{this.vm.tariffName(user.tariff_id)}</dd>
-                          </div>
-                          <div>
-                            <dt>{t("users.column.node")}</dt>
-                            <dd>{this.vm.nodeName(user.node_id)}</dd>
-                          </div>
-                          <div>
-                            <dt>Квота</dt>
-                            <dd>
-                              <Show
-                                when={this.vm.quotaFor(user.id)}
-                                fallback={<span class="xs muted">—</span>}
-                              >
-                                <div class="entity-card__metric">
-                                  <Show when={this.vm.quotaHasPercent(user.id)}>
-                                    <div class={quotaMeterClass(this.vm.quotaFor(user.id))}>
-                                      <span style={quotaMeterStyle(this.vm.quotaFor(user.id))}></span>
-                                    </div>
-                                  </Show>
-                                  <span class="cell-quota">
-                                    {this.vm.quotaPercentLabel(user.id)} · {this.vm.quotaStatusLabel(user.id)}
+                                <span class="cell-name__text">
+                                  <span class="strong" title={this.vm.userEmail(user)}>
+                                    {this.vm.userEmail(user)}
                                   </span>
-                                </div>
-                              </Show>
-                            </dd>
-                          </div>
-                        </dl>
-                        <div class="entity-card__foot">
-                          <button
-                            class="btn btn--sm btn--primary"
-                            type="button"
-                            aria-label={t("users.pending.approve")} title={t("users.pending.approve")}
-                            onClick={() => this.vm.openApprove(user)}
-                          >
-                            {t("users.pending.approve")}
-                          </button>
-                          <button
-                            class="btn btn--sm btn--danger"
-                            type="button"
-                            aria-label={t("users.pending.reject")} title={t("users.pending.reject")}
-                            onClick={() => this.vm.reject(user)}
-                          >
-                            {t("users.pending.reject")}
-                          </button>
-                        </div>
-                      </article>
-                    )}
-                  </For>
-                </div>
+                                </span>
+                              </div>
+                            </td>
+                            <td class="col-created" data-label={t("users.pending.createdAt")}>{this.vm.requestDateLabel(user)}</td>
+                            <td class="cell-actions col-actions">
+                              <button class="btn btn--sm btn--primary" type="button" onClick={() => this.vm.openApprove(user)}>
+                                <Icon name="check" size={14} class="" /> {t("users.pending.approve")}
+                              </button>
+                              <button class="btn btn--sm btn--danger" type="button" onClick={() => { void this.vm.reject(user); }}>
+                                <Icon name="close" size={14} class="" /> {t("users.pending.reject")}
+                              </button>
+                            </td>
+                          </tr>
+                        )}
+                      </For>
+                    </tbody>
+                  </table>
+                </Show>
               </Show>
             </Show>
           </div>
@@ -614,20 +526,31 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       <Modal
         open={this.vm.modalOpen}
         title={this.vm.title}
-        onClose={() => this.vm.closeModal()}
+        onClose={() => { void this.vm.closeModal(); }}
+        describedBy={this.vm.formError ? "users-form-error" : undefined}
         footer={
           <div class="row" style="gap:8px">
-            <button class="btn" type="button" onClick={() => this.vm.closeModal()} disabled={this.vm.saving}>Отмена</button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.submit()} disabled={this.vm.saving}>
-              <Show when={this.vm.saving} fallback={<span>Сохранить</span>}>
+            <button class="btn" type="button" onClick={() => { void this.vm.closeModal(); }} disabled={this.vm.saving}>
+              {t("common.cancelShort")}
+            </button>
+            <button class="btn btn--primary" type="submit" form="users-form" disabled={this.vm.saving}>
+              <Show when={this.vm.saving} fallback={<span>{t("users.form.save")}</span>}>
                 <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                <span>Сохраняем…</span>
+                <span>{t("users.form.saving")}</span>
               </Show>
             </button>
           </div>
         }
       >
-        <div class="stack">
+        <form
+          id="users-form"
+          class="stack"
+          noValidate
+          onSubmit={(event: Event) => {
+            event.preventDefault();
+            void this.vm.submit();
+          }}
+        >
           <div class="grid grid--2">
             <div class="field">
               <label for="users-form-email">{t("users.form.email")}</label>
@@ -637,43 +560,74 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 type="email"
                 autocomplete="email"
                 required
+                data-autofocus
+                aria-invalid={this.vm.emailError ? "true" : undefined}
+                aria-describedby={this.vm.emailError ? "users-form-email-error" : undefined}
                 placeholder={t("auth.register.emailPlaceholder")}
                 value={this.vm.email}
                 onInput={(event: Event) => this.vm.setEmail(event)}
               />
+              <Show when={this.vm.emailError}>
+                <span class="field-error" id="users-form-email-error" role="alert">{this.vm.emailError}</span>
+              </Show>
             </div>
             <div class="field">
-              <label>Роль</label>
+              <label for="users-form-role">{t("users.form.role")}</label>
               <Select
+                id="users-form-role"
                 value={this.vm.role}
-                options={[{ value: "user", label: "Пользователь" }, { value: "admin", label: "Администратор" }]}
+                options={[
+                  { value: "user", label: t("users.role.user") },
+                  { value: "admin", label: t("users.role.admin") },
+                ]}
                 onChange={(value) => this.vm.setRole(value)}
-                ariaLabel="Роль"
+                ariaLabel={t("users.form.role")}
+                disabled={this.vm.roleLocked}
               />
+              <Show when={this.vm.roleLocked}>
+                <span class="hint">{t("users.selfRole")}</span>
+              </Show>
             </div>
           </div>
 
           <Show when={!this.vm.editingId}>
             <div class="field">
-              <label>Пароль</label>
-              <input class="input" type="password" value={this.vm.password} onInput={(event: Event) => this.vm.setPassword(event)} />
-              <span class="hint">Минимум 8 символов.</span>
+              <label for="users-form-password">{t("users.form.password")}</label>
+              <input
+                id="users-form-password"
+                class="input"
+                type="password"
+                autocomplete="new-password"
+                minlength={8}
+                aria-invalid={this.vm.passwordError ? "true" : undefined}
+                aria-describedby={this.vm.passwordError ? "users-form-password-error" : "users-form-password-hint"}
+                value={this.vm.password}
+                onInput={(event: Event) => this.vm.setPassword(event)}
+              />
+              <Show
+                when={this.vm.passwordError}
+                fallback={<span class="hint" id="users-form-password-hint">{t("users.form.passwordHint")}</span>}
+              >
+                <span class="field-error" id="users-form-password-error" role="alert">{this.vm.passwordError}</span>
+              </Show>
             </div>
           </Show>
 
           <div class="grid grid--2">
             <div class="field">
-              <label>Тариф</label>
+              <label for="users-form-tariff">{t("users.form.tariff")}</label>
               <Select
+                id="users-form-tariff"
                 value={this.vm.tariffId}
-                options={[{ value: "", label: "Не задан" }, ...this.vm.tariffs.map((tariff) => ({ value: tariff.id, label: tariff.name }))]}
+                options={[{ value: "", label: t("users.form.tariffNone") }, ...this.vm.tariffs.map((tariff) => ({ value: tariff.id, label: tariff.name }))]}
                 onChange={(value) => this.vm.setTariff(value)}
-                ariaLabel="Тариф"
+                ariaLabel={t("users.form.tariff")}
               />
             </div>
             <div class="field">
-              <label>{t("users.form.node")}</label>
+              <label for="users-form-node">{t("users.form.node")}</label>
               <Select
+                id="users-form-node"
                 value={this.vm.nodeId}
                 options={[{ value: "", label: t("users.form.nodeOptional") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
                 onChange={(value) => this.vm.setNode(value)}
@@ -690,7 +644,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 disabled={this.vm.editingId === this.vm.selfId}
                 onChange={(event: Event) => this.vm.setDisabled(event)}
               />
-              Учётная запись отключена
+              {t("users.form.disabled")}
               <Show when={this.vm.editingId === this.vm.selfId}>
                 <span class="hint">{t("users.selfDisable")}</span>
               </Show>
@@ -698,33 +652,76 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           </Show>
 
           <Show when={this.vm.formError}>
-            <div class="alert alert--error">{this.vm.formError}</div>
+            <div class="alert alert--error" id="users-form-error" role="alert">{this.vm.formError}</div>
           </Show>
-        </div>
+
+          <button type="submit" class="sr-only">{t("users.form.save")}</button>
+        </form>
       </Modal>
 
       <Modal
         open={this.vm.resetOpen}
-        title="Сбросить пароль"
+        title={t("users.reset.title")}
         onClose={() => this.vm.closeReset()}
+        describedBy={this.vm.resetError ? "users-reset-error" : undefined}
         footer={
           <div class="row" style="gap:8px">
-            <button class="btn" type="button" onClick={() => this.vm.closeReset()}>Отмена</button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.submitReset()}>Обновить пароль</button>
+            <button class="btn" type="button" onClick={() => this.vm.closeReset()} disabled={this.vm.resetSaving}>
+              {t("common.cancelShort")}
+            </button>
+            <button class="btn btn--primary" type="submit" form="users-reset-form" disabled={this.vm.resetSaving}>
+              <Show when={this.vm.resetSaving} fallback={<span>{t("users.reset.submit")}</span>}>
+                <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                <span>{t("users.reset.saving")}</span>
+              </Show>
+            </button>
           </div>
         }
       >
-        <div class="stack">
+        <form
+          id="users-reset-form"
+          class="stack"
+          noValidate
+          onSubmit={(event: Event) => {
+            event.preventDefault();
+            void this.vm.submitReset();
+          }}
+        >
           <div class="field">
-            <label>{t("users.column.email")}</label>
-            <input class="input" type="email" value={this.vm.resetTargetEmail()} disabled />
+            <label for="users-reset-email">{t("users.reset.email")}</label>
+            <input
+              id="users-reset-email"
+              class="input"
+              type="email"
+              autocomplete="username"
+              value={this.vm.resetTargetEmail()}
+              disabled
+            />
           </div>
           <div class="field">
-            <label>Новый пароль</label>
-            <input class="input" type="password" value={this.vm.resetPassword} onInput={(event: Event) => this.vm.setResetPassword(event)} />
-            <span class="hint">Минимум 8 символов.</span>
+            <label for="users-reset-password">{t("users.reset.password")}</label>
+            <input
+              id="users-reset-password"
+              class="input"
+              type="password"
+              autocomplete="new-password"
+              minlength={8}
+              required
+              data-autofocus
+              aria-invalid={this.vm.resetError ? "true" : undefined}
+              aria-describedby={this.vm.resetError ? "users-reset-error" : "users-reset-hint"}
+              value={this.vm.resetPassword}
+              onInput={(event: Event) => this.vm.setResetPassword(event)}
+            />
+            <Show
+              when={this.vm.resetError}
+              fallback={<span class="hint" id="users-reset-hint">{t("users.form.passwordHint")}</span>}
+            >
+              <span class="field-error" id="users-reset-error" role="alert">{this.vm.resetError}</span>
+            </Show>
           </div>
-        </div>
+          <button type="submit" class="sr-only">{t("users.reset.submit")}</button>
+        </form>
       </Modal>
 
       <Modal
@@ -734,9 +731,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         footer={
           <div class="row" style="gap:8px">
             <button class="btn" type="button" onClick={() => this.vm.closeApprove()} disabled={this.vm.approveSaving}>
-              {t("common.cancel")}
+              {t("common.cancelShort")}
             </button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.submitApprove()} disabled={this.vm.approveSaving}>
+            <button class="btn btn--primary" type="button" onClick={() => { void this.vm.submitApprove(); }} disabled={this.vm.approveSaving}>
               <Show when={this.vm.approveSaving} fallback={<span>{t("users.pending.approve")}</span>}>
                 <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
                 <span>{t("common.saving")}</span>
@@ -747,13 +744,14 @@ export function UsersPage(this: { vm: UsersPageVM }) {
       >
         <div class="stack">
           <div class="field">
-            <label>{t("users.column.email")}</label>
-            <input class="input" type="email" value={this.vm.approveTargetEmail()} disabled />
+            <label for="users-approve-email">{t("users.column.email")}</label>
+            <input id="users-approve-email" class="input" type="email" value={this.vm.approveTargetEmail()} disabled />
           </div>
           <div class="grid grid--2">
             <div class="field">
-              <label>{t("users.pending.tariff")}</label>
+              <label for="users-approve-tariff">{t("users.pending.tariff")}</label>
               <Select
+                id="users-approve-tariff"
                 value={this.vm.approveTariffId}
                 options={[
                   { value: "", label: "—" },
@@ -764,8 +762,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               />
             </div>
             <div class="field">
-              <label>{t("users.pending.node")}</label>
+              <label for="users-approve-node">{t("users.pending.node")}</label>
               <Select
+                id="users-approve-node"
                 value={this.vm.approveNodeId}
                 options={[
                   { value: "", label: t("users.form.nodeOptional") },
@@ -777,7 +776,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
             </div>
           </div>
           <Show when={this.vm.approveError}>
-            <div class="alert alert--error">{this.vm.approveError}</div>
+            <div class="alert alert--error" role="alert">{this.vm.approveError}</div>
           </Show>
         </div>
       </Modal>

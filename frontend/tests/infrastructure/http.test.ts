@@ -321,6 +321,68 @@ describe("HTTP backend", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("refreshes an expired access token for authenticated auth endpoints", async () => {
+    store.set("expired-access", "old-refresh");
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(401))
+      .mockResolvedValueOnce(mockResponse(200, SESSION))
+      .mockResolvedValueOnce(mockResponse(200, USER));
+
+    await expect(backend.repositories.auth.me()).resolves.toEqual(USER);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("/api/v1/auth/refresh");
+    expect(store.access()).toBe("access-1");
+    expect(store.refresh()).toBe("refresh-1");
+  });
+
+  it("does not retry a failed login through refresh", async () => {
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(
+      mockResponse(401, { error: { code: "unauthorized", message: "bad credentials" } }),
+    );
+
+    await expect(
+      backend.repositories.auth.login({ login: "admin", password: "wrong" }),
+    ).rejects.toBeInstanceOf(ApiError);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/auth/login");
+  });
+
+  it("clears tokens when a retried auth request is rejected again", async () => {
+    store.set("expired-access", "old-refresh");
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock
+      .mockResolvedValueOnce(mockResponse(401))
+      .mockResolvedValueOnce(mockResponse(200, SESSION))
+      .mockResolvedValueOnce(mockResponse(401));
+
+    await expect(backend.repositories.auth.me()).rejects.toBeInstanceOf(ApiError);
+
+    expect(store.access()).toBeNull();
+    expect(store.refresh()).toBeNull();
+  });
+
+  it("reports invalid JSON with the response status", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue({
+      status: 200,
+      ok: true,
+      json: vi.fn().mockRejectedValue(new SyntaxError("invalid")),
+      text: vi.fn().mockResolvedValue("<html>not json</html>"),
+    } as unknown as Response);
+
+    try {
+      await backend.repositories.auth.me();
+      throw new Error("expected throw");
+    } catch (error) {
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).status).toBe(200);
+      expect((error as ApiError).code).toBe("invalid_response");
+    }
+  });
+
   it("throws ApiError with code and message from JSON", async () => {
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
       mockResponse(400, { error: { code: "bad_request", message: "nope" } }),

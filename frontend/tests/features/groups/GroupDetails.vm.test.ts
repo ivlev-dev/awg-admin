@@ -244,6 +244,44 @@ describe("GroupDetailsVM", () => {
     expect(toasts.items.some((item) => item.kind === "error")).toBe(true);
   });
 
+  it("не применяет поздний ответ предыдущей группы после смены id", async () => {
+    const groupsRepo = new MemoryGroupsRepository();
+    const { vm, router } = makeVm(groupsRepo);
+    let releaseFirst: (value: Group[]) => void = () => undefined;
+    const first = new Promise<Group[]>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let call = 0;
+    groupsRepo.listGroups.mockImplementation(async () => {
+      call += 1;
+      return call === 1 ? first : [group({ id: "g2", name: "Филиал" })];
+    });
+
+    const firstLoad = vm.load();
+    router.navigate("/groups/g2");
+    const secondLoad = vm.load();
+    await secondLoad;
+    releaseFirst([group()]);
+    await firstLoad;
+
+    expect(vm.group?.id).toBe("g2");
+    expect(vm.group?.name).toBe("Филиал");
+  });
+
+  it("освобождает подписки при dispose", async () => {
+    const groupsRepo = new MemoryGroupsRepository();
+    groupsRepo.groups.set("g1", group());
+    const { vm, router } = makeVm(groupsRepo);
+    await vm.load();
+    const calls = groupsRepo.listGroups.mock.calls.length;
+
+    vm.dispose();
+    router.navigate("/groups/g2");
+    await Promise.resolve();
+
+    expect(groupsRepo.listGroups).toHaveBeenCalledTimes(calls);
+  });
+
   it("updates the group through the service", async () => {
     const groupsRepo = new MemoryGroupsRepository();
     groupsRepo.groups.set("g1", group());

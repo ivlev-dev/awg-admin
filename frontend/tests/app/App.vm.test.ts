@@ -364,6 +364,30 @@ describe("AppVM navigation filtering", () => {
     expect(harness.vm.roleLabel).toBe("Пользователь");
   });
 
+  it("скрывает админские действия палитры команд от обычного пользователя", () => {
+    const harness = makeHarness({ user: PLAIN });
+    const ids = harness.vm.commandItems.map((item) => item.id);
+
+    expect(ids).not.toContain("action:settings");
+    expect(ids).not.toContain("nav:/users");
+    expect(ids).toContain("action:profile");
+  });
+
+  it("показывает действия настроек администратору", () => {
+    const harness = makeHarness({ user: ADMIN });
+
+    expect(harness.vm.commandItems.map((item) => item.id)).toContain("action:settings");
+  });
+
+  it("перенаправляет на доступную страницу после понижения роли", () => {
+    const harness = makeHarness({ user: ADMIN, path: "/users" });
+
+    harness.session.user = { ...ADMIN, role: "user" };
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/");
+  });
+
   it("exposes the current user and initials", () => {
     const harness = makeHarness({ user: ADMIN });
 
@@ -509,6 +533,16 @@ describe("AppVM actions", () => {
     expect(harness.tokens.access()).toBeNull();
     expect(harness.tokens.refresh()).toBeNull();
     expect(harness.router.path).toBe("/login");
+  });
+
+  it("blocks a repeated logout while the first one is in progress", async () => {
+    const harness = makeHarness({ user: ADMIN });
+    harness.session.loggingOut = true;
+
+    await harness.vm.logout();
+
+    expect(harness.router.path).toBe("/");
+    expect(harness.vm.loggingOut).toBe(true);
   });
 
   it("applies and toggles the theme", () => {
@@ -961,6 +995,16 @@ describe("AppVM command palette", () => {
 
     expect(harness.router.path).toBe("/clients");
     expect(harness.vm.commandOpen).toBe(false);
+  });
+
+  it("выставляет document.title по текущему маршруту", async () => {
+    const harness = await boot({ user: ADMIN });
+
+    harness.router.navigate("/clients");
+
+    await vi.waitFor(() => {
+      expect(document.title).toBe("Устройства · AWG Admin");
+    });
   });
 
   it("выполняет действие и закрывает палитру", async () => {

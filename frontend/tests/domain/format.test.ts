@@ -7,6 +7,7 @@ import {
   relativeTime,
   plural,
   percent,
+  csvCell,
 } from "@/domain/format";
 
 describe("formatBytes", () => {
@@ -141,5 +142,26 @@ describe("percent", () => {
 
   it("zero total", () => {
     expect(percent(10, 0)).toBe(0);
+  });
+});
+
+describe("csvCell", () => {
+  it("prefixes formula-like values with an apostrophe", () => {
+    expect(csvCell("=1+1")).toBe("'=1+1");
+    expect(csvCell("@SUM(A1)")).toBe("'@SUM(A1)");
+    expect(csvCell("-2")).toBe("'-2");
+    expect(csvCell("+7")).toBe("'+7");
+    expect(csvCell("\tcmd")).toBe("'\tcmd");
+    expect(csvCell("\rcmd")).toBe("\"'\rcmd\"");
+  });
+
+  it("keeps ordinary text unchanged", () => {
+    expect(csvCell("laptop")).toBe("laptop");
+  });
+
+  it("quotes commas, quotes and newlines after escaping", () => {
+    expect(csvCell("a,b")).toBe('"a,b"');
+    expect(csvCell('say "hi"')).toBe('"say ""hi"""');
+    expect(csvCell("=1,2")).toBe("\"'=1,2\"");
   });
 });

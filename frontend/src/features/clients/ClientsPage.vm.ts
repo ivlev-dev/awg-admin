@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import type { DevicesService } from "@/application/devices/service";
 import type { InterfacesService } from "@/application/interfaces/service";
@@ -24,6 +24,10 @@ export interface ClientsFilters {
   interfaceFilter: string;
 }
 
+export interface ClientsExtraFilters {
+  status: "all" | "active" | "revoked";
+}
+
 export interface InterfaceOption {
   readonly value: string;
   readonly label: string;
@@ -44,6 +48,8 @@ export interface ClientFormState {
 }
 
 const EMPTY_FILTERS: ClientsFilters = { query: "", interfaceFilter: "" };
+const EMPTY_EXTRA_FILTERS: ClientsExtraFilters = { status: "all" };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export const clientsFiltersStorage = persistedSignal<ClientsFilters>(
   "awg.ui.clients.filters",
@@ -52,7 +58,13 @@ export const clientsFiltersStorage = persistedSignal<ClientsFilters>(
   { version: 2 },
 );
 
-export class ClientsPageVM {
+export const clientsExtraFiltersStorage = persistedSignal<ClientsExtraFilters>(
+  "awg.ui.clients.filters.extra",
+  EMPTY_EXTRA_FILTERS,
+  validateClientsExtraFilters,
+);
+
+export class ClientsPageVM extends ViewModel {
   constructor(
     private readonly devicesService: DevicesService,
     private readonly interfacesService: InterfacesService,
@@ -61,23 +73,34 @@ export class ClientsPageVM {
     private readonly router: Router,
     private readonly toasts: ToastStore,
   ) {
+    super();
     const stored = clientsFiltersStorage.read();
+    const extra = clientsExtraFiltersStorage.read();
     this.query = stored.query;
     this.appliedQuery = stored.query;
     this.interfaceFilter = stored.interfaceFilter;
+    this.statusFilter = extra.status;
+    this.restoreFromLocation();
+    if (typeof window !== "undefined") window.addEventListener("popstate", this.onPopState);
   }
 
   @reactive accessor devices: Device[] = [];
   @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor users: User[] = [];
   @reactive accessor loading = true;
+  @reactive accessor refreshing = false;
+  @reactive accessor error: string | null = null;
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
   @reactive accessor interfaceFilter = "";
   @reactive accessor statusFilter: "all" | "active" | "revoked" = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
+  @reactive accessor page = 1;
+  @reactive accessor pageSize = 25;
   @reactive accessor sort: SortState<"name" | "status"> | null = { key: "name", direction: "asc" };
+
+  private hasLoaded = false;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
@@ -96,12 +119,13 @@ export class ClientsPageVM {
 
   @reactive private accessor formSnapshot: ClientFormState | null = null;
 
-  created(): void {
+  override created(): void {
     void this.load();
   }
 
-  beforeUnmount(): void {
+  override beforeUnmount(): void {
     this.applyQuery.cancel();
+    if (typeof window !== "undefined") window.removeEventListener("popstate", this.onPopState);
   }
 
   @computed
@@ -241,6 +265,14 @@ export class ClientsPageVM {
 
   async bulkRevokeShares(): Promise<void> {
     if (this.selectedIds.length === 0) return;
+    const count = this.selectedIds.length;
+    const confirmed = await askConfirm({
+      title: t("clients.confirm.shareRevokeTitle"),
+      message: t("clients.confirm.bulkShareRevoke", { count }),
+      confirmLabel: t("clients.bulk.revokeShares"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
     await this.runBulk("revoke_shares", [...this.selectedIds]);
   }
 
@@ -259,6 +291,51 @@ export class ClientsPageVM {
       this.bulkBusy = false;
     }
     await this.load();
+  }
+
+  @computed
+  get pageCount(): number {
+    return Math.max(1, Math.ceil(this.filteredDevices.length / this.pageSize));
+  }
+
+  @computed
+  get currentPage(): number {
+    return Math.min(Math.max(1, this.page), this.pageCount);
+  }
+
+  @computed
+  get pagedDevices(): Device[] {
+    const start = (this.currentPage - 1) * this.pageSize;
+    return this.filteredDevices.slice(start, start + this.pageSize);
+  }
+
+  @computed
+  get pageSummary(): string {
+    const total = this.filteredDevices.length;
+    if (total === 0) return t("users.pagination.summary", { from: 0, to: 0, total: 0 });
+    const from = (this.currentPage - 1) * this.pageSize + 1;
+    const to = Math.min(from + this.pageSize - 1, total);
+    return t("users.pagination.summary", { from, to, total });
+  }
+
+  @computed
+  get pageSizeOptions(): Array<{ value: string; label: string }> {
+    return PAGE_SIZES.map((size) => ({ value: String(size), label: String(size) }));
+  }
+
+  goToPage(page: number): void {
+    this.page = Math.min(Math.max(1, Math.round(page)), this.pageCount);
+  }
+
+  setPageSize(value: string): void {
+    const size = Number(value);
+    if (!Number.isFinite(size) || size <= 0) return;
+    this.pageSize = size;
+    this.page = 1;
+  }
+
+  private clampPage(): void {
+    if (this.page > this.pageCount) this.page = this.pageCount;
   }
 
   @computed
@@ -335,7 +412,9 @@ export class ClientsPageVM {
   }
 
   async load(): Promise<void> {
-    this.loading = true;
+    this.loading = !this.hasLoaded;
+    this.refreshing = this.hasLoaded;
+    this.error = null;
     try {
       const interfacesPromise: Promise<InterfaceInfo[]> = this.isAdmin
         ? this.interfacesService.listInterfaces()
@@ -350,20 +429,36 @@ export class ClientsPageVM {
       this.interfaces = interfaces;
       this.users = users;
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.error.load")));
+      const message = messageOf(error, t("clients.error.load"));
+      this.error = message;
+      this.toasts.error(message);
     } finally {
       this.loading = false;
+      this.refreshing = false;
+      this.hasLoaded = true;
+      this.clampPage();
     }
   }
 
   setQuery(event: Event): void {
     this.query = (event.target as HTMLInputElement).value;
+    this.page = 1;
+    this.selectedIds = [];
     this.applyQuery();
     this.persistFilters();
   }
 
   setInterfaceFilter(value: string): void {
     this.interfaceFilter = value;
+    this.page = 1;
+    this.selectedIds = [];
+    this.persistFilters();
+  }
+
+  setStatusFilter(value: string): void {
+    this.statusFilter = value === "active" || value === "revoked" ? value : "all";
+    this.page = 1;
+    this.selectedIds = [];
     this.persistFilters();
   }
 
@@ -372,7 +467,12 @@ export class ClientsPageVM {
     this.query = "";
     this.appliedQuery = "";
     this.interfaceFilter = "";
+    this.statusFilter = "all";
+    this.page = 1;
+    this.selectedIds = [];
     clientsFiltersStorage.clear();
+    clientsExtraFiltersStorage.clear();
+    this.syncLocation();
   }
 
   setFormName(event: Event): void {
@@ -539,7 +639,44 @@ export class ClientsPageVM {
       query: this.query,
       interfaceFilter: this.interfaceFilter,
     });
+    clientsExtraFiltersStorage.write({ status: this.statusFilter });
+    this.syncLocation();
   }
+
+  private syncLocation(): void {
+    if (typeof window === "undefined") return;
+    if (!window.location.pathname.startsWith("/clients")) return;
+    const params = new URLSearchParams();
+    if (this.query.trim().length > 0) params.set("query", this.query);
+    if (this.interfaceFilter.length > 0) params.set("interface", this.interfaceFilter);
+    if (this.statusFilter !== "all") params.set("status", this.statusFilter);
+    const query = params.toString();
+    const next = `${window.location.pathname}${query.length > 0 ? `?${query}` : ""}${window.location.hash}`;
+    try {
+      window.history.replaceState(window.history.state, "", next);
+    } catch {
+      // История недоступна (sandboxed iframe) — фильтры всё равно сохранены локально.
+    }
+  }
+
+  private restoreFromLocation(): void {
+    if (typeof window === "undefined") return;
+    if (!window.location.pathname.startsWith("/clients")) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has("query")) {
+      const query = params.get("query") ?? "";
+      this.query = query;
+      this.appliedQuery = query;
+    }
+    const iface = params.get("interface");
+    if (iface !== null && iface.length > 0) this.interfaceFilter = iface;
+    const status = params.get("status");
+    if (status === "active" || status === "revoked") this.statusFilter = status;
+  }
+
+  private readonly onPopState = (): void => {
+    this.restoreFromLocation();
+  };
 }
 
 function interfaceLabel(item: InterfaceInfo): string {
@@ -553,6 +690,13 @@ function isInterfaceOnNode(item: InterfaceInfo, nodeId: string): boolean {
 function hasInterface(device: Device, interfaceId: string): boolean {
   if (device.interface_id === interfaceId) return true;
   return device.peers.some((peer) => peer.interface_id === interfaceId);
+}
+
+function validateClientsExtraFilters(value: unknown): ClientsExtraFilters | null {
+  if (!isRecord(value)) return null;
+  const status = value["status"];
+  if (status !== "all" && status !== "active" && status !== "revoked") return null;
+  return { status };
 }
 
 function validateClientsFilters(value: unknown): ClientsFilters | null {

@@ -157,6 +157,24 @@ describe("RegisterVM", () => {
     expect(harness.vm.resendNotice).toBeNull();
   });
 
+  it("останавливает таймер обратного отсчёта при размонтировании", async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = makeHarness();
+      harness.vm.setEmail(valueEvent("user@example.com"));
+      harness.vm.setPassword(valueEvent("secret123"));
+      harness.vm.setRepeatPassword(valueEvent("secret123"));
+      await harness.vm.submit(submitEvent());
+
+      harness.vm.unmounted();
+      vi.advanceTimersByTime(1000);
+
+      expect(harness.vm.cooldown).toBe(60);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports a registration failure and keeps the form", async () => {
     const harness = makeHarness({
       register: async () => {

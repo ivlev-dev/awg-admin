@@ -226,6 +226,7 @@ export const enClients = {
   "clients.confirm.bulkDeleteTitle": "Delete devices",
   "clients.confirm.revokeTitle": "Revoke device",
   "clients.confirm.shareRevokeTitle": "Revoke links",
+  "clients.confirm.bulkShareRevoke": "Revoke configuration links for the selected devices ({count})? All issued links will stop working.",
   "clients.confirm.tunnelDeleteTitle": "Delete tunnel",
   "clients.details.confirm.revoke": "Revoke device “{name}”?",
   "clients.details.confirm.delete": "Delete device “{name}”? This action cannot be undone.",

@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
@@ -8,7 +8,7 @@ import type { Group } from "@/domain/types";
 import { isCidr } from "@/domain/validation";
 import { t } from "@/i18n";
 
-export class GroupsPageVM {
+export class GroupsPageVM extends ViewModel {
   @reactive accessor groups: Group[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
@@ -31,9 +31,11 @@ export class GroupsPageVM {
     private readonly groupsService: GroupsService,
     private readonly router: Router,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  override created(): void {
     void this.load();
   }
 
@@ -224,6 +226,7 @@ export class GroupsPageVM {
     const confirmed = await askConfirm({
       title: t("groups.confirm.delete.title"),
       message: t("groups.confirm.delete", { name: group.name }),
+      details: t("groups.confirm.deleteDetails"),
       confirmLabel: t("common.delete"),
     });
     if (!confirmed) return;
@@ -248,6 +251,7 @@ export class GroupsPageVM {
     const confirmed = await askConfirm({
       title: t("groups.bulk.delete.title"),
       message: t("groups.bulk.confirm", { count: ids.length }),
+      details: t("groups.bulk.confirmDetails"),
       confirmLabel: t("common.delete"),
     });
     if (!confirmed) return;

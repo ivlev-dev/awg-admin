@@ -84,6 +84,23 @@ afterEach(() => {
 });
 
 describe("Modal a11y", () => {
+  it("фокусирует [data-autofocus] или первое поле, а не крестик", async () => {
+    const input = document.createElement("input");
+    input.id = "first-field";
+    const autofocus = document.createElement("select");
+    autofocus.setAttribute("data-autofocus", "");
+    autofocus.id = "autofocus-field";
+
+    const first = mountModal({ children: [input] });
+    await ready(first);
+    expect(document.activeElement).toBe(input);
+    first.setOpen(false);
+
+    const second = mountModal({ children: [input, autofocus] });
+    await ready(second);
+    expect(document.activeElement).toBe(autofocus);
+  });
+
   it("переводит фокус на первый интерактивный элемент и выставляет aria-атрибуты", async () => {
     const opener = document.createElement("button");
     opener.textContent = "Открыть";
@@ -127,7 +144,7 @@ describe("Modal a11y", () => {
 
     const root = modalRoot();
     const first = closeButton(root);
-    expect(document.activeElement).toBe(first);
+    expect(document.activeElement).toBe(input);
 
     action.focus();
     const forward = pressKey(action, "Tab");
@@ -232,7 +249,8 @@ describe("Modal a11y", () => {
 
     const childRoot = modalRoot("Ребёнок");
     const parentRoot = modalRoot("Родитель");
-    expect(document.activeElement).toBe(closeButton(childRoot));
+    expect(childRoot).not.toBeNull();
+    expect(document.activeElement).toBe(childAction);
 
     childAction.focus();
     const forward = pressKey(childAction, "Tab");

@@ -60,7 +60,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               <div class="data-toolbar__sub">{this.vm.countLabel}</div>
             </div>
             <div class="data-toolbar__actions">
-              <button class="btn" type="button" onClick={() => this.vm.load()}>
+              <button class="btn" type="button" disabled={this.vm.loading || this.vm.refreshing} onClick={() => this.vm.load()}>
                 <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
               </button>
               <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
@@ -102,7 +102,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   { value: "active", label: t("clients.status.active") },
                   { value: "revoked", label: t("clients.status.revoked") },
                 ]}
-                onChange={(value) => { this.vm.statusFilter = value as "all" | "active" | "revoked"; }}
+                onChange={(value) => this.vm.setStatusFilter(value)}
                 ariaLabel={t("clients.column.status")}
               />
             </div>
@@ -113,11 +113,26 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
             </Show>
           </div>
         </div>
-        <div class="data-scroll table-wrap--cards" aria-busy={this.vm.loading ? "true" : "false"}>
+        <div class="data-scroll table-wrap--cards" aria-busy={this.vm.loading || this.vm.refreshing ? "true" : "false"}>
           <Show
             when={!this.vm.loading}
             fallback={<SkeletonTable rows={5} columns={this.vm.isAdmin ? 8 : 7} />}
           >
+            <Show
+              when={!(this.vm.error && this.vm.devices.length === 0)}
+              fallback={
+                <div class="empty" role="alert">
+                  <div class="empty__icon"><Icon name="warning" size={28} class="" /></div>
+                  <div class="empty__title">{t("common.error")}</div>
+                  <div class="empty__text">{this.vm.error}</div>
+                  <div style="margin-top:14px">
+                    <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.load()}>
+                      <Icon name="refresh" size={14} class="" /> {t("common.retry")}
+                    </button>
+                  </div>
+                </div>
+              }
+            >
             <Show
               when={this.vm.filteredDevices.length > 0}
               fallback={
@@ -148,7 +163,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 </div>
               }
             >
-              <table class="table table--cards table--clients table--fixed table--desktop">
+              <table class="table table--cards table--clients table--desktop" aria-label={t("clients.card.title")}>
                 <thead>
                   <tr>
                     <th class="cell-select">
@@ -179,7 +194,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   </tr>
                 </thead>
                 <tbody>
-                  <For each={this.vm.filteredDevices}>
+                  <For each={this.vm.pagedDevices}>
                     {(device) => (
                       <tr
                         class={this.vm.isSelected(device.id) ? "is-selected" : ""}
@@ -269,70 +284,38 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   </For>
                 </tbody>
               </table>
-              <div class="entity-list">
-                <For each={this.vm.filteredDevices}>
-                  {(device) => (
-                    <article class={`entity-card${this.vm.isSelected(device.id) ? " is-selected" : ""}`}>
-                      <div class="entity-card__head">
-                        <label class="check">
-                          <input
-                            type="checkbox"
-                            aria-label={device.name}
-                            checked={this.vm.isSelected(device.id)}
-                            onChange={() => this.vm.toggleSelected(device.id)}
-                          />
-                          <span><Icon name="check" size={12} class="" /></span>
-                        </label>
-                        <span class="cell-avatar">{device.name.slice(0, 1).toUpperCase()}</span>
-                        <div class="entity-card__title">
-                          <span class="entity-card__name">{device.name}</span>
-                          <span class="entity-card__sub">{this.vm.interfaceSummary(device)}</span>
-                        </div>
-                        <span class={`status-chip ${device.revoked ? "status-chip--error" : "status-chip--ok"}`}>
-                          <span class="status-chip__dot"></span>
-                          {device.revoked ? t("clients.status.revoked") : t("clients.status.active")}
-                        </span>
-                      </div>
-                      <dl class="entity-card__meta">
-                        <div>
-                          <dt>{t("clients.column.interface")}</dt>
-                          <dd>{device.interface_name || "—"}</dd>
-                        </div>
-                        <div>
-                          <dt>{t("clients.details.node")}</dt>
-                          <dd>{device.node_name || "—"}</dd>
-                        </div>
-                        <div>
-                          <dt>{t("clients.column.addresses")}</dt>
-                          <dd class="mono">{device.addresses.length > 0 ? device.addresses.join(", ") : "—"}</dd>
-                        </div>
-                        <div>
-                          <dt>{t("clients.column.limits")}</dt>
-                          <dd><span class="nowrap">↓ {rateLabel(device.down_kbps)}</span><br /><span class="nowrap">↑ {rateLabel(device.up_kbps)}</span></dd>
-                        </div>
-                        <div>
-                          <dt>{t("clients.column.tunnels")}</dt>
-                          <dd>{this.vm.tunnelsLabel(device)} · {this.vm.interfaceNames(device) || "—"}</dd>
-                        </div>
-                        <div>
-                          <dt>{t("clients.column.owner")}</dt>
-                          <dd>{this.vm.userEmail(device.user_id)}</dd>
-                        </div>
-                      </dl>
-                      <div class="entity-card__foot">
-                        <button
-                          class="btn btn--text btn--sm"
-                          type="button"
-                          aria-label={t("common.open")} title={t("common.open")}
-                          onClick={() => this.vm.openDevice(device.id)}
-                        >
-                          {t("common.open")} <Icon name="chevron" size={14} class="" />
-                        </button>
-                      </div>
-                    </article>
-                  )}
-                </For>
+              <div class="data-pagination">
+                <span class="small muted" aria-live="polite">{this.vm.pageSummary}</span>
+                <div class="row" style="gap:8px;align-items:center">
+                  <span class="small muted">{t("users.pagination.size")}</span>
+                  <Select
+                    value={String(this.vm.pageSize)}
+                    options={this.vm.pageSizeOptions}
+                    onChange={(value) => this.vm.setPageSize(value)}
+                    ariaLabel={t("users.pagination.size")}
+                  />
+                  <button
+                    class="btn btn--sm btn--ghost btn--icon"
+                    type="button"
+                    aria-label={t("users.pagination.prev")}
+                    disabled={this.vm.currentPage <= 1}
+                    onClick={() => this.vm.goToPage(this.vm.currentPage - 1)}
+                  >
+                    <Icon name="chevron" size={14} class="" />
+                  </button>
+                  <span class="small">{this.vm.currentPage} / {this.vm.pageCount}</span>
+                  <button
+                    class="btn btn--sm btn--ghost btn--icon"
+                    type="button"
+                    aria-label={t("users.pagination.next")}
+                    disabled={this.vm.currentPage >= this.vm.pageCount}
+                    onClick={() => this.vm.goToPage(this.vm.currentPage + 1)}
+                  >
+                    <Icon name="chevron" size={14} class="" />
+                  </button>
+                </div>
               </div>
+            </Show>
             </Show>
           </Show>
         </div>

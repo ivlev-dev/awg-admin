@@ -47,4 +47,12 @@ export const enOverview = {
   "overview.table.rx": "Inbound",
   "overview.table.tx": "Outbound",
   "overview.table.total": "Total",
+  "overview.state.nodesEmpty": "No nodes",
+  "overview.loading": "Loading the summary…",
+  "charts.traffic": "Traffic chart",
+  "charts.traffic.caption": "Inbound and outbound traffic per interval",
+  "charts.traffic.at": "Time",
+  "charts.traffic.rx": "Inbound",
+  "charts.traffic.tx": "Outbound",
+  "charts.noData": "No chart data",
 } as const;

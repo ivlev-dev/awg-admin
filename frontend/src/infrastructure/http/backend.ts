@@ -20,6 +20,7 @@ import { HttpClient } from "./client";
 import type { ApiConfig } from "./config";
 import type { ApiError } from "./errors";
 import { HttpDevicesRepository } from "./devices.repository";
+import { ForbiddenInterceptor } from "./forbidden.interceptor";
 import { HttpGroupsRepository } from "./groups.repository";
 import { HttpImportRepository } from "./import.repository";
 import { InterceptorRegistry } from "./interceptor-registry";
@@ -60,6 +61,7 @@ export interface HttpBackendOptions {
   transport?: HttpTransport;
   auth?: AuthRepository;
   onNetworkError?: (error: ApiError) => void;
+  onForbidden?: (error: ApiError) => void;
 }
 
 export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
@@ -71,6 +73,9 @@ export function createHttpBackend(options: HttpBackendOptions): HttpBackend {
   );
   if (options.onNetworkError) {
     registry.addResponse(new NetworkErrorInterceptor(options.onNetworkError));
+  }
+  if (options.onForbidden) {
+    registry.addResponse(new ForbiddenInterceptor(options.onForbidden));
   }
   const client = new HttpClient(transport, registry);
   return {

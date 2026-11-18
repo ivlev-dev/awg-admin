@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { Session } from "@/app/session";
@@ -18,7 +18,7 @@ import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
-export class NodesPageVM {
+export class NodesPageVM extends ViewModel {
   @reactive accessor nodes: NodeInfo[] = [];
   @reactive accessor loading = true;
   @reactive accessor busy = false;
@@ -43,9 +43,11 @@ export class NodesPageVM {
     private readonly nodesService: NodesService,
     private readonly session: Session,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  override created(): void {
     void this.load();
   }
 

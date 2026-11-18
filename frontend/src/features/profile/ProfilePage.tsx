@@ -71,7 +71,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
 
               <hr class="divider" />
 
-              <button class="btn btn--danger btn--block" type="button" onClick={() => this.vm.logout()}>
+              <button class="btn btn--danger btn--block" type="button" disabled={this.vm.loggingOut} onClick={() => this.vm.logout()}>
                 <Icon name="logout" size={16} class="" /> {t("profile.logout")}
               </button>
             </div>

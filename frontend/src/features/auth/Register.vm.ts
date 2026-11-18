@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -9,12 +9,14 @@ import { t } from "@/i18n";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
 const COOLDOWN_SECONDS = 60;
 
-export class RegisterVM {
+export class RegisterVM extends ViewModel {
   constructor(
     private readonly auth: AuthService,
     private readonly session: Session,
     private readonly router: Router,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor email = "";
   @reactive accessor password = "";
@@ -31,10 +33,14 @@ export class RegisterVM {
 
   private timer: number | null = null;
 
-  created(): void {
+  override created(): void {
     if (this.session.authenticated) {
       this.router.replace("/");
     }
+  }
+
+  override unmounted(): void {
+    this.stopCooldown();
   }
 
   @computed

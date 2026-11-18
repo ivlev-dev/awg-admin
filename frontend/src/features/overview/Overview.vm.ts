@@ -1,4 +1,4 @@
-import { computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { Router } from "@/app/router";
@@ -13,7 +13,7 @@ import type { Overview } from "@/domain/types";
 import type { LiveStats } from "@/infrastructure/stats";
 import { t } from "@/i18n";
 
-export class OverviewVM {
+export class OverviewVM extends ViewModel {
   @reactive accessor data: Overview | null = null;
   @reactive accessor series: Array<{ at: string; rx: number; tx: number }> = [];
   @reactive accessor loading = true;
@@ -29,9 +29,11 @@ export class OverviewVM {
     private readonly liveStats: LiveStats,
     private readonly session: Session,
     private readonly router: Router,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  override created(): void {
     this.start();
   }
 
@@ -52,7 +54,7 @@ export class OverviewVM {
     this.liveStats.connect(scope, this.isAdmin ? null : this.session.user?.id ?? null);
   }
 
-  unmounted(): void {
+  override unmounted(): void {
     this.liveStats.disconnect();
   }
 

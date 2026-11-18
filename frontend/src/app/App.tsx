@@ -115,7 +115,7 @@ function sidebar(vm: AppVM) {
           <div class="small strong truncate">{vm.name}</div>
           <div class="xs muted">{vm.roleLabel}</div>
         </div>
-        <button class="btn btn--ghost btn--icon" type="button" onClick={() => vm.logout()} aria-label={t("shell.logout")}>
+        <button class="btn btn--ghost btn--icon" type="button" disabled={vm.loggingOut} onClick={() => { void vm.requestLogout(); }} aria-label={t("shell.logout")}>
           <Icon name="logout" size={18} />
         </button>
       </div>
@@ -255,7 +255,7 @@ function shell(vm: AppVM) {
               <span class="sheet-nav__title">{t("shell.theme")}</span>
               <span class="sheet-nav__meta">{vm.themeEffective === "dark" ? t("profile.theme.dark") : t("profile.theme.light")}</span>
             </button>
-            <button class="sheet-nav__item sheet-nav__item--danger" type="button" onClick={() => vm.logout()}>
+            <button class="sheet-nav__item sheet-nav__item--danger" type="button" disabled={vm.loggingOut} onClick={() => { void vm.requestLogout(); }}>
               <span class="sheet-nav__icon"><Icon name="logout" size={20} /></span>
               <span class="sheet-nav__title">{t("shell.logout")}</span>
             </button>

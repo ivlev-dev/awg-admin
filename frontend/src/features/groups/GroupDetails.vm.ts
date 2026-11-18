@@ -1,4 +1,4 @@
-import { computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
@@ -21,7 +21,7 @@ const POOL_MODE_LABEL: Record<PoolMode, string> = {
   external_only: "external_only",
 };
 
-export class GroupDetailsVM {
+export class GroupDetailsVM extends ViewModel {
   @reactive accessor group: Group | null = null;
   @reactive accessor pools: CidrPool[] = [];
   @reactive accessor interfaces: InterfaceInfo[] = [];
@@ -51,9 +51,13 @@ export class GroupDetailsVM {
     private readonly interfacesService: InterfacesService,
     private readonly router: Router,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  private loadGeneration = 0;
+
+  override created(): void {
     void this.load();
   }
 
@@ -109,6 +113,7 @@ export class GroupDetailsVM {
   }
 
   async load(): Promise<void> {
+    const generation = ++this.loadGeneration;
     this.loading = true;
     this.error = null;
     const id = this.groupId;
@@ -121,6 +126,7 @@ export class GroupDetailsVM {
     }
     try {
       const groups = await this.groupsService.listGroups();
+      if (generation !== this.loadGeneration) return;
       const found = groups.find((item) => item.id === id) ?? null;
       if (!found) {
         this.group = null;
@@ -132,14 +138,16 @@ export class GroupDetailsVM {
         this.groupsService.listPools(id),
         this.interfacesService.listInterfaces(),
       ]);
+      if (generation !== this.loadGeneration) return;
       this.group = found;
       this.pools = pools;
       this.interfaces = interfaces.filter((item) => item.group_id === id);
     } catch (error) {
+      if (generation !== this.loadGeneration) return;
       this.error = messageOf(error, t("groups.details.error.load"));
       this.toasts.error(this.error);
     } finally {
-      this.loading = false;
+      if (generation === this.loadGeneration) this.loading = false;
     }
   }
 

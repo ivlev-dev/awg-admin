@@ -94,6 +94,8 @@ export const ruImport = {
   "import.toast.clientsUploaded": "Загружено конфигов: {count}",
   "import.toast.readFileFailed": "Не удалось прочитать файл",
   "import.toast.readFilesFailed": "Не удалось прочитать файлы",
+  "import.error.fileTooLarge": "Файл «{name}» больше {max}",
+  "import.error.tooManyFiles": "Можно загрузить не более {max} файлов",
   "import.toast.fillRequired": "Заполните обязательные поля",
   "import.toast.previewRequired": "Сначала выполните проверку",
   "import.toast.previewReady": "Проверка завершена: создать {create}, дубликатов {duplicate}, ошибок {error}",

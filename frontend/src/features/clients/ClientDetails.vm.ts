@@ -1,4 +1,4 @@
-import { computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
@@ -85,7 +85,7 @@ export interface ClientEditState {
   readonly forwardingSelected: readonly string[];
 }
 
-export class ClientDetailsVM {
+export class ClientDetailsVM extends ViewModel {
   constructor(
     private readonly devicesService: DevicesService,
     private readonly interfacesService: InterfacesService,
@@ -93,7 +93,9 @@ export class ClientDetailsVM {
     private readonly session: Session,
     private readonly router: Router,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor device: Device | null = null;
   @reactive accessor profiles: Profile[] = [];
@@ -143,7 +145,9 @@ export class ClientDetailsVM {
 
   @reactive private accessor editSnapshot: ClientEditState | null = null;
 
-  created(): void {
+  private loadGeneration = 0;
+
+  override created(): void {
     void this.load();
   }
 
@@ -550,6 +554,7 @@ export class ClientDetailsVM {
   }
 
   async load(): Promise<void> {
+    const generation = ++this.loadGeneration;
     const id = this.deviceId;
     if (!id) {
       this.loading = false;
@@ -597,6 +602,7 @@ export class ClientDetailsVM {
         devicesPromise,
         interfacesPromise,
       ]);
+      if (generation !== this.loadGeneration) return;
       this.device = device;
       this.profiles = profiles;
       this.shares = shares;
@@ -605,14 +611,16 @@ export class ClientDetailsVM {
       this.interfaces = interfaces;
       this.buildForwardingRows(device);
       this.hydrateForm(device);
-      await this.loadOwnerQuota(device);
+      await this.loadOwnerQuota(device, generation);
+      if (generation !== this.loadGeneration) return;
       this.syncTunnelSelection();
     } catch (error) {
+      if (generation !== this.loadGeneration) return;
       const message = messageOf(error, t("clients.details.error.load"));
       this.error = message;
       this.toasts.error(message);
     } finally {
-      this.loading = false;
+      if (generation === this.loadGeneration) this.loading = false;
     }
   }
 
@@ -1268,12 +1276,15 @@ export class ClientDetailsVM {
     this.editSnapshot = this.editState();
   }
 
-  private async loadOwnerQuota(device: Device): Promise<void> {
+  private async loadOwnerQuota(device: Device, generation: number): Promise<void> {
     try {
-      this.ownerQuota = this.isAdmin
+      const quota = this.isAdmin
         ? await this.quotaService.forUser(device.user_id)
         : await this.quotaService.me();
+      if (generation !== this.loadGeneration) return;
+      this.ownerQuota = quota;
     } catch {
+      if (generation !== this.loadGeneration) return;
       this.ownerQuota = null;
     }
   }

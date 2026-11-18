@@ -22,6 +22,12 @@ const FOCUSABLE_SELECTOR = [
 
 let paletteCounter = 0;
 
+interface BackgroundSnapshot {
+  element: Element;
+  inert: boolean;
+  ariaHidden: string | null;
+}
+
 export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   readonly store = new CommandStore();
 
@@ -38,6 +44,10 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   private focusRetries = 0;
 
   private stopEffect: (() => void) | null = null;
+
+  private opener: HTMLElement | null = null;
+
+  private background: BackgroundSnapshot[] = [];
 
   @computed
   get visible(): CommandItem[] {
@@ -74,12 +84,14 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     document.removeEventListener("keydown", this.onKeydown);
     this.stopEffect?.();
     this.stopEffect = null;
+    this.restoreBackground();
     this.root = null;
     this.input = null;
   }
 
   attachRoot(element: Element | null): void {
     this.root = element instanceof HTMLElement ? element : null;
+    if (this.root !== null && this.openState) this.suppressBackground();
     if (this.shouldFocus) this.tryFocus();
   }
 
@@ -116,14 +128,59 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     if (open === this.openState) return;
     this.openState = open;
     if (open) {
+      const active = document.activeElement;
+      this.opener = active instanceof HTMLElement ? active : null;
       this.store.openPalette();
       this.shouldFocus = true;
       this.focusRetries = 0;
+      this.suppressBackground();
       this.tryFocus();
       return;
     }
     this.shouldFocus = false;
     this.store.close();
+    this.restoreBackground();
+    this.restoreFocus();
+  }
+
+  private restoreFocus(): void {
+    const opener = this.opener;
+    this.opener = null;
+    if (opener !== null && opener.isConnected) opener.focus();
+  }
+
+  private suppressBackground(): void {
+    this.restoreBackground();
+    const root = this.root;
+    if (root === null) return;
+    let node: Element = root;
+    while (node.parentElement !== null) {
+      const parent = node.parentElement;
+      if (parent === document.body) break;
+      for (const sibling of Array.from(parent.children)) {
+        if (sibling === node) continue;
+        this.background.push({
+          element: sibling,
+          inert: sibling.hasAttribute("inert"),
+          ariaHidden: sibling.getAttribute("aria-hidden"),
+        });
+        sibling.setAttribute("inert", "");
+        sibling.setAttribute("aria-hidden", "true");
+      }
+      node = parent;
+    }
+  }
+
+  private restoreBackground(): void {
+    for (let index = this.background.length - 1; index >= 0; index -= 1) {
+      const snapshot = this.background[index];
+      if (snapshot === undefined) continue;
+      if (snapshot.inert) snapshot.element.setAttribute("inert", "");
+      else snapshot.element.removeAttribute("inert");
+      if (snapshot.ariaHidden === null) snapshot.element.removeAttribute("aria-hidden");
+      else snapshot.element.setAttribute("aria-hidden", snapshot.ariaHidden);
+    }
+    this.background = [];
   }
 
   private tryFocus(): void {
@@ -193,6 +250,7 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     if (!this.props.open || event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       this.props.onClose();
       return;
     }

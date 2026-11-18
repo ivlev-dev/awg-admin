@@ -29,8 +29,26 @@ export const appRouter = router;
 const theme = new ThemeStore();
 const services = createAppServices({
   onNetworkError: () => toasts.error(t("app.error.network")),
+  onForbidden: () => {
+    void handleForbidden();
+  },
 });
 const liveStats = new LiveStats(services.tokens);
+
+let forbiddenPending = false;
+
+async function handleForbidden(): Promise<void> {
+  if (forbiddenPending) return;
+  forbiddenPending = true;
+  try {
+    await services.session.reload();
+    if (services.session.authenticated && appRouter.path !== "/") {
+      appRouter.replace("/");
+    }
+  } finally {
+    forbiddenPending = false;
+  }
+}
 
 export function bindAppServices(container: Container): void {
   container.bindValue(LocalTokenStore, services.tokens);

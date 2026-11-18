@@ -6,6 +6,7 @@ import { AuthResponseInterceptor } from "@/infrastructure/http/auth-response.int
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { HttpClient } from "@/infrastructure/http/client";
 import { ApiError } from "@/infrastructure/http/errors";
+import { ForbiddenInterceptor } from "@/infrastructure/http/forbidden.interceptor";
 import { InterceptorRegistry } from "@/infrastructure/http/interceptor-registry";
 import { HttpTransport } from "@/infrastructure/http/transport";
 
@@ -68,13 +69,18 @@ interface Harness {
 function harness(tokens: MemoryTokens): Harness {
   const transport = new HttpTransport({ baseUrl: "/api/v1", timeoutMs: 1_000 });
   const auth = new HttpAuthRepository(transport, tokens);
-  const cleared = vi.fn();
-  const session: AuthSessionState = { clear: cleared };
+  const cleaned = vi.fn();
+  const session: AuthSessionState = {
+    clear: () => {
+      cleaned();
+      tokens.clear();
+    },
+  };
   const registry = new InterceptorRegistry(
     new AuthRequestInterceptor(tokens),
     new AuthResponseInterceptor(auth, tokens, session),
   );
-  return { client: new HttpClient(transport, registry), tokens, cleared };
+  return { client: new HttpClient(transport, registry), tokens, cleared: cleaned };
 }
 
 function installFetch(
@@ -155,14 +161,17 @@ describe("HttpClient interceptors", () => {
     expect(tokens.current).toEqual({ access: null, refresh: null });
   });
 
-  it("logs out on a 401 auth request without refreshing", async () => {
-    const { client, cleared } = harness(memoryTokens("tok-1", "ref-1"));
+  it("does not refresh the login endpoint and keeps credentials on a failed login", async () => {
+    const { client, tokens, cleared } = harness(memoryTokens("tok-1", "ref-1"));
     const fetchMock = installFetch(async () => mockResponse(401));
 
-    await expect(client.get("/auth/me", { source: "auth" })).rejects.toBeInstanceOf(ApiError);
+    await expect(
+      client.post("/auth/login", { login: "admin", password: "wrong" }),
+    ).rejects.toBeInstanceOf(ApiError);
 
-    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(cleared).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(tokens.current).toEqual({ access: "tok-1", refresh: "ref-1" });
   });
 
   it("does not refresh the refresh endpoint itself", async () => {
@@ -210,8 +219,29 @@ describe("HttpClient interceptors", () => {
     expect(tokens.current.access).toBe("new-access");
   });
 
+  it("refreshes a 401 on an authenticated auth endpoint", async () => {
+    const { client, tokens } = harness(memoryTokens("old-access", "old-refresh"));
+    let meCalls = 0;
+    installFetch(async (url, init) => {
+      if (url === "/api/v1/auth/me") {
+        meCalls += 1;
+        if (meCalls === 1) return mockResponse(401);
+        expect(authorizationOf(init)).toBe("Bearer new-access");
+        return mockResponse(200, SESSION.user);
+      }
+      if (url === "/api/v1/auth/refresh") return mockResponse(200, SESSION);
+      return mockResponse(404);
+    });
+
+    const user = await client.get<unknown>("/auth/me", { source: "auth" });
+
+    expect(user).toEqual(SESSION.user);
+    expect(meCalls).toBe(2);
+    expect(tokens.current).toEqual({ access: "new-access", refresh: "new-refresh" });
+  });
+
   it("does not refresh a second time after a failed retry", async () => {
-    const { client } = harness(memoryTokens("old-access", "old-refresh"));
+    const { client, tokens, cleared } = harness(memoryTokens("old-access", "old-refresh"));
     let usersCalls = 0;
     let refreshCalls = 0;
     installFetch(async (url) => {
@@ -229,5 +259,27 @@ describe("HttpClient interceptors", () => {
     await expect(client.get("/users")).rejects.toBeInstanceOf(ApiError);
     expect(usersCalls).toBe(2);
     expect(refreshCalls).toBe(1);
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(tokens.current).toEqual({ access: null, refresh: null });
+  });
+
+  it("notifies the forbidden handler for 403 responses except the session probe", async () => {
+    const tokens = memoryTokens("tok-1", "ref-1");
+    const transport = new HttpTransport({ baseUrl: "/api/v1", timeoutMs: 1_000 });
+    const auth = new HttpAuthRepository(transport, tokens);
+    const session: AuthSessionState = { clear: () => tokens.clear() };
+    const onForbidden = vi.fn();
+    const registry = new InterceptorRegistry(
+      new AuthRequestInterceptor(tokens),
+      new AuthResponseInterceptor(auth, tokens, session),
+    );
+    registry.addResponse(new ForbiddenInterceptor(onForbidden));
+    const client = new HttpClient(transport, registry);
+    installFetch(async () => mockResponse(403));
+
+    await expect(client.get("/users")).rejects.toBeInstanceOf(ApiError);
+    await expect(client.get("/auth/me", { source: "auth" })).rejects.toBeInstanceOf(ApiError);
+
+    expect(onForbidden).toHaveBeenCalledTimes(1);
   });
 });

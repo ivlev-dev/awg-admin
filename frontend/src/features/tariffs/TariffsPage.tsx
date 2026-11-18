@@ -2,14 +2,15 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { TariffsPageVM, TariffsSortKey } from "./TariffsPage.vm";
 import { BulkBar } from "@/components/BulkBar";
+import { ErrorState } from "@/components/ErrorState";
 import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { RateField } from "@/components/RateField";
 import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
-import { formatBytes, formatRate } from "@/domain/format";
 import type { SortState } from "@/domain/table-sort";
 import { t } from "@/i18n";
+import { formatBytesI18n, formatRateI18n } from "@/i18n/format";
 
 function ariaSort(sort: SortState<TariffsSortKey> | null, key: TariffsSortKey): "ascending" | "descending" | "none" {
   if (sort === null || sort.key !== key) return "none";
@@ -20,25 +21,33 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
   return (
     <div class="stack">
       <div class="page-head">
-        <div class="page-head__eyebrow">Тарифы</div>
-        <h1>Тарифы</h1>
-        <p>Управление тарифами и лимитами скорости.</p>
+        <div class="page-head__eyebrow">{t("tariffs.eyebrow")}</div>
+        <h1>{t("tariffs.title")}</h1>
+        <p>{t("tariffs.subtitle")}</p>
       </div>
 
-      <Show when={this.vm.error}>
-        <div class="alert alert--error">{this.vm.error}</div>
+      <Show when={this.vm.error && this.vm.tariffs.length > 0}>
+        <ErrorState message={this.vm.error ?? ""} onRetry={() => { void this.vm.load(); }} />
       </Show>
 
-      <section class="card card--flush" aria-busy={this.vm.loading ? "true" : "false"}>
+      <section class="card card--flush" aria-busy={this.vm.loading || this.vm.refreshing ? "true" : "false"}>
         <div class="data-toolbar">
           <div class="data-toolbar__top">
             <div>
-              <div class="data-toolbar__title">Список тарифов</div>
-              <div class="data-toolbar__sub">Всего: {this.vm.tariffs.length}</div>
+              <div class="data-toolbar__title">{t("tariffs.table.title")}</div>
+              <div class="data-toolbar__sub">{t("tariffs.total", { count: this.vm.tariffs.length })}</div>
             </div>
             <div class="data-toolbar__actions">
+              <button
+                class="btn"
+                type="button"
+                disabled={this.vm.loading || this.vm.refreshing}
+                onClick={() => { void this.vm.load(); }}
+              >
+                <Icon name="refresh" size={14} class="" /> {t("common.refresh")}
+              </button>
               <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                <Icon name="plus" size={16} class="" /> Новый тариф
+                <Icon name="plus" size={16} class="" /> {t("tariffs.new")}
               </button>
             </div>
           </div>
@@ -76,147 +85,163 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
           </div>
 
           <Show
-            when={this.vm.visible.length > 0}
+            when={!(this.vm.error && this.vm.tariffs.length === 0)}
             fallback={
-              <div class="empty">
-                <Icon name="tariffs" size={40} class="empty__icon" />
-                <div class="empty__title">
-                  {this.vm.searchActive ? t("filters.emptyTitle") : "Нет тарифов"}
-                </div>
-                <div class="empty__text">
-                  {this.vm.searchActive ? t("filters.emptyText") : "Создайте первый тариф."}
-                </div>
+              <div class="empty" role="alert">
+                <Icon name="warning" size={40} class="empty__icon" />
+                <div class="empty__title">{t("tariffs.error.load")}</div>
+                <div class="empty__text">{this.vm.error}</div>
                 <div style="margin-top:16px">
-                  <Show
-                    when={this.vm.searchActive}
-                    fallback={
-                      <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
-                        <Icon name="plus" size={16} class="" /> Новый тариф
-                      </button>
-                    }
-                  >
-                    <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetSearch()}>
-                      <Icon name="close" size={14} class="" /> {t("filters.reset")}
-                    </button>
-                  </Show>
+                  <button class="btn btn--primary btn--sm" type="button" onClick={() => { void this.vm.load(); }}>
+                    <Icon name="refresh" size={14} class="" /> {t("common.retry")}
+                  </button>
                 </div>
               </div>
             }
           >
-            <div class="data-scroll">
-              <table class="table table--cards table--fixed">
-                <thead>
-                  <tr>
-                    <th class="cell-select">
-                      <input
-                        type="checkbox"
-                        aria-label={t("tariffs.selectAll")}
-                        checked={this.vm.allVisibleSelected}
-                        onChange={() => this.vm.toggleSelectAll()}
-                      />
-                    </th>
-                    <th class="is-sortable" aria-sort={ariaSort(this.vm.sort, "name")}>
-                      <button type="button" onClick={() => this.vm.sortBy("name")}>
-                        {t("tariffs.column.name")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+            <Show
+              when={this.vm.visible.length > 0}
+              fallback={
+                <div class="empty">
+                  <Icon name="tariffs" size={40} class="empty__icon" />
+                  <div class="empty__title">
+                    {this.vm.searchActive ? t("filters.emptyTitle") : t("tariffs.empty.title")}
+                  </div>
+                  <div class="empty__text">
+                    {this.vm.searchActive ? t("filters.emptyText") : t("tariffs.empty.text")}
+                  </div>
+                  <div style="margin-top:16px">
+                    <Show
+                      when={this.vm.searchActive}
+                      fallback={
+                        <button class="btn btn--primary" type="button" onClick={() => this.vm.openCreate()}>
+                          <Icon name="plus" size={16} class="" /> {t("tariffs.new")}
+                        </button>
+                      }
+                    >
+                      <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetSearch()}>
+                        <Icon name="close" size={14} class="" /> {t("filters.reset")}
                       </button>
-                    </th>
-                    <th class="is-sortable" style="width:170px" aria-sort={ariaSort(this.vm.sort, "interface_name")}>
-                      <button type="button" onClick={() => this.vm.sortBy("interface_name")}>
-                        {t("tariffs.column.interface")} <span class="sort-indicator">{this.vm.sortMark("interface_name")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:110px" aria-sort={ariaSort(this.vm.sort, "max_devices")}>
-                      <button type="button" onClick={() => this.vm.sortBy("max_devices")}>
-                        {t("tariffs.column.maxDevices")} <span class="sort-indicator">{this.vm.sortMark("max_devices")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:130px" aria-sort={ariaSort(this.vm.sort, "device_down_kbps")}>
-                      <button type="button" onClick={() => this.vm.sortBy("device_down_kbps")}>
-                        {t("tariffs.column.deviceDown")} <span class="sort-indicator">{this.vm.sortMark("device_down_kbps")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:130px" aria-sort={ariaSort(this.vm.sort, "device_up_kbps")}>
-                      <button type="button" onClick={() => this.vm.sortBy("device_up_kbps")}>
-                        {t("tariffs.column.deviceUp")} <span class="sort-indicator">{this.vm.sortMark("device_up_kbps")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:130px" aria-sort={ariaSort(this.vm.sort, "group_down_kbps")}>
-                      <button type="button" onClick={() => this.vm.sortBy("group_down_kbps")}>
-                        {t("tariffs.column.groupDown")} <span class="sort-indicator">{this.vm.sortMark("group_down_kbps")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:130px" aria-sort={ariaSort(this.vm.sort, "group_up_kbps")}>
-                      <button type="button" onClick={() => this.vm.sortBy("group_up_kbps")}>
-                        {t("tariffs.column.groupUp")} <span class="sort-indicator">{this.vm.sortMark("group_up_kbps")}</span>
-                      </button>
-                    </th>
-                    <th class="is-sortable" style="width:130px" aria-sort={ariaSort(this.vm.sort, "traffic_quota_bytes")}>
-                      <button type="button" onClick={() => this.vm.sortBy("traffic_quota_bytes")}>
-                        {t("tariffs.column.quota")} <span class="sort-indicator">{this.vm.sortMark("traffic_quota_bytes")}</span>
-                      </button>
-                    </th>
-                    <th style="width:110px" aria-label={t("tariffs.column.actions")}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <For each={this.vm.visible}>
-                    {(tariff) => (
-                      <tr class={this.vm.isSelected(tariff.id) ? "is-selected" : ""}>
-                        <td class="cell-select">
-                          <input
-                            type="checkbox"
-                            aria-label={t("tariffs.selectRow", { name: tariff.name })}
-                            checked={this.vm.isSelected(tariff.id)}
-                            onChange={() => this.vm.toggleSelected(tariff.id)}
-                          />
-                        </td>
-                        <td data-label={t("tariffs.column.name")}>
-                          <div class="cell-name">
-                            <span class="cell-name__text">
-                              <span class="strong">{tariff.name}</span>
-                              <Show when={tariff.description}>
-                                <div class="xs muted">{tariff.description}</div>
-                              </Show>
-                            </span>
-                          </div>
-                        </td>
-                        <td data-label={t("tariffs.column.interface")}>
-                          {tariff.interface_name ?? "—"}
-                        </td>
-                        <td data-label={t("tariffs.column.maxDevices")} class="mono">{tariff.max_devices}</td>
-                        <td data-label={t("tariffs.column.deviceDown")} class="mono">
-                          {formatRate(tariff.device_down_kbps)}
-                        </td>
-                        <td data-label={t("tariffs.column.deviceUp")} class="mono">
-                          {formatRate(tariff.device_up_kbps)}
-                        </td>
-                        <td data-label={t("tariffs.column.groupDown")} class="mono">
-                          {formatRate(tariff.group_down_kbps)}
-                        </td>
-                        <td data-label={t("tariffs.column.groupUp")} class="mono">
-                          {formatRate(tariff.group_up_kbps)}
-                        </td>
-                        <td data-label={t("tariffs.column.quota")} class="mono">
-                          {tariff.traffic_quota_bytes === null
-                            ? t("tariffs.quota.unlimited")
-                            : formatBytes(tariff.traffic_quota_bytes)}
-                        </td>
-                        <td class="cell-actions">
-                          <div class="row" style="gap:6px">
-                            <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label="Редактировать" title="Редактировать">
-                              <Icon name="edit" size={14} class="" />
-                            </button>
-                            <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => this.vm.remove(tariff.id)} aria-label="Удалить" title="Удалить">
-                              <Icon name="trash" size={14} class="" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </For>
-                </tbody>
-              </table>
-            </div>
+                    </Show>
+                  </div>
+                </div>
+              }
+            >
+              <div class="data-scroll">
+                <table class="table table--cards table--tariffs" aria-label={t("tariffs.table.title")}>
+                  <thead>
+                    <tr>
+                      <th class="cell-select">
+                        <input
+                          type="checkbox"
+                          aria-label={t("tariffs.selectAll")}
+                          checked={this.vm.allVisibleSelected}
+                          onChange={() => this.vm.toggleSelectAll()}
+                        />
+                      </th>
+                      <th class="is-sortable col-tariff-name" aria-sort={ariaSort(this.vm.sort, "name")}>
+                        <button type="button" onClick={() => this.vm.sortBy("name")}>
+                          {t("tariffs.column.name")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-interface" aria-sort={ariaSort(this.vm.sort, "interface_name")}>
+                        <button type="button" onClick={() => this.vm.sortBy("interface_name")}>
+                          {t("tariffs.column.interface")} <span class="sort-indicator">{this.vm.sortMark("interface_name")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-devices" aria-sort={ariaSort(this.vm.sort, "max_devices")}>
+                        <button type="button" onClick={() => this.vm.sortBy("max_devices")}>
+                          {t("tariffs.column.maxDevices")} <span class="sort-indicator">{this.vm.sortMark("max_devices")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-rate" aria-sort={ariaSort(this.vm.sort, "device_down_kbps")}>
+                        <button type="button" onClick={() => this.vm.sortBy("device_down_kbps")}>
+                          {t("tariffs.column.deviceDown")} <span class="sort-indicator">{this.vm.sortMark("device_down_kbps")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-rate" aria-sort={ariaSort(this.vm.sort, "device_up_kbps")}>
+                        <button type="button" onClick={() => this.vm.sortBy("device_up_kbps")}>
+                          {t("tariffs.column.deviceUp")} <span class="sort-indicator">{this.vm.sortMark("device_up_kbps")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-rate" aria-sort={ariaSort(this.vm.sort, "group_down_kbps")}>
+                        <button type="button" onClick={() => this.vm.sortBy("group_down_kbps")}>
+                          {t("tariffs.column.groupDown")} <span class="sort-indicator">{this.vm.sortMark("group_down_kbps")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-rate" aria-sort={ariaSort(this.vm.sort, "group_up_kbps")}>
+                        <button type="button" onClick={() => this.vm.sortBy("group_up_kbps")}>
+                          {t("tariffs.column.groupUp")} <span class="sort-indicator">{this.vm.sortMark("group_up_kbps")}</span>
+                        </button>
+                      </th>
+                      <th class="is-sortable col-quota" aria-sort={ariaSort(this.vm.sort, "traffic_quota_bytes")}>
+                        <button type="button" onClick={() => this.vm.sortBy("traffic_quota_bytes")}>
+                          {t("tariffs.column.quota")} <span class="sort-indicator">{this.vm.sortMark("traffic_quota_bytes")}</span>
+                        </button>
+                      </th>
+                      <th class="col-actions" aria-label={t("tariffs.column.actions")}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <For each={this.vm.visible}>
+                      {(tariff) => (
+                        <tr class={this.vm.isSelected(tariff.id) ? "is-selected" : ""}>
+                          <td class="cell-select">
+                            <input
+                              type="checkbox"
+                              aria-label={t("tariffs.selectRow", { name: tariff.name })}
+                              checked={this.vm.isSelected(tariff.id)}
+                              onChange={() => this.vm.toggleSelected(tariff.id)}
+                            />
+                          </td>
+                          <td class="col-tariff-name" data-label={t("tariffs.column.name")}>
+                            <div class="cell-name">
+                              <span class="cell-name__text">
+                                <span class="strong">{tariff.name}</span>
+                                <Show when={tariff.description}>
+                                  <div class="xs muted">{tariff.description}</div>
+                                </Show>
+                              </span>
+                            </div>
+                          </td>
+                          <td class="col-interface" data-label={t("tariffs.column.interface")}>
+                            {tariff.interface_name ?? "—"}
+                          </td>
+                          <td class="col-devices mono" data-label={t("tariffs.column.maxDevices")}>{tariff.max_devices}</td>
+                          <td class="col-rate mono" data-label={t("tariffs.column.deviceDown")}>
+                            {formatRateI18n(tariff.device_down_kbps)}
+                          </td>
+                          <td class="col-rate mono" data-label={t("tariffs.column.deviceUp")}>
+                            {formatRateI18n(tariff.device_up_kbps)}
+                          </td>
+                          <td class="col-rate mono" data-label={t("tariffs.column.groupDown")}>
+                            {formatRateI18n(tariff.group_down_kbps)}
+                          </td>
+                          <td class="col-rate mono" data-label={t("tariffs.column.groupUp")}>
+                            {formatRateI18n(tariff.group_up_kbps)}
+                          </td>
+                          <td class="col-quota mono" data-label={t("tariffs.column.quota")}>
+                            {tariff.traffic_quota_bytes === null
+                              ? t("tariffs.quota.unlimited")
+                              : formatBytesI18n(tariff.traffic_quota_bytes)}
+                          </td>
+                          <td class="cell-actions col-actions">
+                            <div class="row" style="gap:6px">
+                              <button class="btn btn--sm btn--ghost btn--icon" type="button" onClick={() => this.vm.openEdit(tariff)} aria-label={t("tariffs.action.edit")} title={t("tariffs.action.edit")}>
+                                <Icon name="edit" size={14} class="" />
+                              </button>
+                              <button class="btn btn--sm btn--danger btn--icon" type="button" onClick={() => { void this.vm.remove(tariff.id); }} aria-label={t("tariffs.action.delete")} title={t("tariffs.action.delete")}>
+                                <Icon name="trash" size={14} class="" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </For>
+                  </tbody>
+                </table>
+              </div>
+            </Show>
           </Show>
         </Show>
       </section>
@@ -236,29 +261,53 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
         open={this.vm.modalOpen}
         title={this.vm.title}
         onClose={() => { void this.vm.closeModal(); }}
+        describedBy={this.vm.formError ? "tariffs-form-error" : undefined}
         footer={
           <div class="row" style="gap:8px">
             <button class="btn" type="button" onClick={() => { void this.vm.closeModal(); }} disabled={this.vm.saving}>
-              Отмена
+              {t("common.cancelShort")}
             </button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.submit()} disabled={this.vm.saving}>
-              <Show when={this.vm.saving} fallback={<span>Сохранить</span>}>
+            <button class="btn btn--primary" type="submit" form="tariffs-form" disabled={this.vm.saving}>
+              <Show when={this.vm.saving} fallback={<span>{t("common.saveShort")}</span>}>
                 <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                <span>Сохраняем…</span>
+                <span>{t("common.saving")}</span>
               </Show>
             </button>
           </div>
         }
       >
-        <div class="stack">
+        <form
+          id="tariffs-form"
+          class="stack"
+          noValidate
+          onSubmit={(event: Event) => {
+            event.preventDefault();
+            void this.vm.submit();
+          }}
+        >
           <div class="grid grid--2">
             <div class="field">
-              <label>Название</label>
-              <input class="input" type="text" value={this.vm.name} onInput={(event: Event) => this.vm.setName(event)} />
+              <label for="tariff-name">{t("tariffs.form.name")}</label>
+              <input
+                id="tariff-name"
+                class="input"
+                type="text"
+                required
+                data-autofocus
+                value={this.vm.name}
+                onInput={(event: Event) => this.vm.setName(event)}
+              />
             </div>
             <div class="field">
-              <label>Макс. устройств</label>
-              <input class="input" type="number" min="1" value={this.vm.max_devices} onInput={(event: Event) => this.vm.setMaxDevices(event)} />
+              <label for="tariff-max-devices">{t("tariffs.form.maxDevices")}</label>
+              <input
+                id="tariff-max-devices"
+                class="input"
+                type="number"
+                min="1"
+                value={this.vm.max_devices}
+                onInput={(event: Event) => this.vm.setMaxDevices(event)}
+              />
             </div>
           </div>
           <div class="field">
@@ -273,47 +322,64 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
             <div class="hint">{t("tariffs.form.interfaceHint")}</div>
           </div>
           <div class="field">
-            <label>Описание</label>
-            <textarea class="input" rows={2} value={this.vm.description} onInput={(event: Event) => this.vm.setDescription(event)}></textarea>
+            <label for="tariff-description">{t("tariffs.form.description")}</label>
+            <textarea
+              id="tariff-description"
+              class="input"
+              rows={2}
+              value={this.vm.description}
+              onInput={(event: Event) => this.vm.setDescription(event)}
+            ></textarea>
           </div>
           <div class="grid grid--2">
             <RateField
               id="tariff-device-down"
-              label="Устр. скачивание"
+              label={t("tariffs.form.deviceDown")}
               value={this.vm.device_down_kbps}
-              hint="0 — без лимита"
+              hint={t("tariffs.form.rateUnlimited")}
               onChange={(kbps) => this.vm.setDeviceDownKbps(kbps)}
             />
             <RateField
               id="tariff-device-up"
-              label="Устр. отдача"
+              label={t("tariffs.form.deviceUp")}
               value={this.vm.device_up_kbps}
-              hint="0 — без лимита"
+              hint={t("tariffs.form.rateUnlimited")}
               onChange={(kbps) => this.vm.setDeviceUpKbps(kbps)}
             />
             <RateField
               id="tariff-group-down"
-              label="Интерфейс скачивание"
+              label={t("tariffs.form.groupDown")}
               value={this.vm.group_down_kbps}
-              hint="0 — без лимита"
+              hint={t("tariffs.form.rateUnlimited")}
               onChange={(kbps) => this.vm.setGroupDownKbps(kbps)}
             />
             <RateField
               id="tariff-group-up"
-              label="Интерфейс отдача"
+              label={t("tariffs.form.groupUp")}
               value={this.vm.group_up_kbps}
-              hint="0 — без лимита"
+              hint={t("tariffs.form.rateUnlimited")}
               onChange={(kbps) => this.vm.setGroupUpKbps(kbps)}
             />
           </div>
           <div class="field">
-            <label>Квота трафика, ГБ (0/пусто = безлимит)</label>
-            <input class="input" type="number" min="0" step="0.1" value={this.vm.quotaGb} onInput={(event: Event) => this.vm.setQuota(event)} />
+            <label for="tariff-quota">{t("tariffs.form.quota")}</label>
+            <input
+              id="tariff-quota"
+              class="input"
+              type="number"
+              min="0"
+              step="0.1"
+              value={this.vm.quotaGb}
+              aria-describedby="tariff-quota-hint"
+              onInput={(event: Event) => this.vm.setQuota(event)}
+            />
+            <span class="hint" id="tariff-quota-hint">{t("tariffs.form.quotaHint")}</span>
           </div>
           <Show when={this.vm.formError}>
-            <div class="alert alert--error">{this.vm.formError}</div>
+            <div class="alert alert--error" id="tariffs-form-error" role="alert">{this.vm.formError}</div>
           </Show>
-        </div>
+          <button type="submit" class="sr-only">{t("common.saveShort")}</button>
+        </form>
       </Modal>
     </div>
   );

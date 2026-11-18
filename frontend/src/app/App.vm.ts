@@ -1,6 +1,7 @@
-import { computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { ConnectionMonitor, type ConnectionNotice } from "@/app/connection";
+import { askConfirm } from "@/app/confirm";
 import { density, initDensity, setDensity } from "@/app/density";
 import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { type CommandItem } from "@/app/command";
@@ -114,7 +115,7 @@ function isEditableTarget(target: EventTarget | null): boolean {
   return target.isContentEditable;
 }
 
-export class AppVM {
+export class AppVM extends ViewModel {
   @reactive accessor booting = true;
   @reactive accessor moreOpen = false;
   @reactive accessor commandOpen = false;
@@ -137,22 +138,24 @@ export class AppVM {
     private readonly theme: ThemeStore,
     private readonly toastStore: ToastStore,
   ) {
+    super();
     this.connection.listen();
     initDensity();
   }
 
-  async created(): Promise<void> {
+  override async created(): Promise<void> {
     if (!this.keydownBound) {
       document.addEventListener("keydown", this.onGlobalKeydown);
       this.keydownBound = true;
     }
     await this.session.init();
     this.booting = false;
+    this.onTitleChange();
     this.guard();
     this.planIdlePrefetch();
   }
 
-  dispose(): void {
+  override dispose(): void {
     if (this.keydownBound) {
       document.removeEventListener("keydown", this.onGlobalKeydown);
       this.keydownBound = false;
@@ -160,6 +163,7 @@ export class AppVM {
     this.cancelIdlePrefetch?.();
     this.cancelIdlePrefetch = null;
     this.connection.dispose();
+    super.dispose();
   }
 
   @computed
@@ -175,6 +179,11 @@ export class AppVM {
   @computed
   get authenticated(): boolean {
     return this.session.authenticated;
+  }
+
+  @computed
+  get loggingOut(): boolean {
+    return this.session.loggingOut;
   }
 
   @computed
@@ -267,12 +276,14 @@ export class AppVM {
         icon: "settings",
         run: () => setDensity(compact ? "comfortable" : "compact"),
       },
-      {
-        id: "action:settings",
-        title: t("command.action.settings"),
-        icon: "settings",
-        path: "/settings",
-      },
+      ...(this.isAdmin
+        ? [{
+            id: "action:settings",
+            title: t("command.action.settings"),
+            icon: "settings" as const,
+            path: "/settings",
+          }]
+        : []),
       {
         id: "action:profile",
         title: t("command.action.profile"),
@@ -284,7 +295,7 @@ export class AppVM {
         title: t("command.action.logout"),
         icon: "logout",
         run: () => {
-          void this.logout();
+          void this.requestLogout();
         },
       },
     ];
@@ -445,12 +456,35 @@ export class AppVM {
   }
 
   async logout(): Promise<void> {
+    if (this.session.loggingOut) return;
     await this.session.logout();
     this.router.replace("/login");
   }
 
+  async requestLogout(): Promise<void> {
+    if (this.session.loggingOut) return;
+    const confirmed = await askConfirm({
+      title: t("common.logout.confirm.title"),
+      message: t("common.logout.confirm.message"),
+      confirmLabel: t("common.logout.confirm.action"),
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    await this.logout();
+  }
+
+  @watch((vm: AppVM) => vm.title)
+  onTitleChange(): void {
+    document.title = `${this.title} · AWG Admin`;
+  }
+
   @watch((vm: AppVM) => vm.routeName)
   onRouteChange(): void {
+    this.guard();
+  }
+
+  @watch((vm: AppVM) => vm.isAdmin)
+  onRoleChange(): void {
     this.guard();
   }
 

@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import type { AuthService } from "@/application/auth/service";
@@ -7,18 +7,20 @@ import { t } from "@/i18n";
 
 export type VerifyEmailStatus = "loading" | "success" | "error";
 
-export class VerifyEmailVM {
+export class VerifyEmailVM extends ViewModel {
   constructor(
     private readonly auth: AuthService,
     private readonly router: Router,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor status: VerifyEmailStatus = "loading";
   @reactive accessor error: string | null = null;
 
   private started = false;
 
-  created(): void {
+  override created(): void {
     void this.verify();
   }
 

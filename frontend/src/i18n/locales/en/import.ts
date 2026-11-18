@@ -94,6 +94,8 @@ export const enImport = {
   "import.toast.clientsUploaded": "Configs uploaded: {count}",
   "import.toast.readFileFailed": "Failed to read the file",
   "import.toast.readFilesFailed": "Failed to read the files",
+  "import.error.fileTooLarge": "File \"{name}\" is larger than {max}",
+  "import.error.tooManyFiles": "You can upload at most {max} files",
   "import.toast.fillRequired": "Fill in the required fields",
   "import.toast.previewRequired": "Run the review first",
   "import.toast.previewReady": "Review complete: {create} to create, {duplicate} duplicates, {error} errors",

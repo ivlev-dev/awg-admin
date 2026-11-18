@@ -12,18 +12,20 @@ import type {
   VerifyEmailResult,
 } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
-import type { TokenStore } from "../storage";
+import { tokenGeneration, type TokenStore } from "../storage";
 import { ApiError } from "./errors";
 import type { HttpTransport } from "./transport";
 
 export class HttpAuthRepository implements AuthRepository {
+  private refreshPromise: Promise<AuthSession> | null = null;
+
   constructor(
     private readonly transport: HttpTransport,
     private readonly tokens: TokenStore,
   ) {}
 
   async login(input: LoginInput): Promise<AuthSession> {
-    const session = await this.request(() =>
+    const session = await this.publicRequest(() =>
       this.transport.post<AuthSession>("/auth/login", input, { source: "auth" }),
     );
     this.tokens.set(session.token, session.refresh_token);
@@ -31,25 +33,25 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   register(input: RegisterInput): Promise<RegisterResult> {
-    return this.request(() =>
+    return this.publicRequest(() =>
       this.transport.post<RegisterResult>("/auth/register", input, { source: "auth" }),
     );
   }
 
   verifyEmail(token: string): Promise<VerifyEmailResult> {
-    return this.request(() =>
+    return this.publicRequest(() =>
       this.transport.post<VerifyEmailResult>("/auth/verify-email", { token }, { source: "auth" }),
     );
   }
 
   async resendVerification(email: string): Promise<void> {
-    await this.request(() =>
+    await this.publicRequest(() =>
       this.transport.post<void>("/auth/resend-verification", { email }, { source: "auth" }),
     );
   }
 
   forgotPassword(email: string): Promise<ForgotPasswordResult> {
-    return this.request(() =>
+    return this.publicRequest(() =>
       this.transport.post<ForgotPasswordResult>(
         "/auth/forgot-password",
         { email },
@@ -59,7 +61,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   resetPassword(token: string, password: string): Promise<ResetPasswordResult> {
-    return this.request(() =>
+    return this.publicRequest(() =>
       this.transport.post<ResetPasswordResult>(
         "/auth/reset-password",
         { token, password },
@@ -68,21 +70,31 @@ export class HttpAuthRepository implements AuthRepository {
     );
   }
 
-  async refresh(refreshToken: string): Promise<AuthSession> {
-    const session = await this.request(() =>
-      this.transport.post<AuthSession>(
+  refresh(refreshToken: string): Promise<AuthSession> {
+    if (this.refreshPromise !== null) return this.refreshPromise;
+    const generation = tokenGeneration(this.tokens);
+    const pending = this.transport
+      .post<AuthSession>(
         "/auth/refresh",
         { refresh_token: refreshToken },
         { source: "auth" },
-      ),
-    );
-    this.tokens.set(session.token, session.refresh_token);
-    return session;
+      )
+      .then((session) => {
+        if (tokenGeneration(this.tokens) === generation) {
+          this.tokens.set(session.token, session.refresh_token);
+        }
+        return session;
+      })
+      .finally(() => {
+        if (this.refreshPromise === pending) this.refreshPromise = null;
+      });
+    this.refreshPromise = pending;
+    return pending;
   }
 
   async logout(refreshToken: string): Promise<void> {
     try {
-      await this.request(() =>
+      await this.publicRequest(() =>
         this.transport.post<void>(
           "/auth/logout",
           { refresh_token: refreshToken },
@@ -95,7 +107,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   me(): Promise<User> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.get<User>("/auth/me", {
         source: "auth",
         headers: this.authHeaders(),
@@ -104,7 +116,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   changePassword(current: string | null, next: string): Promise<void> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.post<void>(
         "/auth/password",
         { current_password: current, new_password: next },
@@ -114,7 +126,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   totpSetup(): Promise<TotpSetup> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.post<TotpSetup>("/auth/totp/setup", undefined, {
         source: "auth",
         headers: this.authHeaders(),
@@ -123,7 +135,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   totpEnable(code: string): Promise<TotpToggleResult> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.post<TotpToggleResult>(
         "/auth/totp/enable",
         { code },
@@ -133,7 +145,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   totpDisable(password: string, code: string): Promise<TotpToggleResult> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.post<TotpToggleResult>(
         "/auth/totp/disable",
         { password, code },
@@ -143,7 +155,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   sessions(): Promise<AuthSessionInfo[]> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.get<AuthSessionInfo[]>("/auth/sessions", {
         source: "auth",
         headers: this.authHeaders(),
@@ -152,7 +164,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   async revokeSession(jti: string): Promise<void> {
-    await this.request(() =>
+    await this.authed(() =>
       this.transport.delete<void>(`/auth/sessions/${encodeURIComponent(jti)}`, {
         source: "auth",
         headers: this.authHeaders(),
@@ -161,7 +173,7 @@ export class HttpAuthRepository implements AuthRepository {
   }
 
   logoutAll(): Promise<LogoutAllResult> {
-    return this.request(() =>
+    return this.authed(() =>
       this.transport.post<LogoutAllResult>("/auth/logout-all", undefined, {
         source: "auth",
         headers: this.authHeaders(),
@@ -174,14 +186,47 @@ export class HttpAuthRepository implements AuthRepository {
     return token ? { Authorization: `Bearer ${token}` } : {};
   }
 
-  private async request<T>(run: () => Promise<T>): Promise<T> {
+  private async authed<T>(run: () => Promise<T>): Promise<T> {
     try {
       return await run();
     } catch (error) {
-      if (error instanceof ApiError && error.status === 401) {
+      if (!isUnauthorized(error)) throw error;
+      const refreshed = await this.tryRefresh();
+      if (!refreshed) {
         this.tokens.clear();
+        throw error;
       }
+    }
+
+    try {
+      return await run();
+    } catch (error) {
+      if (isUnauthorized(error)) this.tokens.clear();
       throw error;
     }
   }
+
+  private async tryRefresh(): Promise<boolean> {
+    const refreshToken = this.tokens.refresh();
+    if (!refreshToken) return false;
+    try {
+      await this.refresh(refreshToken);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async publicRequest<T>(run: () => Promise<T>): Promise<T> {
+    try {
+      return await run();
+    } catch (error) {
+      if (isUnauthorized(error)) this.tokens.clear();
+      throw error;
+    }
+  }
+}
+
+function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }

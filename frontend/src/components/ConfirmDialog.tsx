@@ -22,12 +22,24 @@ function trapTab(event: KeyboardEvent): void {
 
 export function ConfirmDialog() {
   const [root, setRoot] = createSignal<HTMLElement | null>(null);
+  let opener: HTMLElement | null = null;
+  let wasOpen = false;
 
   createEffect(() => {
-    if (confirmStore.state === null) return;
-    const dialog = root();
-    const confirm = dialog?.querySelector<HTMLButtonElement>(".modal__foot .btn:last-child");
-    confirm?.focus();
+    const open = confirmStore.state !== null;
+    if (open && !wasOpen) {
+      const active = document.activeElement;
+      opener = active instanceof HTMLElement ? active : null;
+      queueMicrotask(() => {
+        const cancel = root()?.querySelector<HTMLButtonElement>(".modal__foot .btn:first-child");
+        cancel?.focus();
+      });
+    } else if (!open && wasOpen) {
+      const target = opener;
+      opener = null;
+      if (target !== null && target.isConnected) target.focus();
+    }
+    wasOpen = open;
   });
 
   return (
@@ -39,6 +51,8 @@ export function ConfirmDialog() {
         }}
         onKeyDown={(event: KeyboardEvent) => {
           if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
             confirmStore.cancel();
             return;
           }
@@ -51,6 +65,7 @@ export function ConfirmDialog() {
           role="dialog"
           aria-modal="true"
           aria-labelledby="confirm-dialog-title"
+          aria-describedby="confirm-dialog-message"
         >
           <div class="modal__head">
             <h2 class="card__title" id="confirm-dialog-title">
@@ -58,7 +73,10 @@ export function ConfirmDialog() {
             </h2>
           </div>
           <div class="modal__body">
-            <p class="confirm-dialog__message">{confirmStore.state?.message ?? ""}</p>
+            <p class="confirm-dialog__message" id="confirm-dialog-message">{confirmStore.state?.message ?? ""}</p>
+            <Show when={confirmStore.state?.details}>
+              <p class="confirm-dialog__details small muted">{confirmStore.state?.details}</p>
+            </Show>
           </div>
           <div class="modal__foot">
             <button class="btn" type="button" onClick={() => confirmStore.cancel()}>

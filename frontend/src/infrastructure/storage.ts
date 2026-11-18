@@ -6,24 +6,75 @@ export interface TokenStore {
   refresh(): string | null;
   set(access: string, refresh: string): void;
   clear(): void;
+  generation?(): number;
 }
 
 export class LocalTokenStore implements TokenStore {
+  private version = 0;
+
   access(): string | null {
-    return localStorage.getItem(ACCESS_KEY);
+    return read(ACCESS_KEY);
   }
 
   refresh(): string | null {
-    return localStorage.getItem(REFRESH_KEY);
+    return read(REFRESH_KEY);
   }
 
   set(access: string, refresh: string): void {
-    localStorage.setItem(ACCESS_KEY, access);
-    localStorage.setItem(REFRESH_KEY, refresh);
+    this.version += 1;
+    write(ACCESS_KEY, access);
+    write(REFRESH_KEY, refresh);
   }
 
   clear(): void {
-    localStorage.removeItem(ACCESS_KEY);
-    localStorage.removeItem(REFRESH_KEY);
+    this.version += 1;
+    remove(ACCESS_KEY);
+    remove(REFRESH_KEY);
+  }
+
+  generation(): number {
+    return this.version;
+  }
+}
+
+export function tokenGeneration(tokens: TokenStore): number {
+  return tokens.generation?.() ?? 0;
+}
+
+function memory(): Storage | null {
+  try {
+    return typeof localStorage === "undefined" ? null : localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function read(key: string): string | null {
+  const storage = memory();
+  if (storage === null) return null;
+  try {
+    return storage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function write(key: string, value: string): void {
+  const storage = memory();
+  if (storage === null) return;
+  try {
+    storage.setItem(key, value);
+  } catch {
+    return;
+  }
+}
+
+function remove(key: string): void {
+  const storage = memory();
+  if (storage === null) return;
+  try {
+    storage.removeItem(key);
+  } catch {
+    return;
   }
 }

@@ -123,3 +123,10 @@ export function plural(count: number, one: string, few: string, many: string): s
   if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return few;
   return many;
 }
+
+const CSV_FORMULA_PREFIX = /^[=+\-@\t\r]/;
+
+export function csvCell(value: string): string {
+  const guarded = CSV_FORMULA_PREFIX.test(value) ? `'${value}` : value;
+  return /[",\n\r]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
+}

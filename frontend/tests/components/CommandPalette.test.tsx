@@ -19,7 +19,7 @@ interface MountedPalette {
 
 const disposers: Array<() => void> = [];
 
-function mountPalette(options: { open?: boolean; items?: readonly CommandItem[] } = {}): MountedPalette {
+function mountPalette(options: { open?: boolean; items?: readonly CommandItem[]; host?: HTMLElement } = {}): MountedPalette {
   const [open, setOpen] = createSignal(options.open ?? true);
   const runs: CommandItem[] = [];
   let closes = 0;
@@ -37,7 +37,7 @@ function mountPalette(options: { open?: boolean; items?: readonly CommandItem[] 
       flushSync();
     },
   });
-  document.body.appendChild(result.node);
+  (options.host ?? document.body).appendChild(result.node);
   disposers.push(result.dispose);
   return {
     result,
@@ -90,6 +90,32 @@ afterEach(() => {
 });
 
 describe("CommandPalette", () => {
+  it("изолирует фон и возвращает фокус инициатору", async () => {
+    const shell = document.createElement("div");
+    const background = document.createElement("div");
+    const opener = document.createElement("button");
+    opener.type = "button";
+    opener.textContent = "Открыть";
+    background.appendChild(opener);
+    const host = document.createElement("div");
+    shell.appendChild(background);
+    shell.appendChild(host);
+    document.body.appendChild(shell);
+    opener.focus();
+
+    const instance = mountPalette({ open: true, host });
+    await ready(instance);
+
+    expect(background.hasAttribute("inert")).toBe(true);
+    expect(background.getAttribute("aria-hidden")).toBe("true");
+
+    pressKey(document, "Escape");
+
+    expect(background.hasAttribute("inert")).toBe(false);
+    expect(background.getAttribute("aria-hidden")).toBeNull();
+    expect(document.activeElement).toBe(opener);
+  });
+
   it("рисует диалог, комбобокс и список опций", async () => {
     const instance = mountPalette();
     await ready(instance);

@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { ToastStore } from "@/app/toast";
@@ -21,10 +21,11 @@ export type TariffsSortKey =
   | "group_up_kbps"
   | "traffic_quota_bytes";
 
-export class TariffsPageVM {
+export class TariffsPageVM extends ViewModel {
   @reactive accessor tariffs: Tariff[] = [];
   @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor loading = true;
+  @reactive accessor refreshing = false;
   @reactive accessor error: string | null = null;
   @reactive accessor search = "";
   @reactive accessor selectedIds: string[] = [];
@@ -48,18 +49,23 @@ export class TariffsPageVM {
 
   private formSnapshot = "";
 
+  private hasLoaded = false;
+
   constructor(
     private readonly tariffsService: TariffsService,
     private readonly interfacesService: InterfacesService,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  created(): void {
+  override created(): void {
     void this.load();
   }
 
   async load(): Promise<void> {
-    this.loading = true;
+    this.loading = !this.hasLoaded;
+    this.refreshing = this.hasLoaded;
     this.error = null;
     try {
       const [tariffs, interfaces] = await Promise.all([
@@ -69,9 +75,11 @@ export class TariffsPageVM {
       this.tariffs = tariffs;
       this.interfaces = interfaces;
     } catch (error) {
-      this.error = userMessage(error, "Не удалось загрузить тарифы");
+      this.error = userMessage(error, t("tariffs.error.load"));
     } finally {
       this.loading = false;
+      this.refreshing = false;
+      this.hasLoaded = true;
     }
   }
 
@@ -89,7 +97,7 @@ export class TariffsPageVM {
 
   @computed
   get title(): string {
-    return this.editingId ? "Редактировать тариф" : "Новый тариф";
+    return this.editingId ? t("tariffs.form.title.edit") : t("tariffs.form.title.create");
   }
 
   @computed
@@ -198,6 +206,7 @@ export class TariffsPageVM {
     const confirmed = await askConfirm({
       title: t("tariffs.bulk.deleteTitle"),
       message: t("bulk.confirm.delete", { count: ids.length }),
+      details: t("tariffs.bulk.confirm", { count: ids.length }),
       confirmLabel: t("common.delete"),
       tone: "danger",
     });
@@ -212,7 +221,7 @@ export class TariffsPageVM {
       await this.load();
       this.clearSelection();
     } catch (error) {
-      this.toasts.error(userMessage(error, "Не удалось удалить тарифы"));
+      this.toasts.error(userMessage(error, t("tariffs.error.bulkDelete")));
     } finally {
       this.bulkBusy = false;
     }
@@ -349,7 +358,7 @@ export class TariffsPageVM {
 
   async submit(): Promise<void> {
     if (!this.interfaceValid()) {
-      this.formError = "Выбранный интерфейс не найден";
+      this.formError = t("tariffs.form.error.interface");
       return;
     }
     const input = this.buildInput();
@@ -370,16 +379,16 @@ export class TariffsPageVM {
     try {
       if (this.editingId) {
         await this.tariffsService.updateTariff(this.editingId, input);
-        this.toasts.success("Тариф обновлён");
+        this.toasts.success(t("tariffs.toast.updated"));
       } else {
         await this.tariffsService.createTariff(input);
-        this.toasts.success("Тариф создан");
+        this.toasts.success(t("tariffs.toast.created"));
       }
       this.modalOpen = false;
       this.formSnapshot = this.formState();
       await this.load();
     } catch (error) {
-      const message = userMessage(error, "Не удалось сохранить тариф");
+      const message = userMessage(error, t("tariffs.form.error.save"));
       this.formError = message;
       this.toasts.error(message);
     } finally {
@@ -391,16 +400,17 @@ export class TariffsPageVM {
     const confirmed = await askConfirm({
       title: t("tariffs.confirm.deleteTitle"),
       message: t("tariffs.confirm.delete"),
+      details: t("tariffs.confirm.deleteDetails"),
       confirmLabel: t("common.delete"),
       tone: "danger",
     });
     if (!confirmed) return;
     try {
       await this.tariffsService.deleteTariff(id);
-      this.toasts.success("Тариф удалён");
+      this.toasts.success(t("tariffs.toast.deleted"));
       await this.load();
     } catch (error) {
-      this.toasts.error(userMessage(error, "Не удалось удалить тариф"));
+      this.toasts.error(userMessage(error, t("tariffs.error.delete")));
     }
   }
 }

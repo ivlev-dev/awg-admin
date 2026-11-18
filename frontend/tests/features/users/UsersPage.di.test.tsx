@@ -383,10 +383,11 @@ describe("UsersPageVM constructor DI", () => {
     expect(nodeCell?.textContent).toContain("Node 1");
     expect(root.querySelector("#users-node")).not.toBeNull();
 
-    const cardMeta = root.querySelector(".entity-card__meta");
-    expect(cardMeta?.textContent).toContain("Нода");
-    expect(cardMeta?.textContent).toContain("Node 1");
-    expect(cardMeta?.textContent).not.toContain("Группа");
+    const cardMeta = root.querySelector(".entity-list");
+    expect(cardMeta).toBeNull();
+    const row = root.querySelector("tbody tr");
+    expect(row?.textContent).toContain("Node 1");
+    expect(row?.textContent).not.toContain("Группа");
 
     const actions = root.querySelector("td.cell-actions");
     expect(actions?.querySelectorAll("button")).toHaveLength(4);

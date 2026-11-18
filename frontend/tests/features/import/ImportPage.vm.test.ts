@@ -612,6 +612,32 @@ describe("ImportPageVM", () => {
     });
   });
 
+  it("отклоняет файлы больше 2 МБ", async () => {
+    const { vm, toasts } = setup();
+    const big = new File([CLIENT_ONE], "big.conf", { type: "text/plain" });
+    Object.defineProperty(big, "size", { value: 3 * 1024 * 1024 });
+
+    await vm.setClientFiles(0, fileEvent([big]));
+
+    expect(vm.interfaces[0]?.clients).toEqual([]);
+    expect(toasts.items.at(-1)).toMatchObject({ kind: "error" });
+    expect(toasts.items.at(-1)?.message).toContain("big.conf");
+    expect(toasts.items.at(-1)?.message).toContain("2 МБ");
+  });
+
+  it("отклоняет импорт больше 50 файлов", async () => {
+    const { vm, toasts } = setup();
+    const files = Array.from({ length: 51 }, (_, index) =>
+      new File([CLIENT_ONE], `client-${index}.conf`, { type: "text/plain" }),
+    );
+
+    await vm.setClientsImportFiles(fileEvent(files));
+
+    expect(vm.clientsImport).toEqual([]);
+    expect(toasts.items.at(-1)).toMatchObject({ kind: "error" });
+    expect(toasts.items.at(-1)?.message).toContain("50");
+  });
+
   it("извлекает адрес, ключ пира и превью конфига", () => {
     const { vm } = setup();
 

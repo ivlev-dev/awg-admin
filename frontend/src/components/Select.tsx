@@ -2,6 +2,7 @@ import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { SelectProps, SelectVM } from "./Select.vm";
 import { Icon } from "./Icon";
+import { t } from "@/i18n";
 
 export function Select(this: { vm: SelectVM }, props: SelectProps) {
   return (
@@ -28,7 +29,7 @@ export function Select(this: { vm: SelectVM }, props: SelectProps) {
         <div id={this.vm.menuId || undefined} class="select2__menu" role="listbox" aria-label={this.vm.props.ariaLabel}>
           <Show
             when={this.vm.props.options.length > 0}
-            fallback={<div class="select2__empty">Нет доступных вариантов</div>}
+            fallback={<div class="select2__empty">{t("common.selectEmpty")}</div>}
           >
             <For each={this.vm.props.options}>
               {(option, index) => (

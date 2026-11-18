@@ -331,3 +331,75 @@
   padding-top: 12px;
   padding-bottom: 12px;
 }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.field-error {
+  display: block;
+  margin-top: 4px;
+  color: var(--md-error, var(--red));
+  font-size: var(--t-xs);
+}
+
+.data-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-top: 1px solid var(--md-outline-variant);
+}
+
+.data-pagination .select2 { min-width: 84px; }
+
+.table--users { min-width: 0; }
+.table--users col-user,
+.table--users .col-user { min-width: 220px; }
+.table--users .col-role { width: 140px; }
+.table--users .col-tariff { width: 168px; }
+.table--users .col-quota { width: 150px; }
+.table--users .col-status { width: 132px; }
+.table--users .col-actions { width: 168px; }
+.table--users-pending .col-user { min-width: 220px; }
+.table--users-pending .col-created { width: 160px; }
+.table--users-pending .col-actions { width: 240px; }
+
+.table--clients .col-device,
+.table--clients .col-owner { min-width: 220px; }
+
+.table--tariffs .col-tariff-name { min-width: 220px; }
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .table--users .col-quota,
+  .table--tariffs .col-rate:nth-child(7),
+  .table--tariffs .col-rate:nth-child(8) {
+    display: none;
+  }
+  .table--users { min-width: 760px; }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .table--users .col-role,
+  .table--users .col-quota {
+    display: none;
+  }
+  .table--users .col-user { min-width: 220px; }
+}
+
+.table thead th { font-size: 0.6875rem; }
+.sort-indicator {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  font-weight: 700;
+}

@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -19,12 +19,14 @@ function validTotpCode(value: string): boolean {
   return /^\d{6}$/.test(code) || /^[A-Za-z0-9-]{6,}$/.test(code);
 }
 
-export class LoginVM {
+export class LoginVM extends ViewModel {
   constructor(
     private readonly session: Session,
     private readonly router: Router,
     private readonly auth: AuthService,
-  ) {}
+  ) {
+    super();
+  }
 
   @reactive accessor login = "";
   @reactive accessor password = "";
@@ -35,7 +37,7 @@ export class LoginVM {
   @reactive accessor resendNotice: string | null = null;
   @reactive accessor resendError: string | null = null;
 
-  created(): void {
+  override created(): void {
     if (this.session.authenticated) {
       this.router.replace("/");
     }

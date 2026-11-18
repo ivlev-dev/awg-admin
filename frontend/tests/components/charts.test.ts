@@ -60,8 +60,12 @@ describe("AreaChart", () => {
     const root = asElement(AreaChart({ data, height: 180 }));
     const svg = root.querySelector("svg");
 
-    expect(root.getAttribute("role")).toBe("img");
+    expect(root.getAttribute("role")).toBe("group");
     expect(root.getAttribute("aria-label")).toBe("График трафика");
+    expect(root.querySelector("table.sr-only caption")?.textContent).toBe(
+      "Значения входящего и исходящего трафика по срезам",
+    );
+    expect(root.querySelectorAll("table.sr-only tbody tr")).toHaveLength(data.length);
     expect(svg).not.toBeNull();
     expect(svg?.namespaceURI).toBe(SVG_NS);
     expect(svg?.getAttribute("viewBox")).toBe("0 0 720 180");

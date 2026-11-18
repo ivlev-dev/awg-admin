@@ -1027,8 +1027,7 @@ describe("ClientsPageVM", () => {
     expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("node-1");
     expect(root.querySelector("td[data-label='Интерфейс']")?.textContent).toContain("2 туннеля");
     expect(root.querySelectorAll("td[data-label='Интерфейс'] .badge.badge--gray")).toHaveLength(2);
-    expect(root.querySelector(".entity-card__sub")?.textContent).toContain("wg0 · node-1");
-    expect(root.querySelector(".entity-card__meta")?.textContent).toContain("node-1");
+    expect(root.querySelector(".entity-list")).toBeNull();
     expect(root.querySelector("tbody tr td.cell-actions button")).not.toBeNull();
 
     result.dispose();
@@ -1226,5 +1225,51 @@ describe("ClientsPageVM", () => {
 
       expect(devices.repository.bulk).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("ClientsPageVM UX-состояния", () => {
+  it("сохраняет данные и показывает ошибку при сбое обновления", async () => {
+    const { vm, devices } = setup("admin", [DEVICE, PHONE]);
+    await vm.load();
+    expect(vm.devices).toHaveLength(2);
+
+    vi.mocked(devices.repository.listDevices).mockRejectedValueOnce(new Error("Сеть недоступна"));
+    await vm.load();
+
+    expect(vm.error).toBe("Сеть недоступна");
+    expect(vm.devices).toHaveLength(2);
+    expect(vm.loading).toBe(false);
+  });
+
+  it("ограничивает список страницей", async () => {
+    const many = Array.from({ length: 30 }, (_value, index) => ({
+      ...DEVICE,
+      id: `d${index + 10}`,
+      name: `device-${index + 10}`,
+    }));
+    const { vm } = setup("admin", many);
+    await vm.load();
+
+    expect(vm.pagedDevices).toHaveLength(25);
+    expect(vm.pageCount).toBe(2);
+
+    vm.goToPage(2);
+    expect(vm.pagedDevices).toHaveLength(5);
+  });
+
+  it("спрашивает подтверждение перед массовым отзывом ссылок", async () => {
+    const { vm, devices } = setup("admin", [DEVICE, PHONE]);
+    await vm.load();
+    vm.selectedIds = [DEVICE.id, PHONE.id];
+
+    await vm.bulkRevokeShares();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(expect.objectContaining({
+      title: "Отзыв ссылок",
+      message: expect.stringContaining("2"),
+      tone: "danger",
+    }));
+    expect(devices.repository.bulk).toHaveBeenCalledWith("revoke_shares", [DEVICE.id, PHONE.id]);
   });
 });

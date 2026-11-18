@@ -596,6 +596,30 @@ describe("ClientDetailsVM", () => {
     expect(vm.error).toBeNull();
   });
 
+  it("не применяет поздний ответ предыдущего устройства после смены id", async () => {
+    const { vm, repository, router } = setup("admin");
+    let releaseFirst: () => void = () => undefined;
+    const firstDevice = new Promise<Device>((resolve) => {
+      releaseFirst = () => resolve({ ...DEVICE });
+    });
+    repository.getDevice = vi.fn(async (id: string) => {
+      if (id === "d1") return firstDevice;
+      return { ...TABLET };
+    });
+
+    const first = vm.load();
+    router.navigate("/clients/d3");
+    const second = vm.load();
+    await second;
+    const applied = vm.device?.id;
+
+    releaseFirst();
+    await first;
+
+    expect(applied).toBe("d3");
+    expect(vm.device?.id).toBe("d3");
+  });
+
   it("заполняет форму и показывает связанные значения", async () => {
     const { vm } = setup("admin");
 

@@ -29,6 +29,71 @@ afterEach(() => {
 });
 
 describe("ConfirmDialog", () => {
+  it("фокусирует отмену и связывает описание через aria-describedby", async () => {
+    const pending = askConfirm({ title: "Удалить", message: "Точно?" });
+    await mount();
+
+    const dialog = document.querySelector<HTMLElement>(".modal");
+    const describedBy = dialog?.getAttribute("aria-describedby");
+    expect(describedBy).toBe("confirm-dialog-message");
+    expect(document.getElementById(describedBy ?? "")?.textContent).toBe("Точно?");
+    expect(document.activeElement).toBe(button("Отмена"));
+
+    button("Отмена").click();
+    flushSync();
+    await pending;
+  });
+
+  it("возвращает фокус инициатору после закрытия", async () => {
+    const opener = document.createElement("button");
+    opener.textContent = "Удалить";
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const pending = askConfirm({ title: "Удалить", message: "Точно?" });
+    await mount();
+    await Promise.resolve();
+
+    button("Отмена").click();
+    flushSync();
+    await pending;
+
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("Escape закрывает только подтверждение поверх модалки", async () => {
+    const { Modal } = await import("@/components/Modal");
+    const [open] = (await import("@ivlev-dev/silent-core")).createSignal(true);
+    let modalCloses = 0;
+    const modal = createComponent(Modal, {
+      get open() {
+        return open();
+      },
+      title: "Форма",
+      onClose: () => {
+        modalCloses += 1;
+      },
+      children: "Поле",
+    });
+    document.body.appendChild(modal.node);
+    await modal.ready;
+    flushSync();
+
+    const pending = askConfirm({ title: "Удалить", message: "Точно?" });
+    await mount();
+
+    const cancel = button("Отмена");
+    cancel.focus();
+    cancel.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    flushSync();
+
+    await pending;
+    expect(confirmStore.state).toBeNull();
+    expect(modalCloses).toBe(0);
+    expect(document.querySelectorAll(".modal").length).toBe(1);
+    modal.dispose();
+  });
+
   it("shows title, message and custom labels, and accepts", async () => {
     const pending = askConfirm({
       title: "Удалить группу",
@@ -41,7 +106,7 @@ describe("ConfirmDialog", () => {
     const modal = document.querySelector<HTMLElement>(".modal");
     expect(modal?.textContent).toContain("Удалить группу");
     expect(modal?.textContent).toContain("Группа используется?");
-    expect(document.activeElement).toBe(button("Удалить"));
+    expect(document.activeElement).toBe(button("Отмена"));
 
     button("Удалить").click();
     flushSync();

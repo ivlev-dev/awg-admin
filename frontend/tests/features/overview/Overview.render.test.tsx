@@ -112,6 +112,58 @@ function makeVm(): OverviewVM {
   return new OverviewVM(STATS, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
 }
 
+describe("Overview states", () => {
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+
+  it("не показывает Online при нуле нод", async () => {
+    const stats: StatsService = {
+      overview: vi.fn(async () => ({ ...OVERVIEW, nodes_online: 0, nodes_total: 0 })),
+      series: vi.fn(async (): Promise<StatsPoint[]> => []),
+    };
+    const session = new Session(authRepository(), new MemoryTokenStore());
+    session.user = ADMIN;
+    session.ready = true;
+    const vm = new OverviewVM(stats, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
+    const container = new Container("overview-empty-nodes");
+    container.bindValue(OverviewVM, vm);
+
+    const result = createComponent(Overview, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+    flushSync();
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain("Нет нод");
+    });
+
+    expect(document.body.textContent).not.toContain("Online");
+    result.dispose();
+  });
+
+  it("показывает skeleton вместо нулей при первой загрузке", async () => {
+    const pending = new Promise<OverviewData>(() => undefined);
+    const stats: StatsService = {
+      overview: vi.fn(() => pending),
+      series: vi.fn(async (): Promise<StatsPoint[]> => []),
+    };
+    const session = new Session(authRepository(), new MemoryTokenStore());
+    session.user = ADMIN;
+    session.ready = true;
+    const vm = new OverviewVM(stats, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
+    const container = new Container("overview-loading");
+    container.bindValue(OverviewVM, vm);
+
+    const result = createComponent(Overview, {}, { container });
+    await result.ready;
+    document.body.appendChild(result.node);
+    flushSync();
+
+    expect(document.querySelectorAll(".stat__value .skeleton").length).toBeGreaterThan(0);
+    result.dispose();
+  });
+});
+
 describe("Overview groups card", () => {
   afterEach(() => {
     document.body.innerHTML = "";

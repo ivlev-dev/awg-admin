@@ -130,4 +130,51 @@ describe("LiveStats", () => {
     expect(ws.readyState).toBe(FakeWebSocket.CLOSED);
     expect(stats.connected).toBe(false);
   });
+
+  it("does not reconnect when connect is called twice for the same scope", () => {
+    stats.connect("global");
+    stats.connect("global");
+
+    expect(FakeWebSocket.instances).toHaveLength(1);
+  });
+
+  it("ignores close events from a replaced socket", () => {
+    stats.connect("global");
+    const first = FakeWebSocket.instances[0]!;
+    first.open();
+
+    stats.connect("user", "u1");
+    const second = FakeWebSocket.instances[1]!;
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    const timer = vi.spyOn(window, "setTimeout");
+
+    first.close();
+
+    expect(timer).not.toHaveBeenCalled();
+    expect(stats.connected).toBe(false);
+
+    second.open();
+    expect(stats.connected).toBe(true);
+  });
+
+  it("does not reconnect after an intentional disconnect", () => {
+    stats.connect("global");
+    const ws = FakeWebSocket.instances[0]!;
+    ws.open();
+    const timer = vi.spyOn(window, "setTimeout");
+
+    stats.disconnect();
+    ws.close();
+
+    expect(timer).not.toHaveBeenCalled();
+  });
+
+  it("uses the current origin for the WebSocket URL", () => {
+    stats.connect("global");
+
+    const ws = FakeWebSocket.instances[0]!;
+    const url = new URL(ws.url.replace(/^ws/, "http"));
+    expect(url.host).toBe(window.location.host);
+    expect(url.pathname).toBe("/api/v1/ws/stats");
+  });
 });

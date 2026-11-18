@@ -1,4 +1,4 @@
-import { computed, reactive, watch } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
@@ -78,6 +78,9 @@ export interface ClientsResultFailure extends ImportResultFailure {
 const DEFAULT_BASE_CIDR = "10.8.0.0/24";
 const DEFAULT_PORT = 51820;
 const DEFAULT_MTU = 1280;
+const MAX_IMPORT_FILES = 50;
+const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
+const MAX_IMPORT_FILE_LABEL = "2 МБ";
 
 const DEFAULT_STEP: ImportStep = 1;
 
@@ -113,6 +116,20 @@ function createInterface(name: string, baseCidr: string): InterfaceDraft {
     clientsText: "",
     clients: [],
   };
+}
+
+function validateFiles(files: readonly File[]): string | null {
+  if (files.length > MAX_IMPORT_FILES) {
+    return t("import.error.tooManyFiles", { max: MAX_IMPORT_FILES });
+  }
+  const oversized = files.find((file) => file.size > MAX_IMPORT_FILE_BYTES);
+  if (oversized !== undefined) {
+    return t("import.error.fileTooLarge", {
+      name: oversized.name,
+      max: MAX_IMPORT_FILE_LABEL,
+    });
+  }
+  return null;
 }
 
 function readFileAsText(file: File): Promise<string> {
@@ -183,7 +200,7 @@ function isPoolIssue(issue: ImportInterfaceIssue, poolIndex: number): boolean {
   }
 }
 
-export class ImportVM {
+export class ImportVM extends ViewModel {
   @reactive accessor mode: ImportMode = "group";
   @reactive accessor step: ImportStep = DEFAULT_STEP;
   @reactive accessor groupName = "";
@@ -235,9 +252,11 @@ export class ImportVM {
     private readonly interfacesService: InterfacesService,
     private readonly router: Router,
     private readonly toasts: ToastStore,
-  ) {}
+  ) {
+    super();
+  }
 
-  async created(): Promise<void> {
+  override async created(): Promise<void> {
     await Promise.all([this.loadNodes(), this.loadOwners(), this.loadInterfaces()]);
     if (!this.nodeId) {
       this.nodeId = this.nodes.find((node) => node.online)?.id ?? this.nodes[0]?.id ?? "";
@@ -751,6 +770,12 @@ export class ImportVM {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    const fileError = validateFiles([file]);
+    if (fileError !== null) {
+      this.toasts.error(fileError);
+      input.value = "";
+      return;
+    }
     try {
       const config = await readFileAsText(file);
       const draft = this.interfaces[index];
@@ -888,6 +913,12 @@ export class ImportVM {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     if (files.length === 0) return;
+    const fileError = validateFiles(files);
+    if (fileError !== null) {
+      this.toasts.error(fileError);
+      input.value = "";
+      return;
+    }
     try {
       const draft = this.interfaces[index];
       if (draft) {
@@ -959,6 +990,12 @@ export class ImportVM {
     const input = event.target as HTMLInputElement;
     const files = Array.from(input.files ?? []);
     if (files.length === 0) return;
+    const fileError = validateFiles(files);
+    if (fileError !== null) {
+      this.toasts.error(fileError);
+      input.value = "";
+      return;
+    }
     try {
       const used = new Set(this.clientsImport.map((client) => client.name));
       const additions = await readClientFileDrafts(files, used);

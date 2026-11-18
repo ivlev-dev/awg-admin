@@ -1,4 +1,4 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
@@ -7,6 +7,7 @@ import { userMessage } from "@/application/errors";
 import type { AuditService } from "@/application/audit/service";
 import type { AuditEntry, AuditFilters } from "@/domain/audit/types";
 import { copyText } from "@/domain/clipboard";
+import { csvCell } from "@/domain/format";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
@@ -128,10 +129,6 @@ function appendUnique(current: AuditEntry[], incoming: AuditEntry[]): AuditEntry
   return merged;
 }
 
-function csvCell(value: string): string {
-  return /[",\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
 export function formatAuditRow(entry: AuditEntry): AuditRowView {
   const entityLabel = entry.entity_id
     ? `${entry.entity} · ${shortId(entry.entity_id)}`
@@ -154,7 +151,7 @@ export function formatAuditRow(entry: AuditEntry): AuditRowView {
   };
 }
 
-export class AuditPageVM {
+export class AuditPageVM extends ViewModel {
   @reactive accessor entries: AuditEntry[] = [];
   @reactive accessor loading = false;
   @reactive accessor initialized = false;
@@ -180,6 +177,7 @@ export class AuditPageVM {
     private readonly auditService: AuditService,
     private readonly toasts: ToastStore,
   ) {
+    super();
     const stored = auditFiltersStorage.read();
     this.action = stored.action;
     this.entity = stored.entity;
@@ -190,7 +188,7 @@ export class AuditPageVM {
     this.presets = auditPresetsStorage.read();
   }
 
-  created(): void {
+  override created(): void {
     void this.reload();
   }
 

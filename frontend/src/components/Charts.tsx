@@ -1,3 +1,8 @@
+import { For } from "@ivlev-dev/silent-core";
+
+import { t } from "@/i18n";
+import { formatDateTimeI18n } from "@/i18n/format";
+
 function buildPath(values: number[], width: number, height: number, padding = 2): string {
   if (values.length === 0) return "";
   const max = Math.max(...values, 1);
@@ -78,13 +83,14 @@ export function AreaChart(props: { data: ChartDatum[]; height?: number; showTx?:
   const area = hasSeries && rxPath ? `${rxPath} L${width - pad},${height - pad} L${pad},${height - pad} Z` : "";
 
   return (
-    <div role="img" aria-label="График трафика" style={`width:100%;height:${height}px`}>
+    <div class="chart" role="group" aria-label={t("charts.traffic")} style={`width:100%;height:${height}px`}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         width="100%"
         height={height}
         preserveAspectRatio="none"
         fill="none"
+        aria-hidden="true"
         style="display:block"
       >
         <line
@@ -132,8 +138,33 @@ export function AreaChart(props: { data: ChartDatum[]; height?: number; showTx?:
           stroke-linecap="round"
         />
       </svg>
+      <table class="sr-only">
+        <caption>{t("charts.traffic.caption")}</caption>
+        <thead>
+          <tr>
+            <th scope="col">{t("charts.traffic.at")}</th>
+            <th scope="col">{t("charts.traffic.rx")}</th>
+            <th scope="col">{t("charts.traffic.tx")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <For each={props.data}>
+            {(point) => (
+              <tr>
+                <th scope="row">{formatDateTimeI18n(toIso(point.at))}</th>
+                <td>{point.rx}</td>
+                <td>{point.tx}</td>
+              </tr>
+            )}
+          </For>
+        </tbody>
+      </table>
     </div>
   );
+}
+
+function toIso(value: string | number): string {
+  return typeof value === "number" ? new Date(value).toISOString() : value;
 }
 
 export function Bars(props: { data: Array<{ label: string; value: number }> }) {

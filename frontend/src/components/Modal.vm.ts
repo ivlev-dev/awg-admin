@@ -10,7 +10,14 @@ export interface ModalProps {
   wide?: boolean;
   closable?: boolean;
   ariaLabel?: string;
+  describedBy?: string;
 }
+
+const FIELD_SELECTOR = [
+  "input:not([disabled]):not([type=\"hidden\"])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+].join(",");
 
 const FOCUSABLE_SELECTOR = [
   "a[href]",
@@ -77,6 +84,7 @@ export class ModalVM extends ViewModel<ModalProps> {
 
   attachRoot(element: Element | null): void {
     this.root = element instanceof HTMLElement ? element : null;
+    if (this.root !== null && this.open) this.suppressBackground();
     if (this.shouldFocus) this.tryFocusInitial();
   }
 
@@ -109,8 +117,24 @@ export class ModalVM extends ViewModel<ModalProps> {
     }
     this.focusRetries = 0;
     this.shouldFocus = false;
-    const focusables = this.focusables();
-    (focusables[0] ?? root).focus();
+    const target = this.initialTarget() ?? root;
+    target.focus();
+  }
+
+  private initialTarget(): HTMLElement | null {
+    const root = this.root;
+    if (root === null) return null;
+    const requested = root.querySelector<HTMLElement>("[data-autofocus]");
+    if (requested !== null && this.isFocusable(requested)) return requested;
+    const body = root.querySelector<HTMLElement>(".modal__body");
+    if (body !== null) {
+      const field = body.querySelector<HTMLElement>(FIELD_SELECTOR);
+      if (field !== null && this.isFocusable(field)) return field;
+      const focusable = Array.from(body.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+        .find((element) => this.isFocusable(element));
+      if (focusable !== undefined) return focusable;
+    }
+    return this.focusables()[0] ?? null;
   }
 
   private restoreFocus(): void {

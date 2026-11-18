@@ -5,6 +5,7 @@ export type ConfirmTone = "danger" | "primary";
 export interface ConfirmOptions {
   readonly title: string;
   readonly message: string;
+  readonly details?: string;
   readonly confirmLabel?: string;
   readonly cancelLabel?: string;
   readonly tone?: ConfirmTone;

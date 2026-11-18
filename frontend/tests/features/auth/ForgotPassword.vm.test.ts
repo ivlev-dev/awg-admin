@@ -108,6 +108,18 @@ describe("ForgotPasswordVM", () => {
     expect(harness.vm.canResend).toBe(false);
   });
 
+  it("останавливает таймер обратного отсчёта при размонтировании", async () => {
+    vi.useFakeTimers();
+    const harness = makeHarness();
+    harness.vm.setEmail(valueEvent("user@example.com"));
+    await harness.vm.submit(submitEvent());
+
+    harness.vm.unmounted();
+    vi.advanceTimersByTime(1000);
+
+    expect(harness.vm.cooldown).toBe(60);
+  });
+
   it("counts down the cooldown and resends the link", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();

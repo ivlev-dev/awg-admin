@@ -226,6 +226,7 @@ export const ruClients = {
   "clients.confirm.bulkDeleteTitle": "Удаление устройств",
   "clients.confirm.revokeTitle": "Отзыв устройства",
   "clients.confirm.shareRevokeTitle": "Отзыв ссылок",
+  "clients.confirm.bulkShareRevoke": "Отозвать ссылки на конфигурации у выбранных устройств ({count})? Все выданные ссылки перестанут работать.",
   "clients.confirm.tunnelDeleteTitle": "Удаление туннеля",
   "clients.details.confirm.revoke": "Отозвать устройство «{name}»?",
   "clients.details.confirm.delete": "Удалить устройство «{name}»? Действие необратимо.",

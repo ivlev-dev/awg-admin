@@ -3,6 +3,17 @@ import type { AuthSessionState } from "@/application/auth/session-state";
 import type { TokenStore } from "../storage";
 import type { ResponseContext, ResponseInterceptor } from "./types";
 
+const REFRESH_EXEMPT_PATHS: ReadonlySet<string> = new Set([
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/register",
+  "/auth/verify-email",
+  "/auth/resend-verification",
+  "/auth/forgot-password",
+  "/auth/reset-password",
+]);
+
 export class AuthResponseInterceptor implements ResponseInterceptor {
   private refreshing: Promise<boolean> | null = null;
 
@@ -14,11 +25,16 @@ export class AuthResponseInterceptor implements ResponseInterceptor {
 
   async interceptResponse(context: ResponseContext): Promise<ResponseContext> {
     if (context.error?.status !== 401) return context;
-    if (context.request.source === "auth" || context.request.path === "/auth/refresh") {
+    if (REFRESH_EXEMPT_PATHS.has(context.request.path)) {
+      if (context.request.path === "/auth/refresh" || context.request.path === "/auth/logout") {
+        this.session.clear();
+      }
+      return context;
+    }
+    if (context.request.attempt > 0) {
       this.session.clear();
       return context;
     }
-    if (context.request.attempt > 0) return context;
     const refreshed = await this.tryRefresh();
     if (!refreshed) {
       this.session.clear();

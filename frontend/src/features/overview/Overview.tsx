@@ -81,14 +81,20 @@ export function Overview(this: { vm: OverviewVM }) {
               }`}
             >
               <span class="status-chip__dot"></span>
-              {this.vm.nodesOnline === this.vm.nodesTotal ? t("common.online") : t("overview.offline")}
+              {this.vm.nodesTotal === 0
+                ? t("overview.state.nodesEmpty")
+                : this.vm.nodesOnline === this.vm.nodesTotal
+                  ? t("common.online")
+                  : t("overview.offline")}
             </span>
           </div>
           <div>
             <div class="stat__label">{t("overview.state.nodes")}</div>
             <div class="stat__value">
-              {this.vm.nodesOnline}
-              <span class="muted" style="font-size:22px;font-weight:600"> / {this.vm.nodesTotal}</span>
+              <Show when={!this.vm.loading} fallback={<span class="skeleton" style="display:inline-block;width:64px;height:28px"></span>}>
+                {this.vm.nodesOnline}
+                <span class="muted" style="font-size:22px;font-weight:600"> / {this.vm.nodesTotal}</span>
+              </Show>
             </div>
           </div>
           <div class="row-between wrap">
@@ -118,7 +124,11 @@ export function Overview(this: { vm: OverviewVM }) {
           </div>
           <div>
             <div class="stat__label">{t("overview.state.interfaces")}</div>
-            <div class="stat__value">{this.vm.interfaces}</div>
+            <div class="stat__value">
+              <Show when={!this.vm.loading} fallback={<span class="skeleton" style="display:inline-block;width:40px;height:28px"></span>}>
+                {this.vm.interfaces}
+              </Show>
+            </div>
           </div>
           <div class="stat__hint">{t("overview.state.interfacesHint")}</div>
         </div>
@@ -132,7 +142,11 @@ export function Overview(this: { vm: OverviewVM }) {
           <div>
             <div class="stat__label">{t("overview.state.clients")}</div>
             <div class="row-between">
-              <div class="stat__value">{this.vm.devices}</div>
+              <div class="stat__value">
+                <Show when={!this.vm.loading} fallback={<span class="skeleton" style="display:inline-block;width:40px;height:28px"></span>}>
+                  {this.vm.devices}
+                </Show>
+              </div>
               <Show when={this.vm.spark.length > 1}>
                 <Sparkline values={this.vm.spark} width={72} height={24} />
               </Show>
@@ -150,7 +164,11 @@ export function Overview(this: { vm: OverviewVM }) {
             </div>
             <div>
               <div class="stat__label">{t("overview.state.groups")}</div>
-              <div class="stat__value">{this.vm.groups}</div>
+              <div class="stat__value">
+                <Show when={!this.vm.loading} fallback={<span class="skeleton" style="display:inline-block;width:40px;height:28px"></span>}>
+                  {this.vm.groups}
+                </Show>
+              </div>
             </div>
             <div class="stat__hint">{t("overview.state.groupsHint")}</div>
           </div>

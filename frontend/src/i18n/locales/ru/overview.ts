@@ -47,4 +47,12 @@ export const ruOverview = {
   "overview.table.rx": "Входящий",
   "overview.table.tx": "Исходящий",
   "overview.table.total": "Всего",
+  "overview.state.nodesEmpty": "Нет нод",
+  "overview.loading": "Загружаем сводку…",
+  "charts.traffic": "График трафика",
+  "charts.traffic.caption": "Значения входящего и исходящего трафика по срезам",
+  "charts.traffic.at": "Время",
+  "charts.traffic.rx": "Входящий",
+  "charts.traffic.tx": "Исходящий",
+  "charts.noData": "Нет данных для графика",
 } as const;

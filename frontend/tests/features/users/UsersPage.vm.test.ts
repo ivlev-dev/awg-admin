@@ -30,7 +30,7 @@ import type {
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
 import type { TokenStore } from "@/infrastructure/storage";
-import { UsersPageVM, usersFiltersStorage } from "@/features/users/UsersPage.vm";
+import { UsersPageVM, usersAdvancedFiltersStorage, usersFiltersStorage } from "@/features/users/UsersPage.vm";
 
 const confirmMock = vi.hoisted(() => ({ askConfirm: vi.fn(async (_options: unknown) => true) }));
 vi.mock("@/app/confirm", () => confirmMock);
@@ -515,6 +515,27 @@ describe("UsersPageVM", () => {
     expect(vm.nodeName(null)).toBe("—");
     expect(vm.nodeName(undefined)).toBe("—");
     expect(vm.selfId).toBe(ADMIN.id);
+  });
+
+  it("запрещает менять собственную роль", () => {
+    const { vm } = setup();
+    vm.openEdit(ADMIN);
+
+    expect(vm.roleLocked).toBe(true);
+    vm.setRole("user");
+
+    expect(vm.role).toBe("admin");
+  });
+
+  it("перезагружает сессию после сохранения собственного профиля", async () => {
+    const { vm, session } = setup();
+    const reload = vi.spyOn(session, "reload").mockResolvedValue(undefined);
+    vm.openEdit(ADMIN);
+    vm.email = "admin@example.com";
+
+    await vm.submit();
+
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 
   it("reports a load error", async () => {
@@ -1172,5 +1193,168 @@ describe("UsersPageVM", () => {
       expect(usersRepo.users).toHaveLength(2);
       expect(vm.selectedIds).toEqual([ALICE.id]);
     });
+  });
+});
+
+describe("UsersPageVM UX-состояния", () => {
+  it("ограничивает список страницей и переключает размер", async () => {
+    const users = Array.from({ length: 30 }, (_value, index) => ({
+      ...ALICE,
+      id: `u${index + 10}`,
+      login: `user${index + 10}`,
+      email: `user${index + 10}@example.com`,
+    }));
+    const { vm } = setup(users);
+    await vm.load();
+
+    expect(vm.pagedActiveUsers).toHaveLength(25);
+    expect(vm.pageCount).toBe(2);
+    expect(vm.pageSummary).toBe("Показано 1–25 из 30");
+
+    vm.goToPage(2);
+    expect(vm.pagedActiveUsers).toHaveLength(5);
+    expect(vm.pageSummary).toBe("Показано 26–30 из 30");
+
+    vm.setPageSize("10");
+    expect(vm.pageSize).toBe(10);
+    expect(vm.currentPage).toBe(1);
+    expect(vm.pagedActiveUsers).toHaveLength(10);
+  });
+
+  it("сбрасывает выделение при смене вкладки и фильтра", async () => {
+    const { vm } = setup();
+    await vm.load();
+    vm.selectedIds = [ADMIN.id, ALICE.id];
+
+    vm.setRoleFilter("admin");
+
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.roleFilter).toBe("admin");
+
+    vm.selectedIds = [ADMIN.id];
+    vm.setTab("pending");
+
+    expect(vm.selectedIds).toEqual([]);
+  });
+
+  it("сохраняет расширенные фильтры между переходами", () => {
+    const { vm } = setup();
+
+    vm.setRoleFilter("admin");
+    vm.setStatusFilter("disabled");
+    vm.setNodeFilter(NODE.id);
+
+    expect(JSON.parse(localStorage.getItem(usersAdvancedFiltersStorage.key) ?? "{}")).toEqual({
+      role: "admin",
+      status: "disabled",
+      node: NODE.id,
+    });
+
+    vm.resetFilters();
+
+    expect(JSON.parse(localStorage.getItem(usersAdvancedFiltersStorage.key) ?? "{}")).toEqual({
+      role: "all",
+      status: "all",
+      node: "all",
+    });
+  });
+
+  it("спрашивает подтверждение при закрытии изменённой формы", async () => {
+    const { vm } = setup();
+    vm.openCreate();
+    vm.email = "dirty@example.com";
+
+    expect(vm.formDirty).toBe(true);
+
+    await vm.closeModal();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Отменить изменения?" }),
+    );
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("не закрывает изменённую форму при отказе", async () => {
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+    const { vm } = setup();
+    vm.openCreate();
+    vm.email = "dirty@example.com";
+
+    await vm.closeModal();
+
+    expect(vm.modalOpen).toBe(true);
+    expect(vm.email).toBe("dirty@example.com");
+  });
+
+  it("запрещает удаление последнего администратора", async () => {
+    const BOSS: User = { ...ALICE, id: "u9", login: "boss", email: "boss@example.com", role: "admin" };
+    const { vm, usersRepo, session } = setup([BOSS]);
+    session.user = { ...ADMIN, role: "user" };
+    await vm.load();
+
+    await vm.remove(BOSS);
+
+    expect(confirmMock.askConfirm).not.toHaveBeenCalled();
+    expect(usersRepo.users).toHaveLength(1);
+  });
+
+  it("не отправляет сброс пароля повторно и показывает ошибку рядом", async () => {
+    const { vm, usersRepo, toasts } = setup();
+    vm.openReset(ALICE);
+    vm.resetPassword = "short";
+
+    await vm.submitReset();
+
+    expect(vm.resetError).toBe("Пароль должен содержать не менее 8 символов");
+    expect(vm.resetOpen).toBe(true);
+    expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 8 символов");
+
+    const gate: { release: () => void } = { release: () => undefined };
+    usersRepo.resetPassword = vi.fn(
+      () => new Promise<void>((resolve) => { gate.release = resolve; }),
+    );
+    vm.resetPassword = "newsecret1";
+    const first = vm.submitReset();
+    await Promise.resolve();
+
+    expect(vm.resetSaving).toBe(true);
+    await vm.submitReset();
+
+    expect(usersRepo.resetPassword).toHaveBeenCalledTimes(1);
+    gate.release();
+    await first;
+    expect(vm.resetOpen).toBe(false);
+  });
+});
+
+describe("UsersPageVM квоты, фильтры в URL", () => {
+  it("показывает «нет данных» и ошибку загрузки квот", async () => {
+    const { vm, quotaRepo } = setup();
+    quotaRepo.failure = new Error("Квоты недоступны");
+    await vm.load();
+
+    expect(vm.quotaError).toBe("Квоты недоступны");
+    expect(vm.quotaCellLabel(ALICE.id)).toBe("нет данных");
+  });
+
+  it("синхронизирует фильтры с query-параметрами", () => {
+    window.history.replaceState({}, "", "/users");
+    try {
+      const { vm } = setup();
+
+      vm.setRoleFilter("admin");
+      vm.setStatusFilter("disabled");
+      vm.setNodeFilter(NODE.id);
+
+      const params = new URLSearchParams(window.location.search);
+      expect(params.get("role")).toBe("admin");
+      expect(params.get("status")).toBe("disabled");
+      expect(params.get("node")).toBe(NODE.id);
+
+      vm.resetFilters();
+      expect(window.location.search).toBe("");
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
   });
 });
