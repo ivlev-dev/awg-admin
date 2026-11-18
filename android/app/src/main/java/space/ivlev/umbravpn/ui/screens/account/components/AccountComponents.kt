@@ -63,6 +63,8 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.TariffRequired -> R.string.account_error_tariff_required
         AccountMessage.SubscriptionInactive -> R.string.account_error_subscription_inactive
         AccountMessage.DeviceLimitReached -> R.string.account_error_device_limit
+        AccountMessage.RequestInProgress -> R.string.account_error_request_in_progress
+        AccountMessage.IdempotencyMismatch -> R.string.account_error_idempotency_mismatch
         AccountMessage.EmailAlreadyRegistered -> R.string.account_error_email_registered
         AccountMessage.Conflicted -> R.string.account_error_conflict
         AccountMessage.LastTunnel -> R.string.account_error_last_tunnel

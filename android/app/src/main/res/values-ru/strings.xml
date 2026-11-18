@@ -823,4 +823,6 @@
         <item quantity="many">+%d ещё</item>
         <item quantity="other">+%d ещё</item>
     </plurals>
+    <string name="account_error_request_in_progress">Запрос уже выполняется, повторите позже</string>
+    <string name="account_error_idempotency_mismatch">Параметры запроса изменились, создайте заново</string>
 </resources>

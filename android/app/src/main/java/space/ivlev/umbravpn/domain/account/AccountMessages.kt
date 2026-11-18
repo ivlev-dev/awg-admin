@@ -33,6 +33,8 @@ enum class AccountMessage {
     TariffRequired,
     SubscriptionInactive,
     DeviceLimitReached,
+    RequestInProgress,
+    IdempotencyMismatch,
     EmailAlreadyRegistered,
     Conflicted,
     LastTunnel,
@@ -110,6 +112,8 @@ object AccountMessages {
             error.status == STATUS_TOO_MANY_REQUESTS || error.code == CODE_TOO_MANY_REQUESTS ->
                 AccountMessage.TooManyAttempts
             error.code == CODE_INVALID_TOKEN -> AccountMessage.InvalidToken
+            error.code == CODE_IDEMPOTENCY_IN_PROGRESS -> AccountMessage.RequestInProgress
+            error.code == CODE_IDEMPOTENCY_MISMATCH -> AccountMessage.IdempotencyMismatch
             error.status == STATUS_CONFLICT || error.code == CODE_CONFLICT ->
                 when (kind) {
                     AccountActionKind.Device -> AccountMessage.DeviceLimitReached
@@ -137,6 +141,8 @@ object AccountMessages {
     private const val CODE_TOO_MANY_REQUESTS = "too_many_requests"
     private const val CODE_INVALID_TOKEN = "invalid_token"
     private const val CODE_CONFLICT = "conflict"
+    private const val CODE_IDEMPOTENCY_IN_PROGRESS = "idempotency_in_progress"
+    private const val CODE_IDEMPOTENCY_MISMATCH = "idempotency_key_mismatch"
     private const val CODE_NOT_FOUND = "not_found"
     private const val STATUS_UNAUTHORIZED = 401
     private const val STATUS_FORBIDDEN = 403

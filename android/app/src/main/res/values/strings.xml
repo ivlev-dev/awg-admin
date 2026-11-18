@@ -840,4 +840,6 @@
         <item quantity="one">+%d more</item>
         <item quantity="other">+%d more</item>
     </plurals>
+    <string name="account_error_request_in_progress">Request is already in progress, try again later</string>
+    <string name="account_error_idempotency_mismatch">Request parameters changed, start again</string>
 </resources>
