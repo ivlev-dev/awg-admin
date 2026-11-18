@@ -235,14 +235,14 @@ pub async fn revoke_share(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-fn build_view(state: &AppState, device: &awg_clients::Device) -> ApiResult<DeviceView> {
+pub(crate) fn build_view(state: &AppState, device: &awg_clients::Device) -> ApiResult<DeviceView> {
     build_views(&state.devices, &state.network, std::slice::from_ref(device))?
         .into_iter()
         .next()
         .ok_or_else(|| ApiError::Internal("device view is missing".into()))
 }
 
-fn build_views(
+pub(crate) fn build_views(
     devices: &DeviceService,
     network: &NetworkService,
     items: &[Device],
@@ -338,7 +338,7 @@ fn assemble_view(
     DeviceView::build(device, peers, &names, &interface_name, node_id, &node_name)
 }
 
-fn forwarding_default(
+pub(crate) fn forwarding_default(
     state: &AppState,
     owner: &awg_identity::User,
     tariff: &Tariff,
@@ -366,7 +366,7 @@ fn forwarding_default(
         .unwrap_or(false)
 }
 
-fn unlimited_tariff() -> Tariff {
+pub(crate) fn unlimited_tariff() -> Tariff {
     let now = Utc::now();
     Tariff {
         id: Uuid::nil(),

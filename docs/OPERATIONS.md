@@ -47,6 +47,7 @@ Frontend доступен на `http://localhost:5173`, admin на `http://local
 - `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`, `AWG_ADMIN_LOGIN` (legacy) используется для поиска существующей записи.
 - `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` по умолчанию `awg-admin`; пустые значения заменяются значением по умолчанию.
 - SMTP: `AWG_MAIL_MODE=log|smtp`, `AWG_SMTP_URL=smtp://user:pass@host:port`, `AWG_SMTP_FROM`, `AWG_PUBLIC_URL` для ссылки подтверждения email.
+- `AWG_APP_VERIFY_URL` — deep link мобильного приложения для подтверждения email (`umbravpn://verify` по умолчанию); в письме добавляется `{AWG_APP_VERIFY_URL}?token=…`.
 - Без `.env` admin генерирует эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` с предупреждением; после рестарта секреты устройств становятся нечитаемыми. Проверка:
 
 ```bash

@@ -47,7 +47,8 @@ fn harness() -> Harness {
         mailer.clone(),
         sealer,
         "https://panel.test".into(),
-    );
+    )
+    .with_app_verify_url("umbravpn://verify");
     Harness {
         service,
         store,
@@ -104,6 +105,19 @@ fn totp_code(secret: &str, login: &str) -> String {
         .unwrap()
         .generate_current()
         .to_string()
+}
+
+#[tokio::test]
+async fn verification_email_carries_app_link() {
+    let harness = harness();
+    register(&harness, "app@example.com", None).await;
+
+    let (_, link) = harness.mailer.last().unwrap();
+    let token = token_from_link(&link);
+    let app_links = harness.mailer.sent_app_links();
+    assert_eq!(app_links.len(), 1);
+    assert_eq!(app_links[0].0, "app@example.com");
+    assert_eq!(app_links[0].1, format!("umbravpn://verify?token={token}"));
 }
 
 #[tokio::test]

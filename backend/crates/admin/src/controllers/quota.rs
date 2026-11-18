@@ -62,11 +62,15 @@ fn quota_subject(user: &AuthUser) -> Uuid {
     user.id()
 }
 
-fn quota_state(tariffs: &TariffService, account: &User, used: u64) -> CoreResult<QuotaState> {
+pub(crate) fn quota_state(
+    tariffs: &TariffService,
+    account: &User,
+    used: u64,
+) -> CoreResult<QuotaState> {
     tariffs.quota_state_for(account.tariff_id, used)
 }
 
-fn current_quota(
+pub(crate) fn current_quota(
     tariffs: &TariffService,
     account: &User,
     used: u64,

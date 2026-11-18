@@ -16,6 +16,26 @@ pub struct CreateDeviceRequest {
     pub forwarding: Option<Forwarding>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AppDeviceRequest {
+    pub name: Option<String>,
+}
+
+impl AppDeviceRequest {
+    pub fn resolved_name(&self) -> Result<String, String> {
+        let name = self
+            .name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| "name is required".to_string())?;
+        if name.chars().count() > 64 {
+            return Err("name must be 1..64 characters".into());
+        }
+        Ok(name.to_string())
+    }
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct UpdateDeviceRequest {
     pub name: Option<String>,

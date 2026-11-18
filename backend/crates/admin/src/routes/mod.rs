@@ -16,6 +16,7 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 
+mod app;
 mod auth;
 mod billing;
 mod clients;
@@ -57,6 +58,7 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
         .merge(auth::router())
         .merge(network::router())
         .merge(clients::router())
+        .merge(app::router())
         .merge(stats::router())
         .merge(billing::router(state.clone()))
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
@@ -326,6 +328,7 @@ mod tests {
             .merge(auth::router())
             .merge(network::router())
             .merge(clients::router())
+            .merge(app::router())
             .merge(stats::router());
     }
 

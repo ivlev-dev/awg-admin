@@ -13,6 +13,7 @@ silent-framework и Traefik с TLS/HTTP/3.
 - [`docs/OPERATIONS.md`](docs/OPERATIONS.md) — эксплуатация: запуск/остановка, секреты, backup/restore redb, метрики, логи, аудит, квоты, worker, инциденты, обновление.
 - [`docs/TODO.md`](docs/TODO.md) — что проверено, что осталось, с чего продолжить.
 - [`docs/FRAMEWORK-NOTES.md`](docs/FRAMEWORK-NOTES.md) — найденные баги silent и обходы.
+- [`docs/ANDROID.md`](docs/ANDROID.md) — Android-клиент Umbra VPN: сборка, аккаунт, синхронизация конфигов.
 
 ## Архитектура
 
@@ -20,6 +21,7 @@ silent-framework и Traefik с TLS/HTTP/3.
 - `awg-backup` — CLI backup/restore/info для redb при остановленном admin (см. `docs/OPERATIONS.md`).
 - `awg-worker` — исходящий gRPC к admin, управляет AmneziaWG (host network, privileged).
 - frontend — Vite-сборка, раздаётся nginx; `/api` и WebSocket проксируются Traefik к admin.
+- `android/` — Umbra VPN для Android (Kotlin/Compose), вход через API панели и автосинхронизация конфигурации.
 - Traefik — TLS termination, HTTP/3, ACME (Let's Encrypt) или self-signed по умолчанию.
 
 ## Быстрый старт

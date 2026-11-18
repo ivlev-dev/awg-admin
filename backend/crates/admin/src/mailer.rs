@@ -94,8 +94,13 @@ impl LogMailer {
         }
     }
 
-    fn verification_body(link: &str) -> String {
-        format!("Для подтверждения email перейдите по ссылке: {link}")
+    fn verification_body(link: &str, app_link: Option<&str>) -> String {
+        match app_link {
+            Some(app_link) => format!(
+                "Для подтверждения email перейдите по ссылке: {link}\nСсылка для приложения Umbra VPN: {app_link}"
+            ),
+            None => format!("Для подтверждения email перейдите по ссылке: {link}"),
+        }
     }
 
     fn password_reset_body(link: &str) -> String {
@@ -107,9 +112,18 @@ impl LogMailer {
 
 impl Mailer for LogMailer {
     fn send_verification<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a> {
+        self.send_verification_with_app(email, link, None)
+    }
+
+    fn send_verification_with_app<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+        app_link: Option<&'a str>,
+    ) -> MailerFuture<'a> {
         Box::pin(async move {
             if self.log_links {
-                tracing::info!(%email, %link, "verification email (log mailer)");
+                tracing::info!(%email, %link, app_link = app_link.unwrap_or(""), "verification email (log mailer)");
             } else {
                 tracing::info!(%email, "verification email (log mailer)");
             }
@@ -118,7 +132,7 @@ impl Mailer for LogMailer {
                     to: email.to_string(),
                     subject: VERIFICATION_SUBJECT.to_string(),
                     link: link.to_string(),
-                    body: Self::verification_body(link),
+                    body: Self::verification_body(link, app_link),
                     created_at: chrono::Utc::now().to_rfc3339(),
                 });
             }
@@ -206,6 +220,15 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 impl Mailer for SmtpMailer {
     fn send_verification<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a> {
+        self.send_verification_with_app(email, link, None)
+    }
+
+    fn send_verification_with_app<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+        app_link: Option<&'a str>,
+    ) -> MailerFuture<'a> {
         Box::pin(async move {
             let to: Mailbox = email
                 .parse()
@@ -214,9 +237,7 @@ impl Mailer for SmtpMailer {
                 .from(self.from.clone())
                 .to(to)
                 .subject(VERIFICATION_SUBJECT)
-                .body(format!(
-                    "Для подтверждения email перейдите по ссылке: {link}"
-                ))
+                .body(LogMailer::verification_body(link, app_link))
                 .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
             self.transport
                 .send(message)
@@ -274,7 +295,7 @@ mod tests {
             to: format!("user{index}@example.com"),
             subject: VERIFICATION_SUBJECT.to_string(),
             link: format!("http://localhost/verify-email?token=token-{index}"),
-            body: LogMailer::verification_body("http://localhost/verify-email"),
+            body: LogMailer::verification_body("http://localhost/verify-email", None),
             created_at: "2026-01-01T00:00:00Z".to_string(),
         }
     }
@@ -318,6 +339,34 @@ mod tests {
         assert_eq!(messages[0].to, "dev@example.com");
         assert_eq!(messages[0].subject, VERIFICATION_SUBJECT);
         assert!(messages[0].link.ends_with("token=abc"));
+    }
+
+    #[tokio::test]
+    async fn log_mailer_stores_app_verification_link_in_development() {
+        let mailbox = Arc::new(DevMailbox::new());
+        let mailer = LogMailer {
+            dev_mailbox: Some(mailbox.clone()),
+            log_links: true,
+        };
+        mailer
+            .send_verification_with_app(
+                "dev@example.com",
+                "https://panel.example.com/verify-email?token=abc",
+                Some("umbravpn://verify?token=abc"),
+            )
+            .await
+            .unwrap();
+        let messages = mailbox.list();
+        assert_eq!(
+            messages[0].link,
+            "https://panel.example.com/verify-email?token=abc"
+        );
+        assert!(messages[0].body.contains("umbravpn://verify?token=abc"));
+        assert!(
+            messages[0]
+                .body
+                .contains("https://panel.example.com/verify-email?token=abc")
+        );
     }
 
     #[tokio::test]

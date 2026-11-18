@@ -133,6 +133,7 @@ impl EmailVerificationRepository for RedbEmailVerificationRepository {
 #[derive(Debug, Clone, Default)]
 pub struct CaptureMailer {
     sent: Arc<std::sync::Mutex<Vec<(String, String)>>>,
+    app_links: Arc<std::sync::Mutex<Vec<(String, String)>>>,
 }
 
 impl CaptureMailer {
@@ -151,8 +152,19 @@ impl CaptureMailer {
         self.sent().pop()
     }
 
+    pub fn sent_app_links(&self) -> Vec<(String, String)> {
+        self.app_links
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clone()
+    }
+
     pub fn clear(&self) {
         self.sent
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .clear();
+        self.app_links
             .lock()
             .unwrap_or_else(|error| error.into_inner())
             .clear();
@@ -170,6 +182,27 @@ impl crate::domain::Mailer for CaptureMailer {
                 .lock()
                 .unwrap_or_else(|error| error.into_inner())
                 .push((email.to_string(), link.to_string()));
+            Ok(())
+        })
+    }
+
+    fn send_verification_with_app<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+        app_link: Option<&'a str>,
+    ) -> crate::domain::MailerFuture<'a> {
+        Box::pin(async move {
+            self.sent
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .push((email.to_string(), link.to_string()));
+            if let Some(app_link) = app_link {
+                self.app_links
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner())
+                    .push((email.to_string(), app_link.to_string()));
+            }
             Ok(())
         })
     }

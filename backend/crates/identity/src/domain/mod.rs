@@ -187,6 +187,17 @@ pub type MailerFuture<'a> = Pin<Box<dyn Future<Output = CoreResult<()>> + Send +
 
 pub trait Mailer: Send + Sync {
     fn send_verification<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a>;
+
+    fn send_verification_with_app<'a>(
+        &'a self,
+        email: &'a str,
+        link: &'a str,
+        app_link: Option<&'a str>,
+    ) -> MailerFuture<'a> {
+        let _ = app_link;
+        self.send_verification(email, link)
+    }
+
     fn send_password_reset<'a>(&'a self, email: &'a str, link: &'a str) -> MailerFuture<'a>;
 }
 

@@ -90,6 +90,7 @@ pub struct IdentityService {
     mailer: Arc<dyn Mailer>,
     sealer: Arc<Sealer>,
     public_url: String,
+    app_verify_url: Option<String>,
 }
 
 impl IdentityService {
@@ -110,7 +111,17 @@ impl IdentityService {
             mailer,
             sealer,
             public_url,
+            app_verify_url: None,
         }
+    }
+
+    pub fn with_app_verify_url(mut self, url: impl Into<String>) -> Self {
+        let url = url.into();
+        let url = url.trim();
+        if !url.is_empty() {
+            self.app_verify_url = Some(url.to_string());
+        }
+        self
     }
 
     pub fn seed_admin(&self, login: &str, password: &str) -> CoreResult<Option<User>> {
@@ -558,7 +569,15 @@ impl IdentityService {
             self.public_url.trim_end_matches('/'),
             token
         );
-        if let Err(error) = self.mailer.send_verification(email, &link).await {
+        let app_link = self
+            .app_verify_url
+            .as_ref()
+            .map(|base| format!("{base}?token={token}"));
+        if let Err(error) = self
+            .mailer
+            .send_verification_with_app(email, &link, app_link.as_deref())
+            .await
+        {
             tracing::warn!(%error, "failed to send verification email");
         }
     }

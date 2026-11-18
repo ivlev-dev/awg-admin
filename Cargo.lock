@@ -94,6 +94,7 @@ name = "awg-admin"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "awg-admin",
  "awg-audit",
  "awg-billing",
  "awg-clients",

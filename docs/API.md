@@ -95,6 +95,11 @@
 | POST | `/import/clients/preview` | admin | `ClientsImportRequest` | `ClientsImportPreviewView` (без записи в БД) |
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
+| GET | `/app/bootstrap` | user | — | `AppBootstrapView` (свой профиль, тариф, квота, устройства) |
+| POST | `/app/devices` | user | `{name}` | `{device: DeviceView, config: AppConfigView}` |
+| GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` |
+| PATCH | `/app/devices/{id}` | self/admin | `{name}` | `DeviceView` |
+| DELETE | `/app/devices/{id}` | self/admin | — | `204` |
 | GET | `/share/{token}` | public | — | файл конфигурации (`download`) |
 | GET | `/billing/plans` | admin | — | `Plan[]` |
 | POST | `/billing/plans` | admin | `CreatePlanRequest` | `Plan` |
@@ -186,6 +191,45 @@
 /devices/{id}` интерфейс не меняет. `GET /devices/{id}/profiles` всегда
 возвращает массив из одного профиля — конфигурацию интерфейса устройства.
 `GET /devices/{id}/profiles/{interface_id}` для другого интерфейса даёт `404`.
+
+## Мобильное приложение (Android)
+
+Ручки `/api/v1/app/*` требуют `Authorization: Bearer …` и работают только с
+данными текущего пользователя (`self/admin`), админских возможностей не
+добавляют.
+
+- `GET /app/bootstrap` → `{user: UserView, tariff: null|{id,name,description,max_devices,device_down_kbps,device_up_kbps,traffic_quota_bytes}, quota: QuotaView, devices: DeviceView[]}`.
+  `tariff` — `null`, если тариф не назначен; `quota` считается по месяцу, как
+  `GET /quota`.
+- `POST /app/devices` `{"name":"Phone"}` → `{device: DeviceView, config: AppConfigView}`.
+  Имя обязательно, 1..64 символа после `trim`, иначе `400 bad_request`.
+  Интерфейс выбирается детерминированно: `interface_id` тарифа → единственный
+  enabled-интерфейс ноды пользователя → первый по `(name,id)` enabled-интерфейс
+  ноды → единственный/первый enabled-интерфейс группы → `400 bad_request`.
+  Проверки «интерфейс другой ноды/группы» и лимит устройств тарифа сохраняются
+  (`403`/`409`). Forwarding по умолчанию — как у `POST /devices`.
+- `GET /app/devices/{id}/config` → `AppConfigView` для интерфейса устройства.
+- `PATCH /app/devices/{id}` `{"name":"New"}` → `DeviceView`; пустое имя или
+  длиннее 64 символов — `400 bad_request`.
+- `DELETE /app/devices/{id}` → `204`, устройство удаляется и группа публикуется
+  на ноды.
+
+`AppConfigView`:
+
+```json
+{
+  "interface_id": "uuid",
+  "interface_name": "awg0",
+  "node_id": "uuid",
+  "endpoint": "vpn.example.com:51820",
+  "addresses": ["10.1.0.2/24"],
+  "conf": "[Interface]...",
+  "revision": "9f2c1d7ab03e4f56"
+}
+```
+
+`revision` — первые 16 hex-символов SHA-256 от `conf`; одинаковый `conf` даёт
+одинаковый `revision`, изменение endpoint/обфускации меняет его.
 
 ## Массовые действия
 
@@ -687,7 +731,9 @@ refresh, повтор refresh, заблокированный или удалё�
 Самостоятельная регистрация создаёт пользователя в статусе `pending_email` с
 ролью `user`. Письмо со ссылкой
 `{AWG_PUBLIC_URL}/verify-email?token=…` отправляется через `Mailer`
-(`AWG_MAIL_MODE=log|smtp`); токен живёт 24 часа и одноразовый. После перехода по
+(`AWG_MAIL_MODE=log|smtp`); в письмо также добавляется deep link приложения
+`{AWG_APP_VERIFY_URL}?token=…` (по умолчанию `umbravpn://verify?token=…`).
+Токен живёт 24 часа и одноразовый. После перехода по
 ссылке статус становится `pending_approval`, затем администратор подтверждает
 аккаунт и назначает тариф:
 

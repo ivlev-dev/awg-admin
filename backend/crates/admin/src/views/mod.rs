@@ -1,3 +1,4 @@
+mod app;
 mod audit;
 mod auth;
 mod billing;
@@ -6,6 +7,7 @@ mod import;
 mod network;
 mod stats;
 
+pub use app::*;
 pub use audit::*;
 pub use auth::*;
 pub use billing::*;

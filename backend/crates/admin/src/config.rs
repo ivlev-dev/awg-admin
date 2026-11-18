@@ -11,6 +11,7 @@ pub const MASTER_KEY_LEN: usize = 32;
 pub const MIN_JWT_SECRET_LEN: usize = 32;
 pub const DEFAULT_JWT_ISSUER: &str = "awg-admin";
 pub const DEFAULT_JWT_AUDIENCE: &str = "awg-admin";
+pub const DEFAULT_APP_VERIFY_URL: &str = "umbravpn://verify";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Environment {
@@ -168,6 +169,7 @@ pub struct ConfigInput {
     pub cors_origins: String,
     pub share_ttl_secs: u64,
     pub public_url: String,
+    pub app_verify_url: String,
     pub rate_limit_store: String,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
@@ -214,6 +216,7 @@ pub struct Config {
     pub cors_origins: Vec<String>,
     pub share_ttl_secs: u64,
     pub public_url: String,
+    pub app_verify_url: String,
     pub rate_limit_store: RateLimitStore,
     pub login_rate_limit: u32,
     pub login_rate_window_secs: u64,
@@ -377,6 +380,7 @@ impl Config {
             cors_origins,
             share_ttl_secs: input.share_ttl_secs,
             public_url: input.public_url.clone(),
+            app_verify_url: trimmed_or(&input.app_verify_url, DEFAULT_APP_VERIFY_URL),
             rate_limit_store,
             login_rate_limit: input.login_rate_limit,
             login_rate_window_secs: input.login_rate_window_secs.max(1),
@@ -494,6 +498,7 @@ fn input_from_env() -> Result<ConfigInput> {
         cors_origins: env("AWG_CORS_ORIGINS", ""),
         share_ttl_secs: env_u64("AWG_SHARE_TTL_SECS", 86_400),
         public_url: env("AWG_PUBLIC_URL", ""),
+        app_verify_url: env("AWG_APP_VERIFY_URL", DEFAULT_APP_VERIFY_URL),
         rate_limit_store: env("AWG_RATE_LIMIT_STORE", "memory"),
         login_rate_limit: env_u32("AWG_LOGIN_RATE_LIMIT", 10),
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
@@ -573,6 +578,7 @@ mod tests {
             cors_origins: String::new(),
             share_ttl_secs: 3600,
             public_url: String::new(),
+            app_verify_url: DEFAULT_APP_VERIFY_URL.into(),
             rate_limit_store: "memory".into(),
             login_rate_limit: 10,
             login_rate_window_secs: 300,
@@ -666,6 +672,21 @@ mod tests {
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.jwt_issuer, DEFAULT_JWT_ISSUER);
         assert_eq!(config.jwt_audience, DEFAULT_JWT_AUDIENCE);
+    }
+
+    #[test]
+    fn app_verify_url_defaults_and_is_trimmed() {
+        let mut input = base_input(Environment::Development);
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.app_verify_url, DEFAULT_APP_VERIFY_URL);
+
+        input.app_verify_url = "   ".into();
+        let config = Config::from_input(input.clone()).unwrap();
+        assert_eq!(config.app_verify_url, DEFAULT_APP_VERIFY_URL);
+
+        input.app_verify_url = "  umbravpn://confirm  ".into();
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.app_verify_url, "umbravpn://confirm");
     }
 
     #[test]

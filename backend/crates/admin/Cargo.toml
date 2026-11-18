@@ -51,3 +51,10 @@ opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 url = "2"
 uuid.workspace = true
+
+[features]
+default = []
+test-support = []
+
+[dev-dependencies]
+awg-admin = { path = ".", features = ["test-support"] }

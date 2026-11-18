@@ -452,3 +452,329 @@ fn peer(
         created_at: Utc::now(),
     }
 }
+
+pub struct AppEnv {
+    pub state: Arc<crate::state::AppState>,
+    pub store: Arc<Store>,
+    pub group_id: Uuid,
+    pub node_id: Uuid,
+    pub interface_ids: Vec<Uuid>,
+    pub tariff_id: Uuid,
+    pub owner_id: Uuid,
+    pub owner_token: String,
+    pub other_id: Uuid,
+    pub other_token: String,
+}
+
+pub const OWNER_EMAIL: &str = "owner@example.com";
+pub const OTHER_EMAIL: &str = "other@example.com";
+pub const PASSWORD: &str = "password123";
+
+fn app_config() -> crate::config::Config {
+    use crate::config::{
+        Config, ConfigInput, DEFAULT_ADMIN_EMAIL, DEFAULT_APP_VERIFY_URL, DEFAULT_JWT_AUDIENCE,
+        DEFAULT_JWT_ISSUER, Environment,
+    };
+
+    let master_key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
+    Config::from_input(ConfigInput {
+        environment: Environment::Development,
+        bind: "127.0.0.1:0".into(),
+        grpc_bind: "127.0.0.1:0".into(),
+        db_path: ":memory:".into(),
+        master_key: Some(master_key),
+        jwt_secret: Some("test-secret-with-at-least-32-bytes!!".into()),
+        jwt_issuer: DEFAULT_JWT_ISSUER.into(),
+        jwt_audience: DEFAULT_JWT_AUDIENCE.into(),
+        access_ttl_secs: 900,
+        refresh_ttl_secs: 86_400,
+        admin_login: "admin".into(),
+        admin_email: DEFAULT_ADMIN_EMAIL.into(),
+        admin_password: "admin12345".into(),
+        dns: "1.1.1.1".into(),
+        cors_origins: String::new(),
+        share_ttl_secs: 3600,
+        public_url: "https://panel.test".into(),
+        app_verify_url: DEFAULT_APP_VERIFY_URL.into(),
+        rate_limit_store: "memory".into(),
+        login_rate_limit: 100,
+        login_rate_window_secs: 60,
+        refresh_rate_limit: 100,
+        refresh_rate_window_secs: 60,
+        register_rate_limit: 100,
+        register_rate_window_secs: 60,
+        resend_rate_limit: 100,
+        resend_rate_window_secs: 60,
+        forgot_rate_limit: 100,
+        forgot_rate_window_secs: 60,
+        http_timeout_secs: 30,
+        shutdown_grace_secs: 10,
+        mail_mode: "log".into(),
+        smtp_url: None,
+        smtp_from: None,
+        metrics_token: None,
+        billing_enabled: "false".into(),
+        billing_currency: "RUB".into(),
+        billing_trial_days: "0".into(),
+        payment_provider: "noop".into(),
+        payment_secret: String::new(),
+        backup_dir: String::new(),
+        backup_interval_secs: 0,
+        backup_keep: 7,
+    })
+    .unwrap()
+}
+
+pub fn app_env() -> AppEnv {
+    use std::time::Duration;
+
+    use awg_audit::AuditService;
+    use awg_audit::RedbAuditRepository;
+    use awg_billing::{
+        BillingService, NoopGateway, RedbInvoiceRepository, RedbPaymentEventRepository,
+        RedbPaymentMethodRepository, RedbPlanRepository, RedbSubscriptionRepository,
+    };
+    use awg_clients::{ProfileService, RedbShareLinkRepository, ShareService};
+    use awg_identity::{
+        Argon2Hasher, CaptureMailer, IdentityService, JwtIssuer, NewUser,
+        RedbEmailVerificationRepository, RedbUserRepository, Role,
+    };
+    use awg_network::{InterfaceChanges, NewInterface};
+    use awg_orchestration::{OrchestrationService, WorkerRegistry};
+    use awg_statistics::{RedbStatsRepository, StatsHub, StatsService};
+    use awg_tariffs::NewTariff;
+
+    use crate::controllers::billing::TariffCatalogAdapter;
+    use crate::directory::{DevicesAdapter, NodesAdapter};
+    use crate::rate_limit::{MemoryRateLimiter, RateLimitScope, RateLimiter};
+    use crate::settings::SettingsStore;
+    use crate::snapshot::SnapshotBuilder;
+    use crate::state::AppState;
+
+    let config = Arc::new(app_config());
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
+    let sealer = Arc::new(Sealer::from_master_key(&key).unwrap());
+
+    let network = Arc::new(NetworkService::new(
+        Arc::new(RedbGroupRepository::new(store.clone())),
+        Arc::new(RedbNodeRepository::new(store.clone())),
+        Arc::new(RedbInterfaceRepository::new(store.clone())),
+        Arc::new(RedbCidrPoolRepository::new(store.clone())),
+        sealer.clone(),
+    ));
+    let group = network
+        .create_group("mobile", "", "10.20.0.1/24", false)
+        .unwrap();
+    network
+        .add_pool(
+            group.id,
+            NewPool {
+                name: "clients".into(),
+                cidr: "10.20.0.0/24".into(),
+                mode: PoolMode::Auto,
+                gateway: Some("10.20.0.1".into()),
+            },
+        )
+        .unwrap();
+    let (node, _) = network.create_node("node-mobile").unwrap();
+    let mut interface_ids = Vec::new();
+    for (name, enabled) in [
+        ("awg-b", true),
+        ("awg-a", true),
+        ("awg-0", false),
+        ("awg-c", true),
+    ] {
+        let interface = network
+            .add_interface(
+                group.id,
+                node.id,
+                NewInterface {
+                    name: name.into(),
+                    label: name.into(),
+                    endpoint_host: "vpn.example.com".into(),
+                    endpoint_port: 51820,
+                    listen_port: 51820,
+                    mtu: 1420,
+                },
+                &ObfuscationSettings::default(),
+            )
+            .unwrap();
+        if !enabled {
+            network
+                .update_interface(
+                    interface.id,
+                    InterfaceChanges {
+                        enabled: Some(false),
+                        ..Default::default()
+                    },
+                )
+                .unwrap();
+        }
+        interface_ids.push(interface.id);
+    }
+
+    let tariffs = Arc::new(TariffService::new(Arc::new(RedbTariffRepository::new(
+        store.clone(),
+    ))));
+    let tariff = tariffs
+        .create(NewTariff {
+            name: "mobile".into(),
+            description: "Mobile plan".into(),
+            max_devices: 2,
+            device_down_kbps: 100_000,
+            device_up_kbps: 50_000,
+            group_down_kbps: 0,
+            group_up_kbps: 0,
+            traffic_quota_bytes: Some(1_000_000_000),
+            interface_id: None,
+        })
+        .unwrap();
+
+    let identity = Arc::new(IdentityService::new(
+        Arc::new(RedbUserRepository::new(store.clone())),
+        Arc::new(Argon2Hasher::default()),
+        Arc::new(JwtIssuer::new(
+            &config.jwt_secret,
+            config.access_ttl_secs,
+            config.refresh_ttl_secs,
+            &config.jwt_issuer,
+            &config.jwt_audience,
+            store.clone(),
+        )),
+        Arc::new(RedbEmailVerificationRepository::new(store.clone())),
+        Arc::new(CaptureMailer::new()),
+        sealer.clone(),
+        config.public_url.clone(),
+    ));
+
+    let owner = identity
+        .create(NewUser {
+            email: OWNER_EMAIL.into(),
+            password: PASSWORD.into(),
+            role: Role::User,
+            tariff_id: Some(tariff.id),
+            group_id: Some(group.id),
+            node_id: Some(node.id),
+        })
+        .unwrap();
+    let other = identity
+        .create(NewUser {
+            email: OTHER_EMAIL.into(),
+            password: PASSWORD.into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: Some(group.id),
+            node_id: Some(node.id),
+        })
+        .unwrap();
+    let owner_token = identity
+        .login(OWNER_EMAIL, PASSWORD, &metadata_none())
+        .unwrap()
+        .access_token;
+    let other_token = identity
+        .login(OTHER_EMAIL, PASSWORD, &metadata_none())
+        .unwrap()
+        .access_token;
+
+    let device_repo = Arc::new(RedbDeviceRepository::new(store.clone()));
+    let peer_repo = Arc::new(RedbDevicePeerRepository::new(store.clone()));
+    let devices = Arc::new(DeviceService::new(
+        device_repo.clone(),
+        peer_repo.clone(),
+        network.clone(),
+        tariffs.clone(),
+        sealer.clone(),
+    ));
+    let profiles = Arc::new(ProfileService::new(
+        device_repo,
+        peer_repo,
+        network.clone(),
+        sealer.clone(),
+        config.dns.clone(),
+    ));
+    let share = Arc::new(ShareService::new(
+        Arc::new(RedbShareLinkRepository::new(store.clone())),
+        profiles.clone(),
+    ));
+    let stats_hub = Arc::new(StatsHub::new(64));
+    let stats = Arc::new(StatsService::new(
+        Arc::new(RedbStatsRepository::new(store.clone())),
+        stats_hub.clone(),
+    ));
+    let registry = Arc::new(WorkerRegistry::new());
+    let snapshot = Arc::new(SnapshotBuilder {
+        network: network.clone(),
+        devices: devices.clone(),
+        identity: identity.clone(),
+        tariffs: tariffs.clone(),
+        stats: stats.clone(),
+    });
+    let orchestration = Arc::new(OrchestrationService::new(
+        registry.clone(),
+        snapshot,
+        stats.clone(),
+        Arc::new(DevicesAdapter::new(devices.clone())),
+        Arc::new(NodesAdapter::new(network.clone())),
+    ));
+    let settings = Arc::new(SettingsStore::new(store.clone()));
+    let audit = Arc::new(AuditService::new(Arc::new(RedbAuditRepository::new(
+        store.clone(),
+    ))));
+    let billing = Arc::new(BillingService::new(
+        Arc::new(RedbPlanRepository::new(store.clone())),
+        Arc::new(RedbSubscriptionRepository::new(store.clone())),
+        Arc::new(RedbInvoiceRepository::new(store.clone())),
+        Arc::new(RedbPaymentMethodRepository::new(store.clone())),
+        Arc::new(RedbPaymentEventRepository::new(store.clone())),
+        Arc::new(TariffCatalogAdapter::new(tariffs.clone())),
+        Arc::new(NoopGateway),
+        config.billing.settings(),
+    ));
+    let backend: Arc<dyn RateLimiter> = Arc::new(MemoryRateLimiter::new());
+    let scope = |prefix: &'static str| {
+        RateLimitScope::new(backend.clone(), prefix, 100, Duration::from_secs(60))
+    };
+
+    let state = Arc::new(AppState {
+        config,
+        identity,
+        tariffs,
+        network,
+        devices,
+        profiles,
+        share,
+        stats,
+        stats_hub,
+        registry,
+        orchestration,
+        settings,
+        audit,
+        billing,
+        login_limiter: scope("login"),
+        refresh_limiter: scope("refresh"),
+        register_limiter: scope("register"),
+        resend_limiter: scope("resend"),
+        forgot_limiter: scope("forgot"),
+    });
+
+    AppEnv {
+        state,
+        store,
+        group_id: group.id,
+        node_id: node.id,
+        interface_ids,
+        tariff_id: tariff.id,
+        owner_id: owner.id,
+        owner_token,
+        other_id: other.id,
+        other_token,
+    }
+}
+
+fn metadata_none() -> awg_identity::SessionMetadata {
+    awg_identity::SessionMetadata {
+        user_agent: None,
+        ip: None,
+    }
+}

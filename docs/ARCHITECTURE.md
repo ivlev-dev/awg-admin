@@ -391,8 +391,9 @@ access валиден до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по 
 Одноразовые токены подтверждения email лежат в redb-таблице
 `email_verifications`: ключ — `sha256(token)` в hex, значение — `user_id`,
 `email`, `expires_at`, `used`; TTL 24 часа. Письмо отправляет `Mailer`
-(`LogMailer` или `SmtpMailer` на `lettre`), ссылка строится от
-`AWG_PUBLIC_URL`. Регистрация создаёт `pending_email`, подтверждение переводит
+(`LogMailer` или `SmtpMailer` на `lettre`), веб-ссылка строится от
+`AWG_PUBLIC_URL`, deep link приложения — от `AWG_APP_VERIFY_URL`. Регистрация
+создаёт `pending_email`, подтверждение переводит
 в `pending_approval`, администратор назначает тариф и группу (`approve`) или
 отклоняет (`reject`).
 
