@@ -580,7 +580,16 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                   aria-label={t("clients.details.qr.openVpn")} title={t("clients.details.qr.openVpn")}
                                   onClick={() => this.vm.openVpnQr()}
                                 >
-                                  <Icon name="qr" size={14} class="" /> {t("clients.details.qr.button")}
+                                  <Icon name="qr" size={14} class="" /> {t("clients.details.qr.buttonVpn")}
+                                </button>
+                                <button
+                                  class="btn btn--sm"
+                                  type="button"
+                                  disabled={!this.vm.canShowConfQr}
+                                  aria-label={t("clients.details.qr.openConf")} title={t("clients.details.qr.openConf")}
+                                  onClick={() => this.vm.openConfQr()}
+                                >
+                                  <Icon name="qr" size={14} class="" /> {t("clients.details.qr.buttonConf")}
                                 </button>
                               </div>
                             </div>
@@ -781,7 +790,7 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
         <div class="stack" style="align-items:center;gap:12px">
           <QrCode
             value={this.vm.qrValue}
-            size={220}
+            size={340}
             label={t("clients.details.qr.aria")}
             loadingLabel={t("clients.details.qr.loading")}
             errorLabel={t("clients.details.qr.error")}

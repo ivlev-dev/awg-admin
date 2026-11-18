@@ -1,5 +1,5 @@
-export const QR_MAX_BYTES = 1900;
-export const QR_MARGIN_MODULES = 2;
+export const QR_MAX_BYTES = 2600;
+export const QR_MARGIN_MODULES = 4;
 export const QR_MIN_SIZE = 96;
 export const QR_MAX_SIZE = 512;
 
@@ -22,7 +22,7 @@ export function byteLength(value: string): number {
 }
 
 export function clampQrSize(size: number | undefined): number {
-  if (size === undefined || !Number.isFinite(size)) return 192;
+  if (size === undefined || !Number.isFinite(size)) return 320;
   return Math.min(QR_MAX_SIZE, Math.max(QR_MIN_SIZE, Math.round(size)));
 }
 

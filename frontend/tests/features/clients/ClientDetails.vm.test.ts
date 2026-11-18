@@ -1195,6 +1195,20 @@ describe("ClientDetailsVM", () => {
     });
   });
 
+  it("открывает QR для сырого конфига активного профиля", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+
+    expect(vm.canShowConfQr).toBe(true);
+    vm.openConfQr();
+
+    expect(vm.qrOpen).toBe(true);
+    expect(vm.qrValue).toContain("[Interface]");
+    expect(vm.qrValue).toContain("PrivateKey =");
+    expect(vm.qrTitle).toBe("QR-код конфига wg0");
+    expect(vm.qrCopyLabel).toBe("Копировать");
+  });
+
   it("открывает QR для vpn:// активного профиля", async () => {
     const { vm } = setup("admin");
     await vm.load();

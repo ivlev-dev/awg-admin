@@ -107,7 +107,7 @@ describe("QrCode", () => {
   });
 
   it("ограничивает длину значения", async () => {
-    const mounted = mountQr("x".repeat(1901), { limitLabel: "Слишком длинная ссылка" });
+    const mounted = mountQr("x".repeat(2601), { limitLabel: "Слишком длинная ссылка" });
     await mounted.result.ready;
     await vi.waitFor(() => {
       expect(visible(".qr-code__error")?.textContent).toBe("Слишком длинная ссылка");
@@ -122,7 +122,7 @@ describe("QrCode", () => {
     await mounted.result.ready;
     await waitForSvg();
 
-    mounted.setValue("y".repeat(1901));
+    mounted.setValue("y".repeat(2601));
     await vi.waitFor(() => {
       expect(visible(".qr-code__error")?.textContent).toBe("Лимит превышен");
     });

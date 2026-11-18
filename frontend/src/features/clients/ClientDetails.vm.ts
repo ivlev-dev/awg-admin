@@ -819,6 +819,19 @@ export class ClientDetailsVM {
     this.qrOpen = true;
   }
 
+  get canShowConfQr(): boolean {
+    return (this.activeProfile?.conf.length ?? 0) > 0;
+  }
+
+  openConfQr(): void {
+    const profile = this.activeProfile;
+    if (!profile || profile.conf.length === 0) return;
+    this.qrValue = profile.conf;
+    this.qrTitle = t("clients.details.qr.confTitle", { name: profile.interface_name });
+    this.qrCopyLabel = t("clients.details.profiles.copy");
+    this.qrOpen = true;
+  }
+
   closeQr(): void {
     this.qrOpen = false;
     this.qrValue = "";

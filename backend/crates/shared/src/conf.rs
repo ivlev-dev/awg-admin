@@ -297,11 +297,11 @@ pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
     if obf.random_trailers || client.disable_cookies {
         out.push_str(&format!(
             "RandomTrailers = {}\n",
-            if obf.random_trailers { 1 } else { 0 }
+            if obf.random_trailers { "on" } else { "off" }
         ));
         out.push_str(&format!(
             "DisableCookies = {}\n",
-            if client.disable_cookies { 1 } else { 0 }
+            if client.disable_cookies { "on" } else { "off" }
         ));
     }
     out.push_str("\n[Peer]\n");
@@ -352,8 +352,8 @@ pub fn render_server_conf(
         ));
     }
     if obf.random_trailers {
-        out.push_str("RandomTrailers = 1\n");
-        out.push_str("DisableCookies = 0\n");
+        out.push_str("RandomTrailers = on\n");
+        out.push_str("DisableCookies = off\n");
     }
     for (public_key, psk, ips) in peers {
         out.push_str("\n[Peer]\n");

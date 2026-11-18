@@ -247,7 +247,8 @@ fn creates_single_peer_and_enforces_tariff() {
     assert_eq!(profiles[0].interface_id, fixture.interface_id);
     assert!(profiles[0].conf.contains("PrivateKey"));
     assert!(profiles[0].vpn_link.starts_with("vpn://"));
-    assert!(profiles[0].conf.contains("RandomTrailers = 1"));
+    assert!(profiles[0].conf.contains("RandomTrailers = on"));
+    assert!(profiles[0].conf.contains("DisableCookies = off"));
 
     let group_devices = fixture.devices.list_all().unwrap();
     assert_eq!(group_devices.len(), 2);
