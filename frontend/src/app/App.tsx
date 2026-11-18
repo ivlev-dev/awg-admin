@@ -168,7 +168,11 @@ function shell(vm: AppVM) {
         onRun={(item: CommandItem) => vm.runCommand(item)}
         onClose={() => vm.closeCommand()}
       />
-      <nav class="mobile-nav" aria-label={t("shell.menu")}>
+      <nav
+        class="mobile-nav"
+        aria-label={t("shell.menu")}
+        style={`grid-template-columns: repeat(${vm.mobileNav.length + 1}, minmax(0, 1fr))`}
+      >
         <For each={vm.mobileNav}>
           {(item) => (
             <button

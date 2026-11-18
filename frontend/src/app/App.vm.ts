@@ -5,6 +5,7 @@ import { density, initDensity, setDensity } from "@/app/density";
 import { GROUPS_SECTION_ENABLED } from "@/app/features";
 import { type CommandItem } from "@/app/command";
 import { IDLE_PREFETCH_PATHS, prefetchPath, scheduleIdlePrefetch, type CancelIdlePrefetch } from "@/app/prefetch";
+import { ROUTES } from "@/app/routes-def";
 import { Router } from "@/app/router";
 import {
   blocksSwipe,
@@ -63,6 +64,10 @@ const MOBILE_NAV: NavDefinition[] = [
 const MOBILE_PATHS: ReadonlySet<string> = new Set(MOBILE_NAV.map((item) => item.path));
 
 const HIDDEN_NAV_PATHS: ReadonlySet<string> = GROUPS_SECTION_ENABLED ? new Set<string>() : new Set(["/groups"]);
+
+const ADMIN_ONLY_PATHS: ReadonlySet<string> = new Set(
+  ROUTES.filter((route) => route.adminOnly === true).map((route) => route.path),
+);
 
 const GROUP_ROUTE_NAMES: ReadonlySet<string> = new Set(["groups", "group"]);
 
@@ -217,17 +222,23 @@ export class AppVM {
 
   @computed
   get nav(): NavItem[] {
-    return visible(localize(this.isAdmin ? MANAGEMENT : MANAGEMENT.filter((item) => !["/nodes", "/groups", "/import"].includes(item.path))));
+    return this.visibleNav(MANAGEMENT);
   }
 
   @computed
   get accountNav(): NavItem[] {
-    return visible(localize(this.isAdmin ? ACCOUNT : ACCOUNT.filter((item) => item.path === "/profile" || item.path === "/stats")));
+    return this.visibleNav(ACCOUNT);
   }
 
   @computed
   get mobileNav(): NavItem[] {
-    return visible(localize(MOBILE_NAV));
+    return this.visibleNav(MOBILE_NAV);
+  }
+
+  private visibleNav(definitions: NavDefinition[]): NavItem[] {
+    return visible(localize(definitions)).filter(
+      (item) => this.isAdmin || !ADMIN_ONLY_PATHS.has(item.path),
+    );
   }
 
   @computed

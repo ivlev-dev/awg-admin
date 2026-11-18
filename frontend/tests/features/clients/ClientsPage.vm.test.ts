@@ -418,7 +418,7 @@ describe("ClientsPageVM", () => {
 
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "error",
-      message: "Не удалось загрузить клиентов",
+      message: "Не удалось загрузить устройства",
     });
   });
 
@@ -818,7 +818,7 @@ describe("ClientsPageVM", () => {
     await result.ready;
 
     await vi.waitFor(() => {
-      expect(result.node.textContent).toContain("Клиенты");
+      expect(result.node.textContent).toContain("Устройства");
       expect(result.node.textContent).toContain("Устройства AmneziaWG");
       expect(result.node.textContent).toContain("Владелец");
     });
@@ -826,7 +826,7 @@ describe("ClientsPageVM", () => {
     setLocale("en");
 
     await vi.waitFor(() => {
-      expect(result.node.textContent).toContain("Clients");
+      expect(result.node.textContent).toContain("Devices");
       expect(result.node.textContent).toContain("AmneziaWG devices");
       expect(result.node.textContent).toContain("Owner");
     });
@@ -943,7 +943,7 @@ describe("ClientsPageVM", () => {
       await vm.bulkDelete();
 
       expect(confirmMock.askConfirm).toHaveBeenCalledWith({
-        title: "Удаление клиентов",
+        title: "Удаление устройств",
         message: "Удалить выбранные записи (2)?",
         confirmLabel: "Удалить",
         tone: "danger",

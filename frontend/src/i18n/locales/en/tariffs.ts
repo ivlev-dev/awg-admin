@@ -19,7 +19,7 @@ export const enTariffs = {
   "tariffs.column.actions": "Actions",
   "tariffs.quota.unlimited": "Unlimited",
   "tariffs.form.interface": "Interface",
-  "tariffs.form.interfaceHint": "Clients of this tariff will be created on the selected interface",
+  "tariffs.form.interfaceHint": "Devices of this tariff will be created on the selected interface",
   "tariffs.form.interfaceNone": "Not bound",
   "tariffs.discard.title": "Discard changes?",
   "tariffs.discard.message": "The entered data will not be saved.",

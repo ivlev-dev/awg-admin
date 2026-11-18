@@ -128,7 +128,7 @@ test.describe("Импорт конфигурации", () => {
       serverPublicKey: serverKeys.publicKey,
     });
 
-    await page.getByRole("button", { name: "Клиенты в интерфейс" }).click();
+    await page.getByRole("button", { name: "Устройства в интерфейс" }).click();
     await page.locator("textarea").fill(nextClientText);
     await page.getByRole("button", { name: "Разобрать конфиги" }).click();
     await fieldByLabel(page, "Имя устройства").locator("input").fill(nextClientName);
@@ -144,9 +144,9 @@ test.describe("Импорт конфигурации", () => {
     await expect(previewRow).toContainText(groupName);
     await expect(previewRow).toContainText("awg0");
 
-    await page.getByRole("button", { name: "Импортировать клиентов" }).click();
+    await page.getByRole("button", { name: "Импортировать устройства" }).click();
 
-    await expect(page.locator(".card__title").filter({ hasText: "Клиенты импортированы" })).toBeVisible();
+    await expect(page.locator(".card__title").filter({ hasText: "Устройства импортированы" })).toBeVisible();
     await expect(statByLabel(page, "Устройств").locator(".stat__value")).toHaveText("1");
 
     const afterClients = (await api.listDevices()).filter(

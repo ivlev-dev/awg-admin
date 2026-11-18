@@ -565,7 +565,7 @@ describe("ImportPageVM", () => {
     expect(vm.interfaces[0]?.clients).toEqual([]);
     expect(toasts.items.at(-1)).toMatchObject({
       kind: "error",
-      message: "Вставьте клиентские конфиги",
+      message: "Вставьте конфиги устройств",
     });
   });
 

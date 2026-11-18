@@ -99,6 +99,6 @@ export const enAuth = {
   "auth.brand.tagline": "Interface groups, peers on every node at once, tariffs, subnets and live statistics — all in one place.",
   "auth.brand.feature.awg": "AWG 3.1 with HTTP/3 mimicry",
   "auth.brand.feature.traffic": "Traffic and limits in real time",
-  "auth.brand.feature.import": "Server and bulk client import",
+  "auth.brand.feature.import": "Server and bulk device import",
   "auth.brand.version": "AmneziaWG 3.1 · WebTransport ready",
 } as const;

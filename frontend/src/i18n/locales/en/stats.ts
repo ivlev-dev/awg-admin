@@ -50,7 +50,7 @@ export const enStats = {
   "stats.devices.column.monthRx": "Month in",
   "stats.devices.column.monthTx": "Month out",
   "stats.devices.emptyTitle": "No devices",
-  "stats.devices.emptyText": "Create a client and its traffic will appear here.",
+  "stats.devices.emptyText": "Create a device and its traffic will appear here.",
   "stats.devices.open": "Open",
   "stats.devices.noData": "no data",
   "stats.scope.global": "All devices",

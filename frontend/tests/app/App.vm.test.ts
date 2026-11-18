@@ -325,7 +325,7 @@ describe("AppVM navigation filtering", () => {
       "Overview",
       "Nodes",
       "Interfaces",
-      "Clients",
+      "Devices",
       "Import",
     ]);
     expect(harness.vm.accountNav.map((item) => item.title)).toContain("Settings");
@@ -356,9 +356,10 @@ describe("AppVM navigation filtering", () => {
   it("скрывает админские разделы у обычного пользователя", () => {
     const harness = makeHarness({ user: PLAIN });
 
-    expect(harness.vm.nav.map((item) => item.path)).toEqual(["/", "/interfaces", "/clients"]);
+    expect(harness.vm.nav.map((item) => item.path)).toEqual(["/", "/clients"]);
     expect(harness.vm.accountNav.map((item) => item.path)).toEqual(["/stats", "/profile"]);
-    expect(harness.vm.mobileNav.map((item) => item.path)).not.toContain("/nodes");
+    expect(harness.vm.mobileNav.map((item) => item.path)).toEqual(["/", "/clients", "/stats"]);
+    expect(harness.vm.mobileNav.map((item) => item.path)).not.toContain("/interfaces");
     expect(harness.vm.roleLabel).toBe("Пользователь");
   });
 
@@ -644,6 +645,15 @@ describe("AppVM constructor DI", () => {
     expect(mountedApp?.routeName).toBe("overview");
 
     result.dispose();
+  });
+
+  it("уводит обычного пользователя с админского раздела интерфейсов", () => {
+    const harness = makeHarness({ user: PLAIN, path: "/interfaces" });
+
+    harness.vm.guard();
+
+    expect(harness.router.path).toBe("/");
+    harness.vm.dispose();
   });
 
   it("уводит со скрытого раздела групп на интерфейсы", async () => {

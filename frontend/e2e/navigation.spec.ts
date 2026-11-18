@@ -14,7 +14,7 @@ const SECTIONS: Section[] = [
   { path: "/", nav: "Обзор", title: "Обзор", heading: "Обзор" },
   { path: "/nodes", nav: "Ноды", title: "Ноды", heading: "Ноды" },
   { path: "/interfaces", nav: "Интерфейсы", title: "Интерфейсы", heading: "Интерфейсы" },
-  { path: "/clients", nav: "Клиенты", title: "Клиенты", heading: "Клиенты" },
+  { path: "/clients", nav: "Устройства", title: "Устройства", heading: "Устройства" },
   { path: "/import", nav: "Импорт", title: "Импорт", heading: "Импорт конфигурации" },
   { path: "/tariffs", nav: "Тарифы", title: "Тарифы", heading: "Тарифы" },
   { path: "/users", nav: "Пользователи", title: "Пользователи", heading: "Пользователи" },

@@ -99,6 +99,6 @@ export const ruAuth = {
   "auth.brand.tagline": "Группы интерфейсов, пиры сразу на всех нодах, тарифы, поддиапазоны и живая статистика — в одном месте.",
   "auth.brand.feature.awg": "AWG 3.1 с HTTP/3 mimicry",
   "auth.brand.feature.traffic": "Трафик и лимиты в реальном времени",
-  "auth.brand.feature.import": "Импорт сервера и пачки клиентов",
+  "auth.brand.feature.import": "Импорт сервера и пачки устройств",
   "auth.brand.version": "AmneziaWG 3.1 · WebTransport ready",
 } as const;

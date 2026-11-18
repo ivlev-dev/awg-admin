@@ -60,7 +60,7 @@ export const enSettings = {
   "settings.profile.http3.label": "HTTP/3",
   "settings.profile.http3.description": "Disguises the first packets as an HTTP/3 QUIC exchange.",
   "settings.profile.tls.label": "TLS",
-  "settings.profile.tls.description": "Imitates a TLS ClientHello with browser extensions.",
+  "settings.profile.tls.description": "Imitates a TLS DeviceHello with browser extensions.",
   "settings.profile.quic.label": "QUIC",
   "settings.profile.quic.description": "QUIC Initial packets without the HTTP/3 wrapper.",
   "settings.profile.random.label": "Random",

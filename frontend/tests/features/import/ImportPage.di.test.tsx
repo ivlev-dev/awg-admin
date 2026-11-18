@@ -364,13 +364,13 @@ describe("ImportPageVM constructor DI", () => {
     expect(document.body.textContent).toContain("Пулы CIDR");
 
     const clientsTab = Array.from(document.querySelectorAll("button")).find((button) =>
-      button.textContent?.includes("Клиенты в интерфейс"),
+      button.textContent?.includes("Устройства в интерфейс"),
     );
     if (clientsTab === undefined) throw new Error("clients tab is missing");
     clientsTab.click();
 
     await vi.waitFor(() => {
-      expect(document.body.textContent).toContain("Импорт клиентов в интерфейс");
+      expect(document.body.textContent).toContain("Импорт устройств в интерфейс");
     });
     expect(document.body.textContent).toContain("Определить автоматически");
 
@@ -402,7 +402,7 @@ describe("ImportPageVM constructor DI", () => {
     await vm.previewNow();
 
     await vi.waitFor(() => {
-      expect(document.body.textContent).toContain("Серверные пиры без клиентов");
+      expect(document.body.textContent).toContain("Серверные пиры без устройств");
       expect(document.body.textContent).toContain("peer-aaa…aaaa");
       expect(document.body.textContent).toContain("10.8.0.9/24");
       expect(document.body.textContent).toContain("Внешних к созданию");

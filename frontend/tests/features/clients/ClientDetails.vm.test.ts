@@ -1066,7 +1066,7 @@ describe("ClientDetailsVM", () => {
     await vm.remove();
 
     expect(confirmMock.askConfirm).toHaveBeenCalledWith({
-      title: "Удаление клиента",
+      title: "Удаление устройства",
       message: "Удалить устройство «laptop»? Действие необратимо.",
       confirmLabel: "Удалить",
       tone: "danger",

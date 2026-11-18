@@ -11,7 +11,7 @@ export interface RouteDef {
 export const ROUTES: RouteDef[] = [
   { name: "overview", path: "/", title: "Обзор" },
   { name: "nodes", path: "/nodes", title: "Ноды", adminOnly: true },
-  { name: "interfaces", path: "/interfaces", title: "Интерфейсы" },
+  { name: "interfaces", path: "/interfaces", title: "Интерфейсы", adminOnly: true },
   { name: "groups", path: "/groups", title: "Группы", adminOnly: true },
   { name: "group", path: "/groups/:id", title: "Группа", adminOnly: true },
   { name: "clients", path: "/clients", title: "Клиенты" },

@@ -134,7 +134,7 @@ describe("Overview groups card", () => {
     const labels = Array.from(document.querySelectorAll(".stat__label")).map((node) => node.textContent?.trim());
     expect(labels).toContain("Ноды");
     expect(labels).toContain("Интерфейсы");
-    expect(labels).toContain("Клиенты");
+    expect(labels).toContain("Устройства");
     expect(labels).not.toContain("Группы");
 
     result.dispose();

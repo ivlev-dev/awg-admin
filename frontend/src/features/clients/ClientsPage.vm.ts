@@ -239,6 +239,7 @@ export class ClientsPageVM {
   get canCreate(): boolean {
     if (this.submitting || this.formName.trim().length === 0) return false;
     if (this.isAdmin && this.formUserId.length === 0) return false;
+    if (!this.isAdmin) return true;
     return this.selectedInterfaceId.length > 0;
   }
 
@@ -371,7 +372,7 @@ export class ClientsPageVM {
       return;
     }
     const interfaceId = this.selectedInterfaceId;
-    if (interfaceId.length === 0) {
+    if (this.isAdmin && interfaceId.length === 0) {
       this.toasts.error(t("clients.error.interface"));
       return;
     }
@@ -380,7 +381,7 @@ export class ClientsPageVM {
       const device = await this.devicesService.createDevice({
         user_id: userId,
         group_id: this.formInterfaceGroupId,
-        interface_id: interfaceId,
+        ...(interfaceId.length > 0 ? { interface_id: interfaceId } : {}),
         name,
         down_kbps: this.formDownKbps,
         up_kbps: this.formUpKbps,

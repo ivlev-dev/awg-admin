@@ -50,7 +50,7 @@ export const ruStats = {
   "stats.devices.column.monthRx": "Месяц вход",
   "stats.devices.column.monthTx": "Месяц исход",
   "stats.devices.emptyTitle": "Устройств нет",
-  "stats.devices.emptyText": "Создайте клиента, и здесь появится его трафик.",
+  "stats.devices.emptyText": "Создайте устройства, и здесь появится его трафик.",
   "stats.devices.open": "Открыть",
   "stats.devices.noData": "нет данных",
   "stats.scope.global": "Все устройства",

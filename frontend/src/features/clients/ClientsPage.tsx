@@ -80,7 +80,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 onInput={(event: Event) => this.vm.setQuery(event)}
               />
             </div>
-            <Show when={this.vm.interfaceOptions.length > 0}>
+            <Show when={this.vm.isAdmin && this.vm.interfaceOptions.length > 0}>
               <div class="field">
                 <label for="clients-interface">{t("clients.filter.interface")}</label>
                 <Select
@@ -405,17 +405,22 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 />
               </div>
             </Show>
-            <div class="field">
-              <label for="client-interface">{t("clients.form.interface")}</label>
-              <Select
-                id="client-interface"
-                value={this.vm.formInterfaceId}
-                options={[{ value: "", label: t("clients.form.interfaceNone") }, ...this.vm.formInterfaceOptions]}
-                onChange={(value) => this.vm.setFormInterface(value)}
-                ariaLabel={t("clients.form.interface")}
-              />
-              <div class="hint">{t("clients.form.interfaceHint")}</div>
-            </div>
+            <Show when={this.vm.isAdmin}>
+              <div class="field">
+                <label for="client-interface">{t("clients.form.interface")}</label>
+                <Select
+                  id="client-interface"
+                  value={this.vm.formInterfaceId}
+                  options={[{ value: "", label: t("clients.form.interfaceNone") }, ...this.vm.formInterfaceOptions]}
+                  onChange={(value) => this.vm.setFormInterface(value)}
+                  ariaLabel={t("clients.form.interface")}
+                />
+                <div class="hint">{t("clients.form.interfaceHint")}</div>
+              </div>
+            </Show>
+            <Show when={!this.vm.isAdmin}>
+              <div class="hint">{t("clients.form.interfaceAuto")}</div>
+            </Show>
           </div>
 
           <Show when={!this.vm.isAdmin}>

@@ -19,7 +19,7 @@ export const ruTariffs = {
   "tariffs.column.actions": "Действия",
   "tariffs.quota.unlimited": "Безлимит",
   "tariffs.form.interface": "Интерфейс",
-  "tariffs.form.interfaceHint": "Клиенты этого тарифа будут создаваться на выбранном интерфейсе",
+  "tariffs.form.interfaceHint": "Устройства этого тарифа будут создаваться на выбранном интерфейсе",
   "tariffs.form.interfaceNone": "Не привязан",
   "tariffs.discard.title": "Отменить изменения?",
   "tariffs.discard.message": "Введённые данные не сохранятся.",
