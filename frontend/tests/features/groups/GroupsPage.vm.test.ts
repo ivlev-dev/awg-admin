@@ -247,6 +247,149 @@ describe("GroupsPageVM", () => {
     expect(vm.error).toBe("Группа «Офис» содержит интерфейсы — сначала отвяжите их от группы.");
   });
 
+  it("toggles a single group selection", () => {
+    const { vm } = makeVm();
+    vm.groups = [group(), group({ id: "g2", name: "Склад" })];
+
+    vm.toggleSelected("g1");
+
+    expect(vm.isSelected("g1")).toBe(true);
+    expect(vm.selectedCount).toBe(1);
+    expect(vm.someSelected).toBe(true);
+    expect(vm.allSelected).toBe(false);
+
+    vm.toggleSelected("g1");
+
+    expect(vm.isSelected("g1")).toBe(false);
+    expect(vm.selectedCount).toBe(0);
+    expect(vm.someSelected).toBe(false);
+  });
+
+  it("selects and clears all groups", () => {
+    const { vm } = makeVm();
+    vm.groups = [group(), group({ id: "g2", name: "Склад" })];
+
+    vm.toggleSelectAll();
+
+    expect(vm.selectedIds).toEqual(["g1", "g2"]);
+    expect(vm.allSelected).toBe(true);
+    expect(vm.someSelected).toBe(false);
+
+    vm.toggleSelectAll();
+
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.allSelected).toBe(false);
+  });
+
+  it("does not treat an empty list as fully selected", () => {
+    const { vm } = makeVm();
+
+    vm.toggleSelectAll();
+
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.allSelected).toBe(false);
+  });
+
+  it("clears the selection", () => {
+    const { vm } = makeVm();
+    vm.groups = [group(), group({ id: "g2", name: "Склад" })];
+    vm.toggleSelectAll();
+
+    vm.clearSelection();
+
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.selectedCount).toBe(0);
+  });
+
+  it("bulk deletes the selected groups", async () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    repo.groups.set("g2", group({ id: "g2", name: "Склад" }));
+    const { vm, toasts } = makeVm(repo);
+    await vm.load();
+    repo.listGroups.mockClear();
+    vm.toggleSelectAll();
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
+
+    await vm.bulkDelete();
+
+    expect(confirm).toHaveBeenCalledWith("Удалить выбранные группы (2)?");
+    expect(repo.deleteGroup).toHaveBeenCalledWith("g1");
+    expect(repo.deleteGroup).toHaveBeenCalledWith("g2");
+    expect(repo.listGroups).toHaveBeenCalledTimes(1);
+    expect(vm.groups).toEqual([]);
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.bulkBusy).toBe(false);
+    expect(
+      toasts.items.some((item) => item.kind === "success" && item.message === "Готово: 2, ошибок: 0"),
+    ).toBe(true);
+  });
+
+  it("reports a partial failure and keeps the failed group in the list", async () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    repo.groups.set("g2", group({ id: "g2", name: "Склад" }));
+    repo.deleteGroup.mockImplementation(async (id: string): Promise<void> => {
+      if (id === "g2") throw new Error("group still has interfaces");
+      repo.groups.delete(id);
+    });
+    const { vm, toasts } = makeVm(repo);
+    await vm.load();
+    vm.toggleSelectAll();
+    window.confirm = vi.fn(() => true);
+
+    await vm.bulkDelete();
+
+    expect(repo.deleteGroup).toHaveBeenCalledTimes(2);
+    expect(vm.groups.map((item) => item.id)).toEqual(["g2"]);
+    expect(vm.selectedIds).toEqual([]);
+    expect(
+      toasts.items.some((item) => item.kind === "error" && item.message === "Готово: 1, ошибок: 1"),
+    ).toBe(true);
+  });
+
+  it("does not delete anything when the bulk confirmation is rejected", async () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    const { vm } = makeVm(repo);
+    vm.toggleSelected("g1");
+    window.confirm = vi.fn(() => false);
+
+    await vm.bulkDelete();
+
+    expect(repo.deleteGroup).not.toHaveBeenCalled();
+    expect(vm.selectedIds).toEqual(["g1"]);
+  });
+
+  it("ignores bulk deletion without a selection", async () => {
+    const repo = new MemoryGroupsRepository();
+    const { vm } = makeVm(repo);
+    const confirm = vi.fn(() => true);
+    window.confirm = confirm;
+
+    await vm.bulkDelete();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(repo.deleteGroup).not.toHaveBeenCalled();
+  });
+
+  it("drops selected ids that disappeared after reload", async () => {
+    const repo = new MemoryGroupsRepository();
+    repo.groups.set("g1", group());
+    repo.groups.set("g2", group({ id: "g2", name: "Склад" }));
+    const { vm } = makeVm(repo);
+    await vm.load();
+    vm.toggleSelected("g1");
+    vm.toggleSelected("g2");
+
+    repo.groups.delete("g2");
+    await vm.reload();
+
+    expect(vm.selectedIds).toEqual(["g1"]);
+    expect(vm.selectedCount).toBe(1);
+  });
+
   it("opens the group page through the router", () => {
     const { vm, router } = makeVm();
 

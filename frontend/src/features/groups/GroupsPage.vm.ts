@@ -21,6 +21,9 @@ export class GroupsPageVM {
   @reactive accessor formError: string | null = null;
   @reactive accessor saving = false;
 
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
+
   constructor(
     private readonly groupsService: GroupsService,
     private readonly router: Router,
@@ -41,6 +44,39 @@ export class GroupsPageVM {
     return !this.saving && this.formName.trim().length > 0 && this.formBaseCidr.trim().length > 0;
   }
 
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  @computed
+  get allSelected(): boolean {
+    return this.groups.length > 0 && this.groups.every((group) => this.selectedIds.includes(group.id));
+  }
+
+  @computed
+  get someSelected(): boolean {
+    return this.selectedIds.length > 0 && !this.allSelected;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  toggleSelectAll(): void {
+    this.selectedIds = this.allSelected ? [] : this.groups.map((group) => group.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
   async load(): Promise<void> {
     this.loading = true;
     try {
@@ -54,6 +90,8 @@ export class GroupsPageVM {
     this.error = null;
     try {
       this.groups = await this.groupsService.listGroups();
+      const ids = new Set(this.groups.map((group) => group.id));
+      this.selectedIds = this.selectedIds.filter((id) => ids.has(id));
     } catch (error) {
       this.error = messageOf(error, t("groups.error.load"));
       this.toasts.error(this.error);
@@ -166,6 +204,32 @@ export class GroupsPageVM {
         : message;
       this.toasts.error(this.error);
     }
+  }
+
+  async bulkDelete(): Promise<void> {
+    const targets = this.groups.filter((group) => this.selectedIds.includes(group.id));
+    if (targets.length === 0) return;
+    if (!window.confirm(t("groups.bulk.confirm", { count: targets.length }))) return;
+
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    try {
+      for (const group of targets) {
+        try {
+          await this.groupsService.deleteGroup(group.id);
+          done += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+    } finally {
+      this.bulkBusy = false;
+    }
+
+    await this.reload();
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
   }
 }
 

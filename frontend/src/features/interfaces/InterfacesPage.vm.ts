@@ -10,10 +10,20 @@ import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
 import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
+import {
+  compareBoolean,
+  compareNumber,
+  compareText,
+  nextSort,
+  sortIndicator,
+  type SortState,
+} from "@/domain/table-sort";
 
 const DEFAULT_ENDPOINT_PORT = "443";
 const DEFAULT_LISTEN_PORT = "51820";
 const DEFAULT_MTU = "1420";
+
+export type InterfacesSortKey = "name" | "group" | "node" | "endpoint" | "peers" | "status";
 
 export class InterfacesPageVM {
   @reactive accessor interfaces: InterfaceInfo[] = [];
@@ -26,6 +36,7 @@ export class InterfacesPageVM {
   @reactive accessor search = "";
   @reactive accessor groupFilter = "";
   @reactive accessor nodeFilter = "";
+  @reactive accessor sort: SortState<InterfacesSortKey> | null = { key: "group", direction: "asc" };
 
   @reactive accessor createOpen = false;
   @reactive accessor formGroupId = "";
@@ -74,12 +85,38 @@ export class InterfacesPageVM {
   get visible(): InterfaceInfo[] {
     const query = this.search.trim().toLowerCase();
     const groupId = this.isAdmin ? this.groupFilter : this.ownGroupId ?? "";
-    return this.interfaces.filter((item) => {
+    const filtered = this.interfaces.filter((item) => {
       if (!this.isAdmin && (!this.ownGroupId || item.group_id !== this.ownGroupId)) return false;
       if (groupId && item.group_id !== groupId) return false;
       if (this.nodeFilter && item.node_id !== this.nodeFilter) return false;
       if (!query) return true;
       return item.name.toLowerCase().includes(query) || item.label.toLowerCase().includes(query);
+    });
+    return this.sorted(filtered);
+  }
+
+  sortBy(key: InterfacesSortKey): void {
+    this.sort = nextSort(this.sort, key);
+  }
+
+  sortMark(key: InterfacesSortKey): string {
+    return sortIndicator(this.sort, key);
+  }
+
+  private sorted(items: InterfaceInfo[]): InterfaceInfo[] {
+    const sort = this.sort;
+    if (sort === null) return items;
+    const direction = sort.direction;
+    const byName = (left: InterfaceInfo, right: InterfaceInfo): number => compareText(left.name, right.name, "asc");
+    return [...items].sort((left, right) => {
+      let result = 0;
+      if (sort.key === "name") result = compareText(left.name, right.name, direction);
+      else if (sort.key === "group") result = compareText(left.group_name, right.group_name, direction);
+      else if (sort.key === "node") result = compareText(left.node_name, right.node_name, direction);
+      else if (sort.key === "endpoint") result = compareText(left.endpoint_host, right.endpoint_host, direction);
+      else if (sort.key === "peers") result = compareNumber(left.peers, right.peers, direction);
+      else result = compareBoolean(left.enabled, right.enabled, direction);
+      return result !== 0 ? result : byName(left, right);
     });
   }
 
@@ -128,7 +165,7 @@ export class InterfacesPageVM {
         this.groupsService.listGroups(),
         this.nodesService.listNodes(),
       ]);
-      this.interfaces = sortInterfaces(interfaces);
+      this.interfaces = interfaces;
       this.groups = groups;
       this.nodes = nodes;
       this.syncFilters();
@@ -227,7 +264,7 @@ export class InterfacesPageVM {
     };
     try {
       const created = await this.interfacesService.createInterface(input);
-      this.interfaces = sortInterfaces([...this.interfaces, created]);
+      this.interfaces = [...this.interfaces, created];
       this.createOpen = false;
       this.toasts.success(t("interfaces.toast.created", { name: created.name }));
     } catch (error) {
@@ -471,9 +508,7 @@ export class InterfacesPageVM {
   }
 
   private replace(item: InterfaceInfo): void {
-    this.interfaces = sortInterfaces(
-      this.interfaces.map((current) => (current.id === item.id ? item : current)),
-    );
+    this.interfaces = this.interfaces.map((current) => (current.id === item.id ? item : current));
   }
 }
 
@@ -491,12 +526,5 @@ function isMtu(value: string): boolean {
   if (!/^\d+$/.test(value.trim())) return false;
   const mtu = Number(value);
   return mtu >= 576 && mtu <= 9000;
-}
-
-function sortInterfaces(items: InterfaceInfo[]): InterfaceInfo[] {
-  return [...items].sort(
-    (left, right) =>
-      left.group_name.localeCompare(right.group_name) || left.name.localeCompare(right.name),
-  );
 }
 

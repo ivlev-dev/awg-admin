@@ -10,6 +10,7 @@ import { ruOverview } from "./locales/ru/overview";
 import { ruProfile } from "./locales/ru/profile";
 import { ruSettings } from "./locales/ru/settings";
 import { ruStats } from "./locales/ru/stats";
+import { ruTariffs } from "./locales/ru/tariffs";
 import { ruUsers } from "./locales/ru/users";
 
 export const ru = {
@@ -25,6 +26,7 @@ export const ru = {
   ...ruProfile,
   ...ruSettings,
   ...ruStats,
+  ...ruTariffs,
   ...ruUsers,
 } as const;
 

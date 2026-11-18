@@ -1,6 +1,6 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
-import type { InterfacesPageVM } from "./InterfacesPage.vm";
+import type { InterfacesPageVM, InterfacesSortKey } from "./InterfacesPage.vm";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { Modal } from "@/components/Modal";
@@ -9,6 +9,14 @@ import { t } from "@/i18n";
 
 function avatarLetter(name: string): string {
   return name.trim().charAt(0).toUpperCase() || "?";
+}
+
+function ariaSort(
+  vm: InterfacesPageVM,
+  key: InterfacesSortKey,
+): "ascending" | "descending" | "none" {
+  if (vm.sort === null || vm.sort.key !== key) return "none";
+  return vm.sort.direction === "asc" ? "ascending" : "descending";
 }
 
 export function InterfacesPage(this: { vm: InterfacesPageVM }) {
@@ -124,11 +132,27 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
               <table class="table table--cards table--interfaces table--fixed table--desktop">
                 <thead>
                   <tr>
-                    <th class="col-interface">{t("interfaces.column.interface")}</th>
-                    <th class="col-address" style="width:230px">{t("interfaces.column.address")}</th>
-                    <th class="col-peers" style="width:110px">{t("interfaces.column.peers")}</th>
+                    <th class="col-interface is-sortable" aria-sort={ariaSort(this.vm, "name")}>
+                      <button type="button" onClick={() => this.vm.sortBy("name")}>
+                        {t("interfaces.column.interface")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
+                      </button>
+                    </th>
+                    <th class="col-address is-sortable" style="width:230px" aria-sort={ariaSort(this.vm, "endpoint")}>
+                      <button type="button" onClick={() => this.vm.sortBy("endpoint")}>
+                        {t("interfaces.column.address")} <span class="sort-indicator">{this.vm.sortMark("endpoint")}</span>
+                      </button>
+                    </th>
+                    <th class="col-peers is-sortable" style="width:110px" aria-sort={ariaSort(this.vm, "peers")}>
+                      <button type="button" onClick={() => this.vm.sortBy("peers")}>
+                        {t("interfaces.column.peers")} <span class="sort-indicator">{this.vm.sortMark("peers")}</span>
+                      </button>
+                    </th>
                     <th class="col-limits" style="width:160px">{t("interfaces.column.limits")}</th>
-                    <th class="col-status" style="width:170px">{t("interfaces.column.status")}</th>
+                    <th class="col-status is-sortable" style="width:170px" aria-sort={ariaSort(this.vm, "status")}>
+                      <button type="button" onClick={() => this.vm.sortBy("status")}>
+                        {t("interfaces.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
+                      </button>
+                    </th>
                     <th class="col-actions" style="width:218px"></th>
                   </tr>
                 </thead>

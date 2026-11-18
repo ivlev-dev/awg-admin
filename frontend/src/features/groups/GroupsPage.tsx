@@ -1,6 +1,7 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 
 import type { GroupsPageVM } from "./GroupsPage.vm";
+import { BulkBar } from "@/components/BulkBar";
 import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { t } from "@/i18n";
@@ -84,6 +85,20 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
             </button>
           </div>
         </div>
+        <Show when={!this.vm.loading && this.vm.groups.length > 0}>
+          <div class="row-between wrap" style="margin-top:12px">
+            <label class="checkbox">
+              <input
+                type="checkbox"
+                checked={this.vm.allSelected}
+                indeterminate={this.vm.someSelected}
+                onChange={() => this.vm.toggleSelectAll()}
+              />
+              <span>{t("groups.selectAll")}</span>
+            </label>
+            <span class="small muted">{t("bulk.selected", { count: this.vm.selectedCount })}</span>
+          </div>
+        </Show>
       </div>
 
       <Show when={this.vm.error}>
@@ -121,7 +136,17 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
                 <article class="card">
                   <div class="card__body stack-sm">
                     <div class="row-between">
-                      <div class="card__title truncate">{group.name}</div>
+                      <div class="row" style="min-width:0">
+                        <label class="checkbox" title={t("groups.selectAria", { name: group.name })}>
+                          <input
+                            type="checkbox"
+                            aria-label={t("groups.selectAria", { name: group.name })}
+                            checked={this.vm.isSelected(group.id)}
+                            onChange={() => this.vm.toggleSelected(group.id)}
+                          />
+                        </label>
+                        <div class="card__title truncate">{group.name}</div>
+                      </div>
                       <Show when={group.forwarding_default}>
                         <span class="badge badge--blue">forwarding_default</span>
                       </Show>
@@ -165,6 +190,22 @@ export function GroupsPage(this: { vm: GroupsPageVM }) {
             </For>
           </div>
         </Show>
+      </Show>
+
+      <Show when={this.vm.selectedCount > 0}>
+        <BulkBar
+          count={this.vm.selectedCount}
+          busy={this.vm.bulkBusy}
+          onClear={() => this.vm.clearSelection()}
+          actions={[
+            {
+              label: t("groups.bulk.delete"),
+              variant: "danger",
+              disabled: this.vm.bulkBusy,
+              onClick: () => { void this.vm.bulkDelete(); },
+            },
+          ]}
+        />
       </Show>
 
       <Modal

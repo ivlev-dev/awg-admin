@@ -33,6 +33,20 @@ const PRO: Tariff = {
   updated_at: "2020-01-01T00:00:00Z",
 };
 
+const PREMIUM: Tariff = {
+  id: "t3",
+  name: "Premium",
+  description: "Максимальный",
+  max_devices: 10,
+  device_down_kbps: 1000,
+  device_up_kbps: 500,
+  group_down_kbps: 2000,
+  group_up_kbps: 1000,
+  traffic_quota_bytes: 50 * 1024 * 1024 * 1024,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+};
+
 class MemoryTariffsRepository {
   tariffs: Tariff[];
   failure: Error | null = null;
@@ -247,5 +261,223 @@ describe("TariffsPageVM", () => {
     await vm.remove(PRO.id);
 
     expect(repo.tariffs).toHaveLength(2);
+  });
+});
+
+describe("TariffsPageVM sorting", () => {
+  it("sorts by name ascending by default", async () => {
+    const { vm } = setup([PRO, TARIFF]);
+    await vm.load();
+
+    expect(vm.sort).toEqual({ key: "name", direction: "asc" });
+    expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Basic", "Pro"]);
+    expect(vm.sortMark("name")).toBe("▲");
+  });
+
+  it("sorts by a numeric field and toggles the direction", async () => {
+    const { vm } = setup([PRO, TARIFF]);
+    await vm.load();
+
+    vm.sortBy("max_devices");
+    expect(vm.visible.map((tariff) => tariff.max_devices)).toEqual([2, 5]);
+    expect(vm.sortMark("max_devices")).toBe("▲");
+    expect(vm.sortMark("name")).toBe("");
+
+    vm.sortBy("max_devices");
+    expect(vm.sort).toEqual({ key: "max_devices", direction: "desc" });
+    expect(vm.visible.map((tariff) => tariff.max_devices)).toEqual([5, 2]);
+    expect(vm.sortMark("max_devices")).toBe("▼");
+  });
+
+  it.each([
+    "max_devices",
+    "device_down_kbps",
+    "device_up_kbps",
+    "group_down_kbps",
+    "group_up_kbps",
+  ] as const)("sorts by %s in both directions", async (key) => {
+    const { vm } = setup([PREMIUM, TARIFF, PRO]);
+    await vm.load();
+
+    vm.sortBy(key);
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([TARIFF.id, PRO.id, PREMIUM.id]);
+
+    vm.sortBy(key);
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([PREMIUM.id, PRO.id, TARIFF.id]);
+  });
+
+  it("places an unlimited quota last in ascending order", async () => {
+    const { vm } = setup([TARIFF, PRO]);
+    await vm.load();
+
+    vm.sortBy("traffic_quota_bytes");
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([PRO.id, TARIFF.id]);
+
+    vm.sortBy("traffic_quota_bytes");
+    expect(vm.visible.map((tariff) => tariff.id)).toEqual([TARIFF.id, PRO.id]);
+  });
+});
+
+describe("TariffsPageVM search", () => {
+  it("filters by name and description", async () => {
+    const { vm } = setup();
+    await vm.load();
+
+    vm.search = "продв";
+    expect(vm.searchActive).toBe(true);
+    expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Pro"]);
+    expect(vm.foundLabel).toBe("Найдено: 1");
+
+    vm.search = "basic";
+    expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Basic"]);
+
+    vm.search = "  pro  ";
+    expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Pro"]);
+  });
+
+  it("updates the query from the input event", async () => {
+    const { vm } = setup();
+    await vm.load();
+
+    vm.setSearch({ target: { value: "pro" } } as unknown as Event);
+
+    expect(vm.search).toBe("pro");
+    expect(vm.visible.map((tariff) => tariff.name)).toEqual(["Pro"]);
+  });
+
+  it("returns an empty list and resets the query", async () => {
+    const { vm } = setup();
+    await vm.load();
+
+    vm.search = "нет такого";
+    expect(vm.visible).toEqual([]);
+    expect(vm.foundLabel).toBe("Найдено: 0");
+
+    vm.resetSearch();
+    expect(vm.searchActive).toBe(false);
+    expect(vm.visible).toHaveLength(2);
+  });
+
+  it("keeps selection operations scoped to visible rows", async () => {
+    const { vm } = setup();
+    await vm.load();
+    vm.search = "pro";
+
+    vm.toggleSelectAll();
+
+    expect(vm.selectedIds).toEqual([PRO.id]);
+    expect(vm.isSelected(PRO.id)).toBe(true);
+    expect(vm.isSelected(TARIFF.id)).toBe(false);
+  });
+});
+
+describe("TariffsPageVM selection", () => {
+  it("toggles a single row", async () => {
+    const { vm } = setup();
+    await vm.load();
+
+    expect(vm.selectedCount).toBe(0);
+
+    vm.toggleSelected(TARIFF.id);
+    expect(vm.selectedCount).toBe(1);
+    expect(vm.isSelected(TARIFF.id)).toBe(true);
+    expect(vm.allVisibleSelected).toBe(false);
+
+    vm.toggleSelected(TARIFF.id);
+    expect(vm.selectedCount).toBe(0);
+    expect(vm.isSelected(TARIFF.id)).toBe(false);
+  });
+
+  it("selects and clears all visible rows", async () => {
+    const { vm } = setup([TARIFF, PRO, PREMIUM]);
+    await vm.load();
+
+    vm.toggleSelectAll();
+    expect(vm.selectedIds).toEqual([TARIFF.id, PREMIUM.id, PRO.id]);
+    expect(vm.allVisibleSelected).toBe(true);
+
+    vm.toggleSelectAll();
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.allVisibleSelected).toBe(false);
+
+    vm.toggleSelectAll();
+    vm.clearSelection();
+    expect(vm.selectedIds).toEqual([]);
+  });
+
+  it("selects all rows in the current sort order", async () => {
+    const { vm } = setup([TARIFF, PRO]);
+    await vm.load();
+    vm.sortBy("max_devices");
+    vm.sortBy("max_devices");
+
+    vm.toggleSelectAll();
+
+    expect(vm.selectedIds).toEqual([PRO.id, TARIFF.id]);
+  });
+});
+
+describe("TariffsPageVM bulk delete", () => {
+  it("deletes the selected tariffs and reloads the list", async () => {
+    const confirm = stubConfirm(true);
+    const { vm, repo, service, toasts } = setup([TARIFF, PRO, PREMIUM]);
+    await vm.load();
+    const listSpy = vi.spyOn(service, "listTariffs");
+
+    vm.toggleSelected(TARIFF.id);
+    vm.toggleSelected(PRO.id);
+    await vm.bulkDelete();
+
+    expect(confirm).toHaveBeenCalledWith("Удалить выбранные записи (2)?");
+    expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);
+    expect(vm.tariffs.map((tariff) => tariff.id)).toEqual([PREMIUM.id]);
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.bulkBusy).toBe(false);
+    expect(listSpy).toHaveBeenCalledTimes(1);
+    expect(toastMessages(toasts)).toContain("Готово: 2, ошибок: 0");
+  });
+
+  it("reports a partial failure and keeps the selection cleared", async () => {
+    stubConfirm(true);
+    const { vm, repo, service, toasts } = setup([TARIFF, PRO, PREMIUM]);
+    await vm.load();
+    vi.spyOn(service, "deleteTariff").mockImplementation(async (id: string) => {
+      if (id === PRO.id) throw new Error("Сервер отклонил запрос");
+      await repo.deleteTariff(id);
+    });
+
+    vm.toggleSelectAll();
+    await vm.bulkDelete();
+
+    expect(repo.tariffs.map((tariff) => tariff.id)).toEqual([PRO.id]);
+    expect(vm.tariffs.map((tariff) => tariff.id)).toEqual([PRO.id]);
+    expect(vm.selectedIds).toEqual([]);
+    expect(vm.bulkBusy).toBe(false);
+    expect(toastMessages(toasts)).toContain("Готово: 2, ошибок: 1");
+    expect(toasts.items.at(-1)?.kind).toBe("error");
+  });
+
+  it("does nothing without a selection", async () => {
+    const confirm = stubConfirm(true);
+    const { vm, service } = setup();
+    await vm.load();
+    const deleteSpy = vi.spyOn(service, "deleteTariff");
+
+    await vm.bulkDelete();
+
+    expect(confirm).not.toHaveBeenCalled();
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the selection when the confirmation is declined", async () => {
+    stubConfirm(false);
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.toggleSelected(PRO.id);
+
+    await vm.bulkDelete();
+
+    expect(repo.tariffs).toHaveLength(2);
+    expect(vm.selectedIds).toEqual([PRO.id]);
   });
 });

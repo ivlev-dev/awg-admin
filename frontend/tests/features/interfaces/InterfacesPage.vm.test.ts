@@ -283,11 +283,45 @@ describe("InterfacesPageVM", () => {
 
     await harness.vm.load();
 
-    expect(harness.vm.interfaces.map((item) => item.id)).toEqual(["i1", "i2"]);
+    expect(harness.vm.interfaces).toHaveLength(2);
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i1", "i2"]);
     expect(harness.vm.groups).toHaveLength(1);
     expect(harness.vm.nodes).toHaveLength(1);
     expect(harness.vm.loading).toBe(false);
     expect(harness.vm.error).toBeNull();
+  });
+
+  it("sorts visible interfaces by peers and toggles direction", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", name: "wg0", peers: 5 }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", name: "wg1", peers: 1 }));
+    harness.interfacesRepo.items.set("i3", iface({ id: "i3", name: "wg2", peers: 9 }));
+
+    await harness.vm.load();
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i1", "i2", "i3"]);
+
+    harness.vm.sortBy("peers");
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i2", "i1", "i3"]);
+    expect(harness.vm.sortMark("peers")).toBe("▲");
+
+    harness.vm.sortBy("peers");
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i3", "i1", "i2"]);
+    expect(harness.vm.sortMark("peers")).toBe("▼");
+    expect(harness.vm.sortMark("name")).toBe("");
+  });
+
+  it("sorts by status and endpoint with name as tie breaker", async () => {
+    const harness = makeVm();
+    harness.interfacesRepo.items.set("i1", iface({ id: "i1", name: "wg1", enabled: false, endpoint_host: "b.example.com" }));
+    harness.interfacesRepo.items.set("i2", iface({ id: "i2", name: "wg2", enabled: true, endpoint_host: "a.example.com" }));
+    harness.interfacesRepo.items.set("i3", iface({ id: "i3", name: "wg0", enabled: false, endpoint_host: "c.example.com" }));
+
+    await harness.vm.load();
+    harness.vm.sortBy("status");
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i3", "i1", "i2"]);
+
+    harness.vm.sortBy("endpoint");
+    expect(harness.vm.visible.map((item) => item.id)).toEqual(["i2", "i1", "i3"]);
   });
 
   it("reports a load error", async () => {

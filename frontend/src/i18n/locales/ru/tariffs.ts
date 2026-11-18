@@ -1,0 +1,18 @@
+export const ruTariffs = {
+  "tariffs.search.label": "Поиск",
+  "tariffs.search.placeholder": "Название или описание",
+  "tariffs.search.found": "Найдено: {count}",
+  "tariffs.selectAll": "Выбрать все тарифы",
+  "tariffs.selectRow": "Выбрать тариф «{name}»",
+  "tariffs.bulk.delete": "Удалить выбранные",
+  "tariffs.confirm.delete": "Удалить тариф?",
+  "tariffs.column.name": "Название",
+  "tariffs.column.maxDevices": "Устройств",
+  "tariffs.column.deviceDown": "Устр. ↓",
+  "tariffs.column.deviceUp": "Устр. ↑",
+  "tariffs.column.groupDown": "Группа ↓",
+  "tariffs.column.groupUp": "Группа ↑",
+  "tariffs.column.quota": "Квота",
+  "tariffs.column.actions": "Действия",
+  "tariffs.quota.unlimited": "Безлимит",
+};

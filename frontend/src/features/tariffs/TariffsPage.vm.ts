@@ -3,14 +3,29 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import type { TariffsService } from "@/application/tariffs/service";
+import { compareNumber, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import type { TariffInput } from "@/domain/tariffs/types";
 import type { Tariff } from "@/domain/types";
 import { validateTariff } from "@/domain/validation";
+import { t } from "@/i18n";
+
+export type TariffsSortKey =
+  | "name"
+  | "max_devices"
+  | "device_down_kbps"
+  | "device_up_kbps"
+  | "group_down_kbps"
+  | "group_up_kbps"
+  | "traffic_quota_bytes";
 
 export class TariffsPageVM {
   @reactive accessor tariffs: Tariff[] = [];
   @reactive accessor loading = true;
   @reactive accessor error: string | null = null;
+  @reactive accessor search = "";
+  @reactive accessor selectedIds: string[] = [];
+  @reactive accessor bulkBusy = false;
+  @reactive accessor sort: SortState<TariffsSortKey> | null = { key: "name", direction: "asc" };
 
   @reactive accessor modalOpen = false;
   @reactive accessor editingId: string | null = null;
@@ -50,6 +65,124 @@ export class TariffsPageVM {
   @computed
   get title(): string {
     return this.editingId ? "Редактировать тариф" : "Новый тариф";
+  }
+
+  @computed
+  get searchActive(): boolean {
+    return this.search.trim().length > 0;
+  }
+
+  @computed
+  get visible(): Tariff[] {
+    const query = this.search.trim().toLowerCase();
+    const filtered = this.tariffs.filter((tariff) => {
+      if (query.length === 0) return true;
+      return tariff.name.toLowerCase().includes(query)
+        || tariff.description.toLowerCase().includes(query);
+    });
+    const sort = this.sort;
+    if (sort === null) return filtered;
+    const direction = sort.direction;
+    return [...filtered].sort((left, right) => {
+      if (sort.key === "name") return compareText(left.name, right.name, direction);
+      if (sort.key === "max_devices") {
+        return compareNumber(left.max_devices, right.max_devices, direction);
+      }
+      if (sort.key === "device_down_kbps") {
+        return compareNumber(left.device_down_kbps, right.device_down_kbps, direction);
+      }
+      if (sort.key === "device_up_kbps") {
+        return compareNumber(left.device_up_kbps, right.device_up_kbps, direction);
+      }
+      if (sort.key === "group_down_kbps") {
+        return compareNumber(left.group_down_kbps, right.group_down_kbps, direction);
+      }
+      if (sort.key === "group_up_kbps") {
+        return compareNumber(left.group_up_kbps, right.group_up_kbps, direction);
+      }
+      return compareNumber(
+        quotaSortValue(left.traffic_quota_bytes),
+        quotaSortValue(right.traffic_quota_bytes),
+        direction,
+      );
+    });
+  }
+
+  sortBy(key: TariffsSortKey): void {
+    this.sort = nextSort(this.sort, key);
+  }
+
+  sortMark(key: TariffsSortKey): string {
+    return sortIndicator(this.sort, key);
+  }
+
+  setSearch(event: Event): void {
+    this.search = (event.target as HTMLInputElement).value;
+  }
+
+  resetSearch(): void {
+    this.search = "";
+  }
+
+  @computed
+  get foundLabel(): string {
+    return t("tariffs.search.found", { count: this.visible.length });
+  }
+
+  @computed
+  get selectedCount(): number {
+    return this.selectedIds.length;
+  }
+
+  isSelected(id: string): boolean {
+    return this.selectedIds.includes(id);
+  }
+
+  toggleSelected(id: string): void {
+    this.selectedIds = this.isSelected(id)
+      ? this.selectedIds.filter((value) => value !== id)
+      : [...this.selectedIds, id];
+  }
+
+  @computed
+  get allVisibleSelected(): boolean {
+    return this.visible.length > 0
+      && this.visible.every((tariff) => this.selectedIds.includes(tariff.id));
+  }
+
+  toggleSelectAll(): void {
+    if (this.allVisibleSelected) {
+      this.clearSelection();
+      return;
+    }
+    this.selectedIds = this.visible.map((tariff) => tariff.id);
+  }
+
+  clearSelection(): void {
+    this.selectedIds = [];
+  }
+
+  async bulkDelete(): Promise<void> {
+    const ids = this.tariffs
+      .filter((tariff) => this.selectedIds.includes(tariff.id))
+      .map((tariff) => tariff.id);
+    if (ids.length === 0) return;
+    if (!window.confirm(t("bulk.confirm.delete", { count: ids.length }))) return;
+    this.bulkBusy = true;
+    let done = 0;
+    let failed = 0;
+    for (const id of ids) {
+      try {
+        await this.tariffsService.deleteTariff(id);
+        done += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    this.bulkBusy = false;
+    this.clearSelection();
+    this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done, failed }));
+    await this.load();
   }
 
   openCreate(): void {
@@ -181,7 +314,7 @@ export class TariffsPageVM {
   }
 
   async remove(id: string): Promise<void> {
-    if (!window.confirm("Удалить тариф?")) return;
+    if (!window.confirm(t("tariffs.confirm.delete"))) return;
     try {
       await this.tariffsService.deleteTariff(id);
       this.toasts.success("Тариф удалён");
@@ -190,4 +323,8 @@ export class TariffsPageVM {
       this.toasts.error(userMessage(error, "Не удалось удалить тариф"));
     }
   }
+}
+
+function quotaSortValue(value: number | null): number {
+  return value === null ? Number.POSITIVE_INFINITY : value;
 }

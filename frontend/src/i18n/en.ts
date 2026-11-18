@@ -12,6 +12,7 @@ import { enOverview } from "./locales/en/overview";
 import { enProfile } from "./locales/en/profile";
 import { enSettings } from "./locales/en/settings";
 import { enStats } from "./locales/en/stats";
+import { enTariffs } from "./locales/en/tariffs";
 import { enUsers } from "./locales/en/users";
 
 export const en: Dictionary = {
@@ -27,5 +28,6 @@ export const en: Dictionary = {
   ...enProfile,
   ...enSettings,
   ...enStats,
+  ...enTariffs,
   ...enUsers,
 };

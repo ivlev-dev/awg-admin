@@ -1,0 +1,18 @@
+export const enTariffs = {
+  "tariffs.search.label": "Search",
+  "tariffs.search.placeholder": "Name or description",
+  "tariffs.search.found": "Found: {count}",
+  "tariffs.selectAll": "Select all tariffs",
+  "tariffs.selectRow": "Select tariff “{name}”",
+  "tariffs.bulk.delete": "Delete selected",
+  "tariffs.confirm.delete": "Delete the tariff?",
+  "tariffs.column.name": "Name",
+  "tariffs.column.maxDevices": "Devices",
+  "tariffs.column.deviceDown": "Device ↓",
+  "tariffs.column.deviceUp": "Device ↑",
+  "tariffs.column.groupDown": "Group ↓",
+  "tariffs.column.groupUp": "Group ↑",
+  "tariffs.column.quota": "Quota",
+  "tariffs.column.actions": "Actions",
+  "tariffs.quota.unlimited": "Unlimited",
+};
