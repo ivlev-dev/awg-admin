@@ -111,6 +111,7 @@ mod tests {
                     group_down_kbps: 200_000,
                     group_up_kbps: 100_000,
                     traffic_quota_bytes: Some(quota),
+                    interface_id: None,
                 })
                 .unwrap()
                 .id

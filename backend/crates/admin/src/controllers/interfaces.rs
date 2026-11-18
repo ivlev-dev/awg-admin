@@ -242,7 +242,7 @@ mod tests {
         let by_id: HashMap<Uuid, &InterfaceView> =
             views.iter().map(|view| (view.id, view)).collect();
         assert_eq!(by_id[&sample.iface_a0].peers, 2);
-        assert_eq!(by_id[&sample.iface_a1].peers, 1);
+        assert_eq!(by_id[&sample.iface_a1].peers, 0);
         assert_eq!(by_id[&sample.iface_b0].peers, 1);
         assert_eq!(by_id[&sample.iface_a0].group_name, "alpha");
         assert_eq!(by_id[&sample.iface_b0].group_name, "beta");

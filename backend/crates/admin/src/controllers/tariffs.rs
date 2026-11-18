@@ -19,7 +19,23 @@ pub async fn list(
 ) -> ApiResult<Json<Vec<TariffView>>> {
     user.require_admin()?;
     let items = state.tariffs.list().map_err(ApiError::from)?;
-    Ok(Json(items.into_iter().map(TariffView::from).collect()))
+    let interface_names: std::collections::HashMap<Uuid, String> = state
+        .network
+        .list_interfaces()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|interface| (interface.id, interface.name))
+        .collect();
+    let views = items
+        .into_iter()
+        .map(|tariff| {
+            let name = tariff
+                .interface_id
+                .and_then(|id| interface_names.get(&id).cloned());
+            TariffView::build(tariff, name)
+        })
+        .collect();
+    Ok(Json(views))
 }
 
 pub async fn create(
@@ -28,6 +44,7 @@ pub async fn create(
     Json(request): Json<CreateTariffRequest>,
 ) -> ApiResult<Json<TariffView>> {
     user.require_admin()?;
+    ensure_interface(&state, request.interface_id)?;
     let tariff = state
         .tariffs
         .create(NewTariff {
@@ -39,9 +56,13 @@ pub async fn create(
             group_down_kbps: request.group_down_kbps,
             group_up_kbps: request.group_up_kbps,
             traffic_quota_bytes: request.traffic_quota_bytes,
+            interface_id: request.interface_id,
         })
         .map_err(ApiError::from)?;
-    Ok(Json(TariffView::from(tariff)))
+    Ok(Json(TariffView::build(
+        tariff.clone(),
+        interface_name(&state, tariff.interface_id)?,
+    )))
 }
 
 pub async fn update(
@@ -51,6 +72,9 @@ pub async fn update(
     Json(request): Json<UpdateTariffRequest>,
 ) -> ApiResult<Json<TariffView>> {
     user.require_admin()?;
+    if let Some(Some(interface_id)) = request.interface_id {
+        ensure_interface(&state, Some(interface_id))?;
+    }
     let tariff = state
         .tariffs
         .update(
@@ -64,6 +88,7 @@ pub async fn update(
                 group_down_kbps: request.group_down_kbps,
                 group_up_kbps: request.group_up_kbps,
                 traffic_quota_bytes: request.traffic_quota_bytes,
+                interface_id: request.interface_id,
             },
         )
         .map_err(ApiError::from)?;
@@ -75,7 +100,10 @@ pub async fn update(
             publish_user_groups(&state, user.id);
         }
     }
-    Ok(Json(TariffView::from(tariff)))
+    Ok(Json(TariffView::build(
+        tariff.clone(),
+        interface_name(&state, tariff.interface_id)?,
+    )))
 }
 
 pub async fn delete(
@@ -86,4 +114,27 @@ pub async fn delete(
     user.require_admin()?;
     state.tariffs.delete(id).map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
+}
+
+fn ensure_interface(state: &AppState, interface_id: Option<Uuid>) -> ApiResult<()> {
+    if let Some(interface_id) = interface_id {
+        state
+            .network
+            .get_interface(interface_id)
+            .map_err(ApiError::from)?;
+    }
+    Ok(())
+}
+
+fn interface_name(state: &AppState, interface_id: Option<Uuid>) -> ApiResult<Option<String>> {
+    match interface_id {
+        Some(interface_id) => Ok(Some(
+            state
+                .network
+                .get_interface(interface_id)
+                .map_err(ApiError::from)?
+                .name,
+        )),
+        None => Ok(None),
+    }
 }

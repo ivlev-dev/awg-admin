@@ -21,6 +21,7 @@ fn tariff(service: &TariffService, quota: Option<u64>) -> Uuid {
             group_down_kbps: 200_000,
             group_up_kbps: 100_000,
             traffic_quota_bytes: quota,
+            interface_id: None,
         })
         .unwrap()
         .id

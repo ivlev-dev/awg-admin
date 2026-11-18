@@ -19,6 +19,10 @@ pub struct DeviceView {
     pub id: Uuid,
     pub user_id: Uuid,
     pub group_id: Uuid,
+    pub interface_id: Uuid,
+    pub interface_name: String,
+    pub node_id: Uuid,
+    pub node_name: String,
     pub name: String,
     pub down_kbps: u32,
     pub up_kbps: u32,
@@ -36,6 +40,9 @@ impl DeviceView {
         device: &Device,
         peers: &[DevicePeer],
         names: &[(Uuid, String, Vec<String>)],
+        interface_name: &str,
+        node_id: Uuid,
+        node_name: &str,
     ) -> Self {
         let peer_views = peers
             .iter()
@@ -63,6 +70,10 @@ impl DeviceView {
             id: device.id,
             user_id: device.user_id,
             group_id: device.group_id,
+            interface_id: device.interface_id,
+            interface_name: interface_name.to_string(),
+            node_id,
+            node_name: node_name.to_string(),
             name: device.name.clone(),
             down_kbps: device.down_kbps,
             up_kbps: device.up_kbps,

@@ -55,12 +55,20 @@ impl ProfileService {
         }
         let pools = self.network.list_pools(device.group_id)?;
         let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
-        let peers = self.peers.by_device(device_id)?;
-        let mut profiles = Vec::with_capacity(peers.len());
-        for peer in peers {
-            profiles.push(self.build(device_id, &device, &peer, &pool_map)?);
-        }
-        Ok((device, profiles))
+        let peer = self
+            .peers
+            .find(device_id, device.interface_id)?
+            .or_else(|| {
+                let peers = self.peers.by_device(device_id).ok()?;
+                if peers.len() == 1 {
+                    peers.into_iter().next()
+                } else {
+                    None
+                }
+            })
+            .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        let profile = self.build(device_id, &device, &peer, &pool_map)?;
+        Ok((device, vec![profile]))
     }
 
     pub fn build_one(&self, device_id: Uuid, interface_id: Uuid) -> CoreResult<DeviceProfile> {

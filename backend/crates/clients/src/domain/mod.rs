@@ -27,6 +27,8 @@ pub struct Device {
     pub id: Uuid,
     pub user_id: Uuid,
     pub group_id: Uuid,
+    #[serde(default)]
+    pub interface_id: Uuid,
     pub name: String,
     pub down_kbps: u32,
     pub up_kbps: u32,
@@ -243,6 +245,7 @@ mod tests {
             id: Uuid::new_v4(),
             user_id: user,
             group_id: Uuid::nil(),
+            interface_id: Uuid::new_v4(),
             name: "d".into(),
             down_kbps: 0,
             up_kbps: 0,

@@ -28,6 +28,7 @@ use crate::domain::{
 pub struct NewDevice {
     pub user_id: Uuid,
     pub group_id: Uuid,
+    pub interface_id: Option<Uuid>,
     pub name: String,
     pub down_kbps: u32,
     pub up_kbps: u32,
@@ -107,13 +108,8 @@ impl DeviceService {
                 "user may only create devices in their own group".into(),
             ));
         }
-        let group = self.network.get_group(group_id)?;
-        let interfaces = self.network.interfaces_by_group(group_id)?;
-        if interfaces.iter().filter(|i| i.enabled).count() == 0 {
-            return Err(CoreError::Conflict(
-                "group has no enabled interfaces yet".into(),
-            ));
-        }
+        let interface = self.resolve_interface(user, group_id, tariff, input.interface_id)?;
+        let group = self.network.get_group(interface.group_id)?;
         let existing = self.devices.by_user(user.id)?;
         if existing.iter().filter(|d| !d.revoked).count() as u32 >= tariff.max_devices {
             return Err(CoreError::Conflict(format!(
@@ -143,6 +139,7 @@ impl DeviceService {
             id: Uuid::new_v4(),
             user_id: user.id,
             group_id: group.id,
+            interface_id: interface.id,
             name: input.name.trim().to_string(),
             down_kbps: down,
             up_kbps: up,
@@ -178,27 +175,79 @@ impl DeviceService {
             ips.insert(pool.id, IpAddr::V4(ip));
         }
 
-        let mut peers = Vec::new();
-        for interface in interfaces.iter().filter(|i| i.enabled) {
-            let keypair = generate_keypair();
-            let psk = random_key();
-            peers.push(DevicePeer {
-                device_id: device.id,
-                interface_id: interface.id,
-                public_key: keypair.public_key,
-                private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
-                preshared_key_sealed: self.sealer.seal_str(&psk)?,
-                ips: ips.clone(),
-                client_obf: generate_client_obf(settings),
-                created_at: now,
-            });
-        }
+        let keypair = generate_keypair();
+        let psk = random_key();
+        let peer = DevicePeer {
+            device_id: device.id,
+            interface_id: interface.id,
+            public_key: keypair.public_key,
+            private_key_sealed: self.sealer.seal_str(&keypair.private_key)?,
+            preshared_key_sealed: self.sealer.seal_str(&psk)?,
+            ips,
+            client_obf: generate_client_obf(settings),
+            created_at: now,
+        };
 
         self.devices.save(&device)?;
-        for peer in &peers {
-            self.peers.save(peer)?;
-        }
+        self.peers.save(&peer)?;
         Ok(device)
+    }
+
+    fn resolve_interface(
+        &self,
+        user: &User,
+        group_id: Uuid,
+        tariff: &Tariff,
+        requested: Option<Uuid>,
+    ) -> CoreResult<awg_network::Interface> {
+        if let Some(interface_id) = tariff.interface_id {
+            let interface = self.network.get_interface(interface_id)?;
+            if interface.group_id == group_id {
+                return self.ensure_interface_enabled(interface);
+            }
+            if user.group_id.is_some() {
+                return Err(CoreError::Forbidden(
+                    "tariff interface belongs to another group".into(),
+                ));
+            }
+            return self.ensure_interface_enabled(interface);
+        }
+        if let Some(interface_id) = requested {
+            let interface = self.network.get_interface(interface_id)?;
+            if interface.group_id != group_id {
+                return Err(CoreError::Forbidden(
+                    "interface belongs to another group".into(),
+                ));
+            }
+            return self.ensure_interface_enabled(interface);
+        }
+        let interfaces = self.network.interfaces_by_group(group_id)?;
+        let enabled: Vec<awg_network::Interface> = interfaces
+            .into_iter()
+            .filter(|interface| interface.enabled)
+            .collect();
+        match enabled.len() {
+            0 => Err(CoreError::Invalid(
+                "group has no enabled interfaces yet".into(),
+            )),
+            1 => enabled
+                .into_iter()
+                .next()
+                .ok_or_else(|| CoreError::Invalid("interface is missing".into())),
+            _ => Err(CoreError::Invalid(
+                "group has multiple enabled interfaces; interface_id is required".into(),
+            )),
+        }
+    }
+
+    fn ensure_interface_enabled(
+        &self,
+        interface: awg_network::Interface,
+    ) -> CoreResult<awg_network::Interface> {
+        if !interface.enabled {
+            return Err(CoreError::Conflict("interface is disabled".into()));
+        }
+        Ok(interface)
     }
 
     pub fn update(
@@ -272,6 +321,7 @@ impl DeviceService {
             id: Uuid::new_v4(),
             user_id,
             group_id,
+            interface_id,
             name: name.trim().to_string(),
             down_kbps: 0,
             up_kbps: 0,
@@ -323,6 +373,7 @@ impl DeviceService {
             id: Uuid::new_v4(),
             user_id,
             group_id,
+            interface_id,
             name: name.trim().to_string(),
             down_kbps: 0,
             up_kbps: 0,

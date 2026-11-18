@@ -17,6 +17,7 @@ pub struct NewTariff {
     pub group_down_kbps: u32,
     pub group_up_kbps: u32,
     pub traffic_quota_bytes: Option<u64>,
+    pub interface_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -29,6 +30,7 @@ pub struct TariffChanges {
     pub group_down_kbps: Option<u32>,
     pub group_up_kbps: Option<u32>,
     pub traffic_quota_bytes: Option<Option<u64>>,
+    pub interface_id: Option<Option<Uuid>>,
 }
 
 pub struct TariffService {
@@ -62,6 +64,7 @@ impl TariffService {
             group_down_kbps: input.group_down_kbps,
             group_up_kbps: input.group_up_kbps,
             traffic_quota_bytes: input.traffic_quota_bytes,
+            interface_id: input.interface_id,
             created_at: now,
             updated_at: now,
         };
@@ -93,8 +96,11 @@ impl TariffService {
         if let Some(value) = changes.group_up_kbps {
             tariff.group_up_kbps = value;
         }
-        if let Some(value) = changes.traffic_quota_bytes {
-            tariff.traffic_quota_bytes = value;
+        if let Some(traffic_quota_bytes) = changes.traffic_quota_bytes {
+            tariff.traffic_quota_bytes = traffic_quota_bytes;
+        }
+        if let Some(interface_id) = changes.interface_id {
+            tariff.interface_id = interface_id;
         }
         tariff.updated_at = Utc::now();
         tariff.validate()?;
@@ -191,6 +197,7 @@ mod tests {
             group_down_kbps: 200_000,
             group_up_kbps: 100_000,
             traffic_quota_bytes: Some(10_000_000_000),
+            interface_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -226,5 +233,63 @@ mod tests {
             LimitPolicy::effective_limits(&t, 20_000_000_000, &devices).unwrap(),
             vec![(1, 1)]
         );
+    }
+
+    fn new_tariff(interface_id: Option<Uuid>) -> NewTariff {
+        NewTariff {
+            name: "Bound".into(),
+            description: String::new(),
+            max_devices: 5,
+            device_down_kbps: 100_000,
+            device_up_kbps: 50_000,
+            group_down_kbps: 200_000,
+            group_up_kbps: 100_000,
+            traffic_quota_bytes: None,
+            interface_id,
+        }
+    }
+
+    #[test]
+    fn tariff_keeps_interface_and_can_clear_it() {
+        let store = Arc::new(awg_storage::Store::open_in_memory().unwrap());
+        let service = TariffService::new(Arc::new(crate::RedbTariffRepository::new(store)));
+        let interface_id = Uuid::new_v4();
+
+        let created = service.create(new_tariff(Some(interface_id))).unwrap();
+        assert_eq!(created.interface_id, Some(interface_id));
+        assert_eq!(
+            service.get(created.id).unwrap().interface_id,
+            Some(interface_id)
+        );
+
+        let updated = service
+            .update(
+                created.id,
+                TariffChanges {
+                    interface_id: Some(None),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.interface_id, None);
+    }
+
+    #[test]
+    fn tariff_update_without_interface_keeps_it() {
+        let store = Arc::new(awg_storage::Store::open_in_memory().unwrap());
+        let service = TariffService::new(Arc::new(crate::RedbTariffRepository::new(store)));
+        let interface_id = Uuid::new_v4();
+        let created = service.create(new_tariff(Some(interface_id))).unwrap();
+
+        let updated = service
+            .update(
+                created.id,
+                TariffChanges {
+                    name: Some("Renamed".into()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.interface_id, Some(interface_id));
     }
 }

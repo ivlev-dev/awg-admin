@@ -66,11 +66,22 @@ pub async fn create(
         .tariff_for(&owner)
         .map_err(ApiError::from)?
         .unwrap_or_else(unlimited_tariff);
-    let group_id = match request.group_id {
+    let group_id = match request.group_id.or(owner.group_id) {
         Some(id) => id,
-        None => owner
-            .group_id
-            .ok_or_else(|| ApiError::BadRequest("user has no group assigned".into()))?,
+        None => match tariff.interface_id {
+            Some(interface_id) => {
+                state
+                    .network
+                    .get_interface(interface_id)
+                    .map_err(ApiError::from)?
+                    .group_id
+            }
+            None => {
+                return Err(ApiError::BadRequest(
+                    "user has no group assigned and tariff has no interface".into(),
+                ));
+            }
+        },
     };
     let group = state.network.get_group(group_id).map_err(ApiError::from)?;
     let settings = state.settings.get().map_err(ApiError::from)?;
@@ -86,6 +97,7 @@ pub async fn create(
             NewDevice {
                 user_id: owner.id,
                 group_id,
+                interface_id: request.interface_id,
                 name: request.name,
                 down_kbps: request.down_kbps,
                 up_kbps: request.up_kbps,
@@ -94,7 +106,7 @@ pub async fn create(
             &settings.obfuscation,
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, group_id);
+    publish_group(&state, device.group_id);
     Ok(Json(build_view(&state, &device)?))
 }
 
@@ -263,11 +275,17 @@ fn build_views(
             .or_default()
             .push(peer);
     }
-    let interface_names: HashMap<Uuid, String> = network
+    let interface_names: HashMap<Uuid, (String, Uuid)> = network
         .list_interfaces()
         .map_err(ApiError::from)?
         .into_iter()
-        .map(|interface| (interface.id, interface.name))
+        .map(|interface| (interface.id, (interface.name, interface.node_id)))
+        .collect();
+    let node_names: HashMap<Uuid, String> = network
+        .list_nodes()
+        .map_err(ApiError::from)?
+        .into_iter()
+        .map(|node| (node.id, node.name))
         .collect();
     let pools = network.list_all_pools().map_err(ApiError::from)?;
     let mut pools_by_group: HashMap<Uuid, HashMap<Uuid, &CidrPool>> = HashMap::new();
@@ -293,7 +311,13 @@ fn build_views(
                 pool_nets.insert(*pool_id, network.pool_net(pool).map_err(ApiError::from)?);
             }
         }
-        views.push(assemble_view(device, peers, &interface_names, &pool_nets));
+        views.push(assemble_view(
+            device,
+            peers,
+            &interface_names,
+            &node_names,
+            &pool_nets,
+        ));
     }
     Ok(views)
 }
@@ -301,15 +325,16 @@ fn build_views(
 fn assemble_view(
     device: &Device,
     peers: &[DevicePeer],
-    interface_names: &HashMap<Uuid, String>,
+    interfaces: &HashMap<Uuid, (String, Uuid)>,
+    node_names: &HashMap<Uuid, String>,
     pool_nets: &HashMap<Uuid, Ipv4Net>,
 ) -> DeviceView {
     let names: Vec<(Uuid, String, Vec<String>)> = peers
         .iter()
         .map(|peer| {
-            let name = interface_names
+            let name = interfaces
                 .get(&peer.interface_id)
-                .cloned()
+                .map(|(name, _)| name.clone())
                 .unwrap_or_default();
             let addresses = peer
                 .ips
@@ -322,7 +347,12 @@ fn assemble_view(
             (peer.interface_id, name, addresses)
         })
         .collect();
-    DeviceView::build(device, peers, &names)
+    let (interface_name, node_id) = interfaces
+        .get(&device.interface_id)
+        .cloned()
+        .unwrap_or_default();
+    let node_name = node_names.get(&node_id).cloned().unwrap_or_default();
+    DeviceView::build(device, peers, &names, &interface_name, node_id, &node_name)
 }
 
 fn unlimited_tariff() -> Tariff {
@@ -337,6 +367,7 @@ fn unlimited_tariff() -> Tariff {
         group_down_kbps: 0,
         group_up_kbps: 0,
         traffic_quota_bytes: None,
+        interface_id: None,
         created_at: now,
         updated_at: now,
     }
@@ -362,12 +393,13 @@ mod tests {
         items: &[Device],
     ) -> Vec<DeviceView> {
         let mut out = Vec::new();
+        let interfaces = network.list_interfaces().unwrap();
+        let nodes = network.list_nodes().unwrap();
         for device in items {
             let peers = devices.peers_for(device.id).unwrap();
             let pools = network.list_pools(device.group_id).unwrap();
             let pool_map: HashMap<Uuid, &CidrPool> =
                 pools.iter().map(|pool| (pool.id, pool)).collect();
-            let interfaces = network.interfaces_by_group(device.group_id).unwrap();
             let mut names = Vec::new();
             for peer in &peers {
                 let interface_name = interfaces
@@ -383,7 +415,23 @@ mod tests {
                 }
                 names.push((peer.interface_id, interface_name, addresses));
             }
-            out.push(DeviceView::build(device, &peers, &names));
+            let interface = interfaces
+                .iter()
+                .find(|interface| interface.id == device.interface_id);
+            let node = interface
+                .and_then(|interface| nodes.iter().find(|node| node.id == interface.node_id));
+            out.push(DeviceView::build(
+                device,
+                &peers,
+                &names,
+                interface
+                    .map(|interface| interface.name.as_str())
+                    .unwrap_or(""),
+                interface
+                    .map(|interface| interface.node_id)
+                    .unwrap_or_default(),
+                node.map(|node| node.name.as_str()).unwrap_or(""),
+            ));
         }
         out
     }
@@ -412,7 +460,8 @@ mod tests {
         let views = build_views(&env.devices, &env.network, &sample.devices).unwrap();
 
         let phone = views.iter().find(|view| view.name == "phone").unwrap();
-        assert_eq!(phone.peers.len(), 2);
+        assert_eq!(phone.peers.len(), 1);
+        assert_eq!(phone.interface_name, "awg0");
         assert_eq!(
             phone.addresses,
             vec!["10.1.0.2".to_string(), "10.2.0.5".to_string()]

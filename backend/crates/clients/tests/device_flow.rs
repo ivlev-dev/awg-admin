@@ -27,6 +27,7 @@ struct Fixture {
     tariffs: Arc<TariffService>,
     network: Arc<NetworkService>,
     group_id: Uuid,
+    interface_id: Uuid,
 }
 
 fn fixture() -> Fixture {
@@ -56,8 +57,9 @@ fn fixture() -> Fixture {
         )
         .unwrap();
     let (node, _) = network.create_node("node-a").unwrap();
+    let mut interface_ids = Vec::new();
     for name in ["awg0", "awg1"] {
-        network
+        let interface = network
             .add_interface(
                 group.id,
                 node.id,
@@ -72,6 +74,7 @@ fn fixture() -> Fixture {
                 &ObfuscationSettings::default(),
             )
             .unwrap();
+        interface_ids.push(interface.id);
     }
 
     let tariffs = Arc::new(TariffService::new(Arc::new(RedbTariffRepository::new(
@@ -87,6 +90,7 @@ fn fixture() -> Fixture {
             group_down_kbps: 80_000,
             group_up_kbps: 40_000,
             traffic_quota_bytes: None,
+            interface_id: None,
         })
         .unwrap();
 
@@ -113,6 +117,7 @@ fn fixture() -> Fixture {
         tariffs,
         network,
         group_id: group.id,
+        interface_id: interface_ids[0],
     }
 }
 
@@ -137,7 +142,7 @@ fn user(group_id: Uuid, tariff_id: Uuid) -> User {
 }
 
 #[test]
-fn creates_peer_on_every_interface_and_enforces_tariff() {
+fn creates_single_peer_and_enforces_tariff() {
     let fixture = fixture();
     let tariff = fixture.tariffs.list().unwrap().remove(0);
     let user = user(fixture.group_id, tariff.id);
@@ -150,6 +155,7 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "phone".into(),
                 down_kbps: 500_000,
                 up_kbps: 500_000,
@@ -163,10 +169,12 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
         .unwrap();
 
     let peers = fixture.devices.peers_for(first.id).unwrap();
-    assert_eq!(peers.len(), 2);
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].interface_id, fixture.interface_id);
+    assert_eq!(first.interface_id, fixture.interface_id);
     assert_eq!(first.down_kbps, 50_000);
     assert_eq!(first.up_kbps, 20_000);
-    assert!(peers.iter().all(|peer| !peer.ips.is_empty()));
+    assert!(!peers[0].ips.is_empty());
 
     let second = fixture
         .devices
@@ -176,6 +184,7 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "laptop".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
@@ -192,6 +201,7 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
         NewDevice {
             user_id: user.id,
             group_id: fixture.group_id,
+            interface_id: Some(fixture.interface_id),
             name: "tablet".into(),
             down_kbps: 1,
             up_kbps: 1,
@@ -202,7 +212,8 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
     assert!(refused.is_err());
 
     let (_, profiles) = fixture.profiles.build_all(first.id).unwrap();
-    assert_eq!(profiles.len(), 2);
+    assert_eq!(profiles.len(), 1);
+    assert_eq!(profiles[0].interface_id, fixture.interface_id);
     assert!(profiles[0].conf.contains("PrivateKey"));
     assert!(profiles[0].vpn_link.starts_with("vpn://"));
     assert!(profiles[0].conf.contains("RandomTrailers = 1"));
@@ -211,6 +222,193 @@ fn creates_peer_on_every_interface_and_enforces_tariff() {
     assert_eq!(group_devices.len(), 2);
     fixture.devices.delete(second.id).unwrap();
     assert_eq!(fixture.devices.peers_for(second.id).unwrap().len(), 0);
+}
+
+#[test]
+fn create_inherits_the_tariff_interface() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let tariff = fixture
+        .tariffs
+        .update(
+            tariff.id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(Some(fixture.interface_id)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                interface_id: None,
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    assert_eq!(device.interface_id, fixture.interface_id);
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].interface_id, fixture.interface_id);
+}
+
+#[test]
+fn tariff_interface_takes_priority_over_request() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let interfaces = fixture.network.list_interfaces().unwrap();
+    let other = interfaces
+        .iter()
+        .find(|interface| interface.id != fixture.interface_id)
+        .unwrap()
+        .id;
+    let tariff = fixture
+        .tariffs
+        .update(
+            tariff.id,
+            awg_tariffs::TariffChanges {
+                interface_id: Some(Some(other)),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    assert_eq!(device.interface_id, other);
+    let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].interface_id, other);
+}
+
+#[test]
+fn request_interface_is_used_when_tariff_has_none() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let other = fixture
+        .network
+        .list_interfaces()
+        .unwrap()
+        .into_iter()
+        .find(|interface| interface.id != fixture.interface_id)
+        .unwrap()
+        .id;
+
+    let device = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                interface_id: Some(other),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    assert_eq!(device.interface_id, other);
+    assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 1);
+}
+
+#[test]
+fn create_requires_an_interface_when_the_group_has_several() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+
+    let error = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                interface_id: None,
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap_err();
+    assert!(matches!(error, CoreError::Invalid(_)));
+    assert!(fixture.devices.list_all().unwrap().is_empty());
+}
+
+#[test]
+fn create_requires_an_enabled_interface() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    for interface in fixture.network.list_interfaces().unwrap() {
+        fixture
+            .network
+            .update_interface(
+                interface.id,
+                awg_network::InterfaceChanges {
+                    enabled: Some(false),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+    }
+
+    let error = fixture
+        .devices
+        .create(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: fixture.group_id,
+                interface_id: None,
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap_err();
+    assert!(matches!(error, CoreError::Invalid(_)));
 }
 
 #[test]
@@ -226,6 +424,7 @@ fn forwarding_is_scoped_to_the_user() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -245,6 +444,7 @@ fn forwarding_is_scoped_to_the_user() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "two".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -284,6 +484,7 @@ fn create_normalizes_forwarding() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -302,6 +503,7 @@ fn create_normalizes_forwarding() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "two".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -352,6 +554,7 @@ fn create_rejects_invalid_forwarding() {
             NewDevice {
                 user_id: owner.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "one".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -370,6 +573,7 @@ fn create_rejects_invalid_forwarding() {
             NewDevice {
                 user_id: other_owner.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "other".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
@@ -384,6 +588,7 @@ fn create_rejects_invalid_forwarding() {
         NewDevice {
             user_id: owner.id,
             group_id: fixture.group_id,
+            interface_id: Some(fixture.interface_id),
             name: "bad".into(),
             down_kbps: 1_000,
             up_kbps: 1_000,
@@ -502,6 +707,7 @@ fn peers_for_devices_returns_only_requested_devices() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "phone".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
@@ -518,6 +724,7 @@ fn peers_for_devices_returns_only_requested_devices() {
             NewDevice {
                 user_id: user.id,
                 group_id: fixture.group_id,
+                interface_id: Some(fixture.interface_id),
                 name: "laptop".into(),
                 down_kbps: 10_000,
                 up_kbps: 10_000,
@@ -528,14 +735,14 @@ fn peers_for_devices_returns_only_requested_devices() {
         .unwrap();
 
     let only_first = fixture.devices.peers_for_devices(&[first.id]).unwrap();
-    assert_eq!(only_first.len(), 2);
+    assert_eq!(only_first.len(), 1);
     assert!(only_first.iter().all(|peer| peer.device_id == first.id));
 
     let both = fixture
         .devices
         .peers_for_devices(&[first.id, second.id])
         .unwrap();
-    assert_eq!(both.len(), 4);
+    assert_eq!(both.len(), 2);
     assert!(both.iter().any(|peer| peer.device_id == second.id));
 
     assert!(fixture.devices.peers_for_devices(&[]).unwrap().is_empty());

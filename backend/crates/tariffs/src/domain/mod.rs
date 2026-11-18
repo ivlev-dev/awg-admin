@@ -15,6 +15,8 @@ pub struct Tariff {
     pub group_down_kbps: u32,
     pub group_up_kbps: u32,
     pub traffic_quota_bytes: Option<u64>,
+    #[serde(default)]
+    pub interface_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -149,6 +151,7 @@ mod tests {
             group_down_kbps: 200_000,
             group_up_kbps: 100_000,
             traffic_quota_bytes: quota,
+            interface_id: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -211,6 +214,25 @@ mod tests {
         assert_eq!(state.percent, Some(33.3));
         let state = tariff(Some(3)).quota_state(2);
         assert_eq!(state.percent, Some(66.7));
+    }
+
+    #[test]
+    fn legacy_tariff_json_defaults_interface_to_none() {
+        let value = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "name": "Legacy",
+            "description": "",
+            "max_devices": 1,
+            "device_down_kbps": 1,
+            "device_up_kbps": 1,
+            "group_down_kbps": 1,
+            "group_up_kbps": 1,
+            "traffic_quota_bytes": null,
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z"
+        });
+        let tariff: Tariff = serde_json::from_value(value).unwrap();
+        assert_eq!(tariff.interface_id, None);
     }
 
     #[test]

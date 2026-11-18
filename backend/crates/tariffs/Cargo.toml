@@ -10,3 +10,6 @@ awg-storage = { path = "../storage" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

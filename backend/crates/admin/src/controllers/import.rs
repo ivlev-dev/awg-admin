@@ -4129,5 +4129,6 @@ mod tests {
         });
         let device: awg_clients::Device = serde_json::from_value(value).unwrap();
         assert!(!device.external);
+        assert_eq!(device.interface_id, Uuid::nil());
     }
 }

@@ -10,11 +10,15 @@ use awg_tariffs::Tariff;
 pub struct TariffView {
     #[serde(flatten)]
     pub tariff: Tariff,
+    pub interface_name: Option<String>,
 }
 
-impl From<Tariff> for TariffView {
-    fn from(tariff: Tariff) -> Self {
-        Self { tariff }
+impl TariffView {
+    pub fn build(tariff: Tariff, interface_name: Option<String>) -> Self {
+        Self {
+            tariff,
+            interface_name,
+        }
     }
 }
 
@@ -134,5 +138,48 @@ impl InterfaceView {
             enabled: interface.enabled,
             peers,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tariff(interface_id: Option<Uuid>) -> Tariff {
+        let now = Utc::now();
+        Tariff {
+            id: Uuid::new_v4(),
+            name: "Basic".into(),
+            description: String::new(),
+            max_devices: 1,
+            device_down_kbps: 1,
+            device_up_kbps: 1,
+            group_down_kbps: 1,
+            group_up_kbps: 1,
+            traffic_quota_bytes: None,
+            interface_id,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn tariff_view_exposes_interface_and_name() {
+        let interface_id = Uuid::new_v4();
+        let value = serde_json::to_value(TariffView::build(
+            tariff(Some(interface_id)),
+            Some("awg0".into()),
+        ))
+        .unwrap();
+        assert_eq!(value["interface_id"], interface_id.to_string());
+        assert_eq!(value["interface_name"], "awg0");
+        assert_eq!(value["name"], "Basic");
+    }
+
+    #[test]
+    fn tariff_view_without_interface_has_nulls() {
+        let value = serde_json::to_value(TariffView::build(tariff(None), None)).unwrap();
+        assert!(value["interface_id"].is_null());
+        assert!(value["interface_name"].is_null());
     }
 }

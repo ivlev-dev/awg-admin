@@ -1,9 +1,11 @@
-use redb::{Database, ReadableDatabase, WriteTransaction};
+use redb::{Database, ReadableDatabase, ReadableTable, WriteTransaction};
+use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 3;
+pub const CURRENT_SCHEMA_VERSION: u32 = 4;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
+const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
 pub type MigrationFn = fn(&WriteTransaction) -> Result<()>;
 
@@ -24,6 +26,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 2,
         to: 3,
         apply: v3_rate_limits,
+    },
+    MigrationStep {
+        from: 3,
+        to: 4,
+        apply: v4_device_interfaces,
     },
 ];
 
@@ -47,6 +54,120 @@ fn v2_billing(txn: &WriteTransaction) -> Result<()> {
 fn v3_rate_limits(txn: &WriteTransaction) -> Result<()> {
     for table in RATE_LIMIT_TABLES {
         txn.open_table(table.definition())?;
+    }
+    Ok(())
+}
+
+fn read_values(txn: &WriteTransaction, table: Table) -> Result<Vec<(String, Value)>> {
+    let table = txn.open_table(table.definition())?;
+    let mut out = Vec::new();
+    for entry in table.iter()? {
+        let (key, value) = entry?;
+        out.push((
+            key.value().to_string(),
+            serde_json::from_slice(value.value())?,
+        ));
+    }
+    Ok(out)
+}
+
+fn v4_device_interfaces(txn: &WriteTransaction) -> Result<()> {
+    let mut interfaces_by_group: std::collections::BTreeMap<String, Vec<(String, bool)>> =
+        std::collections::BTreeMap::new();
+    for (_, value) in read_values(txn, Table::Interfaces)? {
+        let (Some(id), Some(group_id)) = (
+            value.get("id").and_then(Value::as_str),
+            value.get("group_id").and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        let enabled = value
+            .get("enabled")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        interfaces_by_group
+            .entry(group_id.to_string())
+            .or_default()
+            .push((id.to_string(), enabled));
+    }
+
+    let peers = read_values(txn, Table::DevicePeers)?;
+    let mut updated_devices: Vec<(String, Value)> = Vec::new();
+    let mut removed_peers: Vec<String> = Vec::new();
+    let mut replacement_peers: Vec<(String, Value)> = Vec::new();
+
+    for (key, mut device) in read_values(txn, Table::Devices)? {
+        let Some(group_id) = device.get("group_id").and_then(Value::as_str) else {
+            continue;
+        };
+        let existing = device
+            .get("interface_id")
+            .and_then(Value::as_str)
+            .filter(|id| *id != NIL_UUID)
+            .map(str::to_string);
+        let chosen = existing.or_else(|| {
+            let candidates = interfaces_by_group.get(group_id)?;
+            candidates
+                .iter()
+                .find(|(_, enabled)| *enabled)
+                .or_else(|| candidates.first())
+                .map(|(id, _)| id.clone())
+        });
+        let Some(interface_id) = chosen else {
+            continue;
+        };
+        if device.get("interface_id").and_then(Value::as_str) != Some(interface_id.as_str()) {
+            device["interface_id"] = json!(interface_id);
+            updated_devices.push((key.clone(), device));
+        }
+
+        let prefix = format!("{key}:");
+        let device_peers: Vec<&(String, Value)> = peers
+            .iter()
+            .filter(|(peer_key, _)| peer_key.starts_with(&prefix))
+            .collect();
+        let target_key = format!("{key}:{interface_id}");
+        if device_peers
+            .iter()
+            .any(|(peer_key, _)| *peer_key == target_key)
+        {
+            for (peer_key, _) in device_peers {
+                if *peer_key != target_key {
+                    removed_peers.push(peer_key.clone());
+                }
+            }
+            continue;
+        }
+        let Some((_, template)) = device_peers.first() else {
+            continue;
+        };
+        let mut peer = template.clone();
+        peer["device_id"] = json!(key);
+        peer["interface_id"] = json!(interface_id);
+        replacement_peers.push((target_key.clone(), peer));
+        for (peer_key, _) in device_peers {
+            if *peer_key != target_key {
+                removed_peers.push(peer_key.clone());
+            }
+        }
+    }
+
+    if !updated_devices.is_empty() {
+        let mut table = txn.open_table(Table::Devices.definition())?;
+        for (key, value) in updated_devices {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
+    }
+    if !removed_peers.is_empty() || !replacement_peers.is_empty() {
+        let mut table = txn.open_table(Table::DevicePeers.definition())?;
+        for key in removed_peers {
+            table.remove(key.as_str())?;
+        }
+        for (key, value) in replacement_peers {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
     }
     Ok(())
 }
@@ -375,7 +496,7 @@ mod tests {
 
         migrate(&db, 2, CURRENT_SCHEMA_VERSION).unwrap();
 
-        assert_eq!(read_version(&db).unwrap(), Some(3));
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
         let txn = db.begin_read().unwrap();
         for table in RATE_LIMIT_TABLES {
             assert!(txn.open_table(table.definition()).is_ok());
@@ -398,9 +519,164 @@ mod tests {
             let meta = txn.open_table(Table::Meta.definition()).unwrap();
             assert_eq!(
                 meta.get(SCHEMA_VERSION_KEY).unwrap().unwrap().value(),
-                b"3".as_slice()
+                b"4".as_slice()
             );
         }
+    }
+
+    #[test]
+    fn migration_v4_binds_devices_to_a_single_interface() {
+        let db = in_memory();
+        seed_legacy(&db, Some(3));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut interfaces = txn.open_table(Table::Interfaces.definition()).unwrap();
+            interfaces
+                .insert(
+                    "iface-1",
+                    br#"{"id":"11111111-1111-1111-1111-111111111111","group_id":"group-1","enabled":false}"#.as_slice(),
+                )
+                .unwrap();
+            interfaces
+                .insert(
+                    "iface-2",
+                    br#"{"id":"22222222-2222-2222-2222-222222222222","group_id":"group-1","enabled":true}"#.as_slice(),
+                )
+                .unwrap();
+            let mut devices = txn.open_table(Table::Devices.definition()).unwrap();
+            for key in ["device-1", "device-2", "device-3"] {
+                devices
+                    .insert(
+                        key,
+                        format!(r#"{{"id":"{key}","group_id":"group-1","name":"{key}"}}"#)
+                            .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            let mut peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+            for (key, interface_id) in [
+                ("device-1:iface-1", "11111111-1111-1111-1111-111111111111"),
+                ("device-1:iface-2", "22222222-2222-2222-2222-222222222222"),
+                ("device-2:iface-1", "11111111-1111-1111-1111-111111111111"),
+            ] {
+                peers
+                    .insert(
+                        key,
+                        format!(
+                            r#"{{"device_id":"{}","interface_id":"{interface_id}","public_key":"key-{key}","private_key_sealed":"private","preshared_key_sealed":"psk","ips":{{}},"client_obf":{{}},"created_at":"2026-01-01T00:00:00Z"}}"#,
+                            key.split(':').next().unwrap()
+                        )
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 3, 4).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(4));
+        let txn = db.begin_read().unwrap();
+        {
+            let devices = txn.open_table(Table::Devices.definition()).unwrap();
+            for key in ["device-1", "device-2", "device-3"] {
+                let raw = devices.get(key).unwrap().unwrap();
+                let value: Value = serde_json::from_slice(raw.value()).unwrap();
+                assert_eq!(
+                    value["interface_id"],
+                    json!("22222222-2222-2222-2222-222222222222")
+                );
+            }
+        }
+        {
+            let peers = txn.open_table(Table::DevicePeers.definition()).unwrap();
+            let keys: Vec<String> = peers
+                .iter()
+                .unwrap()
+                .map(|entry| entry.unwrap().0.value().to_string())
+                .collect();
+            assert_eq!(
+                keys,
+                vec![
+                    "device-1:22222222-2222-2222-2222-222222222222".to_string(),
+                    "device-2:22222222-2222-2222-2222-222222222222".to_string()
+                ]
+            );
+            let moved = peers
+                .get("device-2:22222222-2222-2222-2222-222222222222")
+                .unwrap()
+                .unwrap();
+            let value: Value = serde_json::from_slice(moved.value()).unwrap();
+            assert_eq!(value["public_key"], "key-device-2:iface-1");
+            assert_eq!(value["private_key_sealed"], "private");
+            assert_eq!(value["preshared_key_sealed"], "psk");
+            assert_eq!(
+                value["interface_id"],
+                json!("22222222-2222-2222-2222-222222222222")
+            );
+        }
+    }
+
+    #[test]
+    fn migration_v4_falls_back_to_the_first_interface_of_the_group() {
+        let db = in_memory();
+        seed_legacy(&db, Some(3));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut interfaces = txn.open_table(Table::Interfaces.definition()).unwrap();
+            interfaces
+                .insert(
+                    "iface-1",
+                    br#"{"id":"11111111-1111-1111-1111-111111111111","group_id":"group-1","enabled":false}"#.as_slice(),
+                )
+                .unwrap();
+            let mut devices = txn.open_table(Table::Devices.definition()).unwrap();
+            devices
+                .insert(
+                    "device-1",
+                    br#"{"id":"device-1","group_id":"group-1","name":"phone"}"#.as_slice(),
+                )
+                .unwrap();
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 3, 4).unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let devices = txn.open_table(Table::Devices.definition()).unwrap();
+        let raw = devices.get("device-1").unwrap().unwrap();
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert_eq!(
+            value["interface_id"],
+            json!("11111111-1111-1111-1111-111111111111")
+        );
+        drop(devices);
+        drop(txn);
+    }
+
+    #[test]
+    fn migration_v4_keeps_devices_without_group_interfaces() {
+        let db = in_memory();
+        seed_legacy(&db, Some(3));
+        let txn = db.begin_write().unwrap();
+        {
+            let mut devices = txn.open_table(Table::Devices.definition()).unwrap();
+            devices
+                .insert(
+                    "device-1",
+                    br#"{"id":"device-1","group_id":"group-1","name":"phone"}"#.as_slice(),
+                )
+                .unwrap();
+        }
+        txn.commit().unwrap();
+
+        migrate(&db, 3, 4).unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let devices = txn.open_table(Table::Devices.definition()).unwrap();
+        let raw = devices.get("device-1").unwrap().unwrap();
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert!(value.get("interface_id").is_none());
     }
 
     #[test]

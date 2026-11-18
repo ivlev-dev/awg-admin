@@ -346,10 +346,22 @@ pub fn seeded() -> (Env, Sample) {
 
     let user_a = Uuid::new_v4();
     let user_b = Uuid::new_v4();
-    let phone = device(user_a, group_a.id, "phone");
-    let laptop = device(user_a, group_a.id, "laptop");
-    let tablet = device(user_b, group_b.id, "tablet");
-    let lonely = device(user_a, group_a.id, "lonely");
+    let phone = Device {
+        interface_id: iface_a0.id,
+        ..device(user_a, group_a.id, "phone")
+    };
+    let laptop = Device {
+        interface_id: iface_a0.id,
+        ..device(user_a, group_a.id, "laptop")
+    };
+    let tablet = Device {
+        interface_id: iface_b0.id,
+        ..device(user_b, group_b.id, "tablet")
+    };
+    let lonely = Device {
+        interface_id: iface_a0.id,
+        ..device(user_a, group_a.id, "lonely")
+    };
     let phone_ips = BTreeMap::from([
         (pool_a.id, IpAddr::V4(Ipv4Addr::new(10, 1, 0, 2))),
         (pool_a_extra.id, IpAddr::V4(Ipv4Addr::new(10, 2, 0, 5))),
@@ -358,7 +370,6 @@ pub fn seeded() -> (Env, Sample) {
     let tablet_ips = BTreeMap::from([(pool_b.id, IpAddr::V4(Ipv4Addr::new(10, 10, 0, 7)))]);
     let peers = vec![
         peer(&phone, iface_a0.id, "key-phone-awg0", phone_ips.clone()),
-        peer(&phone, iface_a1.id, "key-phone-awg1", phone_ips),
         peer(&laptop, iface_a0.id, "key-laptop-awg0", laptop_ips),
         peer(&tablet, iface_b0.id, "key-tablet-awg2", tablet_ips),
     ];
@@ -400,6 +411,7 @@ fn device(user_id: Uuid, group_id: Uuid, name: &str) -> Device {
         id: Uuid::new_v4(),
         user_id,
         group_id,
+        interface_id: Uuid::nil(),
         name: name.into(),
         down_kbps: 0,
         up_kbps: 0,

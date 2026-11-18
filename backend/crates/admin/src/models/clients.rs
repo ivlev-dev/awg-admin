@@ -7,6 +7,7 @@ use awg_clients::{Forwarding, ShareFormat};
 pub struct CreateDeviceRequest {
     pub user_id: Option<Uuid>,
     pub group_id: Option<Uuid>,
+    pub interface_id: Option<Uuid>,
     pub name: String,
     #[serde(default)]
     pub down_kbps: u32,

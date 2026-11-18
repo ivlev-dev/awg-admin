@@ -18,6 +18,7 @@ pub struct CreateTariffRequest {
     #[serde(default)]
     pub group_up_kbps: u32,
     pub traffic_quota_bytes: Option<u64>,
+    pub interface_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -31,6 +32,8 @@ pub struct UpdateTariffRequest {
     pub group_up_kbps: Option<u32>,
     #[serde(default, with = "crate::models::double_option")]
     pub traffic_quota_bytes: Option<Option<u64>>,
+    #[serde(default, with = "crate::models::double_option")]
+    pub interface_id: Option<Option<Uuid>>,
 }
 
 #[derive(Debug, Deserialize)]

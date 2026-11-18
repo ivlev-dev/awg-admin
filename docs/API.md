@@ -73,7 +73,7 @@
 | PATCH | `/devices/{id}` | self/admin | `UpdateDeviceRequest` | `DeviceView` |
 | DELETE | `/devices/{id}` | self/admin | — | `{ok:true}` |
 | POST | `/devices/bulk` | self/admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
-| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` |
+| GET | `/devices/{id}/profiles` | self/admin | — | `ProfileView[]` (один элемент — интерфейс устройства) |
 | GET | `/devices/{id}/profiles/{interface_id}` | self/admin | — | `ProfileView` |
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
@@ -105,6 +105,44 @@
 | POST | `/billing/checkout` | user | `{plan_id}` | `{invoice, checkout_url}` |
 | GET | `/billing/payment-methods` | user | — | `PaymentMethodView[]` |
 | POST | `/billing/webhook/{provider}` | public | подписанный webhook шлюза | `{status, event_id}` |
+
+## Тарифы и привязка к интерфейсу
+
+`TariffView` (ответ `GET/POST/PATCH /tariffs`) содержит обычные поля тарифа и:
+
+- `interface_id: string|null` — интерфейс, который тариф назначает новым
+  устройствам; `null` — интерфейс не задан;
+- `interface_name: string|null` — имя интерфейса для отображения, `null` если
+  интерфейс не задан или уже удалён.
+
+`CreateTariffRequest` принимает `interface_id?: string|null`. `UpdateTariffRequest`
+принимает `interface_id` как double option: поле отсутствует — привязка не
+меняется, `null` — очистить, строка — привязать к интерфейсу. Несуществующий
+интерфейс даёт `404 not_found`.
+
+`DeviceView` (устройства) дополнительно содержит:
+
+- `interface_id` — интерфейс устройства;
+- `interface_name` — имя интерфейса;
+- `node_id` — нода интерфейса;
+- `node_name` — имя ноды.
+
+`CreateDeviceRequest` принимает `interface_id?: string`. Интерфейс выбирается в
+таком порядке:
+
+1. `interface_id` тарифа пользователя;
+2. `interface_id` из запроса;
+3. единственный включённый интерфейс группы.
+
+Если ни один вариант не дал интерфейса (в группе нет включённых интерфейсов или
+их несколько) — `400 bad_request`. Явно выбранный интерфейс другой группы или
+тариф, привязанный к другой группе пользователя, — `403 forbidden`; выключенный
+интерфейс — `409 conflict`.
+
+Устройство создаётся ровно с одним пиром — на выбранном интерфейсе. `PATCH
+/devices/{id}` интерфейс не меняет. `GET /devices/{id}/profiles` всегда
+возвращает массив из одного профиля — конфигурацию интерфейса устройства.
+`GET /devices/{id}/profiles/{interface_id}` для другого интерфейса даёт `404`.
 
 ## Массовые действия
 

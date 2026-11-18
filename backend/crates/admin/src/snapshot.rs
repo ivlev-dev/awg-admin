@@ -85,10 +85,16 @@ impl SnapshotSource for SnapshotBuilder {
         let mut used_cache: HashMap<Uuid, u64> = HashMap::new();
 
         for interface in interfaces {
-            let group_devices = devices_by_group
+            let group_devices: Vec<awg_clients::Device> = devices_by_group
                 .get(&interface.group_id)
-                .map(Vec::as_slice)
-                .unwrap_or(&[]);
+                .map(|devices| {
+                    devices
+                        .iter()
+                        .filter(|device| device.interface_id == interface.id)
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
             let group_pools = pools_by_group
                 .get(&interface.group_id)
                 .map(Vec::as_slice)
@@ -181,7 +187,7 @@ impl SnapshotSource for SnapshotBuilder {
             }
 
             let mut forwarding = Vec::new();
-            for (from, to) in ForwardingPolicy::allowed_pairs(group_devices) {
+            for (from, to) in ForwardingPolicy::allowed_pairs(&group_devices) {
                 let (Some(from_peer), Some(to_peer)) =
                     (peer_by_device.get(&from), peer_by_device.get(&to))
                 else {
@@ -499,6 +505,7 @@ mod tests {
     struct Fixture {
         builder: SnapshotBuilder,
         node_id: Uuid,
+        iface_a1_id: Uuid,
         devices: Arc<CountingDevices>,
         peers: Arc<CountingPeers>,
         pools: Arc<CountingPools>,
@@ -550,6 +557,7 @@ mod tests {
             id: Uuid::new_v4(),
             user_id,
             group_id,
+            interface_id: Uuid::nil(),
             name: name.into(),
             down_kbps: down,
             up_kbps: up,
@@ -726,6 +734,7 @@ mod tests {
                 group_down_kbps: 10_000,
                 group_up_kbps: 5000,
                 traffic_quota_bytes: Some(1000),
+                interface_id: None,
             })
             .unwrap();
         let tariff_b = tariffs
@@ -738,6 +747,7 @@ mod tests {
                 group_down_kbps: 20_000,
                 group_up_kbps: 8000,
                 traffic_quota_bytes: None,
+                interface_id: None,
             })
             .unwrap();
 
@@ -745,27 +755,38 @@ mod tests {
         let user_b = user("beta", Some(tariff_b.id));
         let user_c = user("gamma", None);
 
-        let phone = device(user_a.id, group_a.id, "phone", 3000, 1000);
-        let laptop = device(user_a.id, group_a.id, "laptop", 2000, 800);
-        let lonely = device(user_a.id, group_a.id, "lonely", 1500, 500);
-        let ghost = device(user_c.id, group_a.id, "ghost", 1200, 400);
-        let tablet = device(user_b.id, group_b.id, "tablet", 4000, 1500);
-        let mut revoked = device(user_a.id, group_a.id, "revoked", 900, 300);
-        revoked.revoked = true;
-
         let phone = Device {
+            interface_id: iface_a0.id,
             forwarding: Forwarding {
                 to_own_devices: true,
                 allowed_devices: Vec::new(),
             },
-            ..phone
+            ..device(user_a.id, group_a.id, "phone", 3000, 1000)
         };
         let laptop = Device {
+            interface_id: iface_a0.id,
             forwarding: Forwarding {
                 to_own_devices: false,
                 allowed_devices: vec![phone.id],
             },
-            ..laptop
+            ..device(user_a.id, group_a.id, "laptop", 2000, 800)
+        };
+        let lonely = Device {
+            interface_id: iface_a0.id,
+            ..device(user_a.id, group_a.id, "lonely", 1500, 500)
+        };
+        let ghost = Device {
+            interface_id: iface_a0.id,
+            ..device(user_c.id, group_a.id, "ghost", 1200, 400)
+        };
+        let tablet = Device {
+            interface_id: iface_b0.id,
+            ..device(user_b.id, group_b.id, "tablet", 4000, 1500)
+        };
+        let revoked = Device {
+            interface_id: iface_a0.id,
+            revoked: true,
+            ..device(user_a.id, group_a.id, "revoked", 900, 300)
         };
 
         let phone_ips = BTreeMap::from([
@@ -788,7 +809,6 @@ mod tests {
                 "key-phone-a0",
                 phone_ips.clone(),
             ),
-            peer(&sealer, &phone, iface_a1.id, "key-phone-a1", phone_ips),
             peer(&sealer, &laptop, iface_a0.id, "key-laptop-a0", laptop_ips),
             peer(&sealer, &ghost, iface_a0.id, "key-ghost-a0", ghost_ips),
             peer(&sealer, &tablet, iface_b0.id, "key-tablet-b0", tablet_ips),
@@ -846,6 +866,7 @@ mod tests {
                 stats: Arc::new(StatsService::new(stats.clone(), Arc::new(StatsHub::new(8)))),
             },
             node_id: node.id,
+            iface_a1_id: iface_a1.id,
             devices: devices_repo,
             peers: peers_repo,
             pools: pools_repo,
@@ -883,7 +904,9 @@ mod tests {
                 .devices
                 .list_all()?
                 .into_iter()
-                .filter(|d| d.group_id == interface.group_id && !d.revoked)
+                .filter(|d| {
+                    d.group_id == interface.group_id && d.interface_id == interface.id && !d.revoked
+                })
                 .collect::<Vec<_>>();
             let pools = builder.network.list_pools(interface.group_id)?;
             let pool_map: HashMap<Uuid, _> = pools.iter().map(|p| (p.id, p)).collect();
@@ -1057,8 +1080,40 @@ mod tests {
                 .len()
         };
         assert_eq!(peers_of("awg0"), 3);
-        assert_eq!(peers_of("awg1"), 1);
+        assert_eq!(peers_of("awg1"), 0);
         assert_eq!(peers_of("awg2"), 1);
+    }
+
+    #[test]
+    fn devices_appear_only_on_their_interface() {
+        let fixture = seed();
+        let state = fixture.builder.build(fixture.node_id).unwrap();
+        let devices = fixture.builder.devices.list_all().unwrap();
+        let phone = devices.iter().find(|d| d.name == "phone").unwrap();
+        let tablet = devices.iter().find(|d| d.name == "tablet").unwrap();
+
+        let awg0 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg0")
+            .unwrap();
+        let awg1 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg1")
+            .unwrap();
+        let awg2 = state
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg2")
+            .unwrap();
+
+        assert_eq!(awg1.id, fixture.iface_a1_id);
+        assert!(awg1.peers.is_empty());
+        assert!(awg0.peers.iter().any(|peer| peer.device_id == phone.id));
+        assert!(awg0.peers.iter().all(|peer| peer.device_id != tablet.id));
+        assert_eq!(awg2.peers.len(), 1);
+        assert_eq!(awg2.peers[0].device_id, tablet.id);
     }
 
     #[test]
@@ -1085,11 +1140,11 @@ mod tests {
         legacy_build(&fixture.builder, fixture.node_id).unwrap();
 
         assert_eq!(fixture.devices.list_calls.load(Ordering::SeqCst), 3);
-        assert_eq!(fixture.peers.by_device_calls.load(Ordering::SeqCst), 9);
+        assert_eq!(fixture.peers.by_device_calls.load(Ordering::SeqCst), 5);
         assert_eq!(fixture.peers.list_calls.load(Ordering::SeqCst), 0);
         assert_eq!(fixture.pools.by_group_calls.load(Ordering::SeqCst), 3);
         assert_eq!(fixture.pools.list_calls.load(Ordering::SeqCst), 0);
-        assert_eq!(fixture.stats.used(), 8);
+        assert_eq!(fixture.stats.used(), 6);
     }
 
     #[test]

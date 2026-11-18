@@ -87,6 +87,7 @@ fn fixture() -> Fixture {
             group_down_kbps: 80_000,
             group_up_kbps: 40_000,
             traffic_quota_bytes: None,
+            interface_id: None,
         })
         .unwrap();
 
@@ -131,6 +132,7 @@ fn fixture() -> Fixture {
             NewDevice {
                 user_id: owner.id,
                 group_id: group.id,
+                interface_id: None,
                 name: "phone".into(),
                 down_kbps: 1_000,
                 up_kbps: 1_000,
