@@ -2,26 +2,20 @@ package space.ivlev.umbravpn.util
 
 import android.content.ContentValues
 import android.content.Context
-import android.database.Cursor
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import android.provider.OpenableColumns
 import androidx.annotation.RequiresApi
 import com.wgtunnel.parser.archive.ConfigArchive
 import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileInputStream
-import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.withContext
-import space.ivlev.umbravpn.util.extensions.QuickConfig
-import space.ivlev.umbravpn.util.extensions.TunnelName
-import space.ivlev.umbravpn.util.extensions.getInputStreamFromUri
 import timber.log.Timber
 
 class FileUtils(private val context: Context, private val ioDispatcher: CoroutineDispatcher) {
@@ -164,77 +158,6 @@ class FileUtils(private val context: Context, private val ioDispatcher: Coroutin
         return cleaned.ifBlank { "tunnel" }
     }
 
-    private fun getDisplayNameColumnIndex(cursor: Cursor): Int? {
-        val columnIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-        if (columnIndex == -1) return null
-        return columnIndex
-    }
-
-    private fun getDisplayNameByCursor(cursor: Cursor): String? {
-        val move = cursor.moveToFirst()
-        if (!move) return null
-        val index = getDisplayNameColumnIndex(cursor)
-        if (index == null) return index
-        return cursor.getString(index)
-    }
-
-    private fun getFileName(uri: Uri): String {
-        return getFileNameByCursor(uri)
-            ?: uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() }
-            ?: NumberUtils.generateRandomTunnelName()
-    }
-
-    private fun getNameFromFileName(fileName: String): String {
-        return fileName.substringBeforeLast(delimiter = '.', missingDelimiterValue = fileName)
-    }
-
-    private fun getFileExtensionFromFileName(fileName: String): String? {
-        val dot = fileName.lastIndexOf('.')
-        if (dot < 0 || dot == fileName.lastIndex) return null
-        return fileName.substring(dot)
-    }
-
-    private fun getFileNameByCursor(uri: Uri): String? {
-        return context.contentResolver.query(uri, null, null, null, null)?.use {
-            getDisplayNameByCursor(it)
-        }
-    }
-
-    /**
-     * Reads configuration data from a URI pointing to a .conf file or .zip archive containing .conf
-     * files.
-     *
-     * @param uri The URI to the file or archive.
-     * @return Result.success with a Map where keys are config names (without .conf extension) and
-     *   values are the raw string contents, or Result.failure with an exception (e.g.,
-     *   FileNotFoundException, IOException).
-     */
-    suspend fun readConfigsFromUri(uri: Uri): Result<Map<QuickConfig, TunnelName>> =
-        withContext(ioDispatcher) {
-            runCatching {
-                val fileName = getFileName(uri)
-                val extension = getFileExtensionFromFileName(fileName)
-                val inputStream =
-                    context.getInputStreamFromUri(uri)
-                        ?: throw IOException("Failed to open input stream for URI: $uri")
-
-                when (extension?.lowercase()) {
-                    CONF_FILE_EXTENSION.lowercase() -> {
-                        inputStream.use { stream ->
-                            val content = stream.bufferedReader().readText()
-                            val name = getNameFromFileName(fileName)
-                            mapOf(content to name)
-                        }
-                    }
-                    ZIP_FILE_EXTENSION.lowercase() -> {
-                        ConfigArchive.read(inputStream).associate { it.quickConfig to it.name }
-                    }
-                    else -> throw FileNotFoundException("Unsupported file extension: $extension")
-                }
-            }
-                .onFailure { error -> Timber.e(error, "Error reading configs from URI: $uri") }
-        }
-
     @RequiresApi(Build.VERSION_CODES.Q)
     suspend fun saveToDownloadsWithMediaStore(file: File, mimeType: String): Uri? =
         withContext(ioDispatcher) {
@@ -261,8 +184,6 @@ class FileUtils(private val context: Context, private val ioDispatcher: Coroutin
         }
 
     companion object {
-        const val CONF_FILE_EXTENSION = ".conf"
-        const val ZIP_FILE_EXTENSION = ".zip"
         const val TEXT_MIME_TYPE = "text/plain"
         const val ZIP_FILE_MIME_TYPE = "application/zip"
         const val OCTET_STREAM_MIME_TYPE = "application/octet-stream"

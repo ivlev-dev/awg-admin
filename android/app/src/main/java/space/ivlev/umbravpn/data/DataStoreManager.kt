@@ -35,7 +35,6 @@ class DataStoreManager(
         val lastActiveTunnelIds = stringPreferencesKey("LAST_ACTIVE_TUNNEL_IDS")
         val accountServerUrl = stringPreferencesKey("ACCOUNT_SERVER_URL")
         val accountTermsAccepted = booleanPreferencesKey("ACCOUNT_TERMS_ACCEPTED")
-        val accountOnboardingDismissed = booleanPreferencesKey("ACCOUNT_ONBOARDING_DISMISSED")
         val accountManagedProvisioned = booleanPreferencesKey("ACCOUNT_MANAGED_PROVISIONED")
     }
 

@@ -5,39 +5,20 @@
     <string name="app_permission_description">Control VPN tunnels and kill switch.</string>
     <string name="vpn_channel_id" translatable="false">VPN Channel</string>
     <string name="proxy_channel_id" translatable="false">Proxy Channel</string>
-    <string name="error_file_extension">File is not a .conf or .zip</string>
     <string name="tunnels">Tunnels</string>
     <string name="okay">Okay</string>
     <string name="thank_you">Thank you for using Umbra VPN!</string>
-    <string name="add_tunnels_text">Add from file or zip</string>
-    <string name="add_from_qr">Add from QR code</string>
-    <string name="tunnel_name">Tunnel Name</string>
     <string name="config_changes_saved">Configuration changes saved.</string>
-    <string name="public_key">Public key</string>
     <string name="addresses">Addresses</string>
     <string name="dns_servers">DNS servers</string>
-    <string name="mtu" translatable="false">MTU</string>
     <string name="peer">Peer</string>
-    <string name="allowed_ips">Allowed IPs</string>
     <string name="endpoint">Endpoint</string>
-    <string name="name">Name</string>
     <string name="always_on_vpn_support">Allow Always-On VPN </string>
     <string name="db_name" translatable="false">umbra-vpn-db</string>
     <string name="vpn_on">VPN on</string>
     <string name="vpn_off">VPN off</string>
-    <string name="create_import">Create from scratch</string>
-    <string name="add_peer">Add peer</string>
-    <string name="interface_">Interface</string>
-    <string name="rotate_keys">Rotate keys</string>
-    <string name="private_key">Private key</string>
-    <string name="copy_public_key">Copy public key</string>
-    <string name="base64_key">Base64 key</string>
-    <string name="listen_port">Listen port</string>
     <string name="random">(random)</string>
-    <string name="optional">(optional)</string>
-    <string name="preshared_key">Pre-shared key</string>
     <string name="seconds">Seconds</string>
-    <string name="persistent_keepalive">Persistent keepalive</string>
     <string name="cancel">Cancel</string>
     <string name="unknown_error">Unknown error occurred</string>
     <string name="error_root_denied">Root shell denied</string>
@@ -54,7 +35,6 @@
     <string name="enter_pin">Enter PIN</string>
     <string name="create_pin">Create PIN</string>
     <string name="set_primary_tunnel">Tunnel used when no preferred tunnel is configured</string>
-    <string name="edit_tunnel">Edit tunnel</string>
     <string name="settings">Settings</string>
     <string name="support">Support</string>
     <string name="junk_packet_count">Junk packet count</string>
@@ -72,7 +52,6 @@
     <string name="always_on_message">VPN connection permission has been denied. Please check the</string>
     <string name="always_on_message2">to make sure Always-on VPN is turned off for all other apps and try again</string>
     <string name="root_accepted">Root shell accepted</string>
-    <string name="show_amnezia_properties">Show Amnezia properties</string>
     <string name="never">Never</string>
     <string name="logs">Logs</string>
     <string name="appearance">Appearance</string>
@@ -94,40 +73,24 @@
     <string name="launch_app_settings">Launch app settings</string>
     <string name="learn_more">Learn more</string>
     <string name="local_logging">Local logging</string>
-    <string name="add_from_clipboard">Add from clipboard</string>
     <string name="native_kill_switch">Native kill switch</string>
     <string name="allow_lan_traffic">Allow LAN traffic</string>
     <string name="bypass_lan_for_kill_switch">Bypass LAN for kill switch</string>
     <string name="vpn_channel_description">Notifications for VPN tunnels.</string>
     <string name="stop">Stop</string>
     <string name="splt_tunneling">App split tunneling</string>
-    <string name="show_scripts">Show scripts</string>
-    <string name="pre_up">Pre up</string>
-    <string name="post_up">Post up</string>
-    <string name="pre_down">Pre down</string>
-    <string name="post_down">Post down</string>
     <string name="quick_actions">Quick actions</string>
-    <string name="hide_amnezia_properties">Hide Amnezia properties</string>
-    <string name="hide_scripts">Hide scripts</string>
     <string name="enable_amnezia_compatibility">Enable Amnezia compatibility</string>
     <string name="remove_amnezia_compatibility">Remove Amnezia compatibility</string>
-    <string name="exclude_lan">Exclude LAN</string>
-    <string name="include_lan">Include LAN</string>
     <string name="tunnel_control">Tunnel control</string>
-    <string name="add_from_url">Add from URL</string>
-    <string name="enter_config_url">Enter config URL</string>
-    <string name="error_download_failed">Failed to download config</string>
-    <string name="wg_url_confirm_message">Are you sure you want to add tunnels from %1$s? Never connect to an untrusted VPN!</string>
     <string name="save">Save</string>
     <string name="search">Search</string>
     <string name="select">Select</string>
     <string name="dropdown">Dropdown</string>
-    <string name="add_tunnel">Add tunnel</string>
     <string name="export_logs">Export stored logs</string>
     <string name="delete_logs">Delete and clear logs</string>
     <string name="copy">Copy</string>
     <string name="delete">Delete</string>
-    <string name="camera_permission_required">Camera permission required</string>
     <string name="export_failed">Export failed</string>
     <string name="version_template">Version: %1$s</string>
     <string name="flavor_template">Flavor: %1$s</string>
@@ -223,13 +186,10 @@
     <string name="doh_desc">Resolve using DNS-over-HTTPS</string>
     <string name="bootstrap_system_dns_desc">Resolve using the device\'s configured DNS</string>
     <string name="comma_separated">Comma separated</string>
-    <string name="server_port">Server:Port</string>
-    <string name="new_tunnel">New tunnel</string>
     <string name="read_failed">Failed to read data.</string>
     <string name="config_error_template">Bad config. %1$s at location: %2$s.</string>
     <string name="ports_must_differ">Failed. Proxies must have different ports.</string>
     <string name="password_no_spaces">Password cannot have spaces</string>
-    <string name="tunnel_name_taken">Tunnel name is already used</string>
     <string name="range_hint" translatable="false">(%1$d–%2$d)</string>
     <string name="mimic_quic">Mimic QUIC</string>
     <string name="mimic_dns">Mimic DNS</string>
@@ -262,7 +222,6 @@
     <string name="rotate_remote_key">Rotate key</string>
     <string name="remote_key_rotated">Remote key rotated</string>
     <string name="monitoring">Monitoring</string>
-    <string name="tunnel_running_name_message">Name unchangeable while tunnel is active.</string>
     <string name="metered_tunnel">Metered tunnel</string>
     <string name="lockdown_settings">Lockdown settings</string>
     <string name="unavailable_in_mode">Unavailable in current mode</string>
@@ -322,8 +281,6 @@
     <string name="split_mode_desc">Tunnel every app, or choose which apps to tunnel or bypass</string>
     <string name="global_split_off">Each tunnel uses its own app list</string>
     <string name="global_split_applies">Applies to every tunnel</string>
-    <string name="example_import_url" translatable="false">https://123.com/tun.conf</string>
-    <string name="import_url_description">The URL must be secure and serve a .conf file.</string>
     <string name="export_unsupported">Export is not supported on this device</string>
     <string name="export_canceled">Export canceled</string>
     <string name="proxy_channel_description">Notifications for proxy tunnels.</string>
@@ -417,7 +374,6 @@
     <string name="managed_globally_detail">%1$s · Managed globally</string>
     <string name="managed_globally">Managed globally</string>
     <string name="split_override_notice">This list is saved and unused until global split tunneling is off.</string>
-    <string name="global_override_notice">Some values are saved here and unused until their global settings are off.</string>
     <string name="none">None</string>
 
     <string name="error">Error</string>
@@ -461,7 +417,6 @@
     <string name="balance_saver">Battery Saver (10s)</string>
     <string name="statistic_refresh_battery_saver_desc">Updates less often to save battery</string>
     <string name="tunnel_scripting">Pre/Post script support</string>
-    <string name="name_error_empty">Tunnel name cannot be empty</string>
     <string name="more_options">More options</string>
 
     <string name="error_socks5_port_unavailable">SOCKS5 port %1$d is already in use.\nPlease choose a different port.</string>
@@ -484,7 +439,6 @@
     <string name="restore_ipv6">Restore IPv6</string>
     <string name="restore_ipv6_desc">Attempt to restore IPv6 endpoints when the tunnel is healthy on an IPv6 supported network</string>
     <string name="no_tunnels_yet">Nothing here… yet.</string>
-    <string name="getting_started_guidance">Use the + button to import a tunnel.</string>
     <string name="metered_tunnel_desc">Mark this tunnel as metered so apps treat it like mobile data</string>
     <string name="local_proxy">Local proxy</string>
     <string name="local_proxy_desc">Expose the tunnel as a local SOCKS5/HTTP proxy</string>
@@ -514,7 +468,6 @@
     <string name="restore_failed_invalid_file">Restore failed. Select a valid backup file (.zip, .sqlite3, or .sqlite3.aes)</string>
     <string name="restore_failed_newer_version">Restore failed. This backup is from a newer version of the app</string>
     <string name="backup_saved_downloads">Backup saved to Downloads as %1$s</string>
-    <string name="error_invalid_config_url">This link returned an invalid config file. Make sure you are using a direct download link</string>
 
     <string name="local_network_permission_title">Local Network Access Needed</string>
 
@@ -632,13 +585,11 @@
     <string name="http" translatable="false">HTTP</string>
     <string name="account">Account</string>
     <string name="account_onboarding_title">Connect to your server</string>
-    <string name="account_onboarding_subtitle">Enter the address of your Umbra VPN panel. You can add it later and keep using the app manually.</string>
     <string name="account_onboarding_manual_hint">Without a server the account features and device management are unavailable.</string>
     <string name="account_server_url">Server address</string>
     <string name="account_server_url_hint">For the Android emulator: http://10.0.2.2:8080</string>
     <string name="account_continue">Continue</string>
     <string name="account_check_connection">Check connection</string>
-    <string name="account_setup_later">Set up later</string>
     <string name="account_server_ready">Server is reachable and ready.</string>
     <string name="account_server_unavailable">Server responded but is not ready yet.</string>
     <string name="account_server_unreachable">Could not reach the server. Check the address and your network.</string>
@@ -678,7 +629,6 @@
     <string name="account_verify_check_spam">Check the spam folder if the email does not arrive within a few minutes.</string>
     <string name="account_check_approval">I\'ve confirmed</string>
     <string name="account_resend_email">Resend email</string>
-    <string name="account_manual_mode_hint">You can use tunnels without an account — add a configuration manually.</string>
     <string name="account_sign_in_prompt_title">Sign in to your account</string>
     <string name="account_sign_in_prompt_body">Manage your devices, tariff and traffic quota from the app.</string>
     <string name="account_sign_in_prompt_pending">The account is awaiting administrator approval. Sign in after approval.</string>
@@ -759,5 +709,6 @@
     <string name="account_error_not_found">Not found</string>
     <string name="account_error_invalid_token">The token is invalid or expired</string>
     <string name="account_error_server">Server error. Try again later.</string>
-    <string name="account_continue_without_account">Continue without an account</string>
+    <string name="getting_started_guidance">Tunnels appear here automatically after you sign in to your account.</string>
+    <string name="account_onboarding_subtitle">Enter the address of your Umbra VPN panel to sign in and receive your tunnels.</string>
 </resources>

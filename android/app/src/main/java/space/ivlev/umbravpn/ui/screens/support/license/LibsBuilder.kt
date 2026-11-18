@@ -13,8 +13,7 @@ fun buildLibsWithAdditionalLibraries(context: Context): Libs {
 
     val cleanedBaseLibs =
         baseLibs.libraries.filterNot { library ->
-            library.uniqueId.contains("com.github.topjohnwu.libsu", ignoreCase = true) ||
-                library.uniqueId.contains("com.github.T8RIN.QuickieExtended", ignoreCase = true)
+            library.uniqueId.contains("com.github.topjohnwu.libsu", ignoreCase = true)
         }
 
     val nativeLibraries =
@@ -144,27 +143,6 @@ fun buildLibsWithAdditionalLibraries(context: Context): Libs {
 
     val additionalLibraries =
         listOf(
-            Library(
-                uniqueId = "com.github.T8RIN.QuickieExtended:quickie-foss",
-                artifactVersion = "1.19.0",
-                name = "QuickieFoss",
-                description = "Camera QR code scanner",
-                website = "https://github.com/T8RIN/QuickieExtended",
-                developers = listOf(Developer(name = "T8RIN", null)),
-                organization = null,
-                scm = Scm(null, null, "https://github.com/T8RIN/QuickieExtended"),
-                licenses =
-                    setOf(
-                        License(
-                            name = "Apache License 2.0",
-                            url = "https://www.apache.org/licenses/LICENSE-2.0",
-                            spdxId = "Apache-2.0",
-                            hash = "apache-2-quickie",
-                        ),
-                    ),
-                funding = emptySet(),
-                tag = "ui",
-            ),
             Library(
                 uniqueId = "com.github.topjohnwu.libsu:core",
                 artifactVersion = "6.0.0",

@@ -6,12 +6,15 @@ import org.koin.dsl.module
 import space.ivlev.umbravpn.core.orchestration.AppBoostrapCoordinator
 import space.ivlev.umbravpn.core.orchestration.DnsSettingsCoordinator
 import space.ivlev.umbravpn.core.orchestration.FileExportCoordinator
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnectPort
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelSyncStarter
 import space.ivlev.umbravpn.core.orchestration.NotificationActionCoordinator
 import space.ivlev.umbravpn.core.orchestration.ShortcutCoordinator
 import space.ivlev.umbravpn.core.orchestration.StartupCoordinator
 import space.ivlev.umbravpn.core.orchestration.TunnelBackendCoordinator
 import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
+import space.ivlev.umbravpn.core.orchestration.TunnelCoordinatorAutoConnectPort
 import space.ivlev.umbravpn.data.account.SessionManager
 
 val coordinatorModule = module {
@@ -39,10 +42,20 @@ val coordinatorModule = module {
         )
     }
     singleOf(::AppBoostrapCoordinator)
+    single<ManagedTunnelAutoConnectPort> { TunnelCoordinatorAutoConnectPort(get(), get()) }
+    single {
+        ManagedTunnelAutoConnector(
+            session = get<SessionManager>().state,
+            managedTunnelRepository = get(),
+            tunnelRepository = get(),
+            port = get(),
+        )
+    }
     single {
         ManagedTunnelSyncStarter(
             session = get<SessionManager>().state,
             syncService = get(),
+            autoConnector = get(),
             scope = get(named(Scope.APPLICATION)),
             dispatcher = get(named(Dispatcher.IO)),
         )

@@ -61,7 +61,7 @@ fun RegisterScreen(
             is RegisterSideEffect.Registered -> {
                 keyboardController?.hide()
                 verificationViewModel.setEmail(effect.email)
-                navController.resetTo(Route.Tunnels, Route.VerifyPending(effect.email))
+                navController.resetTo(Route.VerifyPending(effect.email))
             }
         }
     }

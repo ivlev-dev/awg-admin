@@ -1,28 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="error_file_extension">Tiedosto ei ole .conf tai .zip-tiedosto</string>
     <string name="tunnels">Tunnelit</string>
     <string name="okay">Okei</string>
     <string name="thank_you">Kiitos Umbra VPNin käyttämisestä!</string>
-    <string name="add_tunnels_text">Lisää tiedostosta tai zip-arkistosta</string>
-    <string name="add_from_qr">Lisää QR-koodilla</string>
-    <string name="tunnel_name">Tunnelin nimi</string>
     <string name="config_changes_saved">Asetusten muutokset tallennettu.</string>
-    <string name="public_key">Julkinen avain</string>
     <string name="addresses">Osoitteet</string>
     <string name="dns_servers">DNS-palvelimet</string>
-    <string name="allowed_ips">Sallitut IP-osoitteet</string>
-    <string name="name">Nimi</string>
     <string name="always_on_vpn_support">Sall aina käytössä oleva VPN</string>
     <string name="vpn_on">VPN päällä</string>
     <string name="vpn_off">VPN pois päältä</string>
-    <string name="create_import">Luo tyhjästä</string>
-    <string name="private_key">Yksityinen avain</string>
-    <string name="copy_public_key">Kopioi julkinen avain</string>
-    <string name="base64_key">base64-avain</string>
     <string name="random">(satunnainen)</string>
-    <string name="optional">(valinnainen)</string>
-    <string name="preshared_key">Esijaettu avain</string>
     <string name="seconds">sekuntia</string>
     <string name="cancel">Peruuta</string>
     <string name="unknown_error">Tapahtui tuntematon virhe</string>
@@ -38,7 +25,6 @@
     <string name="enter_pin">Syötä pin-koodi</string>
     <string name="create_pin">Luo pin-koodi</string>
     <string name="set_primary_tunnel">Aseta ensisijaiseksi tunneliksi</string>
-    <string name="edit_tunnel">Muokkaa tunnelia</string>
     <string name="settings">Asetukset</string>
     <string name="support">Tuki</string>
     <string name="restart_at_boot">Käynnistä laitteen käynnistyksen yhteydessä</string>
@@ -47,7 +33,6 @@
     <string name="always_on_message">VPN-yhteyden käyttöoikeus on evätty. Tarkista</string>
     <string name="always_on_message2">varmistaaksesi, että Aina päällä oleva VPN on kytketty pois päältä kaikkien muiden sovellusten osalta ja yritä uudelleen</string>
     <string name="root_accepted">Root hyväksytty</string>
-    <string name="show_amnezia_properties">Näytä Amnezia-asetukset</string>
     <string name="never">ei koskaan</string>
     <string name="logs">Lokitiedot</string>
     <string name="appearance">Ulkoasu</string>
@@ -62,13 +47,10 @@
     <string name="skip">Ohita</string>
     <string name="launch_app_settings">Käynnistä sovelluksen asetukset</string>
     <string name="learn_more">Lue lisää</string>
-    <string name="add_from_clipboard">Lisää leikepöydältä</string>
     <string name="allow_lan_traffic">Salli LAN-tietoliikenne</string>
     <string name="vpn_channel_description">Kanava VPN-tilan ilmoituksille</string>
     <string name="stop">pysäytä</string>
-    <string name="show_scripts">Näytä skriptit</string>
     <string name="quick_actions">Pikatoiminnot</string>
-    <string name="hide_scripts">Piilota skriptit</string>
     <!-- AmneziaWG 3.0 -->
     <!-- Tunnel states -->
     <!-- Notification formatting -->

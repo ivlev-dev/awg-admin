@@ -69,7 +69,7 @@ fun AccountScreen(
 
     viewModel.collectSideEffect { effect ->
         when (effect) {
-            AccountSideEffect.SignedOut -> navController.resetTo(Route.Tunnels, Route.Login)
+            AccountSideEffect.SignedOut -> navController.resetTo(Route.Login)
             is AccountSideEffect.Notice ->
                 sharedViewModel.showSnackMessage(
                     StringValue.StringResource(accountMessageRes(effect.message)),
@@ -171,12 +171,6 @@ private fun SignedOutContent(state: AccountUiState) {
                 color = MaterialTheme.colorScheme.outline,
             )
         }
-        Text(
-            text = stringResource(R.string.account_manual_mode_hint),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.outline,
-            textAlign = TextAlign.Center,
-        )
     }
 }
 

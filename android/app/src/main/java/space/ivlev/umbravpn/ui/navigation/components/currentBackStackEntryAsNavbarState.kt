@@ -5,14 +5,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.QrCode
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.ContentPasteGo
-import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.RemoveRedEye
 import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Menu
@@ -47,7 +45,6 @@ import space.ivlev.umbravpn.ui.navigation.Route.Advanced
 import space.ivlev.umbravpn.ui.navigation.Route.AndroidIntegrations
 import space.ivlev.umbravpn.ui.navigation.Route.Appearance
 import space.ivlev.umbravpn.ui.navigation.Route.Config
-import space.ivlev.umbravpn.ui.navigation.Route.ConfigEdit
 import space.ivlev.umbravpn.ui.navigation.Route.ConfigGlobal
 import space.ivlev.umbravpn.ui.navigation.Route.Display
 import space.ivlev.umbravpn.ui.navigation.Route.Dns
@@ -207,47 +204,6 @@ fun currentRouteAsNavbarState(
                     NavbarState(
                         showBottomItems = true,
                         topTitle = context.getString(R.string.settings),
-                    )
-                }
-                is ConfigEdit -> {
-                    val tunnelName = globalState.tunnelNames[route.id]
-                    NavbarState(
-                        topLeading = { TvBackButton { navController.pop() } },
-                        showBottomItems = true,
-                        topTitle = tunnelName ?: context.getString(R.string.new_tunnel),
-                        topTrailing = {
-                            IconButton(
-                                onClick = {
-                                    keyboardController?.hide()
-                                    sharedViewModel.postSideEffect(LocalSideEffect.SaveChanges)
-                                },
-                            ) {
-                                Icon(Icons.Rounded.Save, stringResource(R.string.save))
-                            }
-                            IconButton(
-                                onClick = {
-                                    sharedViewModel.postSideEffect(LocalSideEffect.ShowSensitive)
-                                },
-                            ) {
-                                Icon(
-                                    Icons.Outlined.RemoveRedEye,
-                                    stringResource(R.string.show_password),
-                                )
-                            }
-                            if (globalState.tunnelNames.isNotEmpty())
-                                IconButton(
-                                    onClick = {
-                                        sharedViewModel.postSideEffect(
-                                            LocalSideEffect.Modal.SelectTunnel,
-                                        )
-                                    },
-                                ) {
-                                    Icon(
-                                        Icons.Outlined.ContentPasteGo,
-                                        stringResource(R.string.copy_from),
-                                    )
-                                }
-                        },
                     )
                 }
                 is ConfigGlobal,
@@ -464,18 +420,6 @@ fun currentRouteAsNavbarState(
                                     var showOverflowMenu by remember { mutableStateOf(false) }
                                     val showTunnelMenu = globalState.tunnelNames.size > 1
                                     Row {
-                                        IconButton(
-                                            onClick = {
-                                                sharedViewModel.postSideEffect(
-                                                    LocalSideEffect.Sheet.ImportTunnels,
-                                                )
-                                            },
-                                        ) {
-                                            Icon(
-                                                Icons.Rounded.Add,
-                                                stringResource(R.string.add_tunnel),
-                                            )
-                                        }
                                         if (showTunnelMenu) {
                                             IconButton(onClick = { showOverflowMenu = true }) {
                                                 Icon(
@@ -545,14 +489,6 @@ fun currentRouteAsNavbarState(
                         topLeading = { TvBackButton { navController.pop() } },
                         topTrailing = {
                             var showOverflowMenu by remember { mutableStateOf(false) }
-                            if (!route.live) {
-                                IconButton(onClick = { navController.push(ConfigEdit(route.id)) }) {
-                                    Icon(
-                                        Icons.Outlined.Edit,
-                                        contentDescription = stringResource(R.string.edit_tunnel),
-                                    )
-                                }
-                            }
                             IconButton(
                                 onClick = {
                                     sharedViewModel.postSideEffect(LocalSideEffect.ShowSensitive)

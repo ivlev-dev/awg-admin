@@ -11,7 +11,6 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
 import java.io.File
-import java.io.InputStream
 import java.util.Locale
 import space.ivlev.umbravpn.BuildConfig
 import space.ivlev.umbravpn.util.Constants
@@ -84,10 +83,6 @@ fun Context.launchVpnSettings(): Result<Unit> {
             Intent(Constants.VPN_SETTINGS_PACKAGE).apply { flags = Intent.FLAG_ACTIVITY_NEW_TASK }
         startActivity(intent)
     }
-}
-
-fun Context.getInputStreamFromUri(uri: Uri): InputStream? {
-    return this.applicationContext.contentResolver.openInputStream(uri)
 }
 
 fun Context.launchNetworkAndInternetSettings(): Result<Unit> = runCatching {

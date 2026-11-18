@@ -26,6 +26,7 @@ import org.koin.core.option.viewModelScopeFactory
 import org.koin.core.qualifier.named
 import space.ivlev.umbravpn.core.event.TunnelEventDispatcher
 import space.ivlev.umbravpn.core.orchestration.AppBoostrapCoordinator
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelSyncStarter
 import space.ivlev.umbravpn.core.orchestration.StartupCoordinator
 import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
@@ -44,6 +45,8 @@ import space.ivlev.umbravpn.di.dispatchersModule
 import space.ivlev.umbravpn.di.networkModule
 import space.ivlev.umbravpn.di.tunnelBackendProviderModule
 import space.ivlev.umbravpn.di.workerModule
+import space.ivlev.umbravpn.domain.enums.TunnelActionSource
+import space.ivlev.umbravpn.domain.events.TunnelActionEvent
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AuthRepository
 import space.ivlev.umbravpn.notification.NotificationService
@@ -65,6 +68,8 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
     private val tunnelCoordinator: TunnelCoordinator by inject()
 
     private val managedTunnelSyncStarter: ManagedTunnelSyncStarter by inject()
+
+    private val managedTunnelAutoConnector: ManagedTunnelAutoConnector by inject()
 
     private val authRepository: AuthRepository by inject()
 
@@ -143,10 +148,19 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
         }
         managedTunnelSyncStarter.start()
 
+        applicationScope.launch {
+            tunnelCoordinator.actions.collect { event ->
+                if (event is TunnelActionEvent.Stopped && event.source == TunnelActionSource.USER) {
+                    managedTunnelAutoConnector.onManualDisconnect()
+                }
+            }
+        }
+
         applicationScope.launch(ioDispatcher) {
             if (authRepository.session.value is SessionState.Unknown) {
                 authRepository.me()
             }
+            managedTunnelAutoConnector.ensureConnected()
         }
 
         applicationScope.launch(ioDispatcher) { boostrapCoordinator.bootstrap(this@UmbraVpnApp) }

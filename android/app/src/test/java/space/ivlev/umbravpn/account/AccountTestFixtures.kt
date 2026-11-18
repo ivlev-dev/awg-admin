@@ -53,14 +53,11 @@ internal class FakeAccountSettingsRepository(rawUrl: String = TEST_SERVER_URL) :
     AccountSettingsRepository {
     private val urlState = MutableStateFlow(normalizeServerUrl(rawUrl))
     private val termsState = MutableStateFlow(false)
-    private val onboardingDismissedState = MutableStateFlow(false)
     private val managedProvisionedState = MutableStateFlow(false)
 
     override val serverUrlFlow: Flow<String> = urlState
 
     override val termsAcceptedFlow: Flow<Boolean> = termsState
-
-    override val onboardingDismissedFlow: Flow<Boolean> = onboardingDismissedState
 
     override suspend fun serverUrl(): String = urlState.value
 
@@ -72,12 +69,6 @@ internal class FakeAccountSettingsRepository(rawUrl: String = TEST_SERVER_URL) :
 
     override suspend fun setTermsAccepted(accepted: Boolean) {
         termsState.value = accepted
-    }
-
-    override suspend fun onboardingDismissed(): Boolean = onboardingDismissedState.value
-
-    override suspend fun setOnboardingDismissed(dismissed: Boolean) {
-        onboardingDismissedState.value = dismissed
     }
 
     override suspend fun managedProvisioned(): Boolean = managedProvisionedState.value

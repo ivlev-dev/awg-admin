@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.combine
 import org.orbitmvi.orbit.OrbitContainerHost
 import org.orbitmvi.orbit.syntax.Syntax
 import org.orbitmvi.orbit.viewmodel.orbitContainer
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.domain.account.AccountActions
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.account.AccountMessages
@@ -30,6 +31,7 @@ class AccountViewModel(
     private val authActions: AuthActions,
     private val syncService: ManagedTunnelSyncService,
     private val tunnelCleaner: ManagedTunnelCleaner,
+    private val autoConnector: ManagedTunnelAutoConnector,
 ) : OrbitContainerHost<AccountUiState, AccountUiState, AccountSideEffect>, ViewModel() {
 
     override val container =
@@ -112,6 +114,7 @@ class AccountViewModel(
                     )
                 }
                 syncTunnels()
+                autoConnector.ensureConnected()
                 postSideEffect(AccountSideEffect.Notice(AccountMessage.DeviceCreated))
             }
             is ActionResult.Failure ->

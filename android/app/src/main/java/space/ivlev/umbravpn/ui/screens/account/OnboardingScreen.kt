@@ -17,7 +17,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -49,7 +48,6 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = koinViewModel()) {
     viewModel.collectSideEffect { effect ->
         when (effect) {
             OnboardingSideEffect.OpenLogin -> navController.resetTo(Route.Login)
-            OnboardingSideEffect.UseManually -> navController.resetTo(Route.Tunnels)
         }
     }
 
@@ -121,12 +119,6 @@ fun OnboardingScreen(viewModel: OnboardingViewModel = koinViewModel()) {
             onClick = viewModel::checkConnection,
             loading = state.isChecking,
         )
-        TextButton(
-            onClick = viewModel::skip,
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) {
-            Text(stringResource(R.string.account_setup_later))
-        }
         Text(
             text = stringResource(R.string.account_onboarding_manual_hint),
             style = MaterialTheme.typography.bodySmall,

@@ -5,14 +5,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dokar.sonner.ToastType
-import com.wgtunnel.parser.Config
-import com.wgtunnel.parser.ConfigParseException
 import com.wgtunnel.parser.archive.ConfigArchive
-import io.ktor.client.HttpClient
-import io.ktor.client.request.prepareGet
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -56,7 +49,6 @@ import space.ivlev.umbravpn.ui.state.GlobalAppUiState
 import space.ivlev.umbravpn.ui.state.TunnelsUiState
 import space.ivlev.umbravpn.ui.state.nextChildPosition
 import space.ivlev.umbravpn.ui.state.nextRootPosition
-import space.ivlev.umbravpn.ui.state.shiftForInsertAfter
 import space.ivlev.umbravpn.ui.state.shiftRootPositionsBy
 import space.ivlev.umbravpn.ui.state.sortGroupChildrenByName
 import space.ivlev.umbravpn.ui.state.sortRootByName
@@ -66,15 +58,9 @@ import space.ivlev.umbravpn.ui.theme.Theme
 import space.ivlev.umbravpn.util.FileUtils
 import space.ivlev.umbravpn.util.LocaleUtil
 import space.ivlev.umbravpn.util.StringValue
-import space.ivlev.umbravpn.util.extensions.QuickConfig
-import space.ivlev.umbravpn.util.extensions.TunnelName
 import space.ivlev.umbravpn.util.extensions.asExportFileName
 import space.ivlev.umbravpn.util.extensions.asFileExportName
-import space.ivlev.umbravpn.util.extensions.asStringValue
-import space.ivlev.umbravpn.util.extensions.isFileAccessDenied
-import space.ivlev.umbravpn.util.extensions.saveTunnelsUniquely
 import space.ivlev.umbravpn.util.network.NetworkUtils
-import timber.log.Timber
 import xyz.teamgravity.pin_lock_compose.PinManager
 
 class SharedAppViewModel(
@@ -87,7 +73,6 @@ class SharedAppViewModel(
     private val settingsRepository: GeneralSettingRepository,
     private val selectedTunnelsRepository: SelectedTunnelsRepository,
     private val tunnelBackendCoordinator: TunnelBackendCoordinator,
-    private val httpClient: HttpClient,
     private val fileUtils: FileUtils,
     private val networkUtils: NetworkUtils,
     private val appLockManager: AppLockManager,
@@ -645,106 +630,6 @@ class SharedAppViewModel(
         }
     }
 
-    fun importTunnelConfigs(configs: Map<QuickConfig, TunnelName>) = intent {
-        try {
-            val ui = tunnelsUiState.value
-            val tunnelConfigs =
-                configs.entries.mapIndexed { index, (quick, name) ->
-                    val config = Config.parseQuickString(quick)
-                    config.validate()
-                    // Final positions assigned after validation below, placed at the top.
-                    TunnelConfig.fromConfig(config, name).copy(position = index)
-                }
-            // New tunnels land at the top
-            val (shiftedGroups, shiftedTunnels) =
-                shiftRootPositionsBy(ui.groups, ui.tunnels, tunnelConfigs.size)
-            tunnelGroupRepository.saveAll(shiftedGroups)
-            if (shiftedTunnels.isNotEmpty()) tunnelRepository.updateAll(shiftedTunnels)
-            tunnelRepository.saveTunnelsUniquely(tunnelConfigs, state.tunnelNames.map { it.value })
-        } catch (e: Exception) {
-            if (e is ConfigParseException) {
-                postSideEffect(GlobalSideEffect.Snackbar(e.asStringValue(), ToastType.Error))
-            } else {
-                postSideEffect(
-                    GlobalSideEffect.Snackbar(
-                        StringValue.StringResource(R.string.config_error),
-                        ToastType.Error,
-                    ),
-                )
-            }
-        }
-    }
-
-    fun importFromClipboard(conf: String) {
-        importTunnelConfigs(mapOf(conf to null))
-    }
-
-    fun importFromQr(conf: String) = intent { importFromClipboard(conf) }
-
-    fun promptWgImport(url: String) = intent { reduce { state.copy(pendingWgImportUrl = url) } }
-
-    fun dismissWgImport() = intent { reduce { state.copy(pendingWgImportUrl = null) } }
-
-    fun importFromUrl(url: String) = intent {
-        reduce { state.copy(pendingWgImportUrl = null) }
-        try {
-            httpClient.prepareGet(url).execute { response ->
-                if (response.status.value !in 200..299) {
-                    throw IOException("Server returned error: ${response.status.value}")
-                }
-
-                val body = response.bodyAsText()
-
-                val contentType = response.contentType()
-                val isHtml =
-                    (contentType?.match(ContentType.Text.Html) == true) ||
-                        body.trimStart().let {
-                            it.startsWith("<!DOCTYPE", ignoreCase = true) ||
-                                it.startsWith("<html", ignoreCase = true)
-                        }
-
-                if (isHtml) {
-                    postSideEffect(
-                        GlobalSideEffect.Snackbar(
-                            StringValue.StringResource(R.string.error_invalid_config_url),
-                            ToastType.Error,
-                        ),
-                    )
-                    return@execute
-                }
-
-                importFromClipboard(body)
-            }
-        } catch (e: Exception) {
-            Timber.e(e)
-            postSideEffect(
-                GlobalSideEffect.Snackbar(
-                    StringValue.StringResource(R.string.error_download_failed),
-                    ToastType.Error,
-                ),
-            )
-        }
-    }
-
-    fun importFromUri(uri: Uri) = intent {
-        fileUtils
-            .readConfigsFromUri(uri)
-            .onSuccess { configs -> importTunnelConfigs(configs) }
-            .onFailure { error ->
-                val message =
-                    when {
-                        // Broken Android TV and legacy pickers can return file:// without a read
-                        // grant
-                        error.isFileAccessDenied() ->
-                            StringValue.StringResource(R.string.error_no_file_explorer)
-                        error is IOException ->
-                            StringValue.StringResource(R.string.error_download_failed)
-                        else -> StringValue.StringResource(R.string.error_file_extension)
-                    }
-                postSideEffect(GlobalSideEffect.Snackbar(message, ToastType.Error))
-            }
-    }
-
     fun toggleSelectAllTunnels() = intent {
         val ui = tunnelsUiState.value
         val allSelected =
@@ -811,23 +696,6 @@ class SharedAppViewModel(
             if (changedTunnels.isNotEmpty()) tunnelRepository.updateAll(changedTunnels)
             tunnelGroupRepository.saveAll(groups)
         }
-        clearSelectedTunnels()
-    }
-
-    fun copySelectedTunnel() = intent {
-        val selected = tunnelsUiState.value.selectedTunnels.firstOrNull() ?: return@intent
-        val config = selected.getConfig()
-        val ui = tunnelsUiState.value
-        // Placed right after the original, not appended to the end - shift everything after it
-        // in the same scope (its group, or root) forward by one to open that slot.
-        val (shiftedGroups, shiftedTunnels) =
-            shiftForInsertAfter(ui.groups, ui.tunnels, selected.groupId, selected.position)
-        val copy =
-            TunnelConfig.fromConfig(config, selected.name)
-                .copy(groupId = selected.groupId, position = selected.position + 1)
-        tunnelGroupRepository.saveAll(shiftedGroups)
-        if (shiftedTunnels.isNotEmpty()) tunnelRepository.updateAll(shiftedTunnels)
-        tunnelRepository.saveTunnelsUniquely(listOf(copy), state.tunnelNames.map { it.value })
         clearSelectedTunnels()
     }
 

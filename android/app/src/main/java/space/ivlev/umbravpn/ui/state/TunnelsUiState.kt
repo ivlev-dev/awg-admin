@@ -32,9 +32,6 @@ data class TunnelsUiState(
     val canMoveToGroup: Boolean
         get() = selectedTunnels.isNotEmpty() && selectedGroups.isEmpty()
 
-    val canCopy: Boolean
-        get() = selectedTunnels.size == 1 && selectedGroups.isEmpty()
-
     val tunnelsForExport: List<TunnelConfig>
         get() =
             (selectedTunnels +

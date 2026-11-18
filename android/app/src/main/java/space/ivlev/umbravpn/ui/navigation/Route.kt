@@ -84,13 +84,6 @@ sealed class Route : NavKey {
 
     @Keep
     @Serializable
-    data class ConfigEdit(val id: Int?) : Route(), SecureRoute {
-        override val requiresProtection: Boolean
-            get() = true
-    }
-
-    @Keep
-    @Serializable
     data class SplitTunnel(val id: Int) : Route(), SecureRoute {
         override val requiresProtection: Boolean
             get() = true
@@ -188,7 +181,6 @@ enum class Tab(
             when (route) {
                 is Route.Tunnels,
                 is Route.TunnelSettings,
-                is Route.ConfigEdit,
                 is Route.Lock,
                 is Route.Config,
                 is Route.IPv6,

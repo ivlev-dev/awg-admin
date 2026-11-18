@@ -13,8 +13,6 @@ import space.ivlev.umbravpn.util.network.validateServerUrl
 
 sealed interface OnboardingSideEffect {
     data object OpenLogin : OnboardingSideEffect
-
-    data object UseManually : OnboardingSideEffect
 }
 
 class OnboardingViewModel(
@@ -48,11 +46,6 @@ class OnboardingViewModel(
         settingsRepository.setServerUrl(validation.url)
         reduce { state.copy(isSaving = false) }
         postSideEffect(OnboardingSideEffect.OpenLogin)
-    }
-
-    fun skip() = intent {
-        settingsRepository.setOnboardingDismissed(true)
-        postSideEffect(OnboardingSideEffect.UseManually)
     }
 
     fun checkConnection() = intent {

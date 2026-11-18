@@ -1,7 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.tunnels.components
 
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CopyAll
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DeleteForever
 import androidx.compose.material.icons.outlined.Download
@@ -25,7 +24,6 @@ fun SelectionActionsSheet(
     onSelectAll: () -> Unit,
     onUngroup: () -> Unit,
     onExport: () -> Unit,
-    onCopy: () -> Unit,
     onDelete: () -> Unit,
     onRenameGroup: (TunnelGroup) -> Unit,
     onExportGroup: (TunnelGroup) -> Unit,
@@ -117,18 +115,6 @@ fun SelectionActionsSheet(
                         },
                     ),
                 )
-                if (uiState.canCopy) {
-                    add(
-                        SheetOption(
-                            Icons.Outlined.CopyAll,
-                            stringResource(R.string.copy),
-                            onClick = {
-                                onDismiss()
-                                onCopy()
-                            },
-                        ),
-                    )
-                }
                 add(
                     SheetOption(
                         Icons.Outlined.Delete,

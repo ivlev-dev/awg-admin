@@ -27,7 +27,6 @@ import space.ivlev.umbravpn.service.ServiceManager
 import space.ivlev.umbravpn.util.FileUtils
 import space.ivlev.umbravpn.util.network.NetworkUtils
 import space.ivlev.umbravpn.viewmodel.AccountViewModel
-import space.ivlev.umbravpn.viewmodel.ConfigEditViewModel
 import space.ivlev.umbravpn.viewmodel.DnsViewModel
 import space.ivlev.umbravpn.viewmodel.EmailVerificationViewModel
 import space.ivlev.umbravpn.viewmodel.ForgotPasswordViewModel
@@ -84,7 +83,6 @@ val appModule = module {
 
     single { NetworkUtils(get(named(Dispatcher.IO))) }
 
-    viewModel { (id: Int?) -> ConfigEditViewModel(get(), get(), get(), get(), get(), get(), id) }
     viewModelOf(::AccountViewModel)
     viewModelOf(::DnsViewModel)
     viewModelOf(::EmailVerificationViewModel)

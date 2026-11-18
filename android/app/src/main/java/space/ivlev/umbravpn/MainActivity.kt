@@ -74,7 +74,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.app.ActivityCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
 import androidx.navigation3.runtime.entryProvider
@@ -92,7 +94,6 @@ import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
@@ -101,7 +102,9 @@ import org.koin.androidx.viewmodel.ext.android.viewModel
 import org.koin.core.parameter.parametersOf
 import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.core.lock.AppLockManager
+import space.ivlev.umbravpn.core.orchestration.AutoConnectEvent
 import space.ivlev.umbravpn.core.orchestration.FileExportCoordinator
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.data.backup.BackupWriteResult
 import space.ivlev.umbravpn.data.backup.DatabaseBackup
 import space.ivlev.umbravpn.data.backup.RestoreResult
@@ -124,7 +127,6 @@ import space.ivlev.umbravpn.service.tile.TunnelTileRefresher
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
 import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.common.banner.AppAlertBanner
-import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.common.dialog.LocalNetworkPermissionDialog
 import space.ivlev.umbravpn.ui.common.dialog.VpnDeniedDialog
 import space.ivlev.umbravpn.ui.common.sheet.StrictSplitNoticeSheet
@@ -135,6 +137,7 @@ import space.ivlev.umbravpn.ui.navigation.components.BottomNavbar
 import space.ivlev.umbravpn.ui.navigation.components.DynamicTopAppBar
 import space.ivlev.umbravpn.ui.navigation.components.currentRouteAsNavbarState
 import space.ivlev.umbravpn.ui.navigation.functions.rememberNavController
+import space.ivlev.umbravpn.ui.navigation.resolveStartRedirect
 import space.ivlev.umbravpn.ui.screens.account.AccountDeviceDetailsScreen
 import space.ivlev.umbravpn.ui.screens.account.AccountDevicesScreen
 import space.ivlev.umbravpn.ui.screens.account.AccountScreen
@@ -166,7 +169,6 @@ import space.ivlev.umbravpn.ui.screens.support.license.LicenseScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.TunnelsScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.TunnelSettingsScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.ConfigScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.edit.ConfigEditScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.entry.EntryTunnelScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.ipv6.IPv6Screen
 import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.SplitTunnelScreen
@@ -182,12 +184,10 @@ import space.ivlev.umbravpn.util.extensions.installApk
 import space.ivlev.umbravpn.util.extensions.isRunningOnTv
 import space.ivlev.umbravpn.util.extensions.openWebUrl
 import space.ivlev.umbravpn.util.permission.LocalNetworkPermissionHelper
-import space.ivlev.umbravpn.viewmodel.ConfigEditViewModel
 import space.ivlev.umbravpn.viewmodel.EmailVerificationViewModel
 import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 import space.ivlev.umbravpn.viewmodel.SplitTunnelViewModel
 import space.ivlev.umbravpn.viewmodel.TunnelViewModel
-import timber.log.Timber
 
 class MainActivity : AppCompatActivity() {
 
@@ -199,6 +199,7 @@ class MainActivity : AppCompatActivity() {
     private val appLockManager: AppLockManager by inject()
     private val accountSettingsRepository: AccountSettingsRepository by inject()
     private val authRepository: AuthRepository by inject()
+    private val autoConnector: ManagedTunnelAutoConnector by inject()
 
     val viewModel by viewModel<SharedAppViewModel>()
     val verificationViewModel by viewModel<EmailVerificationViewModel>()
@@ -233,7 +234,6 @@ class MainActivity : AppCompatActivity() {
     private val supportDeepLinkChannel = Channel<Boolean>(Channel.BUFFERED)
     private val showUpdateChannel = Channel<Unit>(Channel.BUFFERED)
     private val verifyDeepLinkChannel = Channel<String>(Channel.BUFFERED)
-    private val pendingConfigImport = MutableStateFlow<Uri?>(null)
 
     @OptIn(ExperimentalMaterial3Api::class)
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -246,8 +246,7 @@ class MainActivity : AppCompatActivity() {
         }
         super.onCreate(savedInstanceState)
 
-        handleConfigFileIntent(intent)
-        if (!handleAccountDeepLinkIntent(intent)) handleWgDeepLinkIntent(intent)
+        handleAccountDeepLinkIntent(intent)
 
         installSplashScreen().apply {
             setKeepOnScreenCondition { !viewModel.container.stateFlow.value.isAppLoaded }
@@ -267,6 +266,8 @@ class MainActivity : AppCompatActivity() {
 
             val toaster = rememberToasterState()
             var showVpnPermissionDialog by remember { mutableStateOf(false) }
+            var pendingAutoConnectPermission by rememberSaveable { mutableStateOf(false) }
+            var autoConnectPermissionRequest by rememberSaveable { mutableStateOf(false) }
             var coldStartAutoUpdate by remember {
                 mutableStateOf(intent?.getBooleanExtra(EXTRA_AUTO_UPDATE, false) == true)
             }
@@ -343,8 +344,15 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            val initialRoute =
+                when (authRepository.session.value) {
+                    is SessionState.Active,
+                    is SessionState.Unknown -> Route.Tunnels
+                    else -> Route.Login
+                }
+
             val startingStack = buildList {
-                add(Route.Tunnels)
+                add(initialRoute)
                 if (intent?.action == Intent.ACTION_APPLICATION_PREFERENCES) add(Route.Settings)
                 if (
                     intent?.getBooleanExtra(EXTRA_OPEN_SUPPORT, false) == true ||
@@ -371,15 +379,18 @@ class MainActivity : AppCompatActivity() {
                 startDecided = true
                 if (pendingVerifyDeepLink) return@LaunchedEffect
 
-                val serverUrl = accountSettingsRepository.serverUrl()
-                val onboardingDismissed = accountSettingsRepository.onboardingDismissed()
-                val session = authRepository.session.value
-                when {
-                    serverUrl.isBlank() && !onboardingDismissed ->
-                        navController.resetTo(Route.Onboarding)
-                    serverUrl.isBlank() -> Unit
-                    session is SessionState.Active || session is SessionState.Unknown -> Unit
-                    else -> navController.resetTo(Route.Login)
+                val redirect =
+                    resolveStartRedirect(
+                        accountSettingsRepository.serverUrl(),
+                        authRepository.session.value,
+                    )
+                if (redirect != null) navController.resetTo(redirect)
+            }
+
+            val session by authRepository.session.collectAsStateWithLifecycle()
+            LaunchedEffect(uiState.isAppLoaded, session) {
+                if (uiState.isAppLoaded && session is SessionState.Expired) {
+                    navController.resetTo(Route.Login)
                 }
             }
 
@@ -388,7 +399,7 @@ class MainActivity : AppCompatActivity() {
                 for (token in verifyDeepLinkChannel) {
                     pendingVerifyDeepLink = false
                     verificationViewModel.verify(token)
-                    navController.resetTo(Route.Tunnels, Route.VerifyPending())
+                    navController.resetTo(Route.VerifyPending())
                 }
             }
 
@@ -396,22 +407,75 @@ class MainActivity : AppCompatActivity() {
                 rememberLauncherForActivityResult(
                     ActivityResultContracts.StartActivityForResult(),
                     onResult = {
+                        val autoRequest = autoConnectPermissionRequest
+                        autoConnectPermissionRequest = false
                         if (it.resultCode != RESULT_OK) {
+                            if (autoRequest) {
+                                pendingAutoConnectPermission = false
+                                autoConnector.reset()
+                            }
                             showVpnPermissionDialog = true
                             vpnPermissionDenied = true
                         } else {
                             vpnPermissionDenied = false
                             showVpnPermissionDialog = false
-                            val (appMode, config) = requestingTunnelMode
-                            when (appMode) {
-                                TunnelMode.VPN -> if (config != null) viewModel.startTunnel(config)
-                                TunnelMode.LOCK_DOWN -> viewModel.setAppMode(TunnelMode.LOCK_DOWN)
-                                else -> Unit
+                            if (autoRequest) {
+                                lifecycleScope.launch { autoConnector.onPermissionGranted() }
+                            } else {
+                                val (appMode, config) = requestingTunnelMode
+                                when (appMode) {
+                                    TunnelMode.VPN ->
+                                        if (config != null) viewModel.startTunnel(config)
+                                    TunnelMode.LOCK_DOWN ->
+                                        viewModel.setAppMode(TunnelMode.LOCK_DOWN)
+                                    else -> Unit
+                                }
                             }
                         }
                         requestingTunnelMode = Pair(null, null)
                     },
                 )
+
+            LaunchedEffect(Unit) {
+                if (autoConnector.pendingTunnelId != null) {
+                    pendingAutoConnectPermission = true
+                }
+                autoConnector.events.collect { event ->
+                    if (event is AutoConnectEvent.NeedsPermission) {
+                        pendingAutoConnectPermission = true
+                    }
+                }
+            }
+
+            val lifecycleState by lifecycle.currentStateAsState()
+            LaunchedEffect(
+                uiState.isAppLoaded,
+                lifecycleState,
+                pendingAutoConnectPermission,
+                session,
+                backStack.lastOrNull(),
+            ) {
+                if (!pendingAutoConnectPermission || !uiState.isAppLoaded) return@LaunchedEffect
+                if (session !is SessionState.Active) {
+                    pendingAutoConnectPermission = false
+                    return@LaunchedEffect
+                }
+                if (autoConnector.pendingTunnelId == null) {
+                    pendingAutoConnectPermission = false
+                    return@LaunchedEffect
+                }
+                if (!lifecycleState.isAtLeast(Lifecycle.State.RESUMED)) return@LaunchedEffect
+                if ((backStack.lastOrNull() as? Route).isAuthScreen()) return@LaunchedEffect
+
+                pendingAutoConnectPermission = false
+                val permissionIntent = VpnService.prepare(this@MainActivity)
+                if (permissionIntent == null) {
+                    lifecycleScope.launch { autoConnector.onPermissionGranted() }
+                } else {
+                    autoConnectPermissionRequest = true
+                    vpnActivity.launch(permissionIntent)
+                }
+            }
 
             val notificationPermissionLauncher =
                 rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
@@ -522,15 +586,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
-            // Imports opened from outside the app wait until the PIN has been entered
-            val pendingImportUri by pendingConfigImport.collectAsStateWithLifecycle()
-            LaunchedEffect(pendingImportUri, showLock) {
-                val uri = pendingImportUri ?: return@LaunchedEffect
-                if (showLock) return@LaunchedEffect
-                pendingConfigImport.value = null
-                viewModel.importFromUri(uri)
-            }
-
             CompositionLocalProvider(
                 LocalIsAndroidTV provides isTv,
                 LocalNavController provides navController,
@@ -599,21 +654,6 @@ class MainActivity : AppCompatActivity() {
                                         },
                                     )
                             }
-                        }
-
-                    uiState.pendingWgImportUrl
-                        ?.takeUnless { showLock }
-                        ?.let { url ->
-                            val host = Uri.parse(url).host ?: url
-                            InfoDialog(
-                                onDismiss = { viewModel.dismissWgImport() },
-                                onAttest = { viewModel.importFromUrl(url) },
-                                title = stringResource(R.string.add_from_url),
-                                body = {
-                                    Text(stringResource(R.string.wg_url_confirm_message, host))
-                                },
-                                confirmText = stringResource(R.string.okay),
-                            )
                         }
 
                     val isPinVisible by remember { derivedStateOf { showLock } }
@@ -783,15 +823,6 @@ class MainActivity : AppCompatActivity() {
                                                                 },
                                                             )
                                                         SplitTunnelScreen(viewModel)
-                                                    }
-                                                    entry<Route.ConfigEdit> { key ->
-                                                        val viewModel: ConfigEditViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        ConfigEditScreen(viewModel)
                                                     }
                                                     entry<Route.Settings> { SettingsScreen() }
                                                     entry<Route.AndroidIntegrations> {
@@ -979,16 +1010,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun handleWgDeepLinkIntent(intent: Intent) {
-        if (intent.action == Intent.ACTION_VIEW) {
-            val uri = intent.data ?: return
-            if (uri.scheme == "umbravpn") {
-                val httpsUrl = uri.toString().replaceFirst("umbravpn://", "https://")
-                viewModel.promptWgImport(httpsUrl)
-            }
-        }
-    }
-
     private fun handleAccountDeepLinkIntent(intent: Intent?): Boolean {
         if (intent?.action != Intent.ACTION_VIEW) return false
         val uri = intent.data ?: return false
@@ -1084,8 +1105,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleConfigFileIntent(intent)
-        if (!handleAccountDeepLinkIntent(intent)) handleWgDeepLinkIntent(intent)
+        handleAccountDeepLinkIntent(intent)
         enqueueSupportDeepLink(intent)
     }
 
@@ -1100,29 +1120,17 @@ class MainActivity : AppCompatActivity() {
         intent.removeExtra(EXTRA_AUTO_UPDATE)
         supportDeepLinkChannel.trySend(autoUpdate)
     }
-
-    private fun handleConfigFileIntent(intent: Intent?) {
-        intent ?: return
-        when (intent.action) {
-            Intent.ACTION_VIEW,
-            Intent.ACTION_EDIT,
-            Intent.ACTION_SEND -> {
-                val uri: Uri? = intent.data ?: return
-                val name = uri?.lastPathSegment?.lowercase() ?: return
-                if (
-                    !name.endsWith(FileUtils.CONF_FILE_EXTENSION) &&
-                        !name.endsWith(FileUtils.ZIP_FILE_EXTENSION)
-                ) {
-                    Timber.d("Ignoring non-config URI in handleIncomingIntent: $uri")
-                    return
-                }
-                pendingConfigImport.value = uri
-            }
-        }
-    }
 }
 
 private const val LOCK_FADE_OUT_MS = 220
+
+private fun Route?.isAuthScreen(): Boolean =
+    this is Route.Login ||
+        this is Route.Onboarding ||
+        this is Route.Register ||
+        this is Route.VerifyPending ||
+        this is Route.ForgotPassword ||
+        this is Route.ResetPassword
 
 private fun Modifier.lockedContent(locked: Boolean): Modifier =
     this.then(if (locked) Modifier.clearAndSetSemantics {} else Modifier)

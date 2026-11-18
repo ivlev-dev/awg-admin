@@ -155,12 +155,5 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
         ) {
             Text(stringResource(R.string.account_forgot_password))
         }
-
-        TextButton(
-            onClick = { navController.resetTo(Route.Tunnels) },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) {
-            Text(stringResource(R.string.account_continue_without_account))
-        }
     }
 }

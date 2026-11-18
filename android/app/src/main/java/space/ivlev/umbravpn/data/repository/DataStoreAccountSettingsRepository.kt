@@ -17,11 +17,6 @@ class DataStoreAccountSettingsRepository(
     override val termsAcceptedFlow: Flow<Boolean> =
         dataStoreManager.getFromStoreFlow(DataStoreManager.accountTermsAccepted).map { it ?: false }
 
-    override val onboardingDismissedFlow: Flow<Boolean> =
-        dataStoreManager.getFromStoreFlow(DataStoreManager.accountOnboardingDismissed).map {
-            it ?: false
-        }
-
     override suspend fun serverUrl(): String =
         normalizeServerUrl(
             dataStoreManager.getFromStore(DataStoreManager.accountServerUrl).orEmpty(),
@@ -39,13 +34,6 @@ class DataStoreAccountSettingsRepository(
 
     override suspend fun setTermsAccepted(accepted: Boolean) {
         dataStoreManager.saveToDataStore(DataStoreManager.accountTermsAccepted, accepted)
-    }
-
-    override suspend fun onboardingDismissed(): Boolean =
-        dataStoreManager.getFromStore(DataStoreManager.accountOnboardingDismissed) ?: false
-
-    override suspend fun setOnboardingDismissed(dismissed: Boolean) {
-        dataStoreManager.saveToDataStore(DataStoreManager.accountOnboardingDismissed, dismissed)
     }
 
     override suspend fun managedProvisioned(): Boolean =

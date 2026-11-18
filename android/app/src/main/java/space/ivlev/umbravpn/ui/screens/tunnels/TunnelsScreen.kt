@@ -1,8 +1,6 @@
 package space.ivlev.umbravpn.ui.screens.tunnels
 
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NetworkCheck
@@ -19,27 +17,19 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dokar.sonner.ToastType
-import io.github.g00fy2.quickie.QRResult
-import io.github.g00fy2.quickie.ScanQRCode
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectSideEffect
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.model.TunnelGroup
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
-import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
-import space.ivlev.umbravpn.ui.common.functions.rememberClipboardHelper
 import space.ivlev.umbravpn.ui.common.functions.rememberFileExportLauncherForResult
-import space.ivlev.umbravpn.ui.common.functions.rememberFileImportLauncherForResult
 import space.ivlev.umbravpn.ui.common.sheet.CustomBottomSheet
 import space.ivlev.umbravpn.ui.common.sheet.SheetOption
-import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.tunnels.components.GroupNameDialog
 import space.ivlev.umbravpn.ui.screens.tunnels.components.GroupSelectionSheet
 import space.ivlev.umbravpn.ui.screens.tunnels.components.SelectionActionsSheet
-import space.ivlev.umbravpn.ui.screens.tunnels.components.TunnelImportSheet
 import space.ivlev.umbravpn.ui.screens.tunnels.components.TunnelList
-import space.ivlev.umbravpn.ui.screens.tunnels.components.UrlImportDialog
 import space.ivlev.umbravpn.ui.sideeffect.LocalSideEffect
 import space.ivlev.umbravpn.util.FileUtils
 import space.ivlev.umbravpn.util.StringValue
@@ -47,12 +37,9 @@ import space.ivlev.umbravpn.util.extensions.asExportFileName
 import space.ivlev.umbravpn.util.extensions.asFileExportName
 import space.ivlev.umbravpn.util.extensions.hasSAFSupport
 import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
-import timber.log.Timber
 
 @Composable
 fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel()) {
-    val navController = LocalNavController.current
-    val clipboard = rememberClipboardHelper()
     val context = LocalContext.current
     val isTv = LocalIsAndroidTV.current
 
@@ -73,9 +60,7 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
             onUnsupported = { sharedViewModel.exportSelectedTunnels(uri = null) },
         )
 
-    var showImportSheet by rememberSaveable { mutableStateOf(false) }
     var showDeleteModal by rememberSaveable { mutableStateOf(false) }
-    var showUrlDialog by rememberSaveable { mutableStateOf(false) }
     var showMoveToGroup by rememberSaveable { mutableStateOf(false) }
     var showSelectionActions by rememberSaveable { mutableStateOf(false) }
     var showReorderActions by rememberSaveable { mutableStateOf(false) }
@@ -86,7 +71,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
 
     sharedViewModel.collectSideEffect { sideEffect ->
         when (sideEffect) {
-            LocalSideEffect.Sheet.ImportTunnels -> showImportSheet = true
             LocalSideEffect.Sheet.MoveToGroup -> showMoveToGroup = true
             LocalSideEffect.Sheet.SelectionActions -> showSelectionActions = true
             LocalSideEffect.Sheet.ReorderActions -> showReorderActions = true
@@ -99,7 +83,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
                     selectedTunnelsExportLauncher.launch(fileName)
                 }
             }
-            LocalSideEffect.SelectedTunnels.Copy -> sharedViewModel.copySelectedTunnel()
             LocalSideEffect.SelectedTunnels.SelectAll -> sharedViewModel.toggleSelectAllTunnels()
             else -> Unit
         }
@@ -133,53 +116,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
             },
         )
 
-    val tunnelFileImportResultLauncher =
-        rememberFileImportLauncherForResult(
-            onNoFileExplorer = {
-                sharedViewModel.showSnackMessage(
-                    StringValue.StringResource(R.string.error_no_file_explorer),
-                    ToastType.Error,
-                )
-            },
-            onData = { data -> sharedViewModel.importFromUri(data) },
-        )
-
-    val scanQrCodeLauncher =
-        rememberLauncherForActivityResult(ScanQRCode()) { result ->
-            when (result) {
-                is QRResult.QRError -> {
-                    Timber.e(result.exception, "QR Code")
-                }
-                QRResult.QRMissingPermission -> {
-                    sharedViewModel.showSnackMessage(
-                        StringValue.StringResource(R.string.camera_permission_required),
-                        ToastType.Warning,
-                    )
-                }
-                is QRResult.QRSuccess -> {
-                    result.content.rawValue?.let { sharedViewModel.importFromQr(it) }
-                        ?: sharedViewModel.showSnackMessage(
-                            StringValue.StringResource(R.string.config_error),
-                            ToastType.Error,
-                        )
-                }
-                QRResult.QRUserCanceled -> Unit
-            }
-        }
-
-    val requestPermissionLauncher =
-        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { isGranted
-            ->
-            if (!isGranted) {
-                sharedViewModel.showSnackMessage(
-                    StringValue.StringResource(R.string.camera_permission_required),
-                    ToastType.Warning,
-                )
-                return@rememberLauncherForActivityResult
-            }
-            scanQrCodeLauncher.launch(null)
-        }
-
     if (showDeleteModal) {
         InfoDialog(
             onDismiss = { showDeleteModal = false },
@@ -207,21 +143,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
                 )
             },
             confirmText = stringResource(R.string.yes),
-        )
-    }
-
-    if (showImportSheet) {
-        TunnelImportSheet(
-            onDismiss = { showImportSheet = false },
-            onFileClick = { tunnelFileImportResultLauncher() },
-            onQrClick = { requestPermissionLauncher.launch(android.Manifest.permission.CAMERA) },
-            onClipboardClick = {
-                clipboard.paste { result ->
-                    if (result != null) sharedViewModel.importFromClipboard(result)
-                }
-            },
-            onManualImportClick = { navController.push(Route.ConfigEdit(null)) },
-            onUrlClick = { showUrlDialog = true },
         )
     }
 
@@ -262,7 +183,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
                     selectedTunnelsExportLauncher.launch(fileName)
                 }
             },
-            onCopy = sharedViewModel::copySelectedTunnel,
             onDelete = { showDeleteModal = true },
             onRenameGroup = { renameGroup = it },
             onExportGroup = { group ->
@@ -328,16 +248,6 @@ fun TunnelsScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel())
             title = stringResource(R.string.delete_group_and_tunnels),
             body = { Text(text = stringResource(R.string.delete_group_and_tunnels_message)) },
             confirmText = stringResource(R.string.yes),
-        )
-    }
-
-    if (showUrlDialog) {
-        UrlImportDialog(
-            onDismiss = { showUrlDialog = false },
-            onConfirm = { url ->
-                sharedViewModel.importFromUrl(url)
-                showUrlDialog = false
-            },
         )
     }
 

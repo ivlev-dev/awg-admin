@@ -43,7 +43,6 @@ composeBom = "2026.09.00"
 compose = "1.12.1"
 icons = "1.7.8"
 workRuntimeKtxVersion = "2.12.0"
-quickieFoss = "1.19.0"
 coreSplashscreen = "1.2.0"
 gradlePlugins-grgit = "5.3.3"
 reorderable = "3.1.0"
@@ -99,7 +98,7 @@ orbit-mvi = ["orbit-compose", "orbit-viewmodel", "orbit-core"]
 shizuku = ["shizuku-api", "shizuku-provider"]
 
 # UI utilities
-ui-utilities = ["pin-lock-compose", "qrose", "reorderable", "quickie-foss", "androidx-core-splashscreen"]
+ui-utilities = ["pin-lock-compose", "qrose", "reorderable", "androidx-core-splashscreen"]
 
 # Misc utilities
 misc-utilities = ["semver4j", "icmp4a", "slf4j-android", "timber"]
@@ -199,7 +198,6 @@ qrose = { module = "io.github.alexzhirkevich:qrose", version.ref = "qrose" }
 semver4j = { module = "com.vdurmont:semver4j", version.ref = "semver4j" }
 slf4j-android = { module = "org.slf4j:slf4j-android", version.ref = "slf4jAndroid" }
 timber = { module = "com.jakewharton.timber:timber", version.ref = "timber" }
-quickie-foss = { module = "com.github.T8RIN.QuickieExtended:quickie-foss", version.ref = "quickieFoss" }
 desugar_jdk_libs = { module = "com.android.tools:desugar_jdk_libs", version.ref = "desugar_jdk_libs" }
 reorderable = { module = "sh.calvin.reorderable:reorderable", version.ref = "reorderable" }
 

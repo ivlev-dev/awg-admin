@@ -7,8 +7,6 @@ interface AccountSettingsRepository {
 
     val termsAcceptedFlow: Flow<Boolean>
 
-    val onboardingDismissedFlow: Flow<Boolean>
-
     suspend fun serverUrl(): String
 
     suspend fun setServerUrl(url: String)
@@ -16,10 +14,6 @@ interface AccountSettingsRepository {
     suspend fun termsAccepted(): Boolean
 
     suspend fun setTermsAccepted(accepted: Boolean)
-
-    suspend fun onboardingDismissed(): Boolean
-
-    suspend fun setOnboardingDismissed(dismissed: Boolean)
 
     suspend fun managedProvisioned(): Boolean = false
 
