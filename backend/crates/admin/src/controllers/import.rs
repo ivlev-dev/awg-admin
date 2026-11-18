@@ -2111,7 +2111,7 @@ mod tests {
             allowed_ips: &allowed,
             obf: &obf,
             client: &client_obf,
-            persistent_keepalive: 25,
+            persistent_keepalive: (15, 25),
         })
     }
 

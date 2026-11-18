@@ -1342,15 +1342,15 @@ describe("ClientDetailsVM", () => {
     flushSync();
     expect(root.querySelector(".modal")).toBeNull();
 
-    const vpnButton = root.querySelector<HTMLButtonElement>(
-      'button[aria-label="Показать QR-код vpn://"]',
+    const confButton = root.querySelector<HTMLButtonElement>(
+      'button[aria-label="Показать QR-код конфига"]',
     );
-    expect(vpnButton).not.toBeNull();
-    vpnButton?.click();
+    expect(confButton).not.toBeNull();
+    confButton?.click();
     flushSync();
 
     await vi.waitFor(() => {
-      expect(text()).toContain("QR-код профиля wg0");
+      expect(text()).toContain("QR-код конфига wg0");
     });
     await vi.waitFor(() => {
       expect(root.querySelector(".modal .qr-code__svg")).not.toBeNull();

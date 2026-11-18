@@ -310,7 +310,7 @@ fn build_quic(settings: &ObfuscationSettings, host: &str, rng: &mut impl Rng) ->
     prefix.extend_from_slice(&random_bytes::<4>()[..pn_len]);
 
     format!(
-        "<b 0x{}><rc {}><c><t>{}",
+        "<b 0x{}><rc {}><t>{}",
         hex(&prefix),
         sni_len,
         split_pad(pad)
@@ -339,7 +339,7 @@ fn build_tls(settings: &ObfuscationSettings, host: &str, rng: &mut impl Rng) -> 
     bytes.extend_from_slice(&random_bytes::<32>());
 
     format!(
-        "<b 0x{}><rc {}><c><t>{}",
+        "<b 0x{}><rc {}><t>{}",
         hex(&bytes),
         sni_ext,
         split_pad(padding)

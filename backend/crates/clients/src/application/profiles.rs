@@ -20,7 +20,7 @@ pub struct ProfileService {
     sealer: Arc<Sealer>,
     dns: Vec<String>,
     allowed_ips: Vec<String>,
-    persistent_keepalive: u16,
+    persistent_keepalive: (u16, u16),
 }
 
 impl ProfileService {
@@ -38,7 +38,7 @@ impl ProfileService {
             sealer,
             dns,
             allowed_ips: vec!["0.0.0.0/0".into(), "::/0".into()],
-            persistent_keepalive: 25,
+            persistent_keepalive: (15, 25),
         }
     }
 

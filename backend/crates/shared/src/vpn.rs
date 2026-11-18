@@ -80,9 +80,14 @@ pub fn build_vpn_json(bundle: VpnBundle<'_>) -> CoreResult<Value> {
     if let Some(value) = peer_field("PresharedKey") {
         last.insert("psk_key".into(), Value::String(value.to_string()));
     }
+    if let Some(value) = peer_field("PersistentKeepalive") {
+        last.insert(
+            "persistent_keep_alive".into(),
+            Value::String(value.to_string()),
+        );
+    }
     for (target, source) in [
         ("mtu", "MTU"),
-        ("persistent_keep_alive", "PersistentKeepalive"),
         ("Jc", "Jc"),
         ("Jmin", "Jmin"),
         ("Jmax", "Jmax"),
@@ -251,7 +256,7 @@ mod tests {
             allowed_ips: &allowed,
             obf: &obf,
             client: &client,
-            persistent_keepalive: 25,
+            persistent_keepalive: (15, 25),
         })
     }
 
@@ -319,6 +324,8 @@ mod tests {
         assert_eq!(parsed["allowed_ips"][0], "0.0.0.0/0");
         assert_eq!(parsed["isObfuscationEnabled"], true);
         assert_eq!(parsed["port"], 51820);
+        assert_eq!(parsed["persistent_keep_alive"], "15-25");
+        assert!(!parsed["config"].as_str().unwrap().contains("<c>"));
         assert_eq!(parsed["RandomTrailers"], "on");
         assert_eq!(parsed["DisableCookies"], "off");
         assert!(

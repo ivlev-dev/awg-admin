@@ -576,15 +576,6 @@ export function ClientDetails(this: { vm: ClientDetailsVM }) {
                                 <button
                                   class="btn btn--sm"
                                   type="button"
-                                  disabled={!this.vm.canShowVpnQr}
-                                  aria-label={t("clients.details.qr.openVpn")} title={t("clients.details.qr.openVpn")}
-                                  onClick={() => this.vm.openVpnQr()}
-                                >
-                                  <Icon name="qr" size={14} class="" /> {t("clients.details.qr.buttonVpn")}
-                                </button>
-                                <button
-                                  class="btn btn--sm"
-                                  type="button"
                                   disabled={!this.vm.canShowConfQr}
                                   aria-label={t("clients.details.qr.openConf")} title={t("clients.details.qr.openConf")}
                                   onClick={() => this.vm.openConfQr()}

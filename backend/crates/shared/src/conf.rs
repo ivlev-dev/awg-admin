@@ -80,6 +80,10 @@ fn truthy(value: &str) -> bool {
     )
 }
 
+pub fn sanitize_cps(value: &str) -> String {
+    value.replace("<c>", "")
+}
+
 pub fn split_list(value: &str) -> Vec<String> {
     value
         .split(',')
@@ -252,7 +256,7 @@ pub struct ClientConfParams<'a> {
     pub allowed_ips: &'a [String],
     pub obf: &'a InterfaceObf,
     pub client: &'a ClientObf,
-    pub persistent_keepalive: u16,
+    pub persistent_keepalive: (u16, u16),
 }
 
 pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
@@ -285,7 +289,7 @@ pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
         ("I5", &client.i5),
     ] {
         if !value.is_empty() {
-            out.push_str(&format!("{key} = {value}\n"));
+            out.push_str(&format!("{key} = {}\n", sanitize_cps(value)));
         }
     }
     if !obf.header_protection_key.is_empty() {
@@ -316,11 +320,15 @@ pub fn render_client_conf(params: ClientConfParams<'_>) -> String {
         params.allowed_ips.to_vec()
     };
     out.push_str(&format!("AllowedIPs = {}\n", allowed.join(", ")));
-    if params.persistent_keepalive > 0 {
-        out.push_str(&format!(
-            "PersistentKeepalive = {}\n",
-            params.persistent_keepalive
-        ));
+    let (keepalive_low, keepalive_high) = params.persistent_keepalive;
+    if keepalive_high > 0 {
+        if keepalive_low == keepalive_high {
+            out.push_str(&format!("PersistentKeepalive = {keepalive_high}\n"));
+        } else {
+            out.push_str(&format!(
+                "PersistentKeepalive = {keepalive_low}-{keepalive_high}\n"
+            ));
+        }
     }
     out
 }
@@ -389,7 +397,7 @@ mod tests {
             allowed_ips: allowed,
             obf,
             client,
-            persistent_keepalive: 25,
+            persistent_keepalive: (15, 25),
         }
     }
 
@@ -409,6 +417,9 @@ mod tests {
         assert_eq!(parsed.obf.h1, obf.h1);
         assert_eq!(parsed.client.jc, client.jc);
         assert!(parsed.client.i1.starts_with("<b 0x"));
+        assert!(!text.contains("<c>"));
+        assert!(text.contains("PersistentKeepalive = 15-25"));
+        assert!(!text.contains("PersistentKeepalive = 25"));
         assert_eq!(parsed.allowed_ips, allowed);
     }
 
