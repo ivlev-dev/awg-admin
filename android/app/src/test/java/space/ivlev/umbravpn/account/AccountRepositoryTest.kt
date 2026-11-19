@@ -28,6 +28,7 @@ class AccountRepositoryTest {
 
         assertEquals("user-1", snapshot.user.id)
         assertEquals("alice@example.com", snapshot.user.email)
+        assertEquals("Alice Ivanova", snapshot.user.fullName)
         assertNull(snapshot.subscription)
         assertEquals(false, snapshot.access.blocked)
         assertEquals(false, snapshot.access.throttled)
@@ -64,7 +65,7 @@ class AccountRepositoryTest {
                     {
                       "user": {
                         "id": "user-1",
-                        "login": "alice",
+                        "full_name": "Alice Ivanova",
                         "email": "alice@example.com",
                         "status": "active",
                         "totp_enabled": false,
@@ -94,6 +95,7 @@ class AccountRepositoryTest {
         val snapshot = env.accountRepository.bootstrap().requireSuccess()
 
         assertNull(snapshot.tariff)
+        assertEquals("Alice Ivanova", snapshot.user.fullName)
         assertEquals(0L, snapshot.quota.usedBytes)
         assertNull(snapshot.quota.quotaBytes)
         assertTrue(snapshot.devices.isEmpty())
@@ -145,7 +147,7 @@ class AccountRepositoryTest {
                     {
                       "user": {
                         "id": "user-1",
-                        "login": "alice",
+                        "full_name": null,
                         "email": "alice@example.com",
                         "status": "active",
                         "role": "user",
@@ -166,6 +168,7 @@ class AccountRepositoryTest {
         assertTrue(snapshot.access.reasons.isEmpty())
         assertEquals(false, snapshot.access.blocked)
         assertEquals(false, snapshot.access.throttled)
+        assertNull(snapshot.user.fullName)
     }
 
     @Test

@@ -15,13 +15,16 @@ class KtorAuthRepository(
     override val session: StateFlow<SessionState> = sessionManager.state
 
     override suspend fun login(
-        login: String,
+        email: String,
         password: String,
         totpCode: String?,
-    ): AccountResult<AuthUser> = api.login(login, password, totpCode)
+    ): AccountResult<AuthUser> = api.login(email, password, totpCode)
 
-    override suspend fun register(email: String, password: String): AccountResult<Unit> =
-        api.register(email, password)
+    override suspend fun register(
+        email: String,
+        password: String,
+        fullName: String?,
+    ): AccountResult<Unit> = api.register(email, password, fullName)
 
     override suspend fun verifyEmail(token: String): AccountResult<Unit> = api.verifyEmail(token)
 

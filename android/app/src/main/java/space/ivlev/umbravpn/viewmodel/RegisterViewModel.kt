@@ -22,6 +22,10 @@ class RegisterViewModel(private val authActions: AuthActions) :
         reduce { state.copy(email = value, emailError = null, error = null) }
     }
 
+    fun onFullNameChange(value: String) = intent {
+        reduce { state.copy(fullName = value, fullNameError = null, error = null) }
+    }
+
     fun onPasswordChange(value: String) = intent {
         reduce { state.copy(password = value, passwordError = null, error = null) }
     }
@@ -37,11 +41,18 @@ class RegisterViewModel(private val authActions: AuthActions) :
     fun submit() = intent {
         if (state.isSubmitting) return@intent
 
-        val validation = AccountValidation.register(state.email, state.password, state.confirmation)
+        val validation =
+            AccountValidation.register(
+                state.email,
+                state.password,
+                state.confirmation,
+                state.fullName,
+            )
         if (!validation.isValid) {
             reduce {
                 state.copy(
                     emailError = validation.emailError,
+                    fullNameError = validation.fullNameError,
                     passwordError = validation.passwordError,
                     confirmationError = validation.confirmationError,
                     error = null,
@@ -51,10 +62,17 @@ class RegisterViewModel(private val authActions: AuthActions) :
         }
 
         reduce { state.copy(isSubmitting = true, error = null) }
-        when (val outcome = authActions.register(state.email, state.password)) {
+        when (val outcome = authActions.register(state.email, state.password, state.fullName)) {
             is ActionResult.Success -> {
                 val email = state.email.trim()
-                reduce { state.copy(isSubmitting = false, password = "", confirmation = "") }
+                reduce {
+                    state.copy(
+                        isSubmitting = false,
+                        password = "",
+                        confirmation = "",
+                        fullName = "",
+                    )
+                }
                 postSideEffect(RegisterSideEffect.Registered(email))
             }
             is ActionResult.Failure -> {
@@ -67,6 +85,11 @@ class RegisterViewModel(private val authActions: AuthActions) :
                                 AccountMessage.InvalidEmail,
                                 AccountMessage.EmptyEmail,
                                 AccountMessage.EmailAlreadyRegistered -> outcome.message
+                                else -> null
+                            },
+                        fullNameError =
+                            when (outcome.message) {
+                                AccountMessage.FullNameTooLong -> outcome.message
                                 else -> null
                             },
                         passwordError =
@@ -86,6 +109,7 @@ class RegisterViewModel(private val authActions: AuthActions) :
             state.copy(
                 error = null,
                 emailError = null,
+                fullNameError = null,
                 passwordError = null,
                 confirmationError = null,
             )

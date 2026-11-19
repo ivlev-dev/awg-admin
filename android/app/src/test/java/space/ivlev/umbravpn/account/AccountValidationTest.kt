@@ -77,6 +77,41 @@ class AccountValidationTest {
     }
 
     @Test
+    fun registerAcceptsOptionalFullNameWithinLimit() {
+        val blank = AccountValidation.register("alice@example.com", "12345678", "12345678", "  ")
+        assertNull(blank.fullNameError)
+        assertTrue(blank.isValid)
+
+        val filled =
+            AccountValidation.register(
+                "alice@example.com",
+                "12345678",
+                "12345678",
+                "a".repeat(AccountValidation.FULL_NAME_MAX_LENGTH),
+            )
+        assertNull(filled.fullNameError)
+
+        val tooLong =
+            AccountValidation.register(
+                "alice@example.com",
+                "12345678",
+                "12345678",
+                "a".repeat(AccountValidation.FULL_NAME_MAX_LENGTH + 1),
+            )
+        assertEquals(AccountMessage.FullNameTooLong, tooLong.fullNameError)
+    }
+
+    @Test
+    fun profileFullNameIsRequiredAndLimited() {
+        assertEquals(AccountMessage.EmptyFullName, AccountValidation.profileFullNameError("   "))
+        assertEquals(
+            AccountMessage.FullNameTooLong,
+            AccountValidation.profileFullNameError("a".repeat(201)),
+        )
+        assertNull(AccountValidation.profileFullNameError(" Иван Петров "))
+    }
+
+    @Test
     fun resetRequiresTokenAndPassword() {
         val missingToken = AccountValidation.reset("", "12345678", "12345678")
         assertEquals(AccountMessage.EmptyToken, missingToken.tokenError)

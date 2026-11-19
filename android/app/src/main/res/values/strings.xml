@@ -577,6 +577,12 @@
     <string name="account_login_title">Sign in</string>
     <string name="account_login_subtitle">Use the email and password of your Umbra VPN account.</string>
     <string name="account_email">Email</string>
+    <string name="account_full_name">Full name</string>
+    <string name="account_full_name_optional">Full name (optional)</string>
+    <string name="account_full_name_not_set">Not specified</string>
+    <string name="account_full_name_hint">Up to %1$d characters.</string>
+    <string name="account_edit_full_name">Edit full name</string>
+    <string name="account_full_name_updated">Full name updated</string>
     <string name="account_totp_code">2FA code</string>
     <string name="account_have_totp">I have a 2FA code</string>
     <string name="account_sign_in">Sign in</string>
@@ -711,6 +717,8 @@
     <string name="account_error_server_not_configured">Server is not configured</string>
     <string name="account_error_session_expired">Session expired. Sign in again.</string>
     <string name="account_error_email_not_verified">Confirm your email first</string>
+    <string name="account_error_full_name_empty">Enter your full name</string>
+    <string name="account_error_full_name_long">Full name is too long (max 200 characters)</string>
     <string name="account_error_pending_approval">Account is awaiting administrator approval</string>
     <string name="account_error_rejected">Registration was rejected</string>
     <string name="account_error_device_limit">Device limit for your tariff reached</string>

@@ -143,6 +143,40 @@ class AccountActionsTest {
     }
 
     @Test
+    fun updateFullNameTrimsAndReturnsUpdatedUser() = runTest {
+        repository.updateFullNameResult =
+            AccountResult.Success(testUser(fullName = "Alice Ivanova"))
+
+        val user = (actions.updateFullName("  Alice Ivanova  ") as ActionResult.Success).value
+
+        assertEquals("Alice Ivanova", user.fullName)
+        assertEquals("Alice Ivanova", repository.updatedFullNames.single())
+    }
+
+    @Test
+    fun updateFullNameRejectsBlankAndTooLongValues() = runTest {
+        assertEquals(
+            AccountMessage.EmptyFullName,
+            (actions.updateFullName("  ") as ActionResult.Failure).message,
+        )
+        assertEquals(
+            AccountMessage.FullNameTooLong,
+            (actions.updateFullName("a".repeat(201)) as ActionResult.Failure).message,
+        )
+        assertTrue(repository.updatedFullNames.isEmpty())
+    }
+
+    @Test
+    fun updateFullNameFailureIsMapped() = runTest {
+        repository.updateFullNameResult =
+            AccountResult.Failure(AccountError.Api(400, "bad_request", "invalid"))
+
+        val outcome = actions.updateFullName("Alice")
+
+        assertEquals(AccountMessage.Unknown, (outcome as ActionResult.Failure).message)
+    }
+
+    @Test
     fun quotaPercentFallsBackToBytesWhenMissing() = runTest {
         val snapshot = (actions.bootstrap() as ActionResult.Success).value
         assertEquals(

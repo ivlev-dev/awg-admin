@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,8 +26,9 @@ import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.UserRole
 
 @Composable
-internal fun AccountProfileCard(snapshot: AccountSnapshot) {
+internal fun AccountProfileCard(snapshot: AccountSnapshot, onEditFullName: () -> Unit) {
     val user = snapshot.user
+    val fullName = user.fullName?.takeIf { it.isNotBlank() }
     val node =
         snapshot.devices.firstOrNull { it.nodeName.isNotBlank() }?.nodeName
             ?: user.nodeId
@@ -46,20 +49,24 @@ internal fun AccountProfileCard(snapshot: AccountSnapshot) {
                 )
             }
             Column(
-                modifier = Modifier.padding(start = 12.dp),
+                modifier = Modifier.weight(1f).padding(start = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Text(
-                    text = user.email.ifBlank { user.login },
+                    text = fullName ?: stringResource(R.string.account_full_name_not_set),
                     style = MaterialTheme.typography.titleMedium,
                 )
-                if (user.login.isNotBlank() && user.login != user.email) {
-                    Text(
-                        text = user.login,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.outline,
-                    )
-                }
+                Text(
+                    text = user.email,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.outline,
+                )
+            }
+            IconButton(onClick = onEditFullName) {
+                Icon(
+                    Icons.Outlined.Edit,
+                    contentDescription = stringResource(R.string.account_edit_full_name),
+                )
             }
         }
         HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))

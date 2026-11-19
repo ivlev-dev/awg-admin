@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 internal data class LoginRequestDto(
-    val login: String,
+    val email: String,
     val password: String,
     @SerialName("totp_code") val totpCode: String? = null,
 )
@@ -14,6 +14,12 @@ internal data class LoginRequestDto(
 internal data class RegisterRequestDto(
     val email: String,
     val password: String,
+    @SerialName("full_name") val fullName: String? = null,
+)
+
+@Serializable
+internal data class UpdateProfileRequestDto(
+    @SerialName("full_name") val fullName: String,
 )
 
 @Serializable internal data class VerifyEmailRequestDto(val token: String)
@@ -51,8 +57,8 @@ internal data class AuthResponseDto(
 @Serializable
 internal data class UserDto(
     val id: String,
-    val login: String,
     val email: String = "",
+    @SerialName("full_name") val fullName: String? = null,
     val status: String = "active",
     @SerialName("totp_enabled") val totpEnabled: Boolean = false,
     val role: String = "user",

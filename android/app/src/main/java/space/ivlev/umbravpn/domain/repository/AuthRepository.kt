@@ -9,12 +9,16 @@ interface AuthRepository {
     val session: StateFlow<SessionState>
 
     suspend fun login(
-        login: String,
+        email: String,
         password: String,
         totpCode: String? = null,
     ): AccountResult<AuthUser>
 
-    suspend fun register(email: String, password: String): AccountResult<Unit>
+    suspend fun register(
+        email: String,
+        password: String,
+        fullName: String? = null,
+    ): AccountResult<Unit>
 
     suspend fun verifyEmail(token: String): AccountResult<Unit>
 

@@ -4,6 +4,7 @@ import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
+import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceQuery
 import space.ivlev.umbravpn.domain.repository.AccountRepository
@@ -94,6 +95,14 @@ class AccountActions(private val accountRepository: AccountRepository) {
             is AccountResult.Failure ->
                 ActionResult.Failure(AccountMessages.of(result.error, AccountActionKind.Device))
         }
+
+    suspend fun updateFullName(fullName: String): ActionResult<AuthUser> {
+        AccountValidation.profileFullNameError(fullName)?.let {
+            return ActionResult.Failure(it)
+        }
+
+        return accountRepository.updateFullName(fullName.trim()).toResult(AccountActionKind.Generic)
+    }
 
     private fun <T> AccountResult<T>.toResult(kind: AccountActionKind): ActionResult<T> =
         when (this) {

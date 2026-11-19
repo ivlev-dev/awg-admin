@@ -50,6 +50,7 @@ fun AccountScreen(
         onDeleteTunnel = viewModel::deleteTunnel,
         onLogout = viewModel::logout,
         onChangeServer = viewModel::changeServer,
+        onUpdateFullName = viewModel::updateFullName,
     )
 
     when {

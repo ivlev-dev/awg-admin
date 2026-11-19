@@ -13,7 +13,7 @@ class StartDestinationTest {
     private val activeUser =
         AuthUser(
             id = "user-1",
-            login = "user",
+            fullName = "User Example",
             email = "user@example.com",
             status = UserStatus.Active,
             totpEnabled = false,

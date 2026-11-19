@@ -26,12 +26,14 @@ data class LoginUiState(
 
 data class RegisterUiState(
     val email: String = "",
+    val fullName: String = "",
     val password: String = "",
     val confirmation: String = "",
     val passwordVisible: Boolean = false,
     val isSubmitting: Boolean = false,
     val error: AccountMessage? = null,
     val emailError: AccountMessage? = null,
+    val fullNameError: AccountMessage? = null,
     val passwordError: AccountMessage? = null,
     val confirmationError: AccountMessage? = null,
 )

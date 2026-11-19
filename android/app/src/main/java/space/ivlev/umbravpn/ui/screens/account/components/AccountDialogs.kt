@@ -18,12 +18,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.domain.account.AccountInterfaceSelection
 import space.ivlev.umbravpn.domain.account.AccountTunnelDraft
+import space.ivlev.umbravpn.domain.account.AccountValidation
 import space.ivlev.umbravpn.ui.common.dialog.InfoDialog
 import space.ivlev.umbravpn.ui.state.AccountDialog
 import space.ivlev.umbravpn.ui.state.AccountUiState
@@ -40,6 +42,7 @@ fun AccountDialogs(
     onDeleteTunnel: (String, String) -> Unit,
     onLogout: () -> Unit,
     onChangeServer: (String) -> Unit,
+    onUpdateFullName: (String) -> Unit,
 ) {
     when (val dialog = state.dialog) {
         AccountDialog.AddDevice -> {
@@ -349,6 +352,39 @@ fun AccountDialogs(
                 },
                 confirmText = stringResource(R.string.save),
                 confirmEnabled = url.isNotBlank() && !state.isActionInProgress,
+            )
+        }
+        is AccountDialog.EditFullName -> {
+            var fullName by rememberSaveable(dialog) { mutableStateOf(dialog.current) }
+            val fullNameError = AccountValidation.profileFullNameError(fullName)
+            InfoDialog(
+                onAttest = { onUpdateFullName(fullName) },
+                onDismiss = onDismiss,
+                title = stringResource(R.string.account_edit_full_name),
+                body = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AccountFormField(
+                            value = fullName,
+                            onValueChange = { fullName = it },
+                            label = stringResource(R.string.account_full_name),
+                            error = fullNameError ?: state.dialogError,
+                            enabled = !state.isActionInProgress,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
+                            contentType = ContentType.PersonFullName,
+                        )
+                        Text(
+                            text =
+                                stringResource(
+                                    R.string.account_full_name_hint,
+                                    AccountValidation.FULL_NAME_MAX_LENGTH,
+                                ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.outline,
+                        )
+                    }
+                },
+                confirmText = stringResource(R.string.save),
+                confirmEnabled = fullNameError == null && !state.isActionInProgress,
             )
         }
         null -> Unit

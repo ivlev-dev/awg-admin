@@ -223,7 +223,7 @@ private fun bootstrapWithPeersJson(): String =
     {
       "user": {
         "id": "user-1",
-        "login": "alice",
+        "full_name": "Alice Ivanova",
         "email": "alice@example.com",
         "status": "active",
         "totp_enabled": false,

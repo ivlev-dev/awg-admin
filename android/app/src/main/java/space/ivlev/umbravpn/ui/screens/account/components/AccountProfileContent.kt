@@ -61,7 +61,7 @@ internal fun AccountProfileContent(state: AccountUiState, viewModel: AccountView
             TextButton(onClick = viewModel::retry) { Text(stringResource(R.string.account_retry)) }
         }
 
-        AccountProfileCard(snapshot)
+        AccountProfileCard(snapshot, onEditFullName = viewModel::showEditFullName)
 
         snapshot.subscription?.let { AccountSubscriptionCard(it) }
 

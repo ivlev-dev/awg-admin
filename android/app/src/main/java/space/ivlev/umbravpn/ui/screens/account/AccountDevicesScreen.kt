@@ -62,6 +62,7 @@ fun AccountDevicesScreen(viewModel: AccountViewModel = koinActivityViewModel()) 
         onDeleteTunnel = viewModel::deleteTunnel,
         onLogout = viewModel::logout,
         onChangeServer = viewModel::changeServer,
+        onUpdateFullName = viewModel::updateFullName,
     )
 
     LazyColumn(

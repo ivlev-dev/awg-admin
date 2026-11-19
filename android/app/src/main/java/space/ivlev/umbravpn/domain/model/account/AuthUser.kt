@@ -11,8 +11,8 @@ import kotlinx.serialization.UseSerializers
 @Immutable
 data class AuthUser(
     val id: String,
-    val login: String,
     val email: String,
+    val fullName: String? = null,
     val status: UserStatus,
     val totpEnabled: Boolean,
     val role: UserRole,

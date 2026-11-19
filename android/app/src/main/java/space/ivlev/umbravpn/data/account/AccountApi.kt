@@ -47,7 +47,7 @@ class AccountApi(
     private val refreshMutex = Mutex()
 
     suspend fun login(
-        login: String,
+        email: String,
         password: String,
         totpCode: String? = null,
     ): AccountResult<AuthUser> {
@@ -60,7 +60,7 @@ class AccountApi(
                     contentType(ContentType.Application.Json)
                     setBody(
                         LoginRequestDto(
-                            login = login,
+                            email = email,
                             password = password,
                             totpCode = totpCode?.takeIf { it.isNotBlank() },
                         ),
@@ -74,13 +74,17 @@ class AccountApi(
                 AccountResult.Success(result.value.user.toDomain())
             }
             is AccountResult.Failure -> {
-                applyAuthFailure(result.error, login)
+                applyAuthFailure(result.error, email)
                 result
             }
         }
     }
 
-    suspend fun register(email: String, password: String): AccountResult<Unit> {
+    suspend fun register(
+        email: String,
+        password: String,
+        fullName: String? = null,
+    ): AccountResult<Unit> {
         val result =
             executeUnit(
                 authenticated = false,
@@ -88,7 +92,13 @@ class AccountApi(
                 path = "auth/register",
             ) {
                 contentType(ContentType.Application.Json)
-                setBody(RegisterRequestDto(email = email, password = password))
+                setBody(
+                    RegisterRequestDto(
+                        email = email,
+                        password = password,
+                        fullName = fullName?.trim()?.takeIf { it.isNotEmpty() },
+                    ),
+                )
             }
         if (result is AccountResult.Success) sessionManager.markPendingEmail()
         return result
@@ -168,6 +178,31 @@ class AccountApi(
                 authenticated = true,
                 method = HttpMethod.Get,
                 path = "auth/me",
+                decode = { body -> json.decodeFromString<UserDto>(body) },
+            )
+        return when (result) {
+            is AccountResult.Success -> {
+                val user = result.value.toDomain()
+                sessionManager.onUserUpdated(user)
+                AccountResult.Success(user)
+            }
+            is AccountResult.Failure -> {
+                applyAuthFailure(result.error)
+                result
+            }
+        }
+    }
+
+    suspend fun updateFullName(fullName: String): AccountResult<AuthUser> {
+        val result =
+            execute(
+                authenticated = true,
+                method = HttpMethod.Patch,
+                path = "auth/me",
+                configure = {
+                    contentType(ContentType.Application.Json)
+                    setBody(UpdateProfileRequestDto(fullName = fullName))
+                },
                 decode = { body -> json.decodeFromString<UserDto>(body) },
             )
         return when (result) {

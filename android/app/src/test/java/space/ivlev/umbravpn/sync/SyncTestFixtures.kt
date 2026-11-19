@@ -37,7 +37,7 @@ import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
 internal val testUser: AuthUser =
     AuthUser(
         id = "user-1",
-        login = "alice",
+        fullName = "Alice Ivanova",
         email = "alice@example.com",
         status = UserStatus.Active,
         totpEnabled = false,
@@ -247,6 +247,9 @@ internal class FakeAccountRepository(
     }
 
     override suspend fun deleteDevice(id: String): AccountResult<Unit> = AccountResult.Success(Unit)
+
+    override suspend fun updateFullName(fullName: String): AccountResult<AuthUser> =
+        AccountResult.Failure(AccountError.Unexpected("updateFullName not supported"))
 }
 
 internal class FakeManagedTunnelRepository(initial: List<ManagedTunnel> = emptyList()) :

@@ -41,12 +41,13 @@ import space.ivlev.umbravpn.viewmodel.AccountViewModel
 
 internal fun testUser(
     email: String = "alice@example.com",
+    fullName: String? = "Alice Ivanova",
     status: UserStatus = UserStatus.Active,
 ): AuthUser =
     AuthUser(
         id = "user-1",
-        login = "alice",
         email = email,
+        fullName = fullName,
         status = status,
         totpEnabled = false,
         role = UserRole.User,
@@ -119,7 +120,7 @@ internal class FakeAuthRepository : AuthRepository {
     var logoutResult: AccountResult<Unit> = AccountResult.Success(Unit)
 
     val logins = mutableListOf<Triple<String, String, String?>>()
-    val registered = mutableListOf<Pair<String, String>>()
+    val registered = mutableListOf<RegisterCall>()
     val resentEmails = mutableListOf<String>()
     val forgotEmails = mutableListOf<String>()
     var resetCalls = 0
@@ -127,16 +128,20 @@ internal class FakeAuthRepository : AuthRepository {
     var logoutCalls = 0
 
     override suspend fun login(
-        login: String,
+        email: String,
         password: String,
         totpCode: String?,
     ): AccountResult<AuthUser> {
-        logins += Triple(login, password, totpCode)
+        logins += Triple(email, password, totpCode)
         return loginResult
     }
 
-    override suspend fun register(email: String, password: String): AccountResult<Unit> {
-        registered += email to password
+    override suspend fun register(
+        email: String,
+        password: String,
+        fullName: String?,
+    ): AccountResult<Unit> {
+        registered += RegisterCall(email, password, fullName)
         return registerResult
     }
 
@@ -237,6 +242,9 @@ internal class FakeAccountRepository : AccountRepository {
     val pageQueries = mutableListOf<DeviceQuery>()
     var pageResult: AccountResult<Page<AccountDevice>>? = null
     var pageHandler: ((DeviceQuery) -> AccountResult<Page<AccountDevice>>)? = null
+    var updateFullNameResult: AccountResult<AuthUser> =
+        AccountResult.Success(testUser(fullName = "Alice Ivanova"))
+    val updatedFullNames = mutableListOf<String>()
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
@@ -323,7 +331,18 @@ internal class FakeAccountRepository : AccountRepository {
         deleted += id
         return deleteResult
     }
+
+    override suspend fun updateFullName(fullName: String): AccountResult<AuthUser> {
+        updatedFullNames += fullName
+        return updateFullNameResult
+    }
 }
+
+internal data class RegisterCall(
+    val email: String,
+    val password: String,
+    val fullName: String?,
+)
 
 internal class AccountViewModelHarness(
     val repository: FakeAccountRepository = FakeAccountRepository(),

@@ -192,8 +192,8 @@ internal fun authJson(
       "expires_in": $expiresIn,
       "user": {
         "id": "user-1",
-        "login": "alice",
         "email": "alice@example.com",
+        "full_name": "Alice Ivanova",
         "status": "active",
         "totp_enabled": true,
         "role": "user",
@@ -279,8 +279,8 @@ internal fun bootstrapJson(): String =
     {
       "user": {
         "id": "user-1",
-        "login": "alice",
         "email": "alice@example.com",
+        "full_name": "Alice Ivanova",
         "status": "active",
         "totp_enabled": false,
         "role": "user",
@@ -373,8 +373,8 @@ internal fun bootstrapWithSubscriptionJson(
     {
       "user": {
         "id": "user-1",
-        "login": "alice",
         "email": "alice@example.com",
+        "full_name": "Alice Ivanova",
         "status": "active",
         "totp_enabled": false,
         "role": "user",
@@ -512,8 +512,8 @@ internal fun bootstrapJsonWithDevices(
     {
       "user": {
         "id": "user-1",
-        "login": "alice",
         "email": "alice@example.com",
+        "full_name": "Alice Ivanova",
         "status": "active",
         "totp_enabled": false,
         "role": "user",

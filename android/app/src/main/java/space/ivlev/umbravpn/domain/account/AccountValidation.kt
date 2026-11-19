@@ -12,9 +12,14 @@ data class RegisterValidation(
     val emailError: AccountMessage?,
     val passwordError: AccountMessage?,
     val confirmationError: AccountMessage?,
+    val fullNameError: AccountMessage? = null,
 ) {
     val isValid: Boolean
-        get() = emailError == null && passwordError == null && confirmationError == null
+        get() =
+            emailError == null &&
+                passwordError == null &&
+                confirmationError == null &&
+                fullNameError == null
 }
 
 data class ResetValidation(
@@ -28,6 +33,7 @@ data class ResetValidation(
 
 object AccountValidation {
     const val MIN_PASSWORD_LENGTH = 8
+    const val FULL_NAME_MAX_LENGTH = 200
 
     private val emailPattern = Regex("^[^@\\s]+@[^@\\s]+$")
 
@@ -40,13 +46,34 @@ object AccountValidation {
         }
     }
 
+    fun optionalFullNameError(value: String?): AccountMessage? =
+        if ((value?.trim()?.length ?: 0) > FULL_NAME_MAX_LENGTH) {
+            AccountMessage.FullNameTooLong
+        } else {
+            null
+        }
+
+    fun profileFullNameError(value: String?): AccountMessage? {
+        val name = value?.trim().orEmpty()
+        return when {
+            name.isEmpty() -> AccountMessage.EmptyFullName
+            name.length > FULL_NAME_MAX_LENGTH -> AccountMessage.FullNameTooLong
+            else -> null
+        }
+    }
+
     fun login(email: String, password: String): LoginValidation =
         LoginValidation(
             emailError = emailError(email),
             passwordError = if (password.isEmpty()) AccountMessage.EmptyPassword else null,
         )
 
-    fun register(email: String, password: String, confirmation: String): RegisterValidation =
+    fun register(
+        email: String,
+        password: String,
+        confirmation: String,
+        fullName: String? = null,
+    ): RegisterValidation =
         RegisterValidation(
             emailError = emailError(email),
             passwordError =
@@ -57,6 +84,7 @@ object AccountValidation {
                 },
             confirmationError =
                 if (password != confirmation) AccountMessage.PasswordMismatch else null,
+            fullNameError = optionalFullNameError(fullName),
         )
 
     fun reset(token: String, password: String, confirmation: String): ResetValidation =

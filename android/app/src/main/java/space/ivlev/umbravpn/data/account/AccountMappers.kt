@@ -21,8 +21,8 @@ import space.ivlev.umbravpn.domain.model.account.UserStatus
 internal fun UserDto.toDomain(): AuthUser =
     AuthUser(
         id = id,
-        login = login,
         email = email,
+        fullName = fullName?.trim()?.takeIf { it.isNotEmpty() },
         status = UserStatus.fromApi(status),
         totpEnabled = totpEnabled,
         role = UserRole.fromApi(role),

@@ -24,10 +24,10 @@ class AuthRepositoryTest {
                 jsonResponse(HttpStatusCode.OK, authJson())
             }
 
-        val user = env.authRepository.login("alice", "secret").requireSuccess()
+        val user = env.authRepository.login("alice@example.com", "secret").requireSuccess()
 
         assertEquals("user-1", user.id)
-        assertEquals("alice", user.login)
+        assertEquals("Alice Ivanova", user.fullName)
         assertEquals("alice@example.com", user.email)
         assertEquals(UserStatus.Active, user.status)
         assertEquals(UserRole.User, user.role)
@@ -49,15 +49,16 @@ class AuthRepositoryTest {
         assertEquals(HttpMethod.Post, request.method)
         assertEquals("/api/v1/auth/login", request.url.encodedPath)
         val body = request.body.toByteArray().decodeToString()
-        assertTrue(body.contains("\"login\":\"alice\""))
+        assertTrue(body.contains("\"email\":\"alice@example.com\""))
         assertTrue(body.contains("\"password\":\"secret\""))
+        assertTrue(!body.contains("\"login\""))
     }
 
     @Test
     fun loginSendsTotpCodeWhenProvided() = runTest {
         val env = createEnvironment { jsonResponse(HttpStatusCode.OK, authJson()) }
 
-        env.authRepository.login("alice", "secret", "123456").requireSuccess()
+        env.authRepository.login("alice@example.com", "secret", "123456").requireSuccess()
 
         val body = env.requests.single().body.toByteArray().decodeToString()
         assertTrue(body.contains("\"totp_code\":\"123456\""))
@@ -138,7 +139,7 @@ class AuthRepositoryTest {
             )
         }
 
-        val error = env.authRepository.login("alice", "wrong").requireFailure()
+        val error = env.authRepository.login("alice@example.com", "wrong").requireFailure()
 
         assertEquals(AccountError.Unauthorized, error)
         assertNull(env.tokenStore.session)
@@ -154,7 +155,7 @@ class AuthRepositoryTest {
             )
         }
 
-        val error = env.authRepository.login("alice", "secret").requireFailure()
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
 
         assertEquals(
             AccountError.Api(401, "totp_required", "two-factor authentication code required"),
@@ -171,7 +172,7 @@ class AuthRepositoryTest {
             )
         }
 
-        val error = env.authRepository.login("alice", "secret").requireFailure()
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
 
         assertEquals(
             AccountError.Api(
@@ -192,7 +193,7 @@ class AuthRepositoryTest {
             )
         }
 
-        val error = env.authRepository.login("alice", "secret").requireFailure()
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
 
         assertEquals(
             AccountError.Api(403, "pending_approval", "account is awaiting administrator approval"),
@@ -215,6 +216,78 @@ class AuthRepositoryTest {
         val body = request.body.toByteArray().decodeToString()
         assertTrue(body.contains("\"email\":\"alice@example.com\""))
         assertTrue(body.contains("\"password\":\"secret\""))
+        assertTrue(!body.contains("\"full_name\""))
+    }
+
+    @Test
+    fun registerSendsFullNameWhenProvided() = runTest {
+        val env = createEnvironment {
+            jsonResponse(HttpStatusCode.Accepted, """{"status":"pending_email"}""")
+        }
+
+        env.authRepository
+            .register("alice@example.com", "secret", "  Alice Ivanova  ")
+            .requireSuccess()
+
+        val body = env.requests.single().body.toByteArray().decodeToString()
+        assertTrue(body.contains("\"full_name\":\"Alice Ivanova\""))
+    }
+
+    @Test
+    fun updateFullNameSendsPatchAndUpdatesSession() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    """
+                    {
+                      "id": "user-1",
+                      "email": "alice@example.com",
+                      "full_name": "Alice Ivanova",
+                      "status": "active",
+                      "totp_enabled": false,
+                      "role": "user",
+                      "disabled": false
+                    }
+                    """
+                        .trimIndent(),
+                )
+            }
+
+        val user = env.accountRepository.updateFullName("Alice Ivanova").requireSuccess()
+
+        assertEquals("Alice Ivanova", user.fullName)
+        assertEquals(SessionState.Active(user), env.sessionManager.state.value)
+        val request = env.requests.single()
+        assertEquals(HttpMethod.Patch, request.method)
+        assertEquals("/api/v1/auth/me", request.url.encodedPath)
+        assertEquals("Bearer access-1", request.headers[HttpHeaders.Authorization])
+        assertTrue(
+            request.body
+                .toByteArray()
+                .decodeToString()
+                .contains(
+                    "\"full_name\":\"Alice Ivanova\"",
+                ),
+        )
+    }
+
+    @Test
+    fun updateFullNameFailureMapsApiError() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.BadRequest,
+                    errorBody("bad_request", "full_name must be 1..200 characters"),
+                )
+            }
+
+        val error = env.accountRepository.updateFullName("Alice").requireFailure()
+
+        assertEquals(
+            AccountError.Api(400, "bad_request", "full_name must be 1..200 characters"),
+            error,
+        )
     }
 
     @Test
@@ -270,7 +343,7 @@ class AuthRepositoryTest {
                     """
                     {
                       "id": "user-1",
-                      "login": "alice",
+                      "full_name": "Alice Ivanova",
                       "email": "alice@example.com",
                       "status": "active",
                       "totp_enabled": false,
@@ -311,7 +384,7 @@ class AuthRepositoryTest {
         val env =
             createEnvironment(rawServerUrl = "   ") { jsonResponse(HttpStatusCode.OK, authJson()) }
 
-        val error = env.authRepository.login("alice", "secret").requireFailure()
+        val error = env.authRepository.login("alice@example.com", "secret").requireFailure()
 
         assertEquals(AccountError.ServerNotConfigured, error)
         assertTrue(env.requests.isEmpty())

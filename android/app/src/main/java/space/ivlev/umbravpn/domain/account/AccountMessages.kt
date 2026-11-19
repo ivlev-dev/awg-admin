@@ -7,6 +7,8 @@ import space.ivlev.umbravpn.util.network.ServerUrlError
 enum class AccountMessage {
     EmptyEmail,
     InvalidEmail,
+    EmptyFullName,
+    FullNameTooLong,
     EmptyPassword,
     PasswordTooShort,
     PasswordMismatch,
@@ -53,6 +55,7 @@ enum class AccountMessage {
     EmailResent,
     PasswordResetSent,
     EmailVerified,
+    FullNameUpdated,
     ApprovalStillPending,
     ServerReady,
     ServerUnavailable,

@@ -30,6 +30,8 @@ sealed interface AccountDialog {
     data object Logout : AccountDialog
 
     data object ChangeServer : AccountDialog
+
+    data class EditFullName(val current: String) : AccountDialog
 }
 
 sealed interface AccountSideEffect {

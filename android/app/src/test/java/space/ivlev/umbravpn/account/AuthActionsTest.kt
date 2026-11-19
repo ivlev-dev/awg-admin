@@ -151,8 +151,34 @@ class AuthActionsTest {
         val outcome = actions.register("alice@example.com", "12345678")
 
         assertTrue(outcome is ActionResult.Success)
-        assertEquals("alice@example.com" to "12345678", repository.registered.single())
+        assertEquals(
+            RegisterCall("alice@example.com", "12345678", null),
+            repository.registered.single(),
+        )
         assertEquals("alice@example.com", actions.lastPendingEmail())
+    }
+
+    @Test
+    fun registerSendsTrimmedFullName() = runTest {
+        val outcome = actions.register("alice@example.com", "12345678", "  Alice Ivanova  ")
+
+        assertTrue(outcome is ActionResult.Success)
+        assertEquals("Alice Ivanova", repository.registered.single().fullName)
+    }
+
+    @Test
+    fun registerOmitsBlankFullName() = runTest {
+        actions.register("alice@example.com", "12345678", "   ")
+
+        assertEquals(null, repository.registered.single().fullName)
+    }
+
+    @Test
+    fun registerRejectsTooLongFullName() = runTest {
+        val outcome = actions.register("alice@example.com", "12345678", "a".repeat(201))
+
+        assertEquals(AccountMessage.FullNameTooLong, (outcome as ActionResult.Failure).message)
+        assertTrue(repository.registered.isEmpty())
     }
 
     @Test

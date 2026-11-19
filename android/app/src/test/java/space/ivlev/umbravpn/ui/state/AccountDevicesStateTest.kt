@@ -164,7 +164,7 @@ class AccountDevicesStateTest {
     private fun user(): AuthUser =
         AuthUser(
             id = "user-1",
-            login = "alice",
+            fullName = "Alice Ivanova",
             email = "alice@example.com",
             status = UserStatus.Active,
             totpEnabled = false,

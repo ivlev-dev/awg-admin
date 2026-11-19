@@ -38,7 +38,7 @@ class AuthActions(
         return when (
             val result =
                 authRepository.login(
-                    login = email.trim(),
+                    email = email.trim(),
                     password = password,
                     totpCode = totpCode?.trim()?.takeIf { it.isNotEmpty() },
                 )
@@ -57,13 +57,21 @@ class AuthActions(
         }
     }
 
-    suspend fun register(email: String, password: String): ActionResult<Unit> {
-        val validation = AccountValidation.register(email, password, password)
+    suspend fun register(
+        email: String,
+        password: String,
+        fullName: String? = null,
+    ): ActionResult<Unit> {
+        val validation = AccountValidation.register(email, password, password, fullName)
         if (validation.emailError != null) return ActionResult.Failure(validation.emailError)
         if (validation.passwordError != null) return ActionResult.Failure(validation.passwordError)
+        if (validation.fullNameError != null) {
+            return ActionResult.Failure(validation.fullNameError)
+        }
 
         val trimmed = email.trim()
-        return when (val result = authRepository.register(trimmed, password)) {
+        val trimmedName = fullName?.trim()?.takeIf { it.isNotEmpty() }
+        return when (val result = authRepository.register(trimmed, password, trimmedName)) {
             is AccountResult.Success -> {
                 pendingSignupCache.remember(trimmed, password)
                 ActionResult.Success(Unit)

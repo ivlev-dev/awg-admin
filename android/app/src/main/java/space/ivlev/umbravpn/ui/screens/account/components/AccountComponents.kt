@@ -57,6 +57,8 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.ServerNotConfigured -> R.string.account_error_server_not_configured
         AccountMessage.SessionExpired -> R.string.account_error_session_expired
         AccountMessage.EmailNotVerified -> R.string.account_error_email_not_verified
+        AccountMessage.EmptyFullName -> R.string.account_error_full_name_empty
+        AccountMessage.FullNameTooLong -> R.string.account_error_full_name_long
         AccountMessage.PendingApproval -> R.string.account_error_pending_approval
         AccountMessage.Rejected -> R.string.account_error_rejected
         AccountMessage.AccountDisabled -> R.string.account_error_account_disabled
@@ -83,6 +85,7 @@ fun accountMessageRes(message: AccountMessage): Int =
         AccountMessage.EmailResent -> R.string.account_email_resent
         AccountMessage.PasswordResetSent -> R.string.account_password_reset_sent
         AccountMessage.EmailVerified -> R.string.account_email_verified
+        AccountMessage.FullNameUpdated -> R.string.account_full_name_updated
         AccountMessage.ApprovalStillPending -> R.string.account_approval_still_pending
         AccountMessage.ServerReady -> R.string.account_server_ready
         AccountMessage.ServerUnavailable -> R.string.account_server_unavailable

@@ -4,6 +4,7 @@ import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
+import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
 import space.ivlev.umbravpn.domain.model.account.DeviceQuery
@@ -47,4 +48,6 @@ interface AccountRepository {
     suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice>
 
     suspend fun deleteDevice(id: String): AccountResult<Unit>
+
+    suspend fun updateFullName(fullName: String): AccountResult<AuthUser>
 }

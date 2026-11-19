@@ -61,7 +61,7 @@ class AccountSnapshotCacheTest {
             user =
                 AuthUser(
                     id = "user-1",
-                    login = "user",
+                    fullName = "User Example",
                     email = "user@example.com",
                     status = UserStatus.Active,
                     totpEnabled = true,

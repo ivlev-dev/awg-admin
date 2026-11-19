@@ -159,8 +159,43 @@ class AuthFormViewModelTest {
             settle()
 
             assertEquals(listOf(RegisterSideEffect.Registered("alice@example.com")), effects)
-            assertEquals("alice@example.com", repository.registered.single().first)
+            assertEquals("alice@example.com", repository.registered.single().email)
             assertEquals("", viewModel.container.stateFlow.value.password)
+        }
+
+    @Test
+    fun registerSendsFullNameAndClearsIt() =
+        runTest(dispatcher) {
+            val viewModel = RegisterViewModel(actions)
+
+            viewModel.onEmailChange("alice@example.com")
+            viewModel.onFullNameChange("  Alice Ivanova  ")
+            viewModel.onPasswordChange("supersecret")
+            viewModel.onConfirmationChange("supersecret")
+            viewModel.submit()
+            settle()
+
+            assertEquals("Alice Ivanova", repository.registered.single().fullName)
+            assertEquals("", viewModel.container.stateFlow.value.fullName)
+        }
+
+    @Test
+    fun registerTooLongFullNameMarksField() =
+        runTest(dispatcher) {
+            val viewModel = RegisterViewModel(actions)
+
+            viewModel.onEmailChange("alice@example.com")
+            viewModel.onFullNameChange("a".repeat(201))
+            viewModel.onPasswordChange("supersecret")
+            viewModel.onConfirmationChange("supersecret")
+            viewModel.submit()
+            settle()
+
+            assertEquals(
+                AccountMessage.FullNameTooLong,
+                viewModel.container.stateFlow.value.fullNameError,
+            )
+            assertTrue(repository.registered.isEmpty())
         }
 
     @Test

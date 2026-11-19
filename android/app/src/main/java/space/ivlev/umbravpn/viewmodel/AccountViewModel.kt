@@ -198,6 +198,44 @@ class AccountViewModel(
         reduce { state.copy(dialog = AccountDialog.ChangeServer, dialogError = null) }
     }
 
+    fun showEditFullName() = intent {
+        if (state.isActionInProgress) return@intent
+        reduce {
+            state.copy(
+                dialog = AccountDialog.EditFullName(state.snapshot?.user?.fullName.orEmpty()),
+                dialogError = null,
+            )
+        }
+    }
+
+    fun updateFullName(fullName: String) = intent {
+        if (state.isActionInProgress) return@intent
+        reduce { state.copy(isActionInProgress = true, dialogError = null) }
+
+        when (val outcome = accountActions.updateFullName(fullName)) {
+            is ActionResult.Success -> {
+                reduce {
+                    val updated = state.snapshot?.copy(user = outcome.value)
+                    state.copy(
+                        snapshot = updated,
+                        session =
+                            if (state.session is SessionState.Active) {
+                                SessionState.Active(outcome.value)
+                            } else {
+                                state.session
+                            },
+                        isActionInProgress = false,
+                        dialog = null,
+                        dialogError = null,
+                    )
+                }
+                postSideEffect(AccountSideEffect.Notice(AccountMessage.FullNameUpdated))
+            }
+            is ActionResult.Failure ->
+                reduce { state.copy(isActionInProgress = false, dialogError = outcome.message) }
+        }
+    }
+
     fun dismissDialog() = intent {
         if (state.isActionInProgress) return@intent
         reduce {

@@ -463,6 +463,12 @@
     <string name="account_login_title">Вход</string>
     <string name="account_login_subtitle">Используйте email и пароль аккаунта Umbra VPN.</string>
     <string name="account_email">Электронная почта</string>
+    <string name="account_full_name">ФИО</string>
+    <string name="account_full_name_optional">ФИО (необязательно)</string>
+    <string name="account_full_name_not_set">Не указано</string>
+    <string name="account_full_name_hint">Не более %1$d символов.</string>
+    <string name="account_edit_full_name">Изменить ФИО</string>
+    <string name="account_full_name_updated">ФИО обновлено</string>
     <string name="account_totp_code">Код 2FA</string>
     <string name="account_have_totp">У меня есть код 2FA</string>
     <string name="account_sign_in">Войти</string>
@@ -570,6 +576,8 @@
     <string name="account_error_server_not_configured">Сервер не настроен</string>
     <string name="account_error_session_expired">Сессия истекла. Войдите заново.</string>
     <string name="account_error_email_not_verified">Сначала подтвердите email</string>
+    <string name="account_error_full_name_empty">Укажите ФИО</string>
+    <string name="account_error_full_name_long">Слишком длинное ФИО (максимум 200 символов)</string>
     <string name="account_error_pending_approval">Аккаунт ожидает одобрения администратора</string>
     <string name="account_error_rejected">Регистрация отклонена</string>
     <string name="account_error_device_limit">Достигнут лимит устройств по тарифу</string>

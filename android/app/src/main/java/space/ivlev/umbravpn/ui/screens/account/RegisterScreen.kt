@@ -70,6 +70,18 @@ fun RegisterScreen(
             contentType = ContentType.EmailAddress,
         )
 
+        AccountFormField(
+            value = state.fullName,
+            onValueChange = viewModel::onFullNameChange,
+            label = stringResource(R.string.account_full_name_optional),
+            error = state.fullNameError,
+            keyboardOptions =
+                KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
+            keyboardActions =
+                KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
+            contentType = ContentType.PersonFullName,
+        )
+
         AccountPasswordField(
             value = state.password,
             onValueChange = viewModel::onPasswordChange,
