@@ -8,7 +8,7 @@ import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
 import { PAGE_SIZES, currentPage, pageCount, pageWindow } from "@/app/table-pagination";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
-import { validateEmail, validatePassword } from "@/application/guards";
+import { normalizeOptionalFullName, validateEmail, validatePassword } from "@/application/guards";
 import type { QuotaService, UserQuotaSnapshot } from "@/application/quota/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -93,9 +93,11 @@ export class UsersPageVM extends ViewModel {
   @reactive accessor saving = false;
   @reactive accessor formError: string | null = null;
   @reactive accessor emailError: string | null = null;
+  @reactive accessor fullNameError: string | null = null;
   @reactive accessor passwordError: string | null = null;
 
   @reactive accessor email = "";
+  @reactive accessor fullName = "";
   @reactive accessor password = "";
   @reactive accessor role: Role = "user";
   @reactive accessor tariffId = "";
@@ -565,11 +567,15 @@ export class UsersPageVM extends ViewModel {
   }
 
   userEmail(user: User): string {
-    return user.email ?? user.login;
+    return user.email;
+  }
+
+  userFullName(user: User): string {
+    return user.full_name?.trim() || "—";
   }
 
   emailLabel(user: User): string {
-    return user.email ?? "—";
+    return user.email;
   }
 
   resetTargetEmail(): string {
@@ -662,6 +668,7 @@ export class UsersPageVM extends ViewModel {
   formState(): string {
     return JSON.stringify([
       this.email,
+      this.fullName,
       this.password,
       this.role,
       this.tariffId,
@@ -678,6 +685,7 @@ export class UsersPageVM extends ViewModel {
   openCreate(): void {
     this.editingId = null;
     this.email = "";
+    this.fullName = "";
     this.password = "";
     this.role = "user";
     this.tariffId = "";
@@ -685,6 +693,7 @@ export class UsersPageVM extends ViewModel {
     this.disabled = false;
     this.formError = null;
     this.emailError = null;
+    this.fullNameError = null;
     this.passwordError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
@@ -693,6 +702,7 @@ export class UsersPageVM extends ViewModel {
   openEdit(user: User): void {
     this.editingId = user.id;
     this.email = this.userEmail(user);
+    this.fullName = user.full_name ?? "";
     this.password = "";
     this.role = user.role;
     this.tariffId = user.tariff_id ?? "";
@@ -700,6 +710,7 @@ export class UsersPageVM extends ViewModel {
     this.disabled = user.disabled;
     this.formError = null;
     this.emailError = null;
+    this.fullNameError = null;
     this.passwordError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
@@ -724,6 +735,11 @@ export class UsersPageVM extends ViewModel {
   setEmail(event: Event): void {
     this.email = (event.target as HTMLInputElement).value;
     this.emailError = null;
+  }
+
+  setFullName(event: Event): void {
+    this.fullName = (event.target as HTMLInputElement).value;
+    this.fullNameError = null;
   }
 
   setPassword(event: Event): void {
@@ -757,6 +773,14 @@ export class UsersPageVM extends ViewModel {
       this.formError = this.emailError;
       return;
     }
+    let fullName: string | null = null;
+    try {
+      fullName = normalizeOptionalFullName(this.fullName) ?? null;
+    } catch (error) {
+      this.fullNameError = userMessage(error, t("users.form.error.fullName"));
+      this.formError = this.fullNameError;
+      return;
+    }
     const editingSelf = this.isEditingSelf;
     if (this.editingId && this.disabled && !editingSelf) {
       const target = this.users.find((user) => user.id === this.editingId);
@@ -772,6 +796,7 @@ export class UsersPageVM extends ViewModel {
       if (this.editingId) {
         await this.usersService.updateUser(this.editingId, {
           email: this.email.trim(),
+          full_name: fullName,
           role: editingSelf ? this.session.user?.role ?? this.role : this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
           node_id: this.nodeId ? this.nodeId : null,
@@ -789,6 +814,7 @@ export class UsersPageVM extends ViewModel {
         }
         await this.usersService.createUser({
           email: this.email.trim(),
+          full_name: fullName,
           password: this.password,
           role: this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
@@ -865,7 +891,7 @@ export class UsersPageVM extends ViewModel {
     if (!user.disabled) {
       const confirmed = await askConfirm({
         title: t("users.confirm.disable.title"),
-        message: t("users.confirm.disable", { login: this.userEmail(user) }),
+        message: t("users.confirm.disable", { email: this.userEmail(user) }),
         details: t("users.confirm.disableDetails"),
         confirmLabel: t("users.action.disable"),
         tone: "danger",
@@ -891,7 +917,7 @@ export class UsersPageVM extends ViewModel {
     }
     const confirmed = await askConfirm({
       title: t("users.confirm.delete.title"),
-      message: t("users.confirm.delete", { login: this.userEmail(user) }),
+      message: t("users.confirm.delete", { email: this.userEmail(user) }),
       details: t("users.confirm.deleteDetails"),
       confirmLabel: t("common.delete"),
       tone: "danger",
@@ -957,10 +983,10 @@ export class UsersPageVM extends ViewModel {
   }
 
   async reject(user: User): Promise<void> {
-    const login = this.userEmail(user);
+    const email = this.userEmail(user);
     const confirmed = await askConfirm({
       title: t("users.pending.rejectTitle"),
-      message: t("users.pending.rejectConfirm", { login }),
+      message: t("users.pending.rejectConfirm", { email }),
       confirmLabel: t("users.pending.reject"),
       tone: "danger",
     });

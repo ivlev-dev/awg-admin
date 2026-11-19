@@ -24,12 +24,12 @@ vi.mock("@/app/confirm", () => confirmMock);
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
   node_id: null,
-  email: null,
+  email: "admin@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -39,12 +39,12 @@ const ADMIN: User = {
 
 const OWNER: User = {
   id: "u2",
-  login: "owner",
+  full_name: null,
   role: "user",
   tariff_id: null,
   group_id: "g1",
   node_id: "n1",
-  email: null,
+  email: "owner@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -55,8 +55,9 @@ const OWNER: User = {
 const MEMBER: User = {
   ...OWNER,
   id: "u3",
-  login: "member",
+  full_name: null,
   node_id: "n2",
+  email: "member@example.com",
 };
 
 const GROUP: Group = {
@@ -196,6 +197,7 @@ function fakeAuth(user: User): AuthRepository {
     }),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => user),
+    updateProfile: vi.fn(async () => user),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
@@ -1019,7 +1021,7 @@ describe("ClientsPageVM", () => {
     const { vm } = setup("admin");
     await vm.load();
 
-    expect(vm.userEmail("u2")).toBe("owner");
+    expect(vm.userEmail("u2")).toBe("owner@example.com");
     expect(vm.userEmail("unknown")).toBe("—");
     expect(vm.interfaceSummary(DEVICE)).toBe("wg0 · node-1");
     expect(vm.interfaceSummary({ ...DEVICE, interface_name: "", node_name: "" })).toBe("—");

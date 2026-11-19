@@ -17,7 +17,7 @@ test.describe("Квота трафика", () => {
     adminAuth = await adminApi.login();
     workspace = await createWorkspace(adminApi, { quotaBytes: QUOTA_BYTES });
     userApi = await E2EApi.create();
-    userAuth = await userApi.login(workspace.login, workspace.password);
+    userAuth = await userApi.login(workspace.email, workspace.password);
   });
 
   test.afterAll(async () => {
@@ -50,9 +50,9 @@ test.describe("Квота трафика", () => {
   test("колонка квоты в списке пользователей показывает процент и статус", async ({ page }) => {
     await seedSession(page, adminAuth);
     await page.goto("/users");
-    await page.getByPlaceholder("Поиск по email").fill(workspace.login);
+    await page.getByPlaceholder("Поиск по email").fill(workspace.email);
 
-    const row = page.locator("tbody tr").filter({ hasText: workspace.login });
+    const row = page.locator("tbody tr").filter({ hasText: workspace.email });
     await expect(row).toHaveCount(1);
 
     const quotaCell = row.locator('td[data-label="Квота"]');

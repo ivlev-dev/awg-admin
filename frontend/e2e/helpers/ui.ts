@@ -2,15 +2,15 @@ import { expect, type Locator, type Page } from "@playwright/test";
 
 import type { AuthView } from "./api";
 
-export async function loginViaUi(page: Page, login: string, password: string): Promise<void> {
+export async function loginViaUi(page: Page, email: string, password: string): Promise<void> {
   await page.goto("/login");
-  await page.getByLabel("Email", { exact: true }).fill(login);
+  await page.getByLabel("Email", { exact: true }).fill(email);
   await page.getByLabel("Пароль", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Войти" }).click();
 }
 
-export async function loginAndWait(page: Page, login: string, password: string): Promise<void> {
-  await loginViaUi(page, login, password);
+export async function loginAndWait(page: Page, email: string, password: string): Promise<void> {
+  await loginViaUi(page, email, password);
   await expect(page).toHaveURL((url) => url.pathname === "/");
   await expect(page.locator(".topbar__title")).toHaveText("Обзор");
 }

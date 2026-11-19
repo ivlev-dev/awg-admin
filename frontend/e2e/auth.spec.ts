@@ -10,7 +10,7 @@ import {
 import { loginAndWait, loginViaUi, pathOf } from "./helpers/ui";
 
 let api: E2EApi;
-let pairUser: { login: string; password: string; userId: string };
+let pairUser: { email: string; password: string; userId: string };
 let login: AuthView;
 
 test.describe("Аутентификация", () => {
@@ -63,7 +63,7 @@ test.describe("Аутентификация", () => {
   });
 
   test("пользователь без роли admin не видит и не открывает /audit", async ({ page }) => {
-    await loginAndWait(page, pairUser.login, pairUser.password);
+    await loginAndWait(page, pairUser.email, pairUser.password);
 
     const auditNav = page.locator(".sidebar .nav-item").filter({ hasText: "Аудит" });
     await expect(auditNav).toHaveCount(0);

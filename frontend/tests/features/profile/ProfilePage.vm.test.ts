@@ -24,7 +24,7 @@ vi.mock("@/app/confirm", () => confirmMock);
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
@@ -39,7 +39,7 @@ const ADMIN: User = {
 const REGULAR: User = {
   ...ADMIN,
   id: "u2",
-  login: "operator",
+  full_name: null,
   role: "user",
 };
 
@@ -199,6 +199,7 @@ function makeHarness(
     refresh: vi.fn(async () => SESSION),
     logout,
     me: vi.fn(async () => current),
+    updateProfile: vi.fn(async () => current),
     changePassword,
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
@@ -313,6 +314,51 @@ describe("ProfilePageVM", () => {
     expect(harness.vm.isAdmin).toBe(true);
     expect(harness.vm.roleLabel).toBe("Администратор");
     expect(harness.vm.roleBadgeClass).toBe("badge badge--violet");
+  });
+
+  it("exposes and edits the full name through the profile endpoint", async () => {
+    const harness = makeHarness({ ...ADMIN, full_name: "Иван Петров" });
+
+    expect(harness.vm.fullName).toBe("Иван Петров");
+    expect(harness.vm.hasFullName).toBe(true);
+    expect(harness.vm.userInitial).toBe("И");
+
+    vi.mocked(harness.auth.updateProfile).mockImplementation(async (input) => ({
+      ...ADMIN,
+      full_name: input.full_name,
+    }));
+
+    harness.vm.startFullNameEdit();
+    expect(harness.vm.editingFullName).toBe(true);
+    expect(harness.vm.fullNameDraft).toBe("Иван Петров");
+
+    harness.vm.setFullNameDraft(valueEvent("  Пётр Сидоров  "));
+    await harness.vm.saveFullName();
+
+    expect(harness.auth.updateProfile).toHaveBeenCalledWith({ full_name: "Пётр Сидоров" });
+    expect(harness.session.user?.full_name).toBe("Пётр Сидоров");
+    expect(harness.vm.editingFullName).toBe(false);
+    expect(harness.vm.fullNameError).toBeNull();
+  });
+
+  it("clears the full name and rejects an overlong value", async () => {
+    const harness = makeHarness({ ...ADMIN, full_name: "Иван" });
+    vi.mocked(harness.auth.updateProfile).mockImplementation(async (input) => ({
+      ...ADMIN,
+      full_name: input.full_name,
+    }));
+
+    harness.vm.startFullNameEdit();
+    harness.vm.setFullNameDraft(valueEvent("a".repeat(201)));
+    await harness.vm.saveFullName();
+    expect(harness.vm.fullNameError).toBe("ФИО не должно быть длиннее 200 символов");
+    expect(harness.auth.updateProfile).not.toHaveBeenCalled();
+
+    harness.vm.setFullNameDraft(valueEvent("   "));
+    await harness.vm.saveFullName();
+    expect(harness.auth.updateProfile).toHaveBeenCalledWith({ full_name: null });
+    expect(harness.session.user?.full_name).toBeNull();
+    expect(harness.vm.fullName).toBe("ФИО не указано");
   });
 
   it("falls back to a guest profile without a user", () => {

@@ -9,7 +9,8 @@ const API_PREFIX = "/api/v1";
 
 export interface UserAccount {
   id: string;
-  login: string;
+  email: string;
+  full_name: string | null;
   role: "admin" | "user";
   tariff_id: string | null;
   group_id: string | null;
@@ -72,8 +73,8 @@ export interface DevMail {
 
 export interface PendingUser {
   id: string;
-  login: string;
-  email: string | null;
+  email: string;
+  full_name: string | null;
   status: "pending_email" | "pending_approval" | "active" | "rejected";
 }
 
@@ -100,7 +101,7 @@ export interface Workspace {
   interfaceName: string;
   tariffId: string;
   userId: string;
-  login: string;
+  email: string;
   password: string;
 }
 
@@ -153,8 +154,8 @@ export class E2EApi {
     await this.context.dispose();
   }
 
-  async login(login: string = ADMIN_LOGIN, password: string = ADMIN_PASSWORD): Promise<AuthView> {
-    const auth = await this.post<AuthView>("/auth/login", { login, password });
+  async login(email: string = ADMIN_LOGIN, password: string = ADMIN_PASSWORD): Promise<AuthView> {
+    const auth = await this.post<AuthView>("/auth/login", { email, password });
     this.token = auth.token;
     return auth;
   }
@@ -220,15 +221,16 @@ export class E2EApi {
   }
 
   async createUser(input: {
-    login: string;
-    email?: string;
+    email: string;
+    fullName?: string | null;
     password: string;
     role: "admin" | "user";
     tariffId: string | null;
     groupId: string | null;
   }): Promise<UserAccount> {
     return this.post<UserAccount>("/users", {
-      email: input.email ?? (input.login.includes("@") ? input.login : `${input.login}@example.com`),
+      email: input.email,
+      ...(input.fullName === undefined ? {} : { full_name: input.fullName }),
       password: input.password,
       role: input.role,
       tariff_id: input.tariffId,
@@ -283,9 +285,9 @@ export class E2EApi {
     });
   }
 
-  async attemptLogin(login: string, password: string): Promise<LoginAttempt> {
+  async attemptLogin(email: string, password: string): Promise<LoginAttempt> {
     const response = await this.context.post(`${API_PREFIX}/auth/login`, {
-      data: { login, password },
+      data: { email, password },
       headers: { Accept: "application/json" },
     });
     if (response.ok()) return { ok: true, status: response.status(), code: null };
@@ -299,7 +301,7 @@ export class E2EApi {
     };
   }
 
-  async register(input: { email: string; password: string; login?: string }): Promise<void> {
+  async register(input: { email: string; password: string; full_name?: string }): Promise<void> {
     const response = await this.context.post(`${API_PREFIX}/auth/register`, {
       data: input,
       headers: { Accept: "application/json" },
@@ -378,9 +380,10 @@ export async function createWorkspace(
     quotaBytes: options.quotaBytes ?? null,
     maxDevices: options.maxDevices ?? 16,
   });
-  const login = `e2e-user-${suffix}@example.com`;
+  const email = `e2e-user-${suffix}@example.com`;
   const user = await api.createUser({
-    login,
+    email,
+    fullName: `E2E User ${suffix}`,
     password,
     role: "user",
     tariffId: tariff.id,
@@ -397,7 +400,7 @@ export async function createWorkspace(
     interfaceName: iface.name,
     tariffId: tariff.id,
     userId: user.id,
-    login,
+    email,
     password,
   };
 }
@@ -405,16 +408,17 @@ export async function createWorkspace(
 export async function createUserOnly(
   api: E2EApi,
   role: "admin" | "user" = "user",
-): Promise<{ login: string; password: string; userId: string }> {
+): Promise<{ email: string; password: string; userId: string }> {
   const suffix = uniqueSuffix();
-  const login = `e2e-${role}-${suffix}@example.com`;
+  const email = `e2e-${role}-${suffix}@example.com`;
   const password = DEFAULT_USER_PASSWORD;
   const user = await api.createUser({
-    login,
+    email,
+    fullName: `E2E ${role} ${suffix}`,
     password,
     role,
     tariffId: null,
     groupId: null,
   });
-  return { login, password, userId: user.id };
+  return { email, password, userId: user.id };
 }

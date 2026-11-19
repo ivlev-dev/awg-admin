@@ -33,8 +33,8 @@ const DEVICE = {
 
 const USER = {
   id: "u1",
-  login: "admin",
-  email: null,
+  full_name: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   role: "admin",
@@ -122,6 +122,8 @@ describe("runtime-валидация ответов", () => {
     expectInvalidResponse(() => readUser({ ...USER, status: "unknown" }));
     expectInvalidResponse(() => readUser({ ...USER, role: "guest" }));
     expectInvalidResponse(() => readUser({ ...USER, email: 7 }));
+    expectInvalidResponse(() => readUser({ ...USER, full_name: 7 }));
+    expect(readUser({ ...USER, full_name: null })).toMatchObject({ full_name: null });
   });
 
   it("отклоняет InterfaceInfo без obf и портов", () => {

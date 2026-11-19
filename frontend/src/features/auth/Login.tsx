@@ -52,8 +52,8 @@ export function Login(this: { vm: LoginVM }) {
                   type="email"
                   autocomplete="email"
                   placeholder={t("auth.login.identifierPlaceholder")}
-                  value={this.vm.login}
-                  onInput={(event: Event) => this.vm.setLogin(event)}
+                  value={this.vm.email}
+                  onInput={(event: Event) => this.vm.setEmail(event)}
                 />
                 <Show when={this.vm.emailInvalid}>
                   <div class="hint" style="color:var(--red)">{t("auth.register.error.email")}</div>

@@ -17,11 +17,11 @@ function mockResponse(status: number, body?: unknown): Response {
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -72,7 +72,7 @@ describe("HTTP backend", () => {
     );
 
     const result = await backend.repositories.auth.login({
-      login: "admin",
+      email: "admin@example.com",
       password: "secret",
     });
 
@@ -81,7 +81,10 @@ describe("HTTP backend", () => {
     expect(store.refresh()).toBe("refresh-1");
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/v1/auth/login",
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ email: "admin@example.com", password: "secret" }),
+      }),
     );
   });
 
@@ -92,7 +95,7 @@ describe("HTTP backend", () => {
 
     const result = await backend.repositories.auth.register({
       email: "user@example.com",
-      login: "user",
+      full_name: "Иван",
       password: "secret123",
     });
 
@@ -103,7 +106,7 @@ describe("HTTP backend", () => {
         method: "POST",
         body: JSON.stringify({
           email: "user@example.com",
-          login: "user",
+          full_name: "Иван",
           password: "secret123",
         }),
       }),
@@ -304,6 +307,24 @@ describe("HTTP backend", () => {
     );
   });
 
+  it("updates the profile through PATCH /auth/me", async () => {
+    store.set("tok-123", "ref-123");
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValue(mockResponse(200, { ...USER, full_name: "Иван Петров" }));
+
+    const updated = await backend.repositories.auth.updateProfile({ full_name: "Иван Петров" });
+
+    expect(updated.full_name).toBe("Иван Петров");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/me",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ full_name: "Иван Петров" }),
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+      }),
+    );
+  });
+
   it("refreshes on 401 and retries api requests", async () => {
     store.set("old-access", "old-refresh");
     const listData = [USER];
@@ -344,7 +365,7 @@ describe("HTTP backend", () => {
     );
 
     await expect(
-      backend.repositories.auth.login({ login: "admin", password: "wrong" }),
+      backend.repositories.auth.login({ email: "admin@example.com", password: "wrong" }),
     ).rejects.toBeInstanceOf(ApiError);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

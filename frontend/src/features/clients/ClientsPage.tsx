@@ -380,7 +380,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                 <Select
                   id="client-user"
                   value={this.vm.formUserId}
-                  options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.email ?? user.login }))]}
+                  options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.email }))]}
                   onChange={(value) => this.vm.setFormUser(value)}
                   ariaLabel={t("clients.form.user")}
                 />

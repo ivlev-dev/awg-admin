@@ -54,12 +54,12 @@ export class Session implements AuthSessionState {
     }
   }
 
-  async login(login: string, password: string, totpCode?: string): Promise<boolean> {
+  async login(email: string, password: string, totpCode?: string): Promise<boolean> {
     this.busy = true;
     this.clearError();
     try {
       const session = await this.auth.login({
-        login,
+        email,
         password,
         ...(totpCode ? { totp_code: totpCode } : {}),
       });

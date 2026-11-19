@@ -5,8 +5,8 @@ export type UserStatus = "pending_email" | "pending_approval" | "active" | "reje
 
 export interface User {
   id: string;
-  login: string;
-  email: string | null;
+  email: string;
+  full_name: string | null;
   status: UserStatus;
   totp_enabled: boolean;
   role: Role;

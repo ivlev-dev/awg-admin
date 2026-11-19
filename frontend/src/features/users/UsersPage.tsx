@@ -151,7 +151,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           </Show>
 
           <div class="data-scroll table-wrap--cards">
-            <Show when={!this.vm.loading} fallback={<SkeletonTable rows={5} columns={7} />}>
+            <Show when={!this.vm.loading} fallback={<SkeletonTable rows={5} columns={8} />}>
               <Show
                 when={!(this.vm.error && this.vm.users.length === 0)}
                 fallback={
@@ -206,7 +206,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             onChange={() => this.vm.toggleSelectAll()}
                           />
                         </th>
-                        <th class="col-user">{t("users.column.email")}</th>
+                        <th class="col-user">{t("users.column.fullName")}</th>
+                        <th class="col-email">{t("users.column.email")}</th>
                         <th class="col-role">{t("users.column.role")}</th>
                         <th class="col-tariff">{t("users.column.tariffNode")}</th>
                         <th class="col-quota">{t("users.column.quota")}</th>
@@ -226,15 +227,20 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                                 onChange={() => this.vm.toggleSelected(user.id)}
                               />
                             </td>
-                            <td class="col-user" data-label={t("users.column.email")}>
+                            <td class="col-user" data-label={t("users.column.fullName")}>
                               <div class="cell-name">
-                                <span class="cell-avatar">{this.vm.userEmail(user).slice(0, 1).toUpperCase()}</span>
+                                <span class="cell-avatar">{this.vm.userFullName(user).slice(0, 1).toUpperCase()}</span>
                                 <span class="cell-name__text">
-                                  <span class="strong" title={this.vm.userEmail(user)}>
-                                    {this.vm.userEmail(user)}
+                                  <span class="strong" title={this.vm.userFullName(user)}>
+                                    {this.vm.userFullName(user)}
                                   </span>
                                 </span>
                               </div>
+                            </td>
+                            <td class="col-email" data-label={t("users.column.email")}>
+                              <span class="small" title={this.vm.userEmail(user)}>
+                                {this.vm.userEmail(user)}
+                              </span>
                             </td>
                             <td class="col-role" data-label={t("users.column.role")}>
                               <span class={`badge ${user.role === "admin" ? "badge--violet" : "badge--blue"}`}>
@@ -406,7 +412,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           </div>
 
           <div class="data-scroll table-wrap--cards">
-            <Show when={!this.vm.pendingLoading} fallback={<SkeletonTable rows={3} columns={4} />}>
+            <Show when={!this.vm.pendingLoading} fallback={<SkeletonTable rows={3} columns={5} />}>
               <Show
                 when={!(this.vm.pendingError && this.vm.pending.length === 0)}
                 fallback={
@@ -450,7 +456,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   <table class="table table--cards table--users-pending table--desktop" aria-label={t("users.pending.title")}>
                     <thead>
                       <tr>
-                        <th class="col-user">{t("users.column.email")}</th>
+                        <th class="col-user">{t("users.column.fullName")}</th>
+                        <th class="col-email">{t("users.column.email")}</th>
                         <th class="col-created">{t("users.pending.createdAt")}</th>
                         <th class="col-actions" aria-label={t("users.column.actions")}></th>
                       </tr>
@@ -459,17 +466,22 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                       <For each={this.vm.pending}>
                         {(user) => (
                           <tr>
-                            <td class="col-user" data-label={t("users.column.email")}>
+                            <td class="col-user" data-label={t("users.column.fullName")}>
                               <div class="cell-name">
                                 <span class="cell-avatar">
-                                  {this.vm.userEmail(user).slice(0, 1).toUpperCase()}
+                                  {this.vm.userFullName(user).slice(0, 1).toUpperCase()}
                                 </span>
                                 <span class="cell-name__text">
-                                  <span class="strong" title={this.vm.userEmail(user)}>
-                                    {this.vm.userEmail(user)}
+                                  <span class="strong" title={this.vm.userFullName(user)}>
+                                    {this.vm.userFullName(user)}
                                   </span>
                                 </span>
                               </div>
+                            </td>
+                            <td class="col-email" data-label={t("users.column.email")}>
+                              <span class="small" title={this.vm.userEmail(user)}>
+                                {this.vm.userEmail(user)}
+                              </span>
                             </td>
                             <td class="col-created" data-label={t("users.pending.createdAt")}>{this.vm.requestDateLabel(user)}</td>
                             <td class="cell-actions col-actions">
@@ -554,28 +566,49 @@ export function UsersPage(this: { vm: UsersPageVM }) {
             void this.vm.submit();
           }}
         >
-          <div class="grid grid--2">
-            <div class="field">
-              <label for="users-form-email">{t("users.form.email")}</label>
-              <input
-                id="users-form-email"
-                class="input"
-                type="email"
-                autocomplete="email"
-                required
-                data-autofocus
-                aria-invalid={this.vm.emailError ? "true" : undefined}
-                aria-describedby={this.vm.emailError ? "users-form-email-error" : undefined}
-                placeholder={t("auth.register.emailPlaceholder")}
-                value={this.vm.email}
-                onInput={(event: Event) => this.vm.setEmail(event)}
-              />
-              <Show when={this.vm.emailError}>
-                <span class="field-error" id="users-form-email-error" role="alert">{this.vm.emailError}</span>
-              </Show>
-            </div>
-            <div class="field">
-              <label for="users-form-role">{t("users.form.role")}</label>
+            <div class="grid grid--2">
+              <div class="field">
+                <label for="users-form-email">{t("users.form.email")}</label>
+                <input
+                  id="users-form-email"
+                  class="input"
+                  type="email"
+                  autocomplete="email"
+                  required
+                  data-autofocus
+                  aria-invalid={this.vm.emailError ? "true" : undefined}
+                  aria-describedby={this.vm.emailError ? "users-form-email-error" : undefined}
+                  placeholder={t("auth.register.emailPlaceholder")}
+                  value={this.vm.email}
+                  onInput={(event: Event) => this.vm.setEmail(event)}
+                />
+                <Show when={this.vm.emailError}>
+                  <span class="field-error" id="users-form-email-error" role="alert">{this.vm.emailError}</span>
+                </Show>
+              </div>
+              <div class="field">
+                <label for="users-form-full-name">{t("users.form.fullName")}</label>
+                <input
+                  id="users-form-full-name"
+                  class="input"
+                  type="text"
+                  autocomplete="name"
+                  maxlength={200}
+                  aria-invalid={this.vm.fullNameError ? "true" : undefined}
+                  aria-describedby={this.vm.fullNameError ? "users-form-full-name-error" : "users-form-full-name-hint"}
+                  placeholder={t("users.form.fullNamePlaceholder")}
+                  value={this.vm.fullName}
+                  onInput={(event: Event) => this.vm.setFullName(event)}
+                />
+                <Show
+                  when={this.vm.fullNameError}
+                  fallback={<span class="hint" id="users-form-full-name-hint">{t("users.form.fullNameHint")}</span>}
+                >
+                  <span class="field-error" id="users-form-full-name-error" role="alert">{this.vm.fullNameError}</span>
+                </Show>
+              </div>
+              <div class="field">
+                <label for="users-form-role">{t("users.form.role")}</label>
               <Select
                 id="users-form-role"
                 value={this.vm.role}
@@ -749,6 +782,16 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           <div class="field">
             <label for="users-approve-email">{t("users.column.email")}</label>
             <input id="users-approve-email" class="input" type="email" value={this.vm.approveTargetEmail()} disabled />
+          </div>
+          <div class="field">
+            <label for="users-approve-full-name">{t("users.column.fullName")}</label>
+            <input
+              id="users-approve-full-name"
+              class="input"
+              type="text"
+              value={this.vm.approveTarget === null ? "" : this.vm.userFullName(this.vm.approveTarget)}
+              disabled
+            />
           </div>
           <div class="grid grid--2">
             <div class="field">

@@ -70,6 +70,26 @@ export function validateEmail(value: string): string {
   return trimmed;
 }
 
+export const FULL_NAME_MAX = 200;
+
+export function validateFullName(value: string): string {
+  const trimmed = value.trim();
+  const length = [...trimmed].length;
+  if (length === 0) {
+    throw new ValidationError("error.validation.fullNameRequired");
+  }
+  if (length > FULL_NAME_MAX) {
+    throw new ValidationError("error.validation.fullNameTooLong", { max: FULL_NAME_MAX });
+  }
+  return trimmed;
+}
+
+export function normalizeOptionalFullName(value: string | null | undefined): string | null | undefined {
+  if (value === undefined || value === null) return value;
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : validateFullName(trimmed);
+}
+
 export function validateTotpCode(value: string): string {
   const trimmed = value.trim();
   if (!/^\d{6}$/.test(trimmed) && !/^[A-Za-z0-9-]{6,}$/.test(trimmed)) {

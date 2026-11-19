@@ -28,7 +28,7 @@ export class LoginVM extends ViewModel {
     super();
   }
 
-  @reactive accessor login = "";
+  @reactive accessor email = "";
   @reactive accessor password = "";
   @reactive accessor totpCode = "";
   @reactive accessor step: LoginStep = "credentials";
@@ -66,12 +66,12 @@ export class LoginVM extends ViewModel {
 
   @computed
   get emailValid(): boolean {
-    return validEmail(this.login);
+    return validEmail(this.email);
   }
 
   @computed
   get emailInvalid(): boolean {
-    return this.login.trim().length > 0 && !this.emailValid;
+    return this.email.trim().length > 0 && !this.emailValid;
   }
 
   @computed
@@ -91,8 +91,8 @@ export class LoginVM extends ViewModel {
     return this.session.errorCode === "email_not_verified";
   }
 
-  setLogin(event: Event): void {
-    this.login = (event.target as HTMLInputElement).value;
+  setEmail(event: Event): void {
+    this.email = (event.target as HTMLInputElement).value;
     this.resendNotice = null;
     this.resendError = null;
   }
@@ -113,7 +113,7 @@ export class LoginVM extends ViewModel {
     event.preventDefault();
     if (!this.canSubmit) return;
     const code = this.step === "totp" ? this.totpCode.trim() : undefined;
-    const success = await this.session.login(this.login.trim(), this.password, code);
+    const success = await this.session.login(this.email.trim(), this.password, code);
     if (success) {
       this.router.replace("/");
       return;
@@ -138,7 +138,7 @@ export class LoginVM extends ViewModel {
     this.resendNotice = null;
     this.resendError = null;
     try {
-      await this.auth.resendVerification(this.login.trim());
+      await this.auth.resendVerification(this.email.trim());
       this.resendNotice = t("auth.login.resend.sent");
     } catch (error) {
       this.resendError = userMessage(error, t("auth.login.resend.failed"));

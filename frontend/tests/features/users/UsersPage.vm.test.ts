@@ -39,7 +39,7 @@ vi.mock("@/app/confirm", () => confirmMock);
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
@@ -54,7 +54,7 @@ const ADMIN: User = {
 
 const ALICE: User = {
   id: "u2",
-  login: "alice",
+  full_name: null,
   role: "user",
   tariff_id: "t1",
   group_id: "g1",
@@ -70,7 +70,7 @@ const ALICE: User = {
 const PENDING: User = {
   ...ALICE,
   id: "u3",
-  login: "newbie",
+  full_name: null,
   email: "newbie@example.com",
   status: "pending_approval",
   tariff_id: null,
@@ -108,7 +108,7 @@ const NODE: NodeInfo = {
 const QUOTAS: UserQuota[] = [
   {
     user_id: "u1",
-    login: "admin",
+    email: "admin@example.com",
     used_bytes: 1024 * 1024 * 1024,
     quota_bytes: 10 * 1024 * 1024 * 1024,
     exceeded: false,
@@ -116,7 +116,7 @@ const QUOTAS: UserQuota[] = [
   },
   {
     user_id: "u2",
-    login: "alice",
+    email: "alice@example.com",
     used_bytes: 10 * 1024 * 1024 * 1024,
     quota_bytes: 10 * 1024 * 1024 * 1024,
     exceeded: true,
@@ -173,8 +173,8 @@ class MemoryUsersRepository {
     this.failIfNeeded();
     const user: User = {
       id: `u${this.users.length + 1}`,
-      login: input.email,
       email: input.email,
+      full_name: input.full_name ?? null,
       role: input.role,
       tariff_id: input.tariff_id,
       node_id: input.node_id,
@@ -367,12 +367,17 @@ class FakeAuthRepository {
   }
 
   async refresh(_refreshToken: string): Promise<AuthSession> {
-    return this.login({ login: this.current.login, password: "secret" });
+    return this.login({ email: this.current.email, password: "secret" });
   }
 
   async logout(_refreshToken: string): Promise<void> {}
 
   async me(): Promise<User> {
+    return this.current;
+  }
+
+  async updateProfile(input: { full_name: string | null }): Promise<User> {
+    this.current = { ...this.current, full_name: input.full_name };
     return this.current;
   }
 
@@ -513,7 +518,7 @@ describe("UsersPageVM", () => {
 
     expect(vm.loading).toBe(false);
     expect(vm.error).toBeNull();
-    expect(vm.users.map((user) => user.login)).toEqual(["admin", "alice"]);
+    expect(vm.users.map((user) => user.email)).toEqual(["admin@example.com", "alice@example.com"]);
     expect(vm.tariffs).toEqual([TARIFF]);
     expect(vm.nodes).toEqual([NODE]);
     expect(vm.tariffName("t1")).toBe("Basic");
@@ -580,7 +585,7 @@ describe("UsersPageVM", () => {
     const { vm } = setup([ADMIN], [
       {
         user_id: ADMIN.id,
-        login: ADMIN.login,
+        email: ADMIN.email,
         used_bytes: 1024,
         quota_bytes: null,
         exceeded: false,
@@ -603,7 +608,7 @@ describe("UsersPageVM", () => {
     await vm.load();
 
     expect(vm.error).toBeNull();
-    expect(vm.users.map((user) => user.login)).toEqual(["admin", "alice"]);
+    expect(vm.users.map((user) => user.email)).toEqual(["admin@example.com", "alice@example.com"]);
     expect(vm.quotas).toEqual([]);
     expect(vm.quotaFor(ALICE.id)).toBeNull();
     expect(vm.quotaPercentLabel(ALICE.id)).toBe("—");
@@ -615,6 +620,7 @@ describe("UsersPageVM", () => {
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
     vm.email = "  bob@example.com  ";
+    vm.fullName = "  Боб  ";
     vm.password = "secret123";
     vm.role = "admin";
     vm.tariffId = "t1";
@@ -624,6 +630,7 @@ describe("UsersPageVM", () => {
 
     expect(createSpy).toHaveBeenCalledWith({
       email: "bob@example.com",
+      full_name: "Боб",
       password: "secret123",
       role: "admin",
       tariff_id: "t1",
@@ -652,6 +659,7 @@ describe("UsersPageVM", () => {
 
     expect(createSpy).toHaveBeenCalledWith({
       email: "bob@example.com",
+      full_name: null,
       password: "secret123",
       role: "user",
       tariff_id: null,
@@ -685,6 +693,7 @@ describe("UsersPageVM", () => {
     expect(vm.email).toBe("alice@example.com");
 
     vm.email = "alice.updated@example.com";
+    vm.fullName = "  Алиса  ";
     vm.role = "admin";
     vm.disabled = true;
     vm.tariffId = "";
@@ -695,6 +704,7 @@ describe("UsersPageVM", () => {
     expect(updated).toEqual({
       ...ALICE,
       email: "alice.updated@example.com",
+      full_name: "Алиса",
       role: "admin",
       disabled: true,
       tariff_id: null,
@@ -788,10 +798,12 @@ describe("UsersPageVM", () => {
 
     await vm.load();
 
-    expect(vm.activeUsers.map((user) => user.login)).toEqual(["admin", "alice"]);
-    expect(vm.pending.map((user) => user.login)).toEqual(["newbie"]);
+    expect(vm.activeUsers.map((user) => user.email)).toEqual(["admin@example.com", "alice@example.com"]);
+    expect(vm.pending.map((user) => user.email)).toEqual(["newbie@example.com"]);
     expect(vm.pendingCount).toBe(1);
     expect(vm.emailLabel(PENDING)).toBe("newbie@example.com");
+    expect(vm.userFullName(PENDING)).toBe("—");
+    expect(vm.userFullName({ ...ALICE, full_name: "Алиса Иванова" })).toBe("Алиса Иванова");
     expect(vm.requestDateLabel(PENDING)).not.toBe("—");
   });
 
@@ -1065,7 +1077,7 @@ describe("UsersPageVM", () => {
     const CAROL: User = {
       ...ALICE,
       id: "u4",
-      login: "carol",
+      full_name: null,
       email: "carol@example.com",
       disabled: true,
     };
@@ -1183,7 +1195,6 @@ describe("UsersPageVM UX-состояния", () => {
     const users = Array.from({ length: 30 }, (_value, index) => ({
       ...ALICE,
       id: `u${index + 10}`,
-      login: `user${index + 10}`,
       email: `user${index + 10}@example.com`,
     }));
     const { vm } = setup(users);
@@ -1271,7 +1282,7 @@ describe("UsersPageVM UX-состояния", () => {
   });
 
   it("запрещает удаление последнего администратора", async () => {
-    const BOSS: User = { ...ALICE, id: "u9", login: "boss", email: "boss@example.com", role: "admin" };
+    const BOSS: User = { ...ALICE, id: "u9", email: "boss@example.com", role: "admin" };
     const { vm, usersRepo, session } = setup([BOSS]);
     session.user = { ...ADMIN, role: "user" };
     await vm.load();

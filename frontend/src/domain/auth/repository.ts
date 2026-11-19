@@ -9,6 +9,7 @@ import type {
   ResetPasswordResult,
   TotpSetup,
   TotpToggleResult,
+  UpdateProfileInput,
   VerifyEmailResult,
 } from "./types";
 
@@ -22,6 +23,7 @@ export interface AuthRepository {
   refresh(refreshToken: string): Promise<AuthSession>;
   logout(refreshToken: string): Promise<void>;
   me(): Promise<User>;
+  updateProfile(input: UpdateProfileInput): Promise<User>;
   changePassword(current: string | null, next: string): Promise<void>;
   totpSetup(): Promise<TotpSetup>;
   totpEnable(code: string): Promise<TotpToggleResult>;

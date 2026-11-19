@@ -28,11 +28,11 @@ import { StatsVM } from "@/features/stats/StatsPage.vm";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -42,11 +42,11 @@ const ADMIN: User = {
 
 const OWNER: User = {
   id: "u2",
-  login: "owner",
+  full_name: null,
   role: "user",
   tariff_id: null,
   group_id: "g1",
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -212,6 +212,7 @@ function fakeAuth(user: User): AuthRepository {
     }),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => user),
+    updateProfile: vi.fn(async () => user),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),

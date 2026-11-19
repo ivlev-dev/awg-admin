@@ -43,7 +43,7 @@ test.describe("Журнал аудита", () => {
     expect(new URL(filteredResponse.url()).searchParams.get("actor")).toBe("admin");
 
     await expect(rows.first()).toBeVisible();
-    const actors = await rows.locator('td[data-label="Актор"]').allInnerTexts();
+    const actors = await rows.locator("td.col-actor").allInnerTexts();
     expect(actors.length).toBeGreaterThan(0);
     for (const actor of actors) {
       expect(actor.toLowerCase()).toContain("admin");

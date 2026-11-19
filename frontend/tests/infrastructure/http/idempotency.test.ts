@@ -46,11 +46,11 @@ const SESSION: AuthSession = {
   expires_in: 3600,
   user: {
     id: "u1",
-    login: "admin",
+    full_name: null,
     role: "admin",
     tariff_id: null,
     group_id: null,
-    email: null,
+    email: "user@example.com",
     status: "active",
     totp_enabled: false,
     disabled: false,
@@ -102,7 +102,7 @@ describe("HttpClient Idempotency-Key", () => {
     const { client } = harness(memoryTokens("tok-1", "ref-1"));
     const fetchMock = installFetch(async () => mockResponse(200, { ok: true }));
 
-    await client.post("/users", { login: "user" });
+    await client.post("/users", { email: "user@example.com" });
 
     const key = headersOf(fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)[
       "Idempotency-Key"
@@ -114,8 +114,8 @@ describe("HttpClient Idempotency-Key", () => {
     const { client } = harness(memoryTokens("tok-1", "ref-1"));
     const fetchMock = installFetch(async () => mockResponse(200, { ok: true }));
 
-    await client.post("/users", { login: "first" });
-    await client.post("/users", { login: "second" });
+    await client.post("/users", { email: "first@example.com" });
+    await client.post("/users", { email: "second@example.com" });
 
     const first = headersOf(fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)[
       "Idempotency-Key"
@@ -144,7 +144,7 @@ describe("HttpClient Idempotency-Key", () => {
       return mockResponse(404);
     });
 
-    await expect(client.post("/users", { login: "user" })).resolves.toEqual({ ok: true });
+    await expect(client.post("/users", { email: "user@example.com" })).resolves.toEqual({ ok: true });
 
     expect(usersCalls).toBe(2);
     expect(attemptKeys).toHaveLength(2);
@@ -161,7 +161,7 @@ describe("HttpClient Idempotency-Key", () => {
     const fetchMock = installFetch(async () => mockResponse(200, {}));
 
     await client.post("/auth/logout", { refresh_token: "ref-1" });
-    await client.post("/api/v1/auth/login", { login: "admin", password: "secret" });
+    await client.post("/api/v1/auth/login", { email: "admin@example.com", password: "secret" });
 
     expect(headersOf(fetchMock.mock.calls[0]?.[1] as RequestInit | undefined)).not.toHaveProperty(
       "Idempotency-Key",
@@ -199,7 +199,7 @@ describe("HttpClient Idempotency-Key", () => {
     const { client } = harness(memoryTokens("tok-1", "ref-1"));
     const fetchMock = installFetch(async () => mockResponse(200, { ok: true }));
 
-    await client.post("/users", { login: "user" }, {
+    await client.post("/users", { email: "user@example.com" }, {
       headers: { "Idempotency-Key": "manual-key-1" },
     });
 
@@ -212,7 +212,7 @@ describe("HttpClient Idempotency-Key", () => {
     const { client } = harness(memoryTokens("tok-1", "ref-1"));
     const fetchMock = installFetch(async () => mockResponse(200, { ok: true }));
 
-    await client.post("/users", { login: "user" }, {
+    await client.post("/users", { email: "user@example.com" }, {
       headers: { "idempotency-key": "manual-key-2" },
     });
 

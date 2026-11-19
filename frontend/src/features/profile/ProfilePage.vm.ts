@@ -6,6 +6,7 @@ import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
+import { FULL_NAME_MAX } from "@/application/guards";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
 import type { AuthService } from "@/application/auth/service";
@@ -120,6 +121,10 @@ export class ProfilePageVM extends ViewModel {
   @reactive accessor nextPassword = "";
   @reactive accessor repeatPassword = "";
   @reactive accessor saving = false;
+  @reactive accessor editingFullName = false;
+  @reactive accessor fullNameDraft = "";
+  @reactive accessor savingFullName = false;
+  @reactive accessor fullNameError: string | null = null;
   @reactive accessor quota: QuotaSnapshot | null = null;
   @reactive accessor quotaError: string | null = null;
   @reactive accessor quotaLoading = false;
@@ -314,13 +319,23 @@ export class ProfilePageVM extends ViewModel {
 
   @computed
   get email(): string {
-    const user = this.session.user;
-    return user?.email ?? user?.login ?? t("common.guest");
+    return this.session.user?.email ?? t("common.guest");
+  }
+
+  @computed
+  get fullName(): string {
+    return this.session.user?.full_name?.trim() || t("profile.fullName.empty");
+  }
+
+  @computed
+  get hasFullName(): boolean {
+    return (this.session.user?.full_name?.trim() ?? "").length > 0;
   }
 
   @computed
   get userInitial(): string {
-    return initials(this.email);
+    const name = this.session.user?.full_name?.trim();
+    return initials(name && name.length > 0 ? name : this.email);
   }
 
   @computed
@@ -470,6 +485,49 @@ export class ProfilePageVM extends ViewModel {
 
   setCurrentPassword(event: Event): void {
     this.currentPassword = (event.target as HTMLInputElement).value;
+  }
+
+  startFullNameEdit(): void {
+    this.fullNameDraft = this.session.user?.full_name ?? "";
+    this.fullNameError = null;
+    this.editingFullName = true;
+  }
+
+  cancelFullNameEdit(): void {
+    if (this.savingFullName) return;
+    this.editingFullName = false;
+    this.fullNameDraft = "";
+    this.fullNameError = null;
+  }
+
+  setFullNameDraft(event: Event): void {
+    this.fullNameDraft = (event.target as HTMLInputElement).value;
+    this.fullNameError = null;
+  }
+
+  async saveFullName(event?: Event): Promise<void> {
+    event?.preventDefault();
+    if (this.savingFullName) return;
+    const trimmed = this.fullNameDraft.trim();
+    if ([...trimmed].length > FULL_NAME_MAX) {
+      this.fullNameError = t("profile.fullName.error.tooLong", { max: FULL_NAME_MAX });
+      return;
+    }
+    this.savingFullName = true;
+    this.fullNameError = null;
+    try {
+      const updated = await this.auth.updateProfile({
+        full_name: trimmed.length === 0 ? null : trimmed,
+      });
+      this.session.user = updated;
+      this.editingFullName = false;
+      this.fullNameDraft = "";
+      this.toasts.success(t("profile.fullName.success"));
+    } catch (error) {
+      this.fullNameError = userMessage(error, t("profile.fullName.error.save"));
+    } finally {
+      this.savingFullName = false;
+    }
   }
 
   setNextPassword(event: Event): void {

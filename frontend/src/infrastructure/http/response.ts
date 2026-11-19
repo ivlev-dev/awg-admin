@@ -48,8 +48,8 @@ export function readDevicePage(value: unknown): Page<Device> {
 export function readUser(value: unknown): User {
   const record = expectRecord(value, "user");
   expectString(record, "id", "user");
-  expectString(record, "login", "user");
-  expectNullableString(record, "email", "user");
+  expectString(record, "email", "user");
+  expectNullableString(record, "full_name", "user");
   expectOneOf(record, "status", USER_STATUSES, "user");
   expectBoolean(record, "totp_enabled", "user");
   expectOneOf(record, "role", new Set(["admin", "user"]), "user");

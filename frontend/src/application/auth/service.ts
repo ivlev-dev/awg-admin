@@ -9,6 +9,7 @@ import type {
   ResetPasswordResult,
   TotpSetup,
   TotpToggleResult,
+  UpdateProfileInput,
   VerifyEmailResult,
 } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
@@ -17,6 +18,7 @@ import {
   requireId,
   requireText,
   validateEmail,
+  validateFullName,
   validatePassword,
   validateTotpCode,
 } from "../guards";
@@ -31,6 +33,7 @@ export interface AuthService {
   refresh(refreshToken: string): Promise<AuthSession>;
   logout(refreshToken: string | null): Promise<void>;
   me(): Promise<User>;
+  updateProfile(input: UpdateProfileInput): Promise<User>;
   changePassword(current: string | null, next: string): Promise<void>;
   totpSetup(): Promise<TotpSetup>;
   totpEnable(code: string): Promise<TotpToggleResult>;
@@ -46,18 +49,18 @@ export class DefaultAuthService implements AuthService {
   async login(input: LoginInput): Promise<AuthSession> {
     const code = input.totp_code?.trim();
     return this.repository.login({
-      login: requireText(input.login, "error.label.login"),
+      email: validateEmail(input.email),
       password: requireText(input.password, "error.label.password"),
       ...(code ? { totp_code: code } : {}),
     });
   }
 
   async register(input: RegisterInput): Promise<RegisterResult> {
-    const login = input.login?.trim();
+    const fullName = input.full_name?.trim();
     return this.repository.register({
       email: validateEmail(input.email),
       password: validatePassword(input.password),
-      ...(login ? { login } : {}),
+      ...(fullName ? { full_name: validateFullName(fullName) } : {}),
     });
   }
 
@@ -91,6 +94,12 @@ export class DefaultAuthService implements AuthService {
 
   me(): Promise<User> {
     return this.repository.me();
+  }
+
+  async updateProfile(input: UpdateProfileInput): Promise<User> {
+    const trimmed = input.full_name?.trim() ?? "";
+    const fullName = trimmed.length === 0 ? null : validateFullName(trimmed);
+    return this.repository.updateProfile({ full_name: fullName });
   }
 
   async changePassword(current: string | null, next: string): Promise<void> {

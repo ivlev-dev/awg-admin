@@ -238,7 +238,7 @@ export class StatsVM extends ViewModel {
   @computed
   get entityOptions(): EntityOption[] {
     if (this.scope === "user") {
-      return this.users.map((user) => ({ id: user.id, label: user.email ?? user.login }));
+      return this.users.map((user) => ({ id: user.id, label: user.email }));
     }
     if (this.scope === "group") {
       return this.groups.map((group) => ({ id: group.id, label: group.name }));

@@ -13,6 +13,7 @@ function entry(overrides: Partial<AuditEntry> = {}): AuditEntry {
     id: "e1",
     at: "2024-05-06T12:34:56Z",
     actor_id: "u1",
+    actor_email: "admin@local",
     actor_login: "admin",
     action: "POST",
     entity: "devices",
@@ -382,6 +383,16 @@ describe("AuditPageVM", () => {
     expect(formatAuditRow(entry({ entity_id: null })).entityLabel).toBe("devices");
   });
 
+  it("показывает email актора и откатывается к старому полю", () => {
+    expect(formatAuditRow(entry({ actor_email: "admin@local", actor_login: "admin" })).actor).toBe(
+      "admin@local",
+    );
+    expect(formatAuditRow(entry({ actor_email: "  ", actor_login: "legacy" })).actor).toBe("legacy");
+    expect(
+      formatAuditRow(entry({ actor_email: undefined, actor_login: undefined })).actor,
+    ).toBe("—");
+  });
+
   it("открывает и закрывает панель деталей", () => {
     const vm = makeVM(new FakeAuditRepository());
     const row = formatAuditRow(entry({ details: "payload" }));
@@ -529,7 +540,7 @@ describe("AuditPageVM", () => {
     expect(vm.activeFilterChips).toEqual([
       { key: "action", label: "Действие: DELETE" },
       { key: "entity", label: "Объект: devices" },
-      { key: "actor", label: "Актор: admin" },
+      { key: "actor", label: "Актор (email): admin" },
       { key: "status", label: "Статус: 404" },
       { key: "from", label: `С периода: ${formatDateTimeI18n("2024-01-01T10:00")}` },
       { key: "to", label: `По: ${formatDateTimeI18n("2024-01-02T10:00")}` },

@@ -16,7 +16,7 @@ const STATE: QuotaState = {
 const USERS: UserQuota[] = [
   {
     user_id: "u1",
-    login: "admin",
+    email: "admin@example.com",
     used_bytes: 2 * 1024 * 1024,
     quota_bytes: 10 * 1024 * 1024,
     exceeded: false,
@@ -24,7 +24,7 @@ const USERS: UserQuota[] = [
   },
   {
     user_id: "u2",
-    login: "alice",
+    email: "alice@example.com",
     used_bytes: 20 * 1024 * 1024,
     quota_bytes: 10 * 1024 * 1024,
     exceeded: true,
@@ -32,7 +32,7 @@ const USERS: UserQuota[] = [
   },
   {
     user_id: "u3",
-    login: "bob",
+    email: "bob@example.com",
     used_bytes: 512,
     quota_bytes: null,
     exceeded: false,
@@ -142,7 +142,7 @@ describe("DefaultQuotaService", () => {
     const quotas = await service.users();
 
     expect(quotas).toHaveLength(3);
-    expect(quotas[0]).toMatchObject({ userId: "u1", login: "admin", percent: 20 });
+    expect(quotas[0]).toMatchObject({ userId: "u1", email: "admin@example.com", percent: 20 });
     expect(quotas[1]).toMatchObject({
       userId: "u2",
       exceeded: true,
@@ -161,7 +161,7 @@ describe("DefaultQuotaService", () => {
     const repo = repository();
     const service = new DefaultQuotaService(repo);
 
-    await expect(service.forUser(" u2 ")).resolves.toMatchObject({ userId: "u2", login: "alice" });
+    await expect(service.forUser(" u2 ")).resolves.toMatchObject({ userId: "u2", email: "alice@example.com" });
     await expect(service.forUser("missing")).resolves.toBeNull();
     await expect(service.forUser("   ")).resolves.toBeNull();
     expect(repo.users).toHaveBeenCalledTimes(2);

@@ -634,8 +634,8 @@ export class ClientsPageVM extends ViewModel {
 
   userEmail(id: string): string {
     const user = this.users.find((item) => item.id === id);
-    if (user) return user.email ?? user.login;
-    if (this.session.user?.id === id) return this.session.user.email ?? this.session.user.login;
+    if (user) return user.email;
+    if (this.session.user?.id === id) return this.session.user.email;
     return "—";
   }
 

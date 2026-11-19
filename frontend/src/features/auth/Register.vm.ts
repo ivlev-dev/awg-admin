@@ -5,6 +5,7 @@ import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
+import { FULL_NAME_MAX } from "@/application/guards";
 import { t } from "@/i18n";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
@@ -20,6 +21,7 @@ export class RegisterVM extends ViewModel {
   }
 
   @reactive accessor email = "";
+  @reactive accessor fullName = "";
   @reactive accessor password = "";
   @reactive accessor repeatPassword = "";
   @reactive accessor showPassword = false;
@@ -57,6 +59,11 @@ export class RegisterVM extends ViewModel {
   }
 
   @computed
+  get fullNameTooLong(): boolean {
+    return [...this.fullName.trim()].length > FULL_NAME_MAX;
+  }
+
+  @computed
   get repeatMismatch(): boolean {
     return this.repeatPassword.length > 0 && this.password !== this.repeatPassword;
   }
@@ -66,6 +73,7 @@ export class RegisterVM extends ViewModel {
     return (
       !this.submitting &&
       this.emailValid &&
+      !this.fullNameTooLong &&
       this.password.length >= 8 &&
       this.password === this.repeatPassword
     );
@@ -78,6 +86,11 @@ export class RegisterVM extends ViewModel {
 
   setEmail(event: Event): void {
     this.email = (event.target as HTMLInputElement).value;
+    this.error = null;
+  }
+
+  setFullName(event: Event): void {
+    this.fullName = (event.target as HTMLInputElement).value;
     this.error = null;
   }
 
@@ -108,15 +121,22 @@ export class RegisterVM extends ViewModel {
       this.error = t("auth.register.error.mismatch");
       return;
     }
+    const fullName = this.fullName.trim();
+    if ([...fullName].length > FULL_NAME_MAX) {
+      this.error = t("auth.register.error.fullName");
+      return;
+    }
     this.error = null;
     this.submitting = true;
     try {
       await this.auth.register({
         email: this.email.trim(),
         password: this.password,
+        ...(fullName.length > 0 ? { full_name: fullName } : {}),
       });
       this.registeredEmail = this.email.trim();
       this.sent = true;
+      this.fullName = "";
       this.password = "";
       this.repeatPassword = "";
       this.startCooldown();

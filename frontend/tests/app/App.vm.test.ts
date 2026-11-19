@@ -25,7 +25,7 @@ import { setLocale } from "@/i18n";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
@@ -40,8 +40,8 @@ const ADMIN: User = {
 const PLAIN: User = {
   ...ADMIN,
   id: "u2",
-  login: "alice",
-  email: null,
+  full_name: null,
+  email: "user@example.com",
   role: "user",
 };
 
@@ -109,6 +109,10 @@ function makeAuth(current: User | null): AuthRepository {
     }),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => {
+      if (current === null) throw new Error("unauthorized");
+      return current;
+    }),
+    updateProfile: vi.fn(async () => {
       if (current === null) throw new Error("unauthorized");
       return current;
     }),
@@ -396,11 +400,11 @@ describe("AppVM navigation filtering", () => {
     expect(harness.vm.user).toEqual(ADMIN);
   });
 
-  it("falls back to the login when the email is missing", () => {
+  it("uses the email of a plain user", () => {
     const harness = makeHarness({ user: PLAIN });
 
-    expect(harness.vm.name).toBe("alice");
-    expect(harness.vm.userInitial).toBe("A");
+    expect(harness.vm.name).toBe("user@example.com");
+    expect(harness.vm.userInitial).toBe("U");
   });
 
   it("falls back to a guest identity without a session", () => {

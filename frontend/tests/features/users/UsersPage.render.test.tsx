@@ -21,7 +21,7 @@ import { setLocale } from "@/i18n";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: "t1",
   group_id: null,
@@ -96,6 +96,7 @@ function authRepository(user: User): AuthRepository {
     refresh: vi.fn(async () => ({ token: "a", refresh_token: "r", expires_in: 1, user }) as AuthSession),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => user),
+    updateProfile: vi.fn(async () => user),
     changePassword: vi.fn(async () => undefined),
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),
@@ -238,7 +239,6 @@ describe("UsersPage разметка и локализация", () => {
     const users = Array.from({ length: 30 }, (_value, index) => ({
       ...ADMIN,
       id: `u${index + 1}`,
-      login: `user${index + 1}`,
       email: `user${index + 1}@example.com`,
     }));
     const result = await render({ users });
@@ -262,7 +262,6 @@ describe("UsersPage разметка и локализация", () => {
     const users = Array.from({ length: 30 }, (_value, index) => ({
       ...ADMIN,
       id: `u${index + 1}`,
-      login: `user${index + 1}`,
       email: `user${index + 1}@example.com`,
     }));
     const result = await render({ users });

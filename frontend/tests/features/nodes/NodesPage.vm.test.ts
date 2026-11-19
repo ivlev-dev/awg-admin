@@ -16,11 +16,11 @@ vi.mock("@/app/confirm", () => confirmMock);
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -29,7 +29,7 @@ const ADMIN: User = {
 };
 
 function userOf(role: Role): User {
-  return { ...ADMIN, id: `u-${role}`, login: role, role };
+  return { ...ADMIN, id: `u-${role}`, email: `u-${role}@example.com`, role };
 }
 
 class MemoryTokenStore {
@@ -67,6 +67,7 @@ function makeSession(current: User = ADMIN): Session {
     refresh: vi.fn(async () => authSession),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => current),
+    updateProfile: vi.fn(async () => current),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),

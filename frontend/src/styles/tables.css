@@ -364,12 +364,14 @@
 .table--users { min-width: 0; }
 .table--users col-user,
 .table--users .col-user { min-width: 220px; }
+.table--users .col-email { min-width: 200px; }
 .table--users .col-role { width: 140px; }
 .table--users .col-tariff { width: 168px; }
 .table--users .col-quota { width: 150px; }
 .table--users .col-status { width: 132px; }
 .table--users .col-actions { width: 168px; }
 .table--users-pending .col-user { min-width: 220px; }
+.table--users-pending .col-email { min-width: 200px; }
 .table--users-pending .col-created { width: 160px; }
 .table--users-pending .col-actions { width: 240px; }
 

@@ -2,7 +2,8 @@ export interface AuditEntry {
   id: string;
   at: string;
   actor_id: string | null;
-  actor_login: string;
+  actor_email?: string;
+  actor_login?: string;
   action: string;
   entity: string;
   entity_id: string | null;

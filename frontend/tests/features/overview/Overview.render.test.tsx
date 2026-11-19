@@ -14,11 +14,11 @@ import { OverviewVM } from "@/features/overview/Overview.vm";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -84,6 +84,7 @@ function authRepository(): AuthRepository {
     }),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => ADMIN),
+    updateProfile: vi.fn(async () => ADMIN),
     changePassword: vi.fn(async () => undefined),
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),

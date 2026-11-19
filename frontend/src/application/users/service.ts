@@ -10,7 +10,12 @@ import type {
 } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { ValidationError } from "../errors";
-import { requireId, validateEmail, validatePassword } from "../guards";
+import {
+  normalizeOptionalFullName,
+  requireId,
+  validateEmail,
+  validatePassword,
+} from "../guards";
 
 export interface UsersService {
   listUsers(): Promise<User[]>;
@@ -43,6 +48,7 @@ export class DefaultUsersService implements UsersService {
   async createUser(input: CreateUserInput): Promise<User> {
     return this.repository.createUser({
       email: validateEmail(input.email),
+      ...(input.full_name === undefined ? {} : { full_name: normalizeOptionalFullName(input.full_name) }),
       password: validatePassword(input.password),
       role: input.role,
       tariff_id: input.tariff_id,
@@ -53,9 +59,12 @@ export class DefaultUsersService implements UsersService {
 
   async updateUser(id: string, input: UpdateUserInput): Promise<User> {
     const email = input.email === undefined ? undefined : validateEmail(input.email);
+    const fullName =
+      input.full_name === undefined ? undefined : normalizeOptionalFullName(input.full_name);
     return this.repository.updateUser(requireId(id, "error.label.user"), {
       ...input,
       ...(email === undefined ? {} : { email }),
+      ...(fullName === undefined ? {} : { full_name: fullName }),
     });
   }
 

@@ -14,6 +14,7 @@ export interface UserPageParams extends PageRequest {
 
 export interface CreateUserInput {
   email: string;
+  full_name?: string | null;
   password: string;
   role: Role;
   tariff_id: string | null;
@@ -23,6 +24,7 @@ export interface CreateUserInput {
 
 export interface UpdateUserInput {
   email?: string;
+  full_name?: string | null;
   role?: Role;
   tariff_id?: string | null;
   node_id?: string | null;

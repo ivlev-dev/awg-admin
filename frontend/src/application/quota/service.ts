@@ -17,7 +17,8 @@ export interface QuotaSnapshot extends QuotaUsageView {
 
 export interface UserQuotaSnapshot extends QuotaUsageView {
   userId: string;
-  login: string;
+  email: string;
+  fullName?: string | null;
 }
 
 export interface QuotaService {
@@ -65,7 +66,8 @@ function normalizeUserQuota(quota: UserQuota): UserQuotaSnapshot {
   return {
     ...normalizeUsage(quota),
     userId: quota.user_id,
-    login: quota.login,
+    email: quota.email,
+    ...(quota.full_name === undefined ? {} : { fullName: quota.full_name }),
   };
 }
 

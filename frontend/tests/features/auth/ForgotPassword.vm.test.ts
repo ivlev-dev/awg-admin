@@ -7,7 +7,7 @@ import { ForgotPasswordVM } from "@/features/auth/ForgotPassword.vm";
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   email: "admin@example.com",
   status: "active",
   totp_enabled: false,
@@ -44,6 +44,7 @@ function makeHarness(
     refresh: vi.fn(async () => SESSION),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => USER),
+    updateProfile: vi.fn(async () => USER),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),

@@ -12,7 +12,7 @@ import { loginViaUi, pathOf } from "./helpers/ui";
 let adminApi: E2EApi;
 let userApi: E2EApi;
 let userAuth: AuthView;
-let user: { login: string; password: string; userId: string };
+let user: { email: string; password: string; userId: string };
 
 test.describe("Двухфакторная аутентификация", () => {
   test.beforeAll(async () => {
@@ -20,7 +20,7 @@ test.describe("Двухфакторная аутентификация", () => {
     await adminApi.login();
     user = await createUserOnly(adminApi, "user");
     userApi = await E2EApi.create();
-    userAuth = await userApi.login(user.login, user.password);
+    userAuth = await userApi.login(user.email, user.password);
     expect(userAuth.user.role).toBe("user");
   });
 
@@ -30,7 +30,7 @@ test.describe("Двухфакторная аутентификация", () => {
   });
 
   test("включение TOTP и вход с кодом", async ({ page }) => {
-    await loginViaUi(page, user.login, user.password);
+    await loginViaUi(page, user.email, user.password);
     await expect(page.locator(".topbar__title")).toHaveText("Обзор");
     await page.goto("/profile");
 
@@ -61,7 +61,7 @@ test.describe("Двухфакторная аутентификация", () => {
     await page.locator(".confirm-dialog").getByRole("button", { name: "Выйти", exact: true }).click();
     await expect(page).toHaveURL((url) => url.pathname === "/login");
 
-    await loginViaUi(page, user.login, user.password);
+    await loginViaUi(page, user.email, user.password);
     await expect(page.getByLabel("Код из приложения")).toBeVisible();
 
     await page.getByLabel("Код из приложения").fill(wrongTotp(secret));

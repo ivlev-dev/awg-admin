@@ -47,11 +47,11 @@ const SESSION: AuthSession = {
   expires_in: 3600,
   user: {
     id: "u1",
-    login: "admin",
+    full_name: null,
     role: "admin",
     tariff_id: null,
     group_id: null,
-    email: null,
+    email: "user@example.com",
     status: "active",
     totp_enabled: false,
     disabled: false,
@@ -166,7 +166,7 @@ describe("HttpClient interceptors", () => {
     const fetchMock = installFetch(async () => mockResponse(401));
 
     await expect(
-      client.post("/auth/login", { login: "admin", password: "wrong" }),
+      client.post("/auth/login", { email: "admin@example.com", password: "wrong" }),
     ).rejects.toBeInstanceOf(ApiError);
 
     expect(cleared).not.toHaveBeenCalled();

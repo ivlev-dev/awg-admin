@@ -166,7 +166,7 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 id="audit-actor"
                 class="input"
                 type="text"
-                placeholder="admin"
+                placeholder="admin@local"
                 value={this.vm.actor}
                 onInput={(event: Event) => this.vm.setActor(event)}
               />

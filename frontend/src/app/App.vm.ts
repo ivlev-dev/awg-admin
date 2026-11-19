@@ -288,7 +288,7 @@ export class AppVM extends ViewModel {
 
   @computed
   get userInitial(): string {
-    return initials(this.user?.email ?? this.user?.login ?? "?");
+    return initials(this.user?.email ?? "?");
   }
 
   @computed
@@ -306,7 +306,7 @@ export class AppVM extends ViewModel {
   }
 
   get name(): string {
-    return this.user?.email ?? this.user?.login ?? t("common.guest");
+    return this.user?.email ?? t("common.guest");
   }
 
   @computed

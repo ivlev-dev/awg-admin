@@ -48,11 +48,11 @@ import type {
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -191,6 +191,7 @@ function makeAuth(): AuthRepository {
     refresh: vi.fn(async () => SESSION),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => USER),
+    updateProfile: vi.fn(async () => USER),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async () => ({ status: "pending_email" as const })),
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
@@ -210,22 +211,41 @@ describe("AuthService", () => {
   it("trims credentials and delegates login", async () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
-    await expect(service.login({ login: " admin ", password: "secret" })).resolves.toBe(SESSION);
-    expect(repo.login).toHaveBeenCalledWith({ login: "admin", password: "secret" });
+    await expect(
+      service.login({ email: " Admin@Example.com ", password: "secret" }),
+    ).resolves.toBe(SESSION);
+    expect(repo.login).toHaveBeenCalledWith({ email: "Admin@Example.com", password: "secret" });
   });
 
-  it("rejects empty credentials", async () => {
+  it("rejects invalid credentials", async () => {
     const service = new DefaultAuthService(makeAuth());
-    await expect(service.login({ login: " ", password: "secret" })).rejects.toBeInstanceOf(
+    await expect(service.login({ email: " ", password: "secret" })).rejects.toBeInstanceOf(
       ValidationError,
     );
-    await expect(service.login({ login: "admin", password: "" })).rejects.toBeInstanceOf(
+    await expect(service.login({ email: "admin", password: "secret" })).rejects.toBeInstanceOf(
+      ValidationError,
+    );
+    await expect(
+      service.login({ email: "admin@example.com", password: "" }),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("updates the profile full name and allows clearing it", async () => {
+    const repo = makeAuth();
+    const service = new DefaultAuthService(repo);
+
+    await service.updateProfile({ full_name: " Иван Петров " });
+    expect(repo.updateProfile).toHaveBeenCalledWith({ full_name: "Иван Петров" });
+
+    await service.updateProfile({ full_name: null });
+    expect(repo.updateProfile).toHaveBeenLastCalledWith({ full_name: null });
+
+    await expect(service.updateProfile({ full_name: "a".repeat(201) })).rejects.toBeInstanceOf(
       ValidationError,
     );
   });
 
-  it("does not call logout without a refresh token", async () => {
-    const repo = makeAuth();
+  it("does not call logout without a refresh token", async () => {    const repo = makeAuth();
     const service = new DefaultAuthService(repo);
     await service.logout(null);
     expect(repo.logout).not.toHaveBeenCalled();
@@ -236,30 +256,45 @@ describe("AuthService", () => {
     await expect(service.changePassword("old", "short")).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("registers with a normalized email and an optional login", async () => {
+  it("registers with a normalized email and an optional full name", async () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
     await expect(
-      service.register({ email: " user@example.com ", login: " user ", password: "secret123" }),
+      service.register({
+        email: " user@example.com ",
+        full_name: " Иван Петров ",
+        password: "secret123",
+      }),
     ).resolves.toEqual({ status: "pending_email" });
     expect(repo.register).toHaveBeenCalledWith({
       email: "user@example.com",
       password: "secret123",
-      login: "user",
+      full_name: "Иван Петров",
     });
   });
 
-  it("omits an empty login on registration", async () => {
+  it("omits an empty full name on registration", async () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
-    await service.register({ email: "user@example.com", login: "  ", password: "secret123" });
+    await service.register({ email: "user@example.com", full_name: "  ", password: "secret123" });
 
     expect(repo.register).toHaveBeenCalledWith({
       email: "user@example.com",
       password: "secret123",
     });
+  });
+
+  it("rejects a full name that is too long on registration", async () => {
+    const service = new DefaultAuthService(makeAuth());
+    await expect(
+      service.register({
+        email: "user@example.com",
+        full_name: "a".repeat(201),
+        password: "secret123",
+      }),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("rejects an invalid email and a short password on registration", async () => {
@@ -315,10 +350,10 @@ describe("AuthService", () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
-    await service.login({ login: "admin", password: "secret", totp_code: " 123456 " });
+    await service.login({ email: "admin@example.com", password: "secret", totp_code: " 123456 " });
 
     expect(repo.login).toHaveBeenCalledWith({
-      login: "admin",
+      email: "admin@example.com",
       password: "secret",
       totp_code: "123456",
     });

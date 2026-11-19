@@ -9,11 +9,11 @@ import { LocalTokenStore, type TokenStore } from "@/infrastructure/storage";
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -57,6 +57,7 @@ function fakeAuth(overrides: Partial<AuthRepository> = {}): AuthRepository {
     refresh: vi.fn(async () => SESSION),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => USER),
+    updateProfile: vi.fn(async () => USER),
     changePassword: vi.fn(async () => undefined),
     totpSetup: vi.fn(async () => ({ secret: "", otpauth_url: "", recovery_codes: [] })),
     totpEnable: vi.fn(async () => ({ enabled: true })),

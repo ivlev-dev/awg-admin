@@ -38,10 +38,12 @@ test.describe("Регистрация и подтверждение почты",
   }) => {
     const suffix = uniqueSuffix();
     const email = `e2e-reg-${suffix}@example.com`;
+    const fullName = `E2E Регистрация ${suffix}`;
     const password = DEFAULT_USER_PASSWORD;
 
     await page.goto("/register");
     await page.getByLabel("Email", { exact: true }).fill(email);
+    await page.getByLabel("ФИО", { exact: true }).fill(fullName);
     await page.getByLabel("Пароль", { exact: true }).fill(password);
     await page.getByLabel("Повторите пароль").fill(password);
     await page.getByRole("button", { name: "Зарегистрироваться" }).click();
@@ -80,6 +82,7 @@ test.describe("Регистрация и подтверждение почты",
     );
     expect(pendingUser).toBeTruthy();
     expect(pendingUser?.status).toBe("pending_approval");
+    expect(pendingUser?.full_name).toBe(fullName);
 
     await loginViaUi(
       page,
@@ -114,5 +117,13 @@ test.describe("Регистрация и подтверждение почты",
     await expect(page.locator(".topbar__title")).toHaveText("Обзор");
     await expect(page.locator(".sidebar")).toBeVisible();
     expect(pathOf(page)).toBe("/");
+
+    await page.goto("/profile");
+    await expect(page.locator(".profile-layout")).toContainText(fullName);
+    await page.getByRole("button", { name: "Редактировать ФИО" }).click();
+    const updatedName = `${fullName} updated`;
+    await page.getByLabel("ФИО", { exact: true }).fill(updatedName);
+    await page.getByRole("button", { name: "Сохранить ФИО" }).click();
+    await expect(page.locator(".profile-layout")).toContainText(updatedName);
   });
 });

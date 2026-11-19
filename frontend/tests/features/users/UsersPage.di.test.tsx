@@ -17,6 +17,7 @@ import type {
   RegisterResult,
   TotpSetup,
   TotpToggleResult,
+  UpdateProfileInput,
   VerifyEmailResult,
 } from "@/domain/auth/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
@@ -42,12 +43,12 @@ import { UsersPageVM } from "@/features/users/UsersPage.vm";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: "Админ Панели",
   role: "admin",
   tariff_id: null,
   group_id: null,
   node_id: "n1",
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -83,7 +84,7 @@ const NODE: NodeInfo = {
 
 const QUOTA: UserQuota = {
   user_id: ADMIN.id,
-  login: ADMIN.login,
+  email: ADMIN.email,
   used_bytes: 1024,
   quota_bytes: 2048,
   exceeded: false,
@@ -209,6 +210,10 @@ class StubAuthRepository {
 
   async me(): Promise<User> {
     return ADMIN;
+  }
+
+  async updateProfile(input: UpdateProfileInput): Promise<User> {
+    return { ...ADMIN, ...input };
   }
 
   async changePassword(_current: string | null, _next: string): Promise<void> {}
@@ -385,9 +390,11 @@ describe("UsersPageVM constructor DI", () => {
     expect(quotaCell?.querySelector(".user-quota")).not.toBeNull();
     expect(quotaCell?.textContent).toContain("%");
 
+    const fullNameCell = root.querySelector("td[data-label='ФИО']");
+    expect(fullNameCell?.textContent).toContain("Админ Панели");
     const emailCell = root.querySelector("td[data-label='Email']");
-    expect(emailCell?.textContent).toContain(ADMIN.email ?? ADMIN.login);
-    expect(root.querySelector("#users-search")?.getAttribute("placeholder")).toBe("Поиск по email");
+    expect(emailCell?.textContent).toContain(ADMIN.email);
+    expect(root.querySelector("#users-search")?.getAttribute("placeholder")).toBe("Поиск по email или ФИО");
 
     const nodeCell = root.querySelector("td[data-label='Тариф/нода']");
     expect(nodeCell?.textContent).toContain("Node 1");

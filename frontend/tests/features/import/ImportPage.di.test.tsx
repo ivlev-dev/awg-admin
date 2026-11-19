@@ -45,7 +45,7 @@ const NODES: NodeInfo[] = [
 
 const OWNER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   email: "admin@example.com",
   status: "active",
   totp_enabled: false,

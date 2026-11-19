@@ -5,7 +5,7 @@ import type { User } from "@/domain/types";
 
 const ADMIN: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   email: "admin@example.com",
   status: "active",
   totp_enabled: false,
@@ -21,7 +21,7 @@ const ADMIN: User = {
 const PENDING: User = {
   ...ADMIN,
   id: "u2",
-  login: "newbie",
+  full_name: null,
   email: "newbie@example.com",
   role: "user",
   status: "pending_approval",
@@ -83,7 +83,7 @@ describe("HttpUsersRepository: серверная пагинация", () => {
 
   it("применяет поиск, роль и статус в fallback-режиме", async () => {
     const { repository, get } = makeRepository();
-    const disabled: User = { ...ADMIN, id: "u3", login: "old", email: "old@example.com", disabled: true };
+    const disabled: User = { ...ADMIN, id: "u3", email: "old@example.com", disabled: true };
     get
       .mockRejectedValueOnce(new ApiError(501, "not_implemented", "no"))
       .mockResolvedValueOnce([ADMIN, PENDING, disabled]);
@@ -98,5 +98,38 @@ describe("HttpUsersRepository: серверная пагинация", () => {
 
     expect(page.items).toEqual([disabled]);
     expect(page.total).toBe(1);
+  });
+
+  it("ищет по email и ФИО и сортирует по email в fallback-режиме", async () => {
+    const { repository, get } = makeRepository();
+    const alice: User = {
+      ...ADMIN,
+      id: "u4",
+      email: "alice@example.com",
+      full_name: "Алиса Иванова",
+      role: "user",
+    };
+    const bob: User = {
+      ...ADMIN,
+      id: "u5",
+      email: "bob@example.com",
+      full_name: "Борис Петров",
+      role: "user",
+    };
+    get
+      .mockRejectedValueOnce(new ApiError(404, "not_found", "no"))
+      .mockResolvedValueOnce([bob, alice]);
+
+    const byName = await repository.pageUsers({ limit: 10, offset: 0, query: "алиса" });
+    expect(byName.items).toEqual([alice]);
+
+    get
+      .mockRejectedValueOnce(new ApiError(404, "not_found", "no"))
+      .mockResolvedValueOnce([bob, alice]);
+    const sorted = await repository.pageUsers({ limit: 10, offset: 0 });
+    expect(sorted.items.map((user) => user.email)).toEqual([
+      "alice@example.com",
+      "bob@example.com",
+    ]);
   });
 });

@@ -30,13 +30,58 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 </span>
                 <div class="grow">
                   <div class="row wrap" style="gap:8px">
-                    <div class="strong" style="font-size:var(--t-lg)">{this.vm.email}</div>
+                    <div class="strong" style="font-size:var(--t-lg)">{this.vm.fullName}</div>
                     <span class={this.vm.roleBadgeClass}>{this.vm.roleLabel}</span>
+                    <button
+                      class="btn btn--sm btn--ghost btn--icon"
+                      type="button"
+                      onClick={() => this.vm.startFullNameEdit()}
+                      aria-label={t("profile.fullName.edit")}
+                      title={t("profile.fullName.edit")}
+                    >
+                      <Icon name="edit" size={14} class="" />
+                    </button>
                   </div>
+                  <div class="small muted">{this.vm.email}</div>
                   <div class="xs muted">
                     ID: <span class="mono">{this.vm.userId}</span>
                   </div>
                   <div class="xs muted">{t("profile.memberSince", { date: this.vm.createdAtLabel })}</div>
+
+                  <Show when={this.vm.editingFullName}>
+                    <form class="stack-sm" style="margin-top:var(--sp-3)" onSubmit={(event: Event) => { void this.vm.saveFullName(event); }}>
+                      <div class="field">
+                        <label for="profile-full-name">{t("profile.fullName.label")}</label>
+                        <input
+                          id="profile-full-name"
+                          class={`input ${this.vm.fullNameError ? "is-invalid" : ""}`}
+                          type="text"
+                          autocomplete="name"
+                          maxlength={200}
+                          placeholder={t("profile.fullName.placeholder")}
+                          value={this.vm.fullNameDraft}
+                          onInput={(event: Event) => this.vm.setFullNameDraft(event)}
+                          aria-invalid={this.vm.fullNameError ? "true" : undefined}
+                          aria-describedby={this.vm.fullNameError ? "profile-full-name-error" : "profile-full-name-hint"}
+                          data-autofocus
+                        />
+                        <Show
+                          when={this.vm.fullNameError}
+                          fallback={<span class="hint" id="profile-full-name-hint">{t("profile.fullName.hint")}</span>}
+                        >
+                          <span class="field-error" id="profile-full-name-error" role="alert">{this.vm.fullNameError}</span>
+                        </Show>
+                      </div>
+                      <div class="row" style="gap:8px">
+                        <button class="btn btn--primary btn--sm" type="submit" disabled={this.vm.savingFullName}>
+                          {this.vm.savingFullName ? t("profile.fullName.saving") : t("profile.fullName.save")}
+                        </button>
+                        <button class="btn btn--sm" type="button" disabled={this.vm.savingFullName} onClick={() => this.vm.cancelFullNameEdit()}>
+                          {t("common.cancelShort")}
+                        </button>
+                      </div>
+                    </form>
+                  </Show>
                 </div>
               </div>
 

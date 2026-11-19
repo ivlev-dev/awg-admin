@@ -12,6 +12,7 @@ const ENTRY: AuditEntry = {
   id: "e1",
   at: "2024-05-06T12:34:56Z",
   actor_id: "u1",
+  actor_email: "admin@local",
   actor_login: "admin",
   action: "POST",
   entity: "devices",

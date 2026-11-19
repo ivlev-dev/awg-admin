@@ -129,6 +129,13 @@ function appendUnique(current: AuditEntry[], incoming: AuditEntry[]): AuditEntry
   return merged;
 }
 
+export function auditActor(entry: AuditEntry): string {
+  const email = entry.actor_email?.trim() ?? "";
+  if (email.length > 0) return email;
+  const login = entry.actor_login?.trim() ?? "";
+  return login.length > 0 ? login : "—";
+}
+
 export function formatAuditRow(entry: AuditEntry): AuditRowView {
   const entityLabel = entry.entity_id
     ? `${entry.entity} · ${shortId(entry.entity_id)}`
@@ -136,7 +143,7 @@ export function formatAuditRow(entry: AuditEntry): AuditRowView {
   return {
     id: entry.id,
     at: formatAt(entry.at),
-    actor: entry.actor_login,
+    actor: auditActor(entry),
     actorId: entry.actor_id,
     action: entry.action,
     entity: entry.entity,
@@ -494,7 +501,7 @@ export class AuditPageVM extends ViewModel {
       lines.push(
         [
           csvCell(entry.at),
-          csvCell(entry.actor_login),
+          csvCell(auditActor(entry)),
           csvCell(entry.action),
           csvCell(entry.entity),
           csvCell(entry.entity_id ?? ""),

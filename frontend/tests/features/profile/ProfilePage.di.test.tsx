@@ -21,11 +21,11 @@ vi.mock("@/app/confirm", () => confirmMock);
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   role: "admin",
   tariff_id: null,
   group_id: null,
-  email: null,
+  email: "user@example.com",
   status: "active",
   totp_enabled: false,
   disabled: false,
@@ -120,6 +120,7 @@ function authRepository(overrides: Partial<AuthRepository> = {}): AuthRepository
     refresh: async () => SESSION,
     logout: async () => undefined,
     me: async () => USER,
+    updateProfile: async () => USER,
     changePassword: async () => undefined,
     register: async () => ({ status: "pending_email" as const }),
     verifyEmail: async () => ({ status: "pending_approval" as const }),

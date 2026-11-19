@@ -97,6 +97,26 @@ export function Register(this: { vm: RegisterVM }) {
               </div>
 
               <div class="field">
+                <label for="register-full-name">{t("auth.register.fullName")}</label>
+                <input
+                  id="register-full-name"
+                  class={`input ${this.vm.fullNameTooLong ? "is-invalid" : ""}`}
+                  type="text"
+                  autocomplete="name"
+                  maxlength={200}
+                  placeholder={t("auth.register.fullNamePlaceholder")}
+                  value={this.vm.fullName}
+                  onInput={(event: Event) => this.vm.setFullName(event)}
+                />
+                <Show
+                  when={this.vm.fullNameTooLong}
+                  fallback={<div class="hint">{t("auth.register.fullNameHint")}</div>}
+                >
+                  <div class="hint" style="color:var(--red)">{t("auth.register.error.fullName")}</div>
+                </Show>
+              </div>
+
+              <div class="field">
                 <label for="register-password">{t("auth.register.password")}</label>
                 <div class="auth__password">
                   <input

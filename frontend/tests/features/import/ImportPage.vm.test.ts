@@ -42,7 +42,7 @@ const NODE_ONLINE: NodeInfo = {
 
 const OWNER: User = {
   id: "u1",
-  login: "owner",
+  full_name: null,
   email: "owner@example.com",
   status: "active",
   totp_enabled: false,

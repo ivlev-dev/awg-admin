@@ -9,6 +9,7 @@ import type {
   ResetPasswordResult,
   TotpSetup,
   TotpToggleResult,
+  UpdateProfileInput,
   VerifyEmailResult,
 } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
@@ -109,6 +110,15 @@ export class HttpAuthRepository implements AuthRepository {
   me(): Promise<User> {
     return this.authed(() =>
       this.transport.get<User>("/auth/me", {
+        source: "auth",
+        headers: this.authHeaders(),
+      }),
+    );
+  }
+
+  updateProfile(input: UpdateProfileInput): Promise<User> {
+    return this.authed(() =>
+      this.transport.patch<User>("/auth/me", input, {
         source: "auth",
         headers: this.authHeaders(),
       }),

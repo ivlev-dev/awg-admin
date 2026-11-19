@@ -1,13 +1,17 @@
 export interface LoginInput {
-  login: string;
+  email: string;
   password: string;
   totp_code?: string;
 }
 
 export interface RegisterInput {
   email: string;
-  login?: string;
   password: string;
+  full_name?: string;
+}
+
+export interface UpdateProfileInput {
+  full_name: string | null;
 }
 
 export interface RegisterResult {

@@ -14,5 +14,6 @@ export interface QuotaState extends QuotaUsage {
 
 export interface UserQuota extends QuotaUsage {
   user_id: string;
-  login: string;
+  email: string;
+  full_name?: string | null;
 }

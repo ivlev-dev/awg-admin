@@ -9,7 +9,7 @@ import { RegisterVM } from "@/features/auth/Register.vm";
 
 const USER: User = {
   id: "u1",
-  login: "admin",
+  full_name: null,
   email: "admin@example.com",
   status: "active",
   totp_enabled: false,
@@ -61,7 +61,7 @@ interface Harness {
 
 function makeHarness(
   handlers: {
-    register?: (input: { email: string; login?: string; password: string }) => Promise<void>;
+    register?: (input: { email: string; full_name?: string; password: string }) => Promise<void>;
     resend?: (email: string) => Promise<void>;
   } = {},
 ): Harness {
@@ -72,6 +72,7 @@ function makeHarness(
     refresh: vi.fn(async () => SESSION),
     logout: vi.fn(async () => undefined),
     me: vi.fn(async () => USER),
+    updateProfile: vi.fn(async () => USER),
     changePassword: vi.fn(async () => undefined),
     register: vi.fn(async (input) => {
       await register(input);
@@ -137,7 +138,7 @@ describe("RegisterVM", () => {
     expect(harness.register).not.toHaveBeenCalled();
   });
 
-  it("registers without a login and shows the email confirmation screen", async () => {
+  it("registers without a full name and shows the email confirmation screen", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
     harness.vm.setEmail(valueEvent(" user@example.com "));
@@ -155,6 +156,36 @@ describe("RegisterVM", () => {
     expect(harness.vm.registeredEmail).toBe("user@example.com");
     expect(harness.vm.cooldown).toBe(60);
     expect(harness.vm.resendNotice).toBeNull();
+  });
+
+  it("sends a trimmed full name when it is provided", async () => {
+    const harness = makeHarness();
+    harness.vm.setEmail(valueEvent("user@example.com"));
+    harness.vm.setFullName(valueEvent("  Иван Петров  "));
+    harness.vm.setPassword(valueEvent("secret123"));
+    harness.vm.setRepeatPassword(valueEvent("secret123"));
+    await harness.vm.submit(submitEvent());
+
+    expect(harness.register).toHaveBeenCalledWith({
+      email: "user@example.com",
+      password: "secret123",
+      full_name: "Иван Петров",
+    });
+  });
+
+  it("rejects a full name longer than 200 characters", async () => {
+    const harness = makeHarness();
+    harness.vm.setEmail(valueEvent("user@example.com"));
+    harness.vm.setFullName(valueEvent("a".repeat(201)));
+    harness.vm.setPassword(valueEvent("secret123"));
+    harness.vm.setRepeatPassword(valueEvent("secret123"));
+
+    expect(harness.vm.fullNameTooLong).toBe(true);
+    expect(harness.vm.canSubmit).toBe(false);
+    await harness.vm.submit(submitEvent());
+
+    expect(harness.vm.error).toBe("ФИО должно быть не длиннее 200 символов");
+    expect(harness.register).not.toHaveBeenCalled();
   });
 
   it("останавливает таймер обратного отсчёта при размонтировании", async () => {

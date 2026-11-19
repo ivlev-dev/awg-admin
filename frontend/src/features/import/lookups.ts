@@ -40,7 +40,7 @@ export class ImportLookups {
     for (const user of this.owners) {
       options.push({
         value: user.id,
-        label: user.email ?? user.login,
+        label: user.email,
       });
     }
     return options;

@@ -190,11 +190,11 @@ describe("DI autodiscovery", () => {
           expires_in: 3600,
           user: {
             id: "u1",
-            login: "admin",
+            full_name: null,
             role: "admin",
             tariff_id: null,
             group_id: null,
-            email: null,
+            email: "user@example.com",
             status: "active",
             totp_enabled: false,
             disabled: false,
@@ -206,7 +206,7 @@ describe("DI autodiscovery", () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const auth = await container.resolve<DefaultAuthService>(DefaultAuthService);
-    const session = await auth.login({ login: "admin", password: "secret" });
+    const session = await auth.login({ email: "admin@example.com", password: "secret" });
 
     expect(session.token).toBe("access-1");
     expect(tokens.current).toEqual({ access: "access-1", refresh: "refresh-1" });
