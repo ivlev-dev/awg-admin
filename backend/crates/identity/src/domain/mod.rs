@@ -26,6 +26,13 @@ impl Role {
     pub fn is_admin(self) -> bool {
         matches!(self, Role::Admin)
     }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Admin => "admin",
+            Role::User => "user",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -36,6 +43,17 @@ pub enum UserStatus {
     #[default]
     Active,
     Rejected,
+}
+
+impl UserStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            UserStatus::PendingEmail => "pending_email",
+            UserStatus::PendingApproval => "pending_approval",
+            UserStatus::Active => "active",
+            UserStatus::Rejected => "rejected",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -241,6 +259,99 @@ pub trait UserRepository: Send + Sync {
     fn save(&self, user: &User) -> CoreResult<()>;
     fn delete(&self, id: Uuid) -> CoreResult<()>;
     fn count(&self) -> CoreResult<usize>;
+
+    fn page(&self, query: &UserPageQuery) -> CoreResult<UserPage> {
+        let mut matched: Vec<User> = self
+            .list()?
+            .into_iter()
+            .filter(|user| query.matches(user))
+            .collect();
+        matched.sort_by(|left, right| {
+            left.email_or_login()
+                .to_lowercase()
+                .cmp(&right.email_or_login().to_lowercase())
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        let total = matched.len();
+        let items = matched
+            .into_iter()
+            .skip(query.offset)
+            .take(query.limit)
+            .collect();
+        Ok(UserPage {
+            items,
+            total,
+            limit: query.limit,
+            offset: query.offset,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum UserPageTab {
+    All,
+    #[default]
+    Active,
+    Pending,
+}
+
+impl UserPageTab {
+    pub fn matches(self, status: UserStatus) -> bool {
+        match self {
+            UserPageTab::All => true,
+            UserPageTab::Active => status != UserStatus::PendingApproval,
+            UserPageTab::Pending => status == UserStatus::PendingApproval,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct UserPageQuery {
+    pub limit: usize,
+    pub offset: usize,
+    pub q: Option<String>,
+    pub role: Option<Role>,
+    pub disabled: Option<bool>,
+    pub tab: UserPageTab,
+}
+
+impl UserPageQuery {
+    pub fn normalize_q(q: Option<&str>) -> Option<String> {
+        q.map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_lowercase)
+    }
+
+    pub fn matches(&self, user: &User) -> bool {
+        if let Some(role) = self.role
+            && user.role != role
+        {
+            return false;
+        }
+        if let Some(disabled) = self.disabled
+            && user.disabled != disabled
+        {
+            return false;
+        }
+        if !self.tab.matches(user.status) {
+            return false;
+        }
+        if let Some(q) = self.q.as_deref() {
+            let email = user.email.as_deref().unwrap_or_default().to_lowercase();
+            if !email.contains(q) && !user.login.to_lowercase().contains(q) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UserPage {
+    pub items: Vec<User>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
 }
 
 pub trait PasswordHasher: Send + Sync {

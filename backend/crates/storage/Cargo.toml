@@ -11,6 +11,7 @@ thiserror.workspace = true
 redb.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+awg-shared = { path = "../shared" }
 
 [dev-dependencies]
 uuid.workspace = true

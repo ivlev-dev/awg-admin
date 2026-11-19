@@ -7,7 +7,9 @@ use awg_shared::crypto::random_bytes;
 use awg_shared::{CoreError, CoreResult};
 
 use crate::application::ProfileService;
-use crate::domain::{ShareConsume, ShareFormat, ShareLink, ShareLinkRepository, ShareLinkState};
+use crate::domain::{
+    ShareConsume, ShareFormat, ShareLink, ShareLinkRepository, ShareLinkState, hash_share_token,
+};
 
 pub const MAX_USES_RANGE: std::ops::RangeInclusive<u32> = 1..=1000;
 
@@ -37,8 +39,11 @@ impl ShareService {
         }
         self.profiles.build_one(device_id, interface_id)?;
         let now = Utc::now();
+        let token = hex(&random_bytes::<24>());
         let link = ShareLink {
-            token: hex(&random_bytes::<24>()),
+            token_hash: hash_share_token(&token),
+            token_sealed: String::new(),
+            token,
             device_id,
             interface_id,
             created_by,

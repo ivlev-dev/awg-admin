@@ -3,6 +3,7 @@ use base64::engine::general_purpose::STANDARD;
 use chacha20poly1305::aead::{Aead, KeyInit};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
 use rand::RngCore;
+use sha2::{Digest, Sha256};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use crate::error::{CoreError, CoreResult};
@@ -18,6 +19,10 @@ pub fn random_bytes<const N: usize>() -> [u8; N] {
 
 pub fn random_key() -> String {
     STANDARD.encode(random_bytes::<KEY_LEN>())
+}
+
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
 }
 
 pub fn b64_encode(bytes: &[u8]) -> String {

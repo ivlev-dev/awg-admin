@@ -7,10 +7,12 @@ use awg_proto::{self as proto, server_message, worker_message};
 use tokio::sync::Mutex;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::Endpoint;
 use uuid::Uuid;
 
 use crate::application::{ReconcileService, StatsReport};
 use crate::domain::{DesiredInterface, DesiredPeer, DesiredState, ForwardingRule, WireObf};
+use crate::infrastructure::GrpcTlsOptions;
 
 pub struct WorkerClient {
     pub url: String,
@@ -18,6 +20,7 @@ pub struct WorkerClient {
     pub token: String,
     pub version: String,
     pub stats_interval: Duration,
+    pub tls: GrpcTlsOptions,
 }
 
 impl WorkerClient {
@@ -32,9 +35,18 @@ impl WorkerClient {
     }
 
     async fn session(&self, service: Arc<ReconcileService>) -> Result<()> {
-        let mut client = WorkerGatewayClient::connect(self.url.clone())
+        let mut endpoint = Endpoint::from_shared(self.url.clone())
+            .with_context(|| format!("invalid AWG_GRPC_URL {:?}", self.url))?;
+        if let Some(tls) = self.tls.client_config()? {
+            endpoint = endpoint
+                .tls_config(tls)
+                .context("failed to configure gRPC TLS")?;
+        }
+        let channel = endpoint
+            .connect()
             .await
             .context("failed to connect to admin gRPC")?;
+        let mut client = WorkerGatewayClient::new(channel);
         let (tx, rx) = tokio::sync::mpsc::channel(32);
         let response = client
             .session(ReceiverStream::new(rx))

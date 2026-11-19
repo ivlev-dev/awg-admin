@@ -11,10 +11,12 @@ use argon2::{PasswordHash, PasswordHasher as _, PasswordVerifier};
 use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
+use awg_storage::user_index::{self, UserPageEntry};
 use awg_storage::{Store, Table};
 
 use crate::domain::{
-    EmailVerification, EmailVerificationRepository, PasswordHasher, User, UserRepository,
+    EmailVerification, EmailVerificationRepository, PasswordHasher, User, UserPage, UserPageQuery,
+    UserRepository,
 };
 
 pub struct RedbUserRepository {
@@ -64,21 +66,71 @@ impl UserRepository for RedbUserRepository {
     }
 
     fn save(&self, user: &User) -> CoreResult<()> {
-        self.store
-            .put(Table::Users, &user.id.to_string(), user)
-            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+        let entry = index_entry(user);
+        user_index::upsert_user(&self.store, &user.id.to_string(), user, &entry).map_err(map_err)
     }
 
     fn delete(&self, id: Uuid) -> CoreResult<()> {
-        self.store
-            .delete(Table::Users, &id.to_string())
-            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+        user_index::delete_user(&self.store, &id.to_string()).map_err(map_err)
     }
 
     fn count(&self) -> CoreResult<usize> {
-        self.store
-            .count(Table::Users)
-            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
+        self.store.count(Table::Users).map_err(map_err)
+    }
+
+    fn page(&self, query: &UserPageQuery) -> CoreResult<UserPage> {
+        let unfiltered = query.role.is_none()
+            && query.disabled.is_none()
+            && query.tab == crate::domain::UserPageTab::All
+            && query.q.is_none();
+        let role = query.role.map(crate::domain::Role::as_str);
+        let tab = query.tab;
+        let (ids, total) = if unfiltered {
+            user_index::scan_all(&self.store, query.offset, query.limit).map_err(map_err)?
+        } else {
+            user_index::scan(&self.store, query.offset, query.limit, |entry| {
+                role.is_none_or(|role| entry.role == role)
+                    && query
+                        .disabled
+                        .is_none_or(|disabled| entry.disabled == disabled)
+                    && tab.matches(status_from_str(&entry.status))
+                    && query.q.as_deref().is_none_or(|q| entry.matches_search(q))
+            })
+            .map_err(map_err)?
+        };
+        let keys: Vec<String> = ids.iter().map(ToString::to_string).collect();
+        let items: Vec<User> = self.store.get_many(Table::Users, &keys).map_err(map_err)?;
+        Ok(UserPage {
+            items,
+            total,
+            limit: query.limit,
+            offset: query.offset,
+        })
+    }
+}
+
+fn map_err(error: awg_storage::StorageError) -> CoreError {
+    CoreError::Io(std::io::Error::other(error.to_string()))
+}
+
+fn index_entry(user: &User) -> UserPageEntry {
+    UserPageEntry::new(
+        user.id,
+        user.email.clone(),
+        &user.login,
+        user.role.as_str(),
+        user.status.as_str(),
+        user.disabled,
+        user.created_at,
+    )
+}
+
+fn status_from_str(raw: &str) -> crate::domain::UserStatus {
+    match raw {
+        "pending_email" => crate::domain::UserStatus::PendingEmail,
+        "pending_approval" => crate::domain::UserStatus::PendingApproval,
+        "rejected" => crate::domain::UserStatus::Rejected,
+        _ => crate::domain::UserStatus::Active,
     }
 }
 

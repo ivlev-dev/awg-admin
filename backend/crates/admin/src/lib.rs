@@ -76,14 +76,16 @@ pub async fn run() -> Result<()> {
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
 
+    let sealer = Arc::new(Sealer::from_master_key(&config.master_key)?);
     let store = Arc::new(match config.rate_limit_store {
-        RateLimitStore::Redb => Store::open_multi_writer(&config.db_path)?,
-        RateLimitStore::Memory => Store::open(&config.db_path)?,
+        RateLimitStore::Redb => {
+            Store::open_multi_writer_with_sealer(&config.db_path, Some(sealer.clone()))?
+        }
+        RateLimitStore::Memory => Store::open_with_sealer(&config.db_path, Some(sealer.clone()))?,
     });
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let readiness = Readiness::new(store.clone());
     let mut background = Vec::new();
-    let sealer = Arc::new(Sealer::from_master_key(&config.master_key)?);
     let mailer = mailer::build_mailer(&config)?;
 
     let identity = {
@@ -202,7 +204,7 @@ pub async fn run() -> Result<()> {
     ));
 
     let share = {
-        let links = Arc::new(RedbShareLinkRepository::new(store.clone()));
+        let links = Arc::new(RedbShareLinkRepository::new(store.clone(), sealer.clone()));
         Arc::new(ShareService::new(links, profiles.clone()))
     };
 
@@ -470,13 +472,22 @@ pub async fn run() -> Result<()> {
         }));
     }
 
+    let grpc_tls = match (&config.grpc_tls_cert, &config.grpc_tls_key) {
+        (Some(cert), Some(key)) => Some(crate::grpc::server_tls_config(
+            std::path::Path::new(cert),
+            std::path::Path::new(key),
+        )?),
+        _ => None,
+    };
+    let grpc_tls_enabled = grpc_tls.is_some();
+    let mut grpc_server = crate::grpc::build_server(grpc_tls)?;
     let grpc_state = state.clone();
     let grpc_bind = config.grpc_bind;
     let mut grpc_shutdown = shutdown_rx.clone();
     let grpc_handle = tokio::spawn(async move {
         let service = WorkerGrpc::new(grpc_state);
-        tracing::info!(%grpc_bind, "worker gRPC listening");
-        let result = tonic::transport::Server::builder()
+        tracing::info!(%grpc_bind, tls = grpc_tls_enabled, "worker gRPC listening");
+        let result = grpc_server
             .add_service(WorkerGatewayServer::new(service))
             .serve_with_shutdown(grpc_bind, async move {
                 wait_for_shutdown(&mut grpc_shutdown).await;

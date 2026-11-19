@@ -220,6 +220,60 @@ async fn share_links_can_only_be_revoked_by_the_owner_or_admin() {
 }
 
 #[tokio::test]
+async fn share_list_reveals_tokens_to_the_owner_only_and_delete_revokes() {
+    let env = app_env();
+    let device = create_device(&env, &env.owner_token, "share-list").await;
+    let token = create_share(&env, &env.owner_token, device, env.interface_ids[0]).await;
+
+    let (status, _, body) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device}/shares"),
+        Some(&env.owner_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body[0]["token"], json!(token));
+    assert!(
+        body[0]["url"]
+            .as_str()
+            .unwrap()
+            .ends_with(&format!("/api/v1/share/{token}"))
+    );
+
+    let (status, _, _) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/devices/{device}/shares"),
+        Some(&env.other_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+
+    let (status, _, _) = call(
+        router(&env),
+        "DELETE",
+        &format!("/api/v1/shares/{token}"),
+        Some(&env.owner_token),
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let (status, _, _) = call(
+        router(&env),
+        "GET",
+        &format!("/api/v1/share/{token}"),
+        None,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
 async fn deleting_a_user_cascades_devices_peers_and_shares() {
     let env = app_env();
     let admin = admin_token(&env).await;

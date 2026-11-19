@@ -253,7 +253,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `9`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `11`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -268,18 +268,26 @@ pnpm e2e:headed                # с видимым браузером
 ### Миграции
 
 Реестр — `MIGRATIONS: &[MigrationStep]`, шаг `MigrationStep { from, to, apply }`
-с `apply: fn(&WriteTransaction) -> Result<()>`. Функция `migrate(from, to)`
+с `apply: fn(&WriteTransaction, Option<&Sealer>) -> Result<()>`. Функция `migrate(from, to)`
 строит цепочку шагов от `from` до `to` (требует `step.from == cursor` и
 `step.to <= to`), при дыре возвращает `MissingMigration`, при `to < from` —
 `InvalidMigration`. Все шаги и запись новой версии выполняются в одной
 write-транзакции: ошибка любого шага откатывает и данные, и версию
 (`failed_migration_rolls_back_and_keeps_version`). Для тестов доступна
-`migrate_with(..., steps)` с произвольным реестром; в `MIGRATIONS` есть шаги
+`migrate_with(..., steps, sealer)` с произвольным реестром; в `MIGRATIONS` есть шаги
 `1 → 2` (`v2_billing`, создаёт таблицы биллинга), `2 → 3`
 (`v3_rate_limits`, создаёт таблицу `rate_limits`), `6 → 7`
-(`v7_idempotency`, открывает таблицу `idempotency`) и `8 → 9`
-(`v9_device_page_index`, бэкфиллит индексы пагинации устройств); остальные
-шаги меняют данные существующих таблиц.
+(`v7_idempotency`, открывает таблицу `idempotency`), `8 → 9`
+(`v9_device_page_index`, бэкфиллит индексы пагинации устройств), `9 → 10`
+(`v10_user_page_index`, строит индекс пагинации пользователей) и `10 → 11`
+(`v11_share_token_hash`, переводит share-ссылки на хэш и запечатанный токен);
+остальные шаги меняют данные существующих таблиц.
+
+Sealer передаётся в миграции как `Option<&Sealer>`: `Store::open_with_sealer` /
+`open_multi_writer_with_sealer` получают его от admin (`AWG_MASTER_KEY`), а
+`Store::open`/`open_in_memory` — `None`. Шаг `v11_share_token_hash` требует
+Sealer только если в базе есть legacy-ссылки с открытым `token`; иначе
+возвращает `StorageError::Secret` и откатывает миграцию.
 
 Шаг `v9_device_page_index` открывает `device_page_index` и
 `device_created_index`, очищает их и заново строит записи по всем устройствам
@@ -336,8 +344,49 @@ write-транзакции: ошибка любого шага откатыва�
 Для поиска по email владельца контроллер при непустом `q` читает таблицу
 `users` (пользователей на порядки меньше, чем устройств) и передаёт карту
 `user_id → email` в репозиторий. Полного декодирования `devices` при этом не
-происходит. `GET /users/page` использует существующий `IdentityService::list`
-и сериализует только страницу.
+происходит.
+
+#### Индекс пагинации пользователей
+
+`GET /users/page` (только admin) больше не вызывает `IdentityService::list` и
+не декодирует таблицу `users` целиком. Вторичная таблица `user_page_index`
+хранит компактный JSON `UserPageEntry`
+`{user_id,email,login,role,status,disabled,created_at}`; ключ —
+`"{email_or_login_lower}|{user_id}"`, поэтому порядок redb совпадает с
+сортировкой по email (или login, если email пуст) без учёта регистра.
+
+Запрос страницы:
+
+1. обходит `user_page_index` в порядке ключей;
+2. применяет `role`, `status` (active/disabled), `tab`
+   (active = статус не `pending_approval`, pending = `pending_approval`) и
+   `q` (подстрока email или login);
+3. запоминает только `limit` идентификаторов после `offset` и считает `total`
+   по всем совпадениям;
+4. читает `User` из `users` только для идентификаторов страницы
+   (`Store::get_many`).
+
+Индекс обновляется в одной транзакции с записью пользователя:
+`user_index::upsert_user` удаляет ключ старой записи (смена email/login) и
+вставляет новый, `delete_user` удаляет оба. Все изменения (`create`,
+`update`, `approve`, `reject`, `disable`, `delete`) идут через
+`RedbUserRepository::save/delete`, поэтому отдельной синхронизации в сервисах
+нет.
+
+#### Share-ссылки at rest
+
+Таблица `share_links` больше не содержит открытый токен. Ключ записи —
+`token_hash = sha256(token)` (hex), значение — `ShareLink` без поля `token`
+(`#[serde(skip_serializing)]`), но с `token_sealed` — токен, зашифрованный
+`awg_shared::crypto::Sealer` (`AWG_MASTER_KEY`). `create` возвращает
+plaintext-токен только в ответе API; в БД он попадает уже запечатанным.
+
+`find`, `consume`, `revoke`, `delete` и `revoke_all` пересчитывают хэш от
+входного токена и работают по ключу; `list`/`find` распечатывают
+`token_sealed` для отображения ссылки владельцу или администратору. Чужой
+пользователь по-прежнему получает `403`/`404` на уровне контроллера.
+`v11_share_token_hash` переводит legacy-записи: считает хэш, запечатывает
+исходный токен и переносит запись на новый ключ.
 
 ## Backup
 
@@ -869,7 +918,7 @@ snapshot/worker.
 
 Схема была поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
 таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
-Текущая версия схемы — `9` (шаг `v3_rate_limits` добавляет `rate_limits`,
+Текущая версия схемы — `11` (шаг `v3_rate_limits` добавляет `rate_limits`,
 `v4_device_interfaces` привязывает устройства к интерфейсу,
 `v5_user_nodes` привязывает пользователей к ноде по первому интерфейсу их
 группы, `v6_user_emails` проставляет email пользователям без email:
@@ -879,7 +928,10 @@ snapshot/worker.
 пустой `label` заполняется именем интерфейса или `default`, ключ
 переписывается; шаг идемпотентен и сохраняет остальные поля пира,
 `v9_device_page_index` строит вторичные индексы пагинации устройств по имени
-и времени создания).
+и времени создания, `v10_user_page_index` строит индекс пагинации
+пользователей, `v11_share_token_hash` заменяет открытый `token` share-ссылки
+на `token_hash = sha256(token)` и `token_sealed` (`Sealer`), переписывая ключ
+таблицы `share_links` на хэш).
 Backup/restore по-прежнему требует точного совпадения версии.
 
 Конфигурация:

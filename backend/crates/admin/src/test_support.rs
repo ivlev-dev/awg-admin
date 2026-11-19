@@ -496,6 +496,8 @@ fn app_config(
         environment,
         bind: "127.0.0.1:0".into(),
         grpc_bind: "127.0.0.1:0".into(),
+        grpc_tls_cert: None,
+        grpc_tls_key: None,
         db_path: ":memory:".into(),
         master_key: Some(master_key),
         jwt_secret: Some("test-secret-with-at-least-32-bytes!!".into()),
@@ -756,7 +758,7 @@ fn app_env_with(
         config.dns.clone(),
     ));
     let share = Arc::new(ShareService::new(
-        Arc::new(RedbShareLinkRepository::new(store.clone())),
+        Arc::new(RedbShareLinkRepository::new(store.clone(), sealer.clone())),
         profiles.clone(),
     ));
     let stats_hub = Arc::new(StatsHub::new(64));

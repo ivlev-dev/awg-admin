@@ -19,6 +19,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-stream = "0.1"
+tonic.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
@@ -27,3 +28,6 @@ genetlink = "0.2.6"
 netlink-packet-core = "0.8"
 netlink-packet-generic = "0.4"
 netlink-packet-amnezia-wireguard = { git = "https://github.com/frkn-dev/netlink-packet-amnezia-wireguard" }
+
+[dev-dependencies]
+rcgen = "0.14"

@@ -390,9 +390,18 @@ pub enum ShareLinkState {
     Revoked,
 }
 
+pub fn hash_share_token(token: &str) -> String {
+    awg_shared::crypto::sha256_hex(token.as_bytes())
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShareLink {
+    #[serde(default, skip_serializing)]
     pub token: String,
+    #[serde(default)]
+    pub token_hash: String,
+    #[serde(default)]
+    pub token_sealed: String,
     pub device_id: Uuid,
     pub interface_id: Uuid,
     pub created_by: Uuid,
@@ -602,6 +611,8 @@ mod tests {
         let now = Utc::now();
         ShareLink {
             token: "token".into(),
+            token_hash: String::new(),
+            token_sealed: String::new(),
             device_id: Uuid::new_v4(),
             interface_id: Uuid::new_v4(),
             created_by: Uuid::new_v4(),

@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use awg_shared::crypto::Sealer;
 use redb::{
     ConcurrencyMode, Database, ReadTransaction, ReadableDatabase, ReadableTable, TableDefinition,
     WriteTransaction, backends::InMemoryBackend,
@@ -12,6 +13,7 @@ use thiserror::Error;
 mod backup;
 pub mod device_index;
 mod schema;
+pub mod user_index;
 
 pub use schema::{
     CURRENT_SCHEMA_VERSION, MIGRATIONS, MigrationFn, MigrationStep, SCHEMA_VERSION_KEY,
@@ -45,6 +47,8 @@ pub enum StorageError {
     InvalidMigration { from: u32, to: u32 },
     #[error("invalid schema version value: {0}")]
     InvalidSchemaVersion(String),
+    #[error("secret operation failed: {0}")]
+    Secret(String),
     #[error("backup file not found: {0}")]
     BackupNotFound(PathBuf),
     #[error("backup has no schema version")]
@@ -87,6 +91,7 @@ tables! {
     DevicePeers => "device_peers",
     DevicePageIndex => "device_page_index",
     DeviceCreatedIndex => "device_created_index",
+    UserPageIndex => "user_page_index",
     PeerCounters => "peer_counters",
     TrafficBuckets => "traffic_buckets",
     ShareLinks => "share_links",
@@ -112,17 +117,28 @@ pub struct Store {
 
 impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_with_sealer(path, None)
+    }
+
+    pub fn open_with_sealer(path: impl AsRef<Path>, sealer: Option<Arc<Sealer>>) -> Result<Self> {
         let path = path.as_ref();
         let db = Database::create(path)?;
         let store = Self {
             db: Arc::new(db),
             path: Some(path.to_path_buf()),
         };
-        schema::initialize(store.database())?;
+        schema::initialize_with(store.database(), sealer.as_deref())?;
         Ok(store)
     }
 
     pub fn open_multi_writer(path: impl AsRef<Path>) -> Result<Self> {
+        Self::open_multi_writer_with_sealer(path, None)
+    }
+
+    pub fn open_multi_writer_with_sealer(
+        path: impl AsRef<Path>,
+        sealer: Option<Arc<Sealer>>,
+    ) -> Result<Self> {
         let path = path.as_ref();
         let db = Database::builder()
             .set_concurrency_mode(ConcurrencyMode::MultiWriter)
@@ -131,17 +147,21 @@ impl Store {
             db: Arc::new(db),
             path: Some(path.to_path_buf()),
         };
-        schema::initialize(store.database())?;
+        schema::initialize_with(store.database(), sealer.as_deref())?;
         Ok(store)
     }
 
     pub fn open_in_memory() -> Result<Self> {
+        Self::open_in_memory_with_sealer(None)
+    }
+
+    pub fn open_in_memory_with_sealer(sealer: Option<Arc<Sealer>>) -> Result<Self> {
         let db = Database::builder().create_with_backend(InMemoryBackend::new())?;
         let store = Self {
             db: Arc::new(db),
             path: None,
         };
-        schema::initialize(store.database())?;
+        schema::initialize_with(store.database(), sealer.as_deref())?;
         Ok(store)
     }
 

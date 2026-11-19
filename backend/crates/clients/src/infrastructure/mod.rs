@@ -3,13 +3,14 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
+use awg_shared::crypto::Sealer;
 use awg_shared::{CoreError, CoreResult};
 use awg_storage::device_index::DevicePageEntry;
 use awg_storage::{StorageError, Store, Table};
 
 use crate::domain::{
     Device, DevicePage, DevicePageQuery, DevicePeer, DevicePeerRepository, DeviceRepository,
-    ShareConsume, ShareLink, ShareLinkRepository, ShareLinkState,
+    ShareConsume, ShareLink, ShareLinkRepository, ShareLinkState, hash_share_token,
 };
 
 fn map_err(e: StorageError) -> CoreError {
@@ -143,36 +144,69 @@ impl RedbDevicePeerRepository {
 
 pub struct RedbShareLinkRepository {
     store: Arc<Store>,
+    sealer: Arc<Sealer>,
 }
 
 impl RedbShareLinkRepository {
-    pub fn new(store: Arc<Store>) -> Self {
-        Self { store }
+    pub fn new(store: Arc<Store>, sealer: Arc<Sealer>) -> Self {
+        Self { store, sealer }
+    }
+
+    fn hydrate(&self, link: &mut ShareLink) -> CoreResult<()> {
+        if !link.token_sealed.is_empty() {
+            link.token = self.sealer.open_str(&link.token_sealed)?;
+        }
+        Ok(())
+    }
+
+    fn prepare(&self, link: &ShareLink) -> CoreResult<ShareLink> {
+        let mut record = link.clone();
+        if !record.token.is_empty() {
+            record.token_hash = hash_share_token(&record.token);
+            record.token_sealed = self.sealer.seal_str(&record.token)?;
+        }
+        if record.token_hash.is_empty() {
+            return Err(CoreError::Invalid("share link has no token".into()));
+        }
+        Ok(record)
     }
 }
 
 impl ShareLinkRepository for RedbShareLinkRepository {
     fn find(&self, token: &str) -> CoreResult<Option<ShareLink>> {
-        self.store.get(Table::ShareLinks, token).map_err(map_err)
+        let hash = hash_share_token(token);
+        let Some(mut link) = self.store.get(Table::ShareLinks, &hash).map_err(map_err)? else {
+            return Ok(None);
+        };
+        self.hydrate(&mut link)?;
+        Ok(Some(link))
     }
 
     fn list(&self) -> CoreResult<Vec<ShareLink>> {
-        self.store.list(Table::ShareLinks).map_err(map_err)
+        let mut links: Vec<ShareLink> = self.store.list(Table::ShareLinks).map_err(map_err)?;
+        for link in &mut links {
+            self.hydrate(link)?;
+        }
+        Ok(links)
     }
 
     fn save(&self, link: &ShareLink) -> CoreResult<()> {
+        let record = self.prepare(link)?;
         self.store
-            .put(Table::ShareLinks, &link.token, link)
+            .put(Table::ShareLinks, &record.token_hash, &record)
             .map_err(map_err)
     }
 
     fn delete(&self, token: &str) -> CoreResult<()> {
-        self.store.delete(Table::ShareLinks, token).map_err(map_err)
+        let hash = hash_share_token(token);
+        self.store.delete(Table::ShareLinks, &hash).map_err(map_err)
     }
 
     fn consume(&self, token: &str, now: DateTime<Utc>) -> CoreResult<ShareConsume> {
-        self.store
-            .update::<ShareLink, _>(Table::ShareLinks, token, |current| match current {
+        let hash = hash_share_token(token);
+        let outcome = self
+            .store
+            .update::<ShareLink, _>(Table::ShareLinks, &hash, |current| match current {
                 None => (None, ShareConsume::NotFound),
                 Some(link) => match link.state(now) {
                     ShareLinkState::Active => {
@@ -186,7 +220,14 @@ impl ShareLinkRepository for RedbShareLinkRepository {
                     ShareLinkState::Exhausted => (Some(link), ShareConsume::Exhausted),
                 },
             })
-            .map_err(map_err)
+            .map_err(map_err)?;
+        match outcome {
+            ShareConsume::Consumed(mut link) => {
+                self.hydrate(&mut link)?;
+                Ok(ShareConsume::Consumed(link))
+            }
+            other => Ok(other),
+        }
     }
 }
 

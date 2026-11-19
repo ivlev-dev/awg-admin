@@ -56,6 +56,9 @@ services:
         required: false
     environment:
       AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
+      AWG_GRPC_TLS_CA: ${AWG_GRPC_TLS_CA:-}
+      AWG_GRPC_TLS_DOMAIN: ${AWG_GRPC_TLS_DOMAIN:-}
+      AWG_GRPC_TLS_SYSTEM_ROOTS: ${AWG_GRPC_TLS_SYSTEM_ROOTS:-false}
       AWG_NODE_ID: ${AWG_NODE_ID:-}
       AWG_NODE_TOKEN: ${AWG_NODE_TOKEN:-}
       AWG_DRY_RUN: "true"

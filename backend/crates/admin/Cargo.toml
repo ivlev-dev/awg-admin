@@ -58,3 +58,4 @@ test-support = []
 
 [dev-dependencies]
 awg-admin = { path = ".", features = ["test-support"] }
+rcgen = "0.14"

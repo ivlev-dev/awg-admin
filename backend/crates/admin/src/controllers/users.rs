@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use base64::Engine;
 use uuid::Uuid;
 
-use awg_identity::{NewUser, Role, UserChanges, UserStatus};
+use awg_identity::{NewUser, Role, UserChanges, UserPageQuery, UserPageTab};
 use awg_shared::crypto::random_bytes;
 
 use crate::auth::AuthUser;
@@ -40,10 +40,10 @@ impl UserTab {
         }
     }
 
-    fn matches(self, status: UserStatus) -> bool {
+    fn to_page_tab(self) -> UserPageTab {
         match self {
-            Self::Active => status != UserStatus::PendingApproval,
-            Self::Pending => status == UserStatus::PendingApproval,
+            Self::Active => UserPageTab::Active,
+            Self::Pending => UserPageTab::Pending,
         }
     }
 }
@@ -123,46 +123,17 @@ pub async fn page(
     let page = {
         let identity = state.identity.clone();
         blocking::run_api(move || {
-            let mut users = identity.list().map_err(ApiError::from)?;
-            users.retain(|account| {
-                if let Some(role) = role
-                    && account.role != role
-                {
-                    return false;
-                }
-                if let Some(disabled) = disabled
-                    && account.disabled != disabled
-                {
-                    return false;
-                }
-                if !tab.matches(account.status) {
-                    return false;
-                }
-                if let Some(q) = q.as_deref() {
-                    let email = account
-                        .email
-                        .as_deref()
-                        .unwrap_or(account.login.as_str())
-                        .to_lowercase();
-                    if !email.contains(q) && !account.login.to_lowercase().contains(q) {
-                        return false;
-                    }
-                }
-                true
-            });
-            users.sort_by(|left, right| {
-                left.created_at
-                    .cmp(&right.created_at)
-                    .then_with(|| left.id.cmp(&right.id))
-            });
-            let total = users.len();
-            let items: Vec<UserView> = users
-                .iter()
-                .skip(offset)
-                .take(limit)
-                .map(UserView::from)
-                .collect();
-            Ok(PageView::new(items, total, limit, offset))
+            let query = UserPageQuery {
+                limit,
+                offset,
+                q,
+                role,
+                disabled,
+                tab: tab.to_page_tab(),
+            };
+            let page = identity.page(&query).map_err(ApiError::from)?;
+            let items = page.items.iter().map(UserView::from).collect();
+            Ok(PageView::new(items, page.total, page.limit, page.offset))
         })
         .await?
     };

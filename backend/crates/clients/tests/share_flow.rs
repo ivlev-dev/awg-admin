@@ -5,6 +5,7 @@ use chrono::{Duration, Utc};
 use uuid::Uuid;
 
 use awg_clients::domain::ShareLinkRepository;
+use awg_clients::domain::hash_share_token;
 use awg_clients::{
     Device, DeviceService, Forwarding, NewDevice, ProfileService, RedbDevicePeerRepository,
     RedbDeviceRepository, RedbShareLinkRepository, ShareConsume, ShareFormat, ShareLink,
@@ -52,6 +53,7 @@ struct Fixture {
     network: Arc<NetworkService>,
     profiles: Arc<ProfileService>,
     links: Arc<RedbShareLinkRepository>,
+    store: Arc<Store>,
     group_id: Uuid,
     interface_id: Uuid,
     device_id: Uuid,
@@ -130,7 +132,7 @@ fn fixture() -> Fixture {
         device_repo,
         peer_repo,
         network.clone(),
-        sealer,
+        sealer.clone(),
         vec!["1.1.1.1".into()],
     ));
 
@@ -177,7 +179,8 @@ fn fixture() -> Fixture {
         devices,
         network,
         profiles,
-        links: Arc::new(RedbShareLinkRepository::new(store)),
+        links: Arc::new(RedbShareLinkRepository::new(store.clone(), sealer)),
+        store,
         group_id: group.id,
         interface_id: interface.id,
         device_id: device.id,
@@ -282,6 +285,8 @@ fn revoke_all_for_device_skips_other_devices() {
     let service = fixture.service();
     let foreign = ShareLink {
         token: "foreign".into(),
+        token_hash: String::new(),
+        token_sealed: String::new(),
         device_id: Uuid::new_v4(),
         interface_id: fixture.interface_id,
         created_by: Uuid::new_v4(),
@@ -476,6 +481,8 @@ fn consume_is_atomic_under_concurrency() {
     let fixture = fixture();
     let link = ShareLink {
         token: "race".into(),
+        token_hash: String::new(),
+        token_sealed: String::new(),
         device_id: fixture.device_id,
         interface_id: fixture.interface_id,
         created_by: Uuid::new_v4(),
@@ -510,6 +517,39 @@ fn consume_is_atomic_under_concurrency() {
 
     let stored = fixture.links.find("race").unwrap().unwrap();
     assert_eq!(stored.uses, 1);
+}
+
+#[test]
+fn tokens_are_sealed_at_rest_and_resolve_by_plaintext() {
+    let fixture = fixture();
+    let link = fixture.create(None);
+
+    let keys = fixture.store.keys(awg_storage::Table::ShareLinks).unwrap();
+    assert_eq!(keys, vec![hash_share_token(&link.token)]);
+    let raw = fixture
+        .store
+        .get_raw(awg_storage::Table::ShareLinks, &keys[0])
+        .unwrap()
+        .unwrap();
+    assert!(
+        !raw.windows(link.token.len())
+            .any(|window| window == link.token.as_bytes()),
+        "the plaintext token must not be written to redb"
+    );
+    let stored: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+    assert!(stored.get("token").is_none());
+    assert!(!stored["token_sealed"].as_str().unwrap().is_empty());
+
+    let listed = fixture
+        .service()
+        .list_for_device(fixture.device_id)
+        .unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].token, link.token);
+
+    let stored = fixture.links.find(&link.token).unwrap().unwrap();
+    assert_eq!(stored.token, link.token);
+    assert!(fixture.service().resolve(&link.token).is_ok());
 }
 
 #[test]

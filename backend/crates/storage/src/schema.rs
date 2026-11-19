@@ -1,13 +1,15 @@
 use redb::{Database, ReadableDatabase, ReadableTable, WriteTransaction};
 use serde_json::{Value, json};
 
+use awg_shared::crypto::{Sealer, sha256_hex};
+
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 9;
+pub const CURRENT_SCHEMA_VERSION: u32 = 11;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
-pub type MigrationFn = fn(&WriteTransaction) -> Result<()>;
+pub type MigrationFn = fn(&WriteTransaction, Option<&Sealer>) -> Result<()>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct MigrationStep {
@@ -57,6 +59,16 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         to: 9,
         apply: v9_device_page_index,
     },
+    MigrationStep {
+        from: 9,
+        to: 10,
+        apply: v10_user_page_index,
+    },
+    MigrationStep {
+        from: 10,
+        to: 11,
+        apply: v11_share_token_hash,
+    },
 ];
 
 const BILLING_TABLES: &[Table] = &[
@@ -71,28 +83,28 @@ const RATE_LIMIT_TABLES: &[Table] = &[Table::RateLimits];
 
 const IDEMPOTENCY_TABLES: &[Table] = &[Table::Idempotency];
 
-fn v2_billing(txn: &WriteTransaction) -> Result<()> {
+fn v2_billing(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     for table in BILLING_TABLES {
         txn.open_table(table.definition())?;
     }
     Ok(())
 }
 
-fn v3_rate_limits(txn: &WriteTransaction) -> Result<()> {
+fn v3_rate_limits(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     for table in RATE_LIMIT_TABLES {
         txn.open_table(table.definition())?;
     }
     Ok(())
 }
 
-fn v7_idempotency(txn: &WriteTransaction) -> Result<()> {
+fn v7_idempotency(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     for table in IDEMPOTENCY_TABLES {
         txn.open_table(table.definition())?;
     }
     Ok(())
 }
 
-fn v8_peer_ids(txn: &WriteTransaction) -> Result<()> {
+fn v8_peer_ids(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     let mut interface_names: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
     for (_, interface) in read_values(txn, Table::Interfaces)? {
@@ -187,8 +199,63 @@ fn v8_peer_ids(txn: &WriteTransaction) -> Result<()> {
     Ok(())
 }
 
-fn v9_device_page_index(txn: &WriteTransaction) -> Result<()> {
+fn v9_device_page_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     crate::device_index::backfill(txn)
+}
+
+fn v10_user_page_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    crate::user_index::backfill(txn)
+}
+
+fn v11_share_token_hash(txn: &WriteTransaction, sealer: Option<&Sealer>) -> Result<()> {
+    let existing = read_values(txn, Table::ShareLinks)?;
+    if existing.is_empty() {
+        return Ok(());
+    }
+    let mut writes: Vec<(String, Value)> = Vec::with_capacity(existing.len());
+    let mut removals: Vec<String> = Vec::new();
+    for (key, mut link) in existing {
+        let Some(plaintext) = link
+            .get("token")
+            .and_then(Value::as_str)
+            .filter(|token| !token.is_empty())
+            .map(str::to_string)
+        else {
+            continue;
+        };
+        let sealed = match sealer {
+            Some(sealer) => sealer
+                .seal_str(&plaintext)
+                .map_err(|error| StorageError::Secret(error.to_string()))?,
+            None => {
+                return Err(StorageError::Secret(
+                    "migrating share links requires the master key".into(),
+                ));
+            }
+        };
+        let hash = sha256_hex(plaintext.as_bytes());
+        if let Some(object) = link.as_object_mut() {
+            object.remove("token");
+        }
+        link["token_hash"] = json!(hash);
+        link["token_sealed"] = json!(sealed);
+        if key != hash {
+            removals.push(key);
+        }
+        writes.push((hash, link));
+    }
+    if writes.is_empty() && removals.is_empty() {
+        return Ok(());
+    }
+    let mut table = txn.open_table(Table::ShareLinks.definition())?;
+    for key in removals {
+        table.remove(key.as_str())?;
+    }
+    for (key, value) in writes {
+        let bytes = serde_json::to_vec(&value)?;
+        table.insert(key.as_str(), bytes.as_slice())?;
+    }
+    Ok(())
 }
 
 fn read_values(txn: &WriteTransaction, table: Table) -> Result<Vec<(String, Value)>> {
@@ -204,7 +271,7 @@ fn read_values(txn: &WriteTransaction, table: Table) -> Result<Vec<(String, Valu
     Ok(out)
 }
 
-fn v4_device_interfaces(txn: &WriteTransaction) -> Result<()> {
+fn v4_device_interfaces(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     let mut interfaces_by_group: std::collections::BTreeMap<String, Vec<(String, bool)>> =
         std::collections::BTreeMap::new();
     for (_, value) in read_values(txn, Table::Interfaces)? {
@@ -305,7 +372,7 @@ fn v4_device_interfaces(txn: &WriteTransaction) -> Result<()> {
     Ok(())
 }
 
-fn v5_user_nodes(txn: &WriteTransaction) -> Result<()> {
+fn v5_user_nodes(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     let mut nodes_by_group: std::collections::BTreeMap<String, String> =
         std::collections::BTreeMap::new();
     for (_, value) in read_values(txn, Table::Interfaces)? {
@@ -351,7 +418,7 @@ fn v5_user_nodes(txn: &WriteTransaction) -> Result<()> {
     Ok(())
 }
 
-fn v6_user_emails(txn: &WriteTransaction) -> Result<()> {
+fn v6_user_emails(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (_, user) in read_values(txn, Table::Users)? {
         if let Some(email) = user_email(&user) {
@@ -427,7 +494,12 @@ fn sanitize_email_local(raw: &str) -> String {
     sanitized.trim_matches(['-', '.']).to_string()
 }
 
+#[cfg(test)]
 pub(crate) fn initialize(db: &Database) -> Result<()> {
+    initialize_with(db, None)
+}
+
+pub(crate) fn initialize_with(db: &Database, sealer: Option<&Sealer>) -> Result<()> {
     let version = read_version(db)?;
     if let Some(version) = version
         && version > CURRENT_SCHEMA_VERSION
@@ -441,7 +513,7 @@ pub(crate) fn initialize(db: &Database) -> Result<()> {
     match version {
         None => write_version(db, CURRENT_SCHEMA_VERSION),
         Some(version) if version == CURRENT_SCHEMA_VERSION => Ok(()),
-        Some(version) => migrate(db, version, CURRENT_SCHEMA_VERSION),
+        Some(version) => migrate_with(db, version, CURRENT_SCHEMA_VERSION, MIGRATIONS, sealer),
     }
 }
 
@@ -481,8 +553,9 @@ pub(crate) fn write_version_txn(txn: &WriteTransaction, version: u32) -> Result<
     Ok(())
 }
 
+#[cfg(test)]
 pub(crate) fn migrate(db: &Database, from: u32, to: u32) -> Result<()> {
-    migrate_with(db, from, to, MIGRATIONS)
+    migrate_with(db, from, to, MIGRATIONS, None)
 }
 
 pub(crate) fn migrate_with(
@@ -490,6 +563,7 @@ pub(crate) fn migrate_with(
     from: u32,
     to: u32,
     steps: &[MigrationStep],
+    sealer: Option<&Sealer>,
 ) -> Result<()> {
     if to < from {
         return Err(StorageError::InvalidMigration { from, to });
@@ -512,7 +586,7 @@ pub(crate) fn migrate_with(
 
     let txn = db.begin_write()?;
     for step in chain {
-        (step.apply)(&txn)?;
+        (step.apply)(&txn, sealer)?;
     }
     write_version_txn(&txn, to)?;
     txn.commit()?;
@@ -549,7 +623,7 @@ mod tests {
         }
     }
 
-    fn rename_legacy_key(txn: &WriteTransaction) -> Result<()> {
+    fn rename_legacy_key(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
         let value = {
             let legacy = txn.open_table(LEGACY)?;
             legacy
@@ -565,7 +639,7 @@ mod tests {
         Ok(())
     }
 
-    fn failing_migration(txn: &WriteTransaction) -> Result<()> {
+    fn failing_migration(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
         {
             let mut meta = txn.open_table(Table::Meta.definition())?;
             meta.insert("partial", b"partial".as_slice())?;
@@ -598,7 +672,7 @@ mod tests {
             to: 1,
             apply: rename_legacy_key,
         }];
-        migrate_with(&db, 0, 1, &steps).unwrap();
+        migrate_with(&db, 0, 1, &steps, None).unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(1));
         let txn = db.begin_read().unwrap();
@@ -626,7 +700,7 @@ mod tests {
             to: 1,
             apply: failing_migration,
         }];
-        assert!(migrate_with(&db, 0, 1, &steps).is_err());
+        assert!(migrate_with(&db, 0, 1, &steps, None).is_err());
 
         assert_eq!(read_version(&db).unwrap(), Some(0));
         let txn = db.begin_read().unwrap();
@@ -638,7 +712,7 @@ mod tests {
     fn missing_step_is_reported() {
         let db = in_memory();
         seed_legacy(&db, Some(0));
-        let err = migrate_with(&db, 0, 1, &[]).unwrap_err();
+        let err = migrate_with(&db, 0, 1, &[], None).unwrap_err();
         assert!(matches!(
             err,
             StorageError::MissingMigration { from: 0, to: 1 }
@@ -658,7 +732,7 @@ mod tests {
     fn downgrade_is_rejected() {
         let db = in_memory();
         seed_legacy(&db, Some(1));
-        let err = migrate_with(&db, 1, 0, &[]).unwrap_err();
+        let err = migrate_with(&db, 1, 0, &[], None).unwrap_err();
         assert!(matches!(
             err,
             StorageError::InvalidMigration { from: 1, to: 0 }
@@ -1006,7 +1080,7 @@ mod tests {
         drop(txn);
 
         let txn = db.begin_write().unwrap();
-        v5_user_nodes(&txn).unwrap();
+        v5_user_nodes(&txn, None).unwrap();
         txn.commit().unwrap();
     }
 
@@ -1068,7 +1142,7 @@ mod tests {
         drop(txn);
 
         let txn = db.begin_write().unwrap();
-        v6_user_emails(&txn).unwrap();
+        v6_user_emails(&txn, None).unwrap();
         txn.commit().unwrap();
 
         let txn = db.begin_read().unwrap();
@@ -1141,8 +1215,8 @@ mod tests {
         migrate(&db, 6, CURRENT_SCHEMA_VERSION).unwrap();
 
         let txn = db.begin_write().unwrap();
-        v7_idempotency(&txn).unwrap();
-        v7_idempotency(&txn).unwrap();
+        v7_idempotency(&txn, None).unwrap();
+        v7_idempotency(&txn, None).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
@@ -1158,8 +1232,8 @@ mod tests {
         migrate(&db, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION).unwrap();
 
         let txn = db.begin_write().unwrap();
-        v3_rate_limits(&txn).unwrap();
-        v3_rate_limits(&txn).unwrap();
+        v3_rate_limits(&txn, None).unwrap();
+        v3_rate_limits(&txn, None).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
@@ -1175,10 +1249,10 @@ mod tests {
         migrate(&db, CURRENT_SCHEMA_VERSION, CURRENT_SCHEMA_VERSION).unwrap();
 
         let txn = db.begin_write().unwrap();
-        v2_billing(&txn).unwrap();
-        v2_billing(&txn).unwrap();
-        v3_rate_limits(&txn).unwrap();
-        v3_rate_limits(&txn).unwrap();
+        v2_billing(&txn, None).unwrap();
+        v2_billing(&txn, None).unwrap();
+        v3_rate_limits(&txn, None).unwrap();
+        v3_rate_limits(&txn, None).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
@@ -1326,7 +1400,7 @@ mod tests {
         };
 
         let txn = db.begin_write().unwrap();
-        v8_peer_ids(&txn).unwrap();
+        v8_peer_ids(&txn, None).unwrap();
         txn.commit().unwrap();
 
         let txn = db.begin_read().unwrap();
@@ -1420,8 +1494,8 @@ mod tests {
         drop(txn);
 
         let txn = db.begin_write().unwrap();
-        v9_device_page_index(&txn).unwrap();
-        v9_device_page_index(&txn).unwrap();
+        v9_device_page_index(&txn, None).unwrap();
+        v9_device_page_index(&txn, None).unwrap();
         txn.commit().unwrap();
 
         let txn = db.begin_read().unwrap();
@@ -1437,11 +1511,198 @@ mod tests {
         migrate(&db, 8, CURRENT_SCHEMA_VERSION).unwrap();
 
         let txn = db.begin_write().unwrap();
-        v9_device_page_index(&txn).unwrap();
-        v9_device_page_index(&txn).unwrap();
+        v9_device_page_index(&txn, None).unwrap();
+        v9_device_page_index(&txn, None).unwrap();
         txn.commit().unwrap();
 
         assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+    }
+
+    #[test]
+    fn migration_v10_backfills_user_page_index() {
+        let db = in_memory();
+        seed_legacy(&db, Some(9));
+        let first = uuid::Uuid::new_v4();
+        let second = uuid::Uuid::new_v4();
+        let third = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            for (id, login, email, role, status, disabled) in [
+                (
+                    first,
+                    "alice",
+                    Some("Alice@Example.COM"),
+                    "user",
+                    "active",
+                    false,
+                ),
+                (second, "bob", None, "admin", "pending_approval", true),
+                (
+                    third,
+                    "carol",
+                    Some("carol@example.com"),
+                    "user",
+                    "active",
+                    false,
+                ),
+            ] {
+                users
+                    .insert(
+                        id.to_string().as_str(),
+                        json!({
+                            "id": id,
+                            "login": login,
+                            "email": email,
+                            "role": role,
+                            "status": status,
+                            "disabled": disabled,
+                            "created_at": "2026-01-01T00:00:00Z",
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            drop(users);
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 9, 10).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(10));
+        let txn = db.begin_read().unwrap();
+        let index = txn.open_table(Table::UserPageIndex.definition()).unwrap();
+        let keys: Vec<String> = index
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(
+            keys,
+            vec![
+                format!("alice@example.com|{first}"),
+                format!("bob|{second}"),
+                format!("carol@example.com|{third}"),
+            ]
+        );
+        let raw = index
+            .get(format!("bob|{second}").as_str())
+            .unwrap()
+            .unwrap();
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert_eq!(value["role"], json!("admin"));
+        assert_eq!(value["status"], json!("pending_approval"));
+        assert_eq!(value["disabled"], json!(true));
+        drop(raw);
+        drop(index);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v10_user_page_index(&txn, None).unwrap();
+        v10_user_page_index(&txn, None).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let index = txn.open_table(Table::UserPageIndex.definition()).unwrap();
+        assert_eq!(index.iter().unwrap().count(), 3);
+    }
+
+    #[test]
+    fn migration_v11_hashes_and_seals_share_tokens() {
+        let db = in_memory();
+        seed_legacy(&db, Some(10));
+        let sealer = sealer();
+        {
+            let txn = db.begin_write().unwrap();
+            let mut links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+            links
+                .insert(
+                    "legacy-token",
+                    json!({
+                        "token": "legacy-token",
+                        "device_id": uuid::Uuid::new_v4(),
+                        "interface_id": uuid::Uuid::new_v4(),
+                        "created_by": uuid::Uuid::new_v4(),
+                        "format": "conf",
+                        "expires_at": "2026-01-01T00:00:00Z",
+                        "used_at": null,
+                        "created_at": "2026-01-01T00:00:00Z",
+                    })
+                    .to_string()
+                    .as_bytes(),
+                )
+                .unwrap();
+            drop(links);
+            txn.commit().unwrap();
+        }
+
+        migrate_with(&db, 10, 11, MIGRATIONS, Some(&sealer)).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(11));
+        let hash = awg_shared::crypto::sha256_hex(b"legacy-token");
+        let txn = db.begin_read().unwrap();
+        let links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+        let keys: Vec<String> = links
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(keys, vec![hash.clone()]);
+        let raw = links.get(hash.as_str()).unwrap().unwrap();
+        assert!(
+            !raw.value()
+                .windows(b"legacy-token".len())
+                .any(|window| window == b"legacy-token"),
+            "the plaintext token must not survive the migration"
+        );
+        let value: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert!(value.get("token").is_none());
+        assert_eq!(value["token_hash"], json!(hash));
+        assert_eq!(
+            sealer
+                .open_str(value["token_sealed"].as_str().unwrap())
+                .unwrap(),
+            "legacy-token"
+        );
+        drop(raw);
+        drop(links);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v11_share_token_hash(&txn, Some(&sealer)).unwrap();
+        v11_share_token_hash(&txn, Some(&sealer)).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+        assert_eq!(links.iter().unwrap().count(), 1);
+    }
+
+    #[test]
+    fn migration_v11_requires_a_master_key_for_legacy_links() {
+        let db = in_memory();
+        seed_legacy(&db, Some(10));
+        {
+            let txn = db.begin_write().unwrap();
+            let mut links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+            links
+                .insert(
+                    "legacy-token",
+                    json!({ "token": "legacy-token" }).to_string().as_bytes(),
+                )
+                .unwrap();
+            drop(links);
+            txn.commit().unwrap();
+        }
+
+        let err = migrate_with(&db, 10, 11, MIGRATIONS, None).unwrap_err();
+        assert!(matches!(err, StorageError::Secret(_)));
+        assert_eq!(read_version(&db).unwrap(), Some(10));
+    }
+
+    fn sealer() -> Sealer {
+        Sealer::from_master_key("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=").unwrap()
     }
 
     #[test]

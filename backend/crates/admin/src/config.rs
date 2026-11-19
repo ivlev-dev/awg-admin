@@ -157,6 +157,8 @@ pub struct ConfigInput {
     pub environment: Environment,
     pub bind: String,
     pub grpc_bind: String,
+    pub grpc_tls_cert: Option<String>,
+    pub grpc_tls_key: Option<String>,
     pub db_path: String,
     pub master_key: Option<String>,
     pub jwt_secret: Option<String>,
@@ -206,6 +208,8 @@ pub struct Config {
     pub environment: Environment,
     pub bind: SocketAddr,
     pub grpc_bind: SocketAddr,
+    pub grpc_tls_cert: Option<String>,
+    pub grpc_tls_key: Option<String>,
     pub db_path: String,
     pub master_key: String,
     pub jwt_secret: Vec<u8>,
@@ -264,6 +268,24 @@ impl Config {
             .grpc_bind
             .parse()
             .context("AWG_GRPC_BIND must be host:port")?;
+
+        let (grpc_tls_cert, grpc_tls_key) = match (
+            non_empty(&input.grpc_tls_cert),
+            non_empty(&input.grpc_tls_key),
+        ) {
+            (Some(cert), Some(key)) => {
+                (Some(cert.trim().to_string()), Some(key.trim().to_string()))
+            }
+            (None, None) => (None, None),
+            _ => bail!(
+                "AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY must be set together (or both empty for plaintext h2c)"
+            ),
+        };
+        if production && grpc_tls_cert.is_none() {
+            tracing::warn!(
+                "worker gRPC is listening without TLS; set AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY to enable server-auth TLS"
+            );
+        }
 
         let master_key = match non_empty(&input.master_key) {
             Some(value) => {
@@ -386,6 +408,8 @@ impl Config {
             environment: input.environment,
             bind,
             grpc_bind,
+            grpc_tls_cert,
+            grpc_tls_key,
             db_path: input.db_path,
             master_key,
             jwt_secret,
@@ -529,6 +553,8 @@ fn input_from_env() -> Result<ConfigInput> {
         )?,
         bind: env("AWG_BIND", "0.0.0.0:8080"),
         grpc_bind: env("AWG_GRPC_BIND", "0.0.0.0:9090"),
+        grpc_tls_cert: env_optional("AWG_GRPC_TLS_CERT"),
+        grpc_tls_key: env_optional("AWG_GRPC_TLS_KEY"),
         db_path: env("AWG_DB_PATH", "/data/awg-admin.redb"),
         master_key: env_optional("AWG_MASTER_KEY"),
         jwt_secret: env_optional("AWG_JWT_SECRET"),
@@ -611,6 +637,8 @@ mod tests {
             environment,
             bind: "127.0.0.1:8080".into(),
             grpc_bind: "127.0.0.1:9090".into(),
+            grpc_tls_cert: None,
+            grpc_tls_key: None,
             db_path: "/tmp/awg-admin-test.redb".into(),
             master_key: Some(valid_master_key()),
             jwt_secret: Some("test-secret-that-is-long-enough-32+".into()),
@@ -998,5 +1026,31 @@ mod tests {
         ] {
             assert!(PaymentProvider::parse(raw).is_ok(), "{raw}");
         }
+    }
+
+    #[test]
+    fn grpc_tls_requires_cert_and_key_together() {
+        let mut input = base_input(Environment::Development);
+        input.grpc_tls_cert = Some("/etc/awg/tls.crt".into());
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY"));
+
+        let mut input = base_input(Environment::Development);
+        input.grpc_tls_key = Some("/etc/awg/tls.key".into());
+        assert!(Config::from_input(input).is_err());
+
+        let mut input = base_input(Environment::Development);
+        input.grpc_tls_cert = Some("  /etc/awg/tls.crt ".into());
+        input.grpc_tls_key = Some(" /etc/awg/tls.key ".into());
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.grpc_tls_cert.as_deref(), Some("/etc/awg/tls.crt"));
+        assert_eq!(config.grpc_tls_key.as_deref(), Some("/etc/awg/tls.key"));
+    }
+
+    #[test]
+    fn grpc_tls_is_optional() {
+        let config = Config::from_input(base_input(Environment::Production)).unwrap();
+        assert!(config.grpc_tls_cert.is_none());
+        assert!(config.grpc_tls_key.is_none());
     }
 }

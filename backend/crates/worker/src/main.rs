@@ -3,7 +3,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 use awg_worker::{
-    FileCounterRepository, NetlinkAwg, NftForwarding, ReconcileService, TcShaper, WorkerClient,
+    FileCounterRepository, GrpcTlsOptions, NetlinkAwg, NftForwarding, ReconcileService, TcShaper,
+    WorkerClient,
 };
 use tracing_subscriber::EnvFilter;
 use uuid::Uuid;
@@ -40,12 +41,23 @@ async fn main() -> Result<()> {
 
     tracing::info!(%node_id, %grpc_url, dry_run, "worker starting");
 
+    let tls = GrpcTlsOptions::from_env();
+    if tls.is_enabled() {
+        tracing::info!(
+            ca = ?tls.ca_path,
+            domain = ?tls.domain,
+            system_roots = tls.use_system_roots,
+            "gRPC TLS enabled"
+        );
+    }
+
     let client = WorkerClient {
         url: grpc_url,
         node_id,
         token,
         version: env!("CARGO_PKG_VERSION").to_string(),
         stats_interval: Duration::from_secs(interval),
+        tls,
     };
 
     client.run(service).await

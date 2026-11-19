@@ -176,6 +176,8 @@ mod tests {
         let now = Utc::now();
         ShareLink {
             token: "token".into(),
+            token_hash: String::new(),
+            token_sealed: String::new(),
             device_id: Uuid::nil(),
             interface_id: Uuid::nil(),
             created_by: Uuid::nil(),

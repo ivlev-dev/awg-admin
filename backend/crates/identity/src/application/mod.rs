@@ -11,10 +11,10 @@ use totp_rs::{Algorithm, Builder, Secret, Totp};
 use crate::domain::{
     CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
     EmailVerificationRepository, IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role,
-    SessionMetadata, TokenIssuer, User, UserRepository, UserStatus, VerificationKind,
-    email_from_login, normalize_email, sanitize_login, validate_login, validate_password,
+    SessionMetadata, TokenIssuer, User, UserPage, UserPageQuery, UserRepository, UserStatus,
+    VerificationKind, email_from_login, normalize_email, sanitize_login, validate_login,
+    validate_password,
 };
-
 const VERIFICATION_TTL_HOURS: i64 = 24;
 const PASSWORD_RESET_TTL_HOURS: i64 = 1;
 const RECOVERY_CODE_COUNT: usize = 8;
@@ -260,6 +260,10 @@ impl IdentityService {
 
     pub fn list(&self) -> CoreResult<Vec<User>> {
         self.users.list()
+    }
+
+    pub fn page(&self, query: &UserPageQuery) -> CoreResult<UserPage> {
+        self.users.page(query)
     }
 
     pub fn create(&self, input: NewUser) -> CoreResult<User> {

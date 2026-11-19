@@ -1,16 +1,52 @@
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context;
 use awg_proto::worker_gateway_server::WorkerGateway;
 use awg_proto::{self as proto, ServerMessage, WorkerMessage, server_message, worker_message};
 use futures_util::Stream;
 use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::{Identity, Server, ServerTlsConfig};
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
 use crate::blocking;
 use crate::state::AppState;
+
+pub fn server_tls_config(cert_path: &Path, key_path: &Path) -> anyhow::Result<ServerTlsConfig> {
+    let cert = std::fs::read(cert_path)
+        .with_context(|| format!("failed to read AWG_GRPC_TLS_CERT {}", cert_path.display()))?;
+    let key = std::fs::read(key_path)
+        .with_context(|| format!("failed to read AWG_GRPC_TLS_KEY {}", key_path.display()))?;
+    let cert = std::str::from_utf8(&cert)
+        .context("AWG_GRPC_TLS_CERT must be a PEM-encoded certificate")?;
+    let key = std::str::from_utf8(&key).context("AWG_GRPC_TLS_KEY must be a PEM-encoded key")?;
+    if !cert.contains("-----BEGIN CERTIFICATE-----") {
+        anyhow::bail!(
+            "AWG_GRPC_TLS_CERT {} does not contain a PEM certificate",
+            cert_path.display()
+        );
+    }
+    if !key.contains("PRIVATE KEY-----") {
+        anyhow::bail!(
+            "AWG_GRPC_TLS_KEY {} does not contain a PEM private key",
+            key_path.display()
+        );
+    }
+    Ok(ServerTlsConfig::new().identity(Identity::from_pem(cert, key)))
+}
+
+pub fn build_server(tls: Option<ServerTlsConfig>) -> anyhow::Result<Server> {
+    let builder = Server::builder();
+    match tls {
+        Some(tls) => builder
+            .tls_config(tls)
+            .context("failed to build the gRPC TLS acceptor from the provided certificate and key"),
+        None => Ok(builder),
+    }
+}
 
 pub struct WorkerGrpc {
     state: Arc<AppState>,
@@ -220,5 +256,58 @@ async fn handle_message(
             }
         }
         Some(worker_message::Payload::Hello(_)) | None => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    fn write_temp(name: &str, contents: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("awg-grpc-tls-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        let mut file = std::fs::File::create(&path).unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        path
+    }
+
+    fn generated_certificate() -> (std::path::PathBuf, std::path::PathBuf) {
+        let certified = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+        let cert = write_temp("server.crt", &certified.cert.pem());
+        let key = write_temp("server.key", &certified.signing_key.serialize_pem());
+        (cert, key)
+    }
+
+    #[test]
+    fn builds_tls_acceptor_from_pem_certificate() {
+        let (cert, key) = generated_certificate();
+        let tls = server_tls_config(&cert, &key).unwrap();
+        build_server(Some(tls)).unwrap();
+    }
+
+    #[test]
+    fn builds_plaintext_server_without_tls() {
+        build_server(None).unwrap();
+    }
+
+    #[test]
+    fn missing_files_report_the_env_names() {
+        let error = server_tls_config(
+            Path::new("/nonexistent/awg-grpc.crt"),
+            Path::new("/nonexistent/awg-grpc.key"),
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("AWG_GRPC_TLS_CERT"), "{error}");
+    }
+
+    #[test]
+    fn rejects_non_pem_contents() {
+        let cert = write_temp("bad.crt", "not a certificate");
+        let key = write_temp("bad.key", "not a key");
+        let error = server_tls_config(&cert, &key).unwrap_err().to_string();
+        assert!(error.contains("AWG_GRPC_TLS_CERT"), "{error}");
     }
 }

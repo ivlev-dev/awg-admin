@@ -306,6 +306,55 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 - без тарифа у пользователя `user_limits` пуст и tc не применяется; пул без `gateway` даёт интерфейс без адреса.
 - worker не чистит интерфейс, удалённый из desired state, если worker был остановлен в момент удаления.
 
+### 9.1 TLS для worker gRPC
+
+По умолчанию gRPC-канал admin↔worker работает без TLS (h2c) и должен быть
+доступен только из доверенной сети (порт `9090` не публикуется наружу).
+Симметричное включение TLS:
+
+1. Выпустите сертификат на внутреннее имя admin (например
+   `admin.internal`) и положите `grpc.crt`/`grpc.key` в контейнер admin:
+
+   ```bash
+   openssl req -x509 -newkey rsa:4096 -nodes -days 825 \
+     -keyout grpc.key -out grpc.crt \
+     -subj "/CN=admin.internal" \
+     -addext "subjectAltName=DNS:admin.internal"
+   chmod 600 grpc.key
+   ```
+
+2. Admin: задайте `AWG_GRPC_TLS_CERT` и `AWG_GRPC_TLS_KEY` (только вместе;
+   иначе старт завершается ошибкой). Файлы читаются при старте, PEM
+   валидируется до открытия порта. Смонтируйте каталог с сертификатами,
+   например добавьте в сервис `admin` compose-файл `docker-compose.override.yml`:
+
+   ```yaml
+   services:
+     admin:
+       volumes:
+         - ./certs:/etc/awg/tls:ro
+   ```
+
+   В `.env`: `AWG_GRPC_TLS_CERT=/etc/awg/tls/grpc.crt`,
+   `AWG_GRPC_TLS_KEY=/etc/awg/tls/grpc.key`.
+
+3. Worker: укажите `AWG_GRPC_URL=https://admin.internal:9090` и один из
+   вариантов доверия:
+   - `AWG_GRPC_TLS_CA=/etc/awg/tls/grpc-ca.crt` — проверка по конкретному CA
+     (для self-signed это сам `grpc.crt`);
+   - `AWG_GRPC_TLS_SYSTEM_ROOTS=true` — системные корневые сертификаты;
+   - `AWG_GRPC_TLS_DOMAIN=admin.internal` — SNI/имя для проверки (по умолчанию
+     берётся host из `AWG_GRPC_URL`).
+
+   TLS в worker включается, если задан `AWG_GRPC_TLS_CA`,
+   `AWG_GRPC_TLS_DOMAIN` или `AWG_GRPC_TLS_SYSTEM_ROOTS=true`. Без них
+   поведение прежнее — plaintext.
+
+Ограничения: это server-auth TLS (клиент проверяет сервер), взаимной
+аутентификации нет — worker не предъявляет клиентский сертификат. Узел
+по-прежнему аутентифицируется токеном `AWG_NODE_TOKEN` в сообщении `Hello`.
+mTLS потребует клиентских сертификатов и отдельного этапа.
+
 ## 10. Инциденты
 
 - Admin недоступен: проверить `docker compose ps`, `docker compose logs admin`, healthcheck `curl -fsS http://127.0.0.1:8080/api/v1/health`. Частые причины: неверные секреты в `production` (старт завершается ошибкой), схема БД новее поддерживаемой, заполненный диск, отсутствие тома `awg-data`.

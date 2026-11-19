@@ -109,9 +109,11 @@ Protocols`).
 ## Share-токены и TTL
 
 - Share-ссылка — случайный токен с `expires_at`; download публичный, но имеет срок жизни (`AWG_SHARE_TTL_SECS`, default 86400).
+- В redb хранится только `token_hash = sha256(token)` (ключ таблицы `share_links`) и `token_sealed` — токен, зашифрованный `Sealer` (`AWG_MASTER_KEY`). Открытого токена в базе нет; plaintext возвращается только в ответе на создание и при чтении списка владельцем/admin.
 - `GET /share/{token}` не отдаёт конфиг для revoked/expired/exhausted ссылок (`403`), неизвестный токен — `404`.
 - Отзыв: `DELETE /shares/{token}`; доступен владельцу устройства, создателю ссылки или admin, неизвестный токен — `404`. Вместо удаления ставится `revoked_at` (история), активная ссылка перестаёт работать сразу.
 - Отозванные ссылки хранятся 30 дней и затем удаляются фоновой очисткой; истёкшие удаляются в ту же задачу.
+- Миграция схемы `10 → 11` (`v11_share_token_hash`) пересчитывает хэш и запечатывает существующие токены, перенося записи на новые ключи; для legacy-ссылок при открытии БД нужен `AWG_MASTER_KEY`.
 
 ## Очистка TTL
 
@@ -121,10 +123,17 @@ Protocols`).
 
 - Токен ноды передаётся через `AWG_NODE_TOKEN` и проверяется как sha256-хэш при `Hello` (gRPC).
 - Порт `9090` не должен быть публичным; рекомендуется сеть docker-compose.
+- Транспорт gRPC по умолчанию plaintext (h2c). Server-auth TLS включается
+  `AWG_GRPC_TLS_CERT`/`AWG_GRPC_TLS_KEY` на admin; worker доверяет серверу по
+  `AWG_GRPC_TLS_CA`, `AWG_GRPC_TLS_DOMAIN` (system roots) или
+  `AWG_GRPC_TLS_SYSTEM_ROOTS=true`. Подробности — `OPERATIONS.md`, раздел 9.1.
+  mTLS (клиентские сертификаты worker) не реализован: TLS защищает канал от
+  прослушивания и MITM, но не заменяет `AWG_NODE_TOKEN`.
 
 ## Рекомендации по развертыванию
 
 - TLS и HTTP/3 — на Traefik; backend работает по h2c только внутри сети.
+- Для admin↔worker за пределами одной доверенной сети включайте gRPC TLS.
 - Не публиковать порт `9090` наружу.
 - Worker-контейнеру нужны `NET_ADMIN`, `SYS_MODULE` для netlink/tc/nft.
 - Использовать сильные `AWG_MASTER_KEY`, `AWG_JWT_SECRET`, пароль admin; менять дефолтный `admin/admin12345`.
@@ -189,7 +198,9 @@ pnpm audit --audit-level high --prod
 
 ## Ограничения
 
-- gRPC worker gateway не использует TLS внутри (ожидается внутренняя сеть); внешний TLS на Traefik покрывает клиентский HTTP, но не gRPC.
+- gRPC worker gateway по умолчанию работает без TLS; TLS включается
+  сертификатом (server-auth), mTLS с клиентскими сертификатами worker пока не
+  реализован (см. `OPERATIONS.md`, 9.1).
 - h2c backend ожидает proxy с поддержкой h2c (Traefik `h2c`).
 - Self-signed сертификаты для HTTP/3 не используются; выпускаются нормальные сертификаты в Traefik.
 
@@ -206,17 +217,16 @@ TOTP anti-replay, каскадное удаление пользователя, 
 share-ссылок, TTL-очистка, права групп/интерфейсов, публикации после
 изменений, шифрование бэкапов Android, sensitive clipboard, release-логи,
 PIN lockout, https-only, CSP `connect-src 'self'`, refresh auth-эндпоинтов,
-logout-гонки, WebSocket reconnect, CSV-инъекции.
+logout-гонки, WebSocket reconnect, CSV-инъекции, share-токены at rest
+(`sha256` + `Sealer`, схема 11).
 
 Осознанно оставлено (требует отдельного этапа):
 
 - Access/refresh-токены панели хранятся в `localStorage`. Для полного
   устранения XSS-риска нужен переход на `HttpOnly; Secure; SameSite` cookies
   и CSRF-токен на backend.
-- gRPC worker gateway работает без TLS/mTLS; нужен сертификат и настройка
-  worker.
-- Share-токены хранятся в redb открытым текстом; нужна миграция на хэш или
-  шифрование поля.
+- gRPC worker gateway по умолчанию работает без TLS; TLS включается
+  сертификатом (server-auth), mTLS — отдельный этап.
 - Блокирующие операции redb и argon2 выполняются в async-контексте; нужен
   `spawn_blocking`/отдельный writer-пул.
 - per-group mutex и worker registry локальны для процесса; для нескольких
