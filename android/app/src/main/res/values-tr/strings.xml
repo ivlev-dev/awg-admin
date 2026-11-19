@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Yapılandırma değişiklikleri kaydedildi.</string>
     <string name="addresses">Adresler</string>
     <string name="dns_servers">DNS sunucuları</string>
-    <string name="peer">Eş</string>
-    <string name="endpoint">Uç Nokta</string>
     <string name="always_on_vpn_support">Her Zaman Açık VPN’e İzin Ver</string>
     <string name="vpn_on">VPN açık</string>
     <string name="vpn_off">VPN kapalı</string>
-    <string name="random">(rastgele)</string>
     <string name="seconds">Saniye</string>
     <string name="cancel">İptal</string>
     <string name="unknown_error">Bilinmeyen bir hata oluştu</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Dosya gezgini yüklü değil</string>
     <string name="delete_tunnel">Tüneli sil</string>
     <string name="delete_tunnel_message">Bu tüneli silmek istediğinizden emin misiniz?</string>
-    <string name="yes">Evet</string>
-    <string name="no_email_detected">E-posta uygulaması algılanmadı</string>
     <string name="no_browser_detected">Tarayıcı algılanmadı</string>
-    <string name="auto">(Otomatik)</string>
     <string name="incorrect_pin">Pin yanlış</string>
     <string name="pin_created">Pin başarıyla oluşturuldu</string>
     <string name="enter_pin">Pin’inizi girin</string>
@@ -58,8 +52,6 @@
     <string name="language">Dil</string>
     <string name="display_theme">Ekran teması</string>
     <string name="primary_tunnel">Birincil tünel</string>
-    <string name="skip">Atla</string>
-    <string name="launch_app_settings">Uygulama ayarlarını başlat</string>
     <string name="learn_more">Daha fazla bilgi</string>
     <string name="local_logging">Yerel günlüğe kaydetme</string>
     <string name="native_kill_switch">Yerel kill switch</string>

@@ -200,6 +200,64 @@ class MigrationTest {
             }
     }
 
+    @Test
+    @Throws(IOException::class)
+    fun migrate42To46KeepsTunnelConfigAndManagedTunnelShape() {
+        helper.createDatabase(dbName, 42).apply {
+            execSQL(
+                """
+                INSERT INTO `tunnel_config` (`name`, `quick_config`, `position`)
+                VALUES ('Pixel', '{"quick":true}', 3)
+                """
+                    .trimIndent(),
+            )
+            close()
+        }
+
+        val db =
+            helper.runMigrationsAndValidate(
+                dbName,
+                46,
+                true,
+                MIGRATION_42_43,
+                MIGRATION_43_44,
+                MIGRATION_44_45,
+            )
+
+        db.query("SELECT `name`, `quick_config`, `position` FROM `tunnel_config`").use { cursor ->
+            assertEquals(1, cursor.count)
+            cursor.moveToFirst()
+            assertEquals("Pixel", cursor.getString(0))
+            assertEquals("{\"quick\":true}", cursor.getString(1))
+            assertEquals(3, cursor.getInt(2))
+        }
+
+        db.execSQL(
+            """
+            INSERT INTO `managed_tunnel`
+                (`device_id`, `tunnel_id`, `device_name`, `interface_id`, `endpoint`,
+                 `revision`, `synced_at`, `peer_id`, `label`)
+            VALUES ('device-1', 1, 'Pixel', 'iface-1', NULL, 'rev-1', 1, 'peer-1', 'home')
+            """
+                .trimIndent(),
+        )
+        db.query(
+                "SELECT `device_id`, `interface_id`, `peer_id`, `label` FROM `managed_tunnel`",
+            )
+            .use { cursor ->
+                assertEquals(1, cursor.count)
+                cursor.moveToFirst()
+                assertEquals("device-1", cursor.getString(0))
+                assertEquals("iface-1", cursor.getString(1))
+                assertEquals("peer-1", cursor.getString(2))
+                assertEquals("home", cursor.getString(3))
+            }
+        assertTrue(
+            db.indexNames("managed_tunnel")
+                .contains("index_managed_tunnel_device_name_interface_id_peer_id"),
+        )
+    }
+
     private fun androidx.sqlite.db.SupportSQLiteDatabase.indexNames(table: String): Set<String> =
         query("PRAGMA index_list(`$table`)").use { cursor ->
             val nameIndex = cursor.getColumnIndex("name")

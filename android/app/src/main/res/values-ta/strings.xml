@@ -8,12 +8,9 @@
     <string name="config_changes_saved">உள்ளமைவு மாற்றங்கள் சேமிக்கப்பட்டன.</string>
     <string name="addresses">முகவரிகள்</string>
     <string name="dns_servers">டிஎன்எச் சேவையகங்கள்</string>
-    <string name="peer">ஒப்பி</string>
-    <string name="endpoint">முனைப்புள்ளி</string>
     <string name="always_on_vpn_support">எப்போதும் VPN ஐ அனுமதிக்கவும்</string>
     <string name="vpn_on">Vpn on</string>
     <string name="vpn_off">Vpn அணை</string>
-    <string name="random">(சீரற்ற)</string>
     <string name="seconds">நொடிகள்</string>
     <string name="cancel">ரத்துசெய்</string>
     <string name="unknown_error">தெரியாத பிழை ஏற்பட்டது</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">கோப்பு எக்ச்ப்ளோரர் நிறுவப்படவில்லை</string>
     <string name="delete_tunnel">சுரங்கப்பாதையை நீக்கு</string>
     <string name="delete_tunnel_message">இந்த சுரங்கப்பாதையை நீக்க விரும்புகிறீர்களா?</string>
-    <string name="yes">ஆம்</string>
-    <string name="no_email_detected">மின்னஞ்சல் பயன்பாடு எதுவும் கண்டறியப்படவில்லை</string>
     <string name="no_browser_detected">உலாவி கண்டறியப்படவில்லை</string>
-    <string name="auto">(ஆட்டோ)</string>
     <string name="incorrect_pin">முள் தவறானது</string>
     <string name="pin_created">முள் வெற்றிகரமாக உருவாக்கப்பட்டது</string>
     <string name="enter_pin">உங்கள் முள் உள்ளிடவும்</string>
@@ -58,8 +52,6 @@
     <string name="language">மொழி</string>
     <string name="display_theme">கருப்பொருள் காட்சி</string>
     <string name="primary_tunnel">முதன்மை சுரங்கப்பாதை</string>
-    <string name="skip">தவிர்</string>
-    <string name="launch_app_settings">பயன்பாட்டு அமைப்புகளைத் தொடங்கவும்</string>
     <string name="learn_more">மேலும் அறிக</string>
     <string name="local_logging">உள்ளூர்வாசிகள்</string>
     <string name="native_kill_switch">சொந்த கொலை சுவிட்ச்</string>

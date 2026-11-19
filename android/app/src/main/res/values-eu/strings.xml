@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Konfigurazio-aldaketak gorde dira.</string>
     <string name="addresses">Helbideak</string>
     <string name="dns_servers">DNS zerbitzariak</string>
-    <string name="peer">Parekidea</string>
-    <string name="endpoint">Amaiera-puntua</string>
     <string name="always_on_vpn_support">Baimendu beti-aktibo VPNa </string>
     <string name="vpn_on">VPNa aktibo</string>
     <string name="vpn_off">VPNa itzalita</string>
-    <string name="random">(ausazkoa)</string>
     <string name="seconds">Segundo</string>
     <string name="cancel">Utzi</string>
     <string name="unknown_error">Errore ezezaguna gertatu da</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Ez dago fitxategi-esploratzailerik instalatuta</string>
     <string name="delete_tunnel">Ezabatu tunela</string>
     <string name="delete_tunnel_message">Ziur zaude hautatutako tunelak ezabatu nahi dituzula?</string>
-    <string name="yes">Bai</string>
-    <string name="no_email_detected">Ez da mezularitza-aplikaziorik detektatu</string>
     <string name="no_browser_detected">Ez da arakatzailerik detektatu</string>
-    <string name="auto">(Automatikoa)</string>
     <string name="incorrect_pin">PINa okerra da</string>
     <string name="pin_created">PINa ongi sortu da</string>
     <string name="enter_pin">Sartu PINa</string>
@@ -58,8 +52,6 @@
     <string name="language">Hizkuntza</string>
     <string name="display_theme">Bistaratze-gaia</string>
     <string name="primary_tunnel">Tunel lehenetsia</string>
-    <string name="skip">Saltatu</string>
-    <string name="launch_app_settings">Ireki aplikazioaren ezarpenak</string>
     <string name="learn_more">Ikasi gehiago</string>
     <string name="local_logging">Erregistro lokala</string>
     <string name="native_kill_switch">Jatorrizko kill switch-a</string>
@@ -112,20 +104,14 @@
     <string name="done">Eginda</string>
     <string name="_default">Lehenetsia</string>
     <string name="release_notes">Bertsioaren oharrak</string>
-    <string name="sort">Ordenatu</string>
     <string name="sort_by_latency">Ordenatu latentziaren arabera</string>
     <string name="pinging_servers">Zerbitzariei ping egiten…</string>
     <string name="drag_handle">Arrastatzeko heldulekua</string>
     <string name="move_up">Eraman gora</string>
     <string name="move_down">Eraman behera</string>
     <string name="tunnel">tunela</string>
-    <string name="open_settings">Ireki ezarpenak</string>
     <string name="fix">Konpondu</string>
-    <string name="start">Hasi</string>
-    <string name="tunnel_monitoring">Tunelaren monitorizazioa</string>
     <string name="backup_success">Babeskopia ongi egin da</string>
-    <string name="restore_success">Berrezarpena ongi egin da</string>
-    <string name="restarting_app">Aplikazioa berrabiarazten aldaketak aplikatzeko…</string>
     <string name="restore_failed">Babeskopiatik berrezarpenak huts egin du.</string>
     <string name="backup_failed">Babeskopia sortzeak huts egin du.</string>
     <string name="backup_application">Egin aplikazioaren datuen babeskopia</string>
@@ -149,7 +135,6 @@
     <string name="system">Sistema</string>
     <string name="doh">DNS HTTPS bidez (DoH)</string>
     <string name="comma_separated">Kakotxaz bereizita</string>
-    <string name="read_failed">Datuak irakurtzeak huts egin du.</string>
     <string name="config_error_template">Konfigurazio okerra. %1$s honako kokapenean: %2$s.</string>
     <string name="ports_must_differ">Huts egin du. Proxy-ek ataka desberdinak izan behar dituzte.</string>
     <string name="password_no_spaces">Pasahitzak ezin du zuriunerik izan</string>
@@ -169,9 +154,7 @@
     <string name="kernel_wireguard_unsupported">Kernelak ez du WireGuard euskarririk (modulua falta da edo ez dago kernelean integratuta)!</string>
     <string name="about">Honi buruz</string>
     <string name="resources">Baliabideak</string>
-    <string name="review">Baloratu aplikazioa</string>
     <string name="other">Bestelakoak</string>
-    <string name="options">Aukerak</string>
     <string name="general">Orokorra</string>
     <string name="backup_and_restore">Babeskopia eta berrezarpena</string>
     <string name="unknown">Ezezaguna</string>
@@ -190,13 +173,11 @@
     <string name="restart_message_template">Aldaketak gordetzean %1$s berrabiaraziko da, jarraitu nahi duzu?</string>
     <string name="_continue">Jarraitu</string>
     <string name="kill_switch">kill switch-a</string>
-    <string name="info">Informazioa</string>
     <string name="cookie_packet_junk_size">Cookie-paketearen zabor-tamaina</string>
     <string name="transport_packet_junk_size">Garraio-paketearen zabor-tamaina</string>
     <string name="special_junk_packet">Zabor-pakete berezia</string>
     <!-- AmneziaWG 3.0 -->
     <string name="copy_from">Kopiatu hemendik</string>
-    <string name="export_unsupported">Esportazioa ez da onartzen gailu honetan</string>
     <string name="export_canceled">Esportazioa bertan behera utzi da</string>
     <string name="proxy_channel_description">Proxy tunelentzako jakinarazpenak.</string>
     <string name="initializing">Hasieratzen…</string>
@@ -229,7 +210,6 @@
     <string name="tunnel_state_resolving_dns">DNSa ebazten</string>
     <string name="tunnel_state_handshake_failure">Eskuemate-hutsegitea</string>
     <string name="tunnel_state_disconnected">Deskonektatuta</string>
-    <string name="tunnel_state_starting">Hasten</string>
     <string name="status_template">egoera: %1$s</string>
     <string name="uptime_template">funtzionamendu-denbora: %1$s</string>
     <string name="peer_template">parekidea: %1$s</string>
@@ -251,12 +231,6 @@
     <!-- Errors -->
     <string name="vpn_permission_required">
         VPN baimena beharrezkoa
-    </string>
-    <string name="included_apps">
-        %1$s aplikazio sartuta
-    </string>
-    <string name="excluded_apps">
-        %1$s aplikazio baztertuta
     </string>
     <string name="error">Errorea</string>
     <string name="tunnel_globals">Tunelaren ezarpen globalak</string>
@@ -292,9 +266,6 @@
     <string name="lockdown_desc">Kill switch iraunkorra, tunelaz kanpoko trafiko guztia blokeatzen duena</string>
     <string name="vpn_desc">Sistema osoko VPN modu estandarra</string>
     <string name="local_logging_desc">Erregistro lokalen biltegiratzea zuzeneko ikustailearekin</string>
-    <string name="tunnel_globals_desc">Tunel guztientzako konfigurazio globalaren gainidazketak</string>
-    <string name="tunnel_configuration">Tunelaren konfigurazioa</string>
-    <string name="amnezia_configuration">Amnezia konfigurazioa</string>
     <string name="screen_recording_protection_desc">Blokeatu pantaila-grabazioa datu sentikorrak dituzten pantailetan</string>
     <string name="app_lock">Aplikazioaren blokeoa</string>
     <string name="app_lock_desc">Eskatu PINa aplikazioan sartzeko</string>
@@ -319,15 +290,12 @@
     <string name="local_network_permission_recommendation">Gomendio sendoa da baimen hau ematea.</string>
     <string name="local_network_permission_nearby_devices">Oharra: Androidek baimen hau “gertuko gailuak” gisa izendatzen du.</string>
     <string name="local_network_permission_denied">Sare lokalerako sarbidea ukatuta. Zenbait eginbidek agian ez dute behar bezala funtzionatuko</string>
-    <string name="add">Gehitu</string>
     <string name="log_export_success">Erregistroak ongi esportatu dira</string>
     <string name="stored_logs_deleted">Gordetako erregistroak ongi ezabatu dira</string>
     <string name="seamless_recovery">Tunelaren berreskurapen jarraitua</string>
     <string name="seamless_recovery_desc">Babesa mantentzen du DDNS aldaketetatik, sare-aldaketetatik eta NAT arazoetatik berreskuratzean</string>
     <string name="snackbar_seamless_recovery_attempt">Konexio-arazoa detektatu da. %s berreskuratzen…</string>
-    <string name="seamless_recovery_attempt_title">Berreskurapen jarraitua</string>
     <string name="seamless_recovery_attempt_message">Konexio-arazoa detektatu da. Berreskurapen automatikoa saiatzen.</string>
-    <string name="local_domain_suffixes">Domeinu lokalaren atzizkiak</string>
     <string name="domain_suffixes">Domeinu-atzizkiak</string>
     <string name="encrypted_dns">DNS enkriptatua</string>
     <string name="split_dns">DNS zatitua</string>
@@ -385,7 +353,6 @@
     <string name="restart_to_apply_message">Tunel aktiboa berrabiarazi behar da aldaketa hauek indarrean sartzeko.</string>
     <string name="save_and_restart">Gorde eta berrabiarazi</string>
     <string name="split_tunneling">Tunel zatiketa</string>
-    <string name="split_tunneling_desc">Bideratu aplikazio zehatzak tunel honetatik edo saihestuz</string>
     <string name="split_tunnel_include_label">Tunelizatu</string>
     <string name="split_tunnel_include_desc">Hautatutako aplikazioak tunelizatuko dira eta gainerako guztiek tunela saihestuko dute</string>
     <string name="split_tunnel_exclude_label">Saihestu</string>

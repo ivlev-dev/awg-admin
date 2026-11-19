@@ -6,11 +6,9 @@
     <string name="config_changes_saved">Zmeny konfigurácie boli uložené.</string>
     <string name="addresses">Adresy</string>
     <string name="dns_servers">Adresy DNS serverov</string>
-    <string name="endpoint">Koncový bod</string>
     <string name="always_on_vpn_support">Povoliť vždy zapnuté VPN</string>
     <string name="vpn_on">VPN zapnuté</string>
     <string name="vpn_off">VPN vypnuté</string>
-    <string name="random">(náhodný)</string>
     <string name="seconds">Sekundy</string>
     <string name="cancel">Zrušiť</string>
     <string name="unknown_error">Došlo k neznámej chybe</string>
@@ -18,8 +16,6 @@
     <string name="error_no_file_explorer">Nie je nainštalovaný žiadny prehliadač súborov</string>
     <string name="delete_tunnel">Vymazanie tunela</string>
     <string name="delete_tunnel_message">Naozaj chcete tieto tunely odstrániť?</string>
-    <string name="yes">Áno</string>
-    <string name="no_email_detected">Nebola zistená žiadna e-mailová aplikácia</string>
     <string name="no_browser_detected">Nebol zistený žiadny prehliadač</string>
     <string name="pin_created">Pin úspešne vytvorený</string>
     <string name="enter_pin">Zadať pin</string>
@@ -39,7 +35,6 @@
     <string name="language">Jazyk</string>
     <string name="display_theme">Motív zobrazenia</string>
     <string name="primary_tunnel">Predvolený tunel</string>
-    <string name="skip">Preskočiť</string>
     <string name="learn_more">Zistiť viac</string>
     <!-- AmneziaWG 3.0 -->
     <!-- Tunnel states -->

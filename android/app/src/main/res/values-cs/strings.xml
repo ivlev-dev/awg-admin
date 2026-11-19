@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Změny v konfiguraci uloženy.</string>
     <string name="addresses">Adresy</string>
     <string name="dns_servers">DNS servery</string>
-    <string name="peer"></string>
-    <string name="endpoint">Koncový bod</string>
     <string name="always_on_vpn_support">Povolit trvalé připojení VPN</string>
     <string name="vpn_on">VPN zapnuto</string>
     <string name="vpn_off">VPN vypnuto</string>
-    <string name="random">(náhodné)</string>
     <string name="seconds">s</string>
     <string name="cancel">Zrušit</string>
     <string name="unknown_error">Došlo k neznámé chybě</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Není nainstalován žádný průzkumník souborů</string>
     <string name="delete_tunnel">Smazat tunel</string>
     <string name="delete_tunnel_message">Opravdu chcete smazat vybrané tunely?</string>
-    <string name="yes">Ano</string>
-    <string name="no_email_detected">Žádná emailová aplikace nebyla nalezena</string>
     <string name="no_browser_detected">Žádný prohlížeč nebyl nalezen</string>
-    <string name="auto">(Automaticky)</string>
     <string name="incorrect_pin">PIN je nesprávný</string>
     <string name="pin_created">PIN úspěšně vytvořen</string>
     <string name="enter_pin">Zadejte PIN</string>
@@ -58,8 +52,6 @@
     <string name="language">Jazyk</string>
     <string name="display_theme">Téma zobrazení</string>
     <string name="primary_tunnel">Výchozí tunel</string>
-    <string name="skip">Přeskočit</string>
-    <string name="launch_app_settings">Spustit nastavení aplikace</string>
     <string name="learn_more">Zjistit více</string>
     <string name="local_logging">Monitor lokálních protokolů</string>
     <string name="native_kill_switch">Nativní kill switch</string>
@@ -110,20 +102,14 @@
     <string name="done">Hotovo</string>
     <string name="_default">Výchozí</string>
     <string name="release_notes">Poznámky k vydání</string>
-    <string name="sort">Třídit</string>
     <string name="sort_by_latency">Seřadit podle latence </string>
     <string name="pinging_servers">Ověřování dostupnosti serverů…</string>
     <string name="drag_handle">Přetáhnout úchyt</string>
     <string name="move_up">Posunout nahoru</string>
     <string name="move_down">Přesunout dolů</string>
     <string name="tunnel">tunel</string>
-    <string name="open_settings">Otevřít nastavení</string>
     <string name="fix">Opravit</string>
-    <string name="start">Spustit</string>
-    <string name="tunnel_monitoring">Monitorování tunelu</string>
     <string name="backup_success">Úspěšně zazálohováno.</string>
-    <string name="restore_success">Úspěšně obnoveno.</string>
-    <string name="restarting_app">Restartování aplikace pro použití změn…</string>
     <string name="restore_failed">Obnovení ze zálohy se nepodařilo.</string>
     <string name="backup_failed">Nepodařilo se vytvořit zálohu.</string>
     <string name="backup_application">Zálohovat data aplikace</string>
@@ -147,7 +133,6 @@
     <string name="system">Systém</string>
     <string name="doh">DNS přes HTTPS (DoH)</string>
     <string name="comma_separated">Oddělené čárkami</string>
-    <string name="read_failed">Nepodařilo se přečíst data.</string>
     <string name="config_error_template">Špatná konfigurace. %1$s v umístění: %2$s.</string>
     <string name="ports_must_differ">Selhalo. Proxy servery musí mít různé porty.</string>
     <string name="password_no_spaces">Heslo nesmí obsahovat mezery.</string>
@@ -165,9 +150,7 @@
     <string name="kernel_wireguard_unsupported">Jádro neobsahuje podporu pro WireGuard (modul chybí nebo není vestavěn do jádra)!</string>
     <string name="about">O aplikaci</string>
     <string name="resources">Odkazy</string>
-    <string name="review">Ohodnotit aplikaci</string>
     <string name="other">Ostatní</string>
-    <string name="options">Možnosti</string>
     <string name="general">Obecné</string>
     <string name="backup_and_restore">Zálohování a obnovení</string>
     <string name="unknown">Neznámé</string>
@@ -186,13 +169,11 @@
     <string name="restart_message_template">Uložení změn způsobí restart %1$s, chcete pokračovat?</string>
     <string name="_continue">Pokračovat</string>
     <string name="kill_switch">kill switch</string>
-    <string name="info">Informace</string>
     <string name="cookie_packet_junk_size">Velikost falešného cookie paketu </string>
     <string name="transport_packet_junk_size">Velikost falešného transportního paketu</string>
     <string name="special_junk_packet">Speciální falešný paket</string>
     <!-- AmneziaWG 3.0 -->
     <string name="copy_from">Zkopírovat z</string>
-    <string name="export_unsupported">Export není na tomto zařízení podporován </string>
     <string name="export_canceled">Export zrušen </string>
     <string name="proxy_channel_description">Upozornění pro proxy tunely.</string>
     <string name="initializing">Inicializace…</string>
@@ -225,7 +206,6 @@
     <string name="tunnel_state_resolving_dns">Rozpoznávání DNS</string>
     <string name="tunnel_state_handshake_failure">Selhání handshake </string>
     <string name="tunnel_state_disconnected">Odpojeno</string>
-    <string name="tunnel_state_starting">Spouštění </string>
     <string name="status_template">Stav: %1$s</string>
     <string name="uptime_template">Spuštěno: %1$s</string>
     <string name="peer_template">peer: %1$s</string>
@@ -240,8 +220,6 @@
     <string name="notification_dynamic_dns_message">Tunel %1$s byl aktualizován po změně dynamického DNS </string>
     <!-- Errors -->
     <string name="vpn_permission_required">Vyžadováno oprávnění k VPN </string>
-    <string name="included_apps">%1$s aplikací zahrnuto</string>
-    <string name="excluded_apps">%1$s aplikací vyloučeno </string>
     <string name="error">Chyba</string>
     <string name="tunnel_globals">Globální nastavení tunelu </string>
     <string name="screen_recording_protection">Ochrana proti nahrávání obrazovky</string>
@@ -276,9 +254,6 @@
     <string name="lockdown_desc">Trvalý kill switch, který blokuje veškerý provoz mimo tunel </string>
     <string name="vpn_desc">Standardní režim VPN pro celý systém</string>
     <string name="local_logging_desc">Lokální úložiště protokolů s prohlížečem v reálném čase</string>
-    <string name="tunnel_globals_desc">Globální konfigurace má přednost pro všechny tunely</string>
-    <string name="tunnel_configuration">Nastavení tunelu</string>
-    <string name="amnezia_configuration">Nastavení Amnezie</string>
     <string name="screen_recording_protection_desc">Zablokujte nahrávání obrazovky na obrazovkách s citlivými údaji</string>
     <string name="app_lock">Zámek aplikace </string>
     <string name="app_lock_desc">Vyžadovat PIN pro přístup k aplikaci</string>
@@ -303,15 +278,12 @@
     <string name="local_network_permission_recommendation">Udělení tohoto oprávnění se důrazně doporučuje.</string>
     <string name="local_network_permission_nearby_devices">Poznámka: Android označuje toto oprávnění jako „zařízení v okolí“.</string>
     <string name="local_network_permission_denied">Přístup k místní síti byl odepřen. Některé funkce nemusí fungovat správně.</string>
-    <string name="add">Přidat </string>
     <string name="log_export_success">Logy úspěšně exportovány</string>
     <string name="stored_logs_deleted">Uložené protokoly úspěšně smazány</string>
     <string name="seamless_recovery">Plynulá obnova tunelu</string>
     <string name="seamless_recovery_desc">Zajišťuje nepřetržitou ochranu i během obnovy po změnách DDNS, přepnutí sítě a problémech s NAT</string>
     <string name="snackbar_seamless_recovery_attempt">Zjištěn problém s připojením. Obnovování %s…</string>
-    <string name="seamless_recovery_attempt_title">Plynulé obnovení </string>
     <string name="seamless_recovery_attempt_message">Byla zjištěna chyba připojení. Probíhá pokus o automatické obnovení.</string>
-    <string name="local_domain_suffixes">Přípony místních domén</string>
     <string name="encrypted_dns">Šifrované DNS</string>
     <string name="split_dns">Rozdělené DNS</string>
     <string name="system_dns_only">Pouze systémové DNS</string>

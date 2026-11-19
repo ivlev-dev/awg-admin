@@ -6,11 +6,9 @@
     <string name="config_changes_saved">Mudanças nas configurações gravadas.</string>
     <string name="addresses">Endereços</string>
     <string name="dns_servers">Servidores DNS</string>
-    <string name="peer">Par</string>
     <string name="always_on_vpn_support">Permitir VPN sempre ligada</string>
     <string name="vpn_on">VPN ligada</string>
     <string name="vpn_off">VPN desligada</string>
-    <string name="random">(aleatório)</string>
     <string name="seconds">segundos</string>
     <string name="cancel">Cancelar</string>
     <string name="unknown_error">Ocorreu um erro desconhecido</string>
@@ -18,10 +16,7 @@
     <string name="error_no_file_explorer">Nenhum explorador de ficheiros instalado</string>
     <string name="delete_tunnel">Apagar túnel</string>
     <string name="delete_tunnel_message">Tem certeza que quer apagar este túnel?</string>
-    <string name="yes">Sim</string>
-    <string name="no_email_detected">Nenhuma aplicação de email detetado</string>
     <string name="no_browser_detected">Nenhum navegador detetado</string>
-    <string name="auto">(automático)</string>
     <string name="incorrect_pin">O Pin está errado</string>
     <string name="pin_created">Pin criado com sucesso</string>
     <string name="enter_pin">Digite o seu pin</string>
@@ -49,7 +44,6 @@
     <string name="dynamic">Dinâmico</string>
     <string name="language">Idioma</string>
     <string name="display_theme">Tema</string>
-    <string name="skip">Pular</string>
     <string name="learn_more">Saber mais</string>
     <string name="local_logging">Registo local</string>
     <string name="native_kill_switch">Interruptor de desligamento padrão</string>

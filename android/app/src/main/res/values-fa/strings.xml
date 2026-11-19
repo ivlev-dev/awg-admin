@@ -8,12 +8,9 @@
     <string name="config_changes_saved">تغییرات پیکربندی ذخیره شد.</string>
     <string name="addresses">آدرس‌ها </string>
     <string name="dns_servers">سرورهای DNS </string>
-    <string name="peer">همتا</string>
-    <string name="endpoint">نقطه پایانی </string>
     <string name="always_on_vpn_support">اجازه دهید VPN همیشه روشن باشد </string>
     <string name="vpn_on">وی پی ان روشن </string>
     <string name="vpn_off">وی پی ان خاموش</string>
-    <string name="random">(تصادفی) </string>
     <string name="seconds">ثانیه‌ها </string>
     <string name="cancel">لغو </string>
     <string name="unknown_error">خطای ناشناخته‌ای رخ داد </string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">هیچ فایل اکسپلورری نصب نشده است </string>
     <string name="delete_tunnel">حذف تونل </string>
     <string name="delete_tunnel_message">آیا مطمئن هستید که می‌خواهید تونل‌های انتخاب‌شده را حذف کنید؟ </string>
-    <string name="yes">بله</string>
-    <string name="no_email_detected">هیچ برنامه ایمیلی شناسایی نشد </string>
     <string name="no_browser_detected">هیچ مرورگری شناسایی نشد </string>
-    <string name="auto">(خودکار) </string>
     <string name="incorrect_pin">پین اشتباه است </string>
     <string name="pin_created">پین با موفقیت ایجاد شد </string>
     <string name="enter_pin">پین را وارد کنید</string>
@@ -55,8 +49,6 @@
     <string name="dynamic">پویا </string>
     <string name="language">زبان </string>
     <string name="primary_tunnel">تونل پیش‌فرض</string>
-    <string name="skip">پرش</string>
-    <string name="launch_app_settings">تنظیمات برنامه را اجرا کنید </string>
     <string name="learn_more">بیشتر بدانید </string>
     <string name="local_logging">ثبت وقایع محلی </string>
     <string name="bypass_lan_for_kill_switch">دور زدن LAN برای کیل سوئیچ</string>
@@ -103,20 +95,14 @@
     <string name="show_qr">نمایش QR</string>
     <string name="done">انجام شد</string>
     <string name="release_notes">یادداشت‌های انتشار </string>
-    <string name="sort">مرتب کردن</string>
     <string name="sort_by_latency">مرتب کردن بر اساس تأخیر </string>
     <string name="pinging_servers">پینگ سرورها… </string>
     <string name="drag_handle">دستگیره هدایت</string>
     <string name="move_up">حرکت به بالا</string>
     <string name="move_down">حرکت به پایین</string>
     <string name="tunnel">تونل </string>
-    <string name="open_settings">تنظیمات را باز کنید</string>
     <string name="fix">تعمیر</string>
-    <string name="start">شروع</string>
-    <string name="tunnel_monitoring">نظارت بر تونل </string>
     <string name="backup_success">پشتیبان‌گیری تکمیل شد </string>
-    <string name="restore_success">بازیابی تکمیل شد </string>
-    <string name="restarting_app">برای اعمال تغییرات، برنامه را مجدداً راه‌اندازی کنید… </string>
     <string name="backup_failed">ایجاد نسخه پشتیبان ناموفق بود.</string>
     <string name="backup_application">پشتیبان‌گیری از داده‌های برنامه </string>
     <string name="restore_application">بازیابی از نسخه پشتیبان</string>
@@ -136,7 +122,6 @@
     <string name="system">سیستم</string>
     <string name="doh">DNS روی HTTPS (DoH)</string>
     <string name="comma_separated">با کاما از هم جدا شده اند</string>
-    <string name="read_failed">خواندن داده‌ها ناموفق بود.</string>
     <string name="config_error_template">پیکربندی بد. %1$s در مکان: %2$s.</string>
     <string name="ports_must_differ">ناموفق. پروکسی‌ها باید پورت‌های متفاوتی داشته باشند. </string>
     <string name="password_no_spaces">رمز عبور نمی‌تواند فاصله داشته باشد </string>
@@ -153,9 +138,7 @@
     <string name="kernel_wireguard_unsupported">کرنل از WireGuard پشتیبانی نمی‌کند (ماژول آن وجود ندارد یا در کرنل تعبیه نشده است)!</string>
     <string name="about">درباره</string>
     <string name="resources">منابع</string>
-    <string name="review">امتیازدهی به برنامه </string>
     <string name="other">غیره</string>
-    <string name="options">گزینه‌ها </string>
     <string name="general">عمومی </string>
     <string name="backup_and_restore">پشتیبان گیری و بازیابی </string>
     <string name="unknown">ناشناخته</string>
@@ -176,11 +159,8 @@
     <!-- Errors -->
     <string name="restore_failed_invalid_file">بازیابی ناموفق بود. یک فایل پشتیبان معتبر انتخاب کنید (.sqlite3 یا sqlite3.aes)</string>
     <string name="seamless_recovery_desc">در حین بازیابی از تغییرات DDNS، سوئیچ‌های شبکه و مشکلات NAT، محافظت را حفظ می‌کند.</string>
-    <string name="seamless_recovery_attempt_title">بازیابی یکپارچه
-</string>
     <string name="seamless_recovery_attempt_message">مشکل اتصال شناسایی شد. در حال تلاش برای بازیابی خودکار هستم.
 </string>
-    <string name="local_domain_suffixes">پسوندهای دامنه محلی</string>
     <string name="encrypted_dns">DNS رمزگذاری شده</string>
     <string name="split_dns">تقسیم DNS</string>
     <string name="system_dns_only">فقط DNS سیستم</string>

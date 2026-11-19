@@ -9,17 +9,13 @@
     <string name="always_on_vpn_support">Sall aina käytössä oleva VPN</string>
     <string name="vpn_on">VPN päällä</string>
     <string name="vpn_off">VPN pois päältä</string>
-    <string name="random">(satunnainen)</string>
     <string name="seconds">sekuntia</string>
     <string name="cancel">Peruuta</string>
     <string name="unknown_error">Tapahtui tuntematon virhe</string>
     <string name="error_no_file_explorer">Tiedostonhallintasovellusta ei ole asennettuna</string>
     <string name="delete_tunnel">Poista tunneli</string>
     <string name="delete_tunnel_message">Haluatko varmasti poistaa tämän tunnelin?</string>
-    <string name="yes">Kyllä</string>
-    <string name="no_email_detected">Sähköpostisovellusta ei tunnistettu</string>
     <string name="no_browser_detected">Selainta ei tunnistettu</string>
-    <string name="auto">(auto)</string>
     <string name="incorrect_pin">Pin on virheellinen</string>
     <string name="pin_created">Pin luotu</string>
     <string name="enter_pin">Syötä pin-koodi</string>
@@ -44,8 +40,6 @@
     <string name="language">Kieli</string>
     <string name="display_theme">Teema</string>
     <string name="primary_tunnel">Ensisijainen tunneli</string>
-    <string name="skip">Ohita</string>
-    <string name="launch_app_settings">Käynnistä sovelluksen asetukset</string>
     <string name="learn_more">Lue lisää</string>
     <string name="allow_lan_traffic">Salli LAN-tietoliikenne</string>
     <string name="vpn_channel_description">Kanava VPN-tilan ilmoituksille</string>

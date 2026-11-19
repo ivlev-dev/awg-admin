@@ -8,18 +8,13 @@
     <string name="config_changes_saved">კონფიგურაციის ცვლილებები შენახულია.</string>
     <string name="addresses">მისამართები</string>
     <string name="dns_servers">DNS სერვერები</string>
-    <string name="peer">მოზიარე</string>
-    <string name="endpoint">საბოლოო წერტილი/მისამართი</string>
     <string name="always_on_vpn_support">ყოველთვის ჩართული VPN</string>
     <string name="vpn_on">VPN ჩართვა</string>
     <string name="vpn_off">VPN გამორთვა</string>
-    <string name="random">(შემთხვევითი)</string>
     <string name="seconds">წამები</string>
     <string name="cancel">უარყოფა</string>
     <string name="unknown_error">დაფიქსირდა უცნობი შეცდომა</string>
     <string name="error_root_denied">ვერ მოვიპოვე Root გარემოცვა</string>
-    <string name="yes">დიახ</string>
-    <string name="auto">(ავტოამტური)</string>
     <string name="incorrect_pin">პინი არის არასწორი</string>
     <string name="pin_created">პინი წარმატებით შეიქმნა</string>
     <string name="enter_pin">შეიყვანეთ პინი</string>
@@ -37,8 +32,6 @@
     <string name="dynamic">დინამიური</string>
     <string name="language">ენა</string>
     <string name="primary_tunnel">ნაგულისხმევი ტუნელი</string>
-    <string name="skip">გამოტოვება</string>
-    <string name="launch_app_settings">გახსენი აპლიკაციის სეთინგები</string>
     <string name="learn_more">წაიკითხე მეტი</string>
     <!-- AmneziaWG 3.0 -->
     <!-- Tunnel states -->

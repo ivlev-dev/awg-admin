@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Изменения конфигурации сохранены.</string>
     <string name="addresses">Адреса</string>
     <string name="dns_servers">DNS-серверы</string>
-    <string name="peer">Узел</string>
-    <string name="endpoint">Точка подключения</string>
     <string name="always_on_vpn_support">Постоянный VPN</string>
     <string name="vpn_on">VPN вкл.</string>
     <string name="vpn_off">VPN откл.</string>
-    <string name="random">(случайно)</string>
     <string name="seconds">Секунд</string>
     <string name="cancel">Отмена</string>
     <string name="unknown_error">Неизвестная ошибка</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Не найден файловый менеджер</string>
     <string name="delete_tunnel">Удалить туннель</string>
     <string name="delete_tunnel_message">Удалить выбранные туннели?</string>
-    <string name="yes">Да</string>
-    <string name="no_email_detected">Приложение для отправки почты не найдено</string>
     <string name="no_browser_detected">Браузер не найден</string>
-    <string name="auto">(Авто)</string>
     <string name="incorrect_pin">Некорректный PIN-код</string>
     <string name="pin_created">PIN-код создан успешно</string>
     <string name="enter_pin">Введите PIN-код</string>
@@ -64,8 +58,6 @@
     <string name="entry_tunnel_none_desc">Использовать этот туннель самостоятельно.</string>
     <string name="entry_tunnel_add_another">Добавить другой туннель в качестве входного.</string>
     <string name="via_entry">через %1$s</string>
-    <string name="skip">Пропустить</string>
-    <string name="launch_app_settings">Настройки запуска приложения</string>
     <string name="learn_more">Узнать больше</string>
     <string name="local_logging">Журналирование</string>
     <string name="native_kill_switch">Настройки в системе</string>
@@ -133,7 +125,6 @@
     <string name="done">Готово</string>
     <string name="_default">По умолчанию</string>
     <string name="release_notes">Примечания к выпуску</string>
-    <string name="sort">Сортировка</string>
     <string name="sort_by_latency">Сортировка по задержке</string>
     <string name="pinging_servers">Проверка отклика серверов…</string>
     <string name="ping_unreachable">недоступен</string>
@@ -141,13 +132,8 @@
     <string name="move_up">Переместить вверх</string>
     <string name="move_down">Переместить вниз</string>
     <string name="tunnel">туннель</string>
-    <string name="open_settings">Открыть настройки</string>
     <string name="fix">Исправить</string>
-    <string name="start">Пуск</string>
-    <string name="tunnel_monitoring">Отслеживание туннеля</string>
     <string name="backup_success">Резервное копирование выполнено</string>
-    <string name="restore_success">Восстановление выполнено</string>
-    <string name="restarting_app">Перезапуск приложения для применения изменений…</string>
     <string name="restore_failed">Невозможно восстановить из резервной копии</string>
     <string name="backup_failed">Невозможно создать резервную копию</string>
     <string name="backup_application">Резервирование данных</string>
@@ -175,7 +161,6 @@
     <string name="doh_desc">Получить через DNS-over-HTTPS</string>
     <string name="bootstrap_system_dns_desc">Получить через DNS устройства</string>
     <string name="comma_separated">Разделённые запятой</string>
-    <string name="read_failed">Невозможно прочитать данные.</string>
     <string name="config_error_template">Неправильная конфигурация: %1$s в позиции %2$s.</string>
     <string name="ports_must_differ">Ошибка: прокси должны иметь разные порты.</string>
     <string name="password_no_spaces">Пароль не может содержать пробелы</string>
@@ -193,9 +178,7 @@
     <string name="kernel_wireguard_unsupported">Ядро не поддерживает WireGuard (модуль отсутствует или не встроен в ядро)!</string>
     <string name="about">О приложении</string>
     <string name="resources">Ресурсы</string>
-    <string name="review">Оценить приложение</string>
     <string name="other">Другое</string>
-    <string name="options">Параметры</string>
     <string name="general">Общие</string>
     <string name="multihop">Каскад</string>
     <string name="backup_and_restore">Резервное копирование</string>
@@ -218,14 +201,12 @@
     <string name="save_and_restart">Сохранить и перезапустить</string>
     <string name="_continue">Продолжить</string>
     <string name="kill_switch">экстренное отключение</string>
-    <string name="info">Информация</string>
     <string name="cookie_packet_junk_size">Количество «мусора» в пакете cookie</string>
     <string name="transport_packet_junk_size">Размер «мусора» в транспортном пакете</string>
     <string name="special_junk_packet">Специальный «мусорный» пакет</string>
     <!-- AmneziaWG 3.0 -->
     <string name="copy_from">Копировать из…</string>
     <string name="split_tunneling">Раздельное туннелирование</string>
-    <string name="split_tunneling_desc">Перенаправление трафика определённых приложений через туннель или в обход него</string>
     <string name="split_tunnel_include_label">Туннель</string>
     <string name="split_tunnel_include_desc">Выбранные приложения будут перенаправлены в туннель, а все остальные не будут перенаправляться</string>
     <string name="split_tunnel_exclude_label">Обход</string>
@@ -234,7 +215,6 @@
     <string name="select_apps_to_exclude">Выбор исключаемых приложений</string>
     <string name="split_mode">Режим разделения</string>
     <string name="split_mode_desc">Выбранные приложения используют туннель или обходят его</string>
-    <string name="export_unsupported">Экспорт не поддерживается на данном устройстве</string>
     <string name="export_canceled">Экспорт отменён</string>
     <string name="proxy_channel_description">Канал уведомлений прокси-туннелей</string>
     <string name="initializing">Инициализация…</string>
@@ -270,7 +250,6 @@
     <string name="tunnel_state_resolving_dns">сопоставление DNS</string>
     <string name="tunnel_state_handshake_failure">ошибка подключения</string>
     <string name="tunnel_state_disconnected">отключён</string>
-    <string name="tunnel_state_starting">запуск</string>
     <string name="status_template">статус: %1$s</string>
     <string name="uptime_template">работает: %1$s</string>
     <string name="socks5_proxy_template">socks5-прокси: %1$s</string>
@@ -289,8 +268,6 @@
     <string name="notification_dynamic_dns_message">%1$s обновлён после изменения динамического DNS</string>
     <!-- Errors -->
     <string name="vpn_permission_required">Требуется разрешение VPN</string>
-    <string name="included_apps">Включено приложений: %1$s</string>
-    <string name="excluded_apps">Исключено приложений: %1$s</string>
     <string name="error">Ошибка</string>
     <string name="tunnel_globals">Общие настройки туннелей</string>
     <string name="screen_recording_protection">Защита от записи</string>
@@ -329,9 +306,6 @@
     <string name="lockdown_desc">Блокировать весь трафик, не проходящий через туннель</string>
     <string name="vpn_desc">Стандартный системный режим VPN</string>
     <string name="local_logging_desc">Локальное хранилище журналов с просмотром в реальном времени</string>
-    <string name="tunnel_globals_desc">Глобальные изменения конфигурации для всех туннелей</string>
-    <string name="tunnel_configuration">Конфигурация туннеля</string>
-    <string name="amnezia_configuration">Настройки Amnezia</string>
     <string name="screen_recording_protection_desc">Блокировать запись экрана, содержащего приватные данные</string>
     <string name="app_lock">Защита приложения</string>
     <string name="app_lock_desc">Использовать PIN-код для доступа к приложению</string>
@@ -356,7 +330,6 @@
     <string name="local_network_permission_recommendation">Настоятельно рекомендуется предоставить данное разрешение.</string>
     <string name="local_network_permission_nearby_devices">Примечание: Android обозначает это разрешение как «устройства поблизости».</string>
     <string name="local_network_permission_denied">Доступ к локальной сети запрещён. Некоторые функции могут работать неправильно.</string>
-    <string name="add">Добавить</string>
     <string name="log_export_success">Журналы успешно экспортированы</string>
     <string name="stored_logs_deleted">Сохранённые журналы успешно удалены</string>
     <string name="seamless_recovery">Восстанавливать туннель</string>
@@ -368,9 +341,7 @@
     <string name="recovery_events">Восстановлений: %d</string>
     <string name="recovery_last_event">Последнее восстановление: %s</string>
     <string name="snackbar_seamless_recovery_attempt">Обнаружена проблема соединения. Восстановление %s…</string>
-    <string name="seamless_recovery_attempt_title">Восстановление туннеля</string>
     <string name="seamless_recovery_attempt_message">Обнаружена проблема подключения. Попытка автоматического восстановления.</string>
-    <string name="local_domain_suffixes">Суффиксы локального домена</string>
     <string name="domain_suffixes">Доменные суффиксы</string>
     <string name="encrypted_dns">Безопасный DNS</string>
     <string name="split_dns">Разделённый DNS</string>
@@ -535,8 +506,6 @@
     <string name="account_role_user">Пользователь</string>
     <string name="account_status">Статус</string>
     <string name="account_status_active">Активен</string>
-    <string name="account_status_pending_email">Email не подтверждён</string>
-    <string name="account_status_pending_approval">Ожидает одобрения</string>
     <string name="account_status_rejected">Отклонён</string>
     <string name="account_tariff">Тариф</string>
     <string name="account_node">Нода</string>
@@ -662,7 +631,6 @@
     <string name="account_error_subscription_inactive">Подписка неактивна, продлите её для доступа</string>
     <string name="account_add_device_interfaces">Интерфейсы</string>
     <string name="account_add_device_tunnels_count">Будет создано туннелей: %1$d</string>
-    <string name="account_device_interfaces">Интерфейсы</string>
     <string name="account_add_tunnel">Добавить туннель</string>
     <string name="account_delete_tunnel">Удалить туннель</string>
     <string name="account_delete_tunnel_message">Удалить туннель «%1$s»? Он будет удалён с этого устройства.</string>
@@ -724,9 +692,6 @@
     <string name="hide_system_apps">Скрыть системные приложения</string>
     <string name="split_tunnel_all_label">Туннелировать всё</string>
     <string name="split_tunnel_all_desc">Все приложения используют этот туннель</string>
-    <string name="global_split_off">У каждого туннеля свой список приложений</string>
-    <string name="global_split_applies">Применяется ко всем туннелям</string>
-    <string name="notification_tunnel_status_format">%1$s • %2$s</string>
     <string name="all_apps_tunneled">Все приложения в туннеле</string>
     <string name="managed_globally_detail">%1$s · Управляется глобально</string>
     <string name="managed_globally">Управляется глобально</string>

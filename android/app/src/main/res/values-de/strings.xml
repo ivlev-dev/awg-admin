@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Konfigurationsänderungen gespeichert.</string>
     <string name="addresses">Adressen</string>
     <string name="dns_servers">DNS-Server</string>
-    <string name="peer">Gegenstelle</string>
-    <string name="endpoint">Endpunkt</string>
     <string name="always_on_vpn_support">Always-On VPN erlauben</string>
     <string name="vpn_on">VPN an</string>
     <string name="vpn_off">VPN aus</string>
-    <string name="random">(zufällig)</string>
     <string name="seconds">Sekunden</string>
     <string name="cancel">Abbrechen</string>
     <string name="unknown_error">Unbekannter Fehler aufgetreten</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Kein Datei-Explorer installiert</string>
     <string name="delete_tunnel">Tunnel löschen</string>
     <string name="delete_tunnel_message">Bist du sicher, dass du die ausgewählten Tunnel löschen möchtest?</string>
-    <string name="yes">Ja</string>
-    <string name="no_email_detected">Keine E-Mail-App erkannt</string>
     <string name="no_browser_detected">Kein Browser erkannt</string>
-    <string name="auto">(automatisch)</string>
     <string name="incorrect_pin">PIN nicht korrekt</string>
     <string name="pin_created">PIN erfolgreich erstellt</string>
     <string name="enter_pin">PIN eingeben</string>
@@ -58,8 +52,6 @@
     <string name="language">Sprache</string>
     <string name="display_theme">Anzeigetheme</string>
     <string name="primary_tunnel">Standard-Tunnel</string>
-    <string name="skip">Überspringen</string>
-    <string name="launch_app_settings">App Einstellungen aufrufen</string>
     <string name="learn_more">Mehr erfahren</string>
     <string name="local_logging">Lokale Logs Überwachung</string>
     <string name="native_kill_switch">Nativer Notschalter</string>
@@ -106,19 +98,14 @@
     <string name="done">Erledigt</string>
     <string name="_default">Standard</string>
     <string name="release_notes">Release Notes</string>
-    <string name="sort">Sortierung</string>
     <string name="sort_by_latency">Sortieren nach Latenz</string>
     <string name="pinging_servers">Server werden angepingt...</string>
     <string name="drag_handle">Verschiebegriff</string>
     <string name="move_up">Nach oben verschieben</string>
     <string name="move_down">Nach unten verschieben</string>
     <string name="tunnel">Tunnel</string>
-    <string name="open_settings">Einstellungen öffnen</string>
     <string name="fix">Beheben</string>
-    <string name="tunnel_monitoring">Tunnelüberwachung</string>
     <string name="backup_success">Backuperfolg.</string>
-    <string name="restore_success">Wiederherstellerfolg.</string>
-    <string name="restarting_app">Starte App neu, um Änderungen anzuwenden …</string>
     <string name="restore_failed">Wiederherstellung aus Backup fehlgeschlagen.</string>
     <string name="backup_failed">Backup konnte nicht erstellt werden.</string>
     <string name="backup_application">Appdaten sichern</string>
@@ -138,7 +125,6 @@
     <string name="locked_down">Abgesperrt</string>
     <string name="doh">DNS über HTTPS (DoH)</string>
     <string name="comma_separated">Komma getrennt</string>
-    <string name="read_failed">Daten konnten nicht gelesen werden.</string>
     <string name="config_error_template">Schlechte Konfiguration. %1$s am Standort: %2$s.</string>
     <string name="ports_must_differ">Fehlgeschlagen. Proxys müssen unterschiedliche Ports haben.</string>
     <string name="password_no_spaces">Passwort kann keine Leerzeichen beinhalten.</string>
@@ -153,9 +139,7 @@
     <string name="kernel_wireguard_unsupported">Kernel enthält keine WireGuard-Unterstützung (Modul fehlt oder nicht in Kernel eingebaut)!</string>
     <string name="about">Über</string>
     <string name="resources">Resourcen</string>
-    <string name="review">App bewerten</string>
     <string name="other">Sonstiges</string>
-    <string name="options">Optionen</string>
     <string name="general">Allgemein</string>
     <string name="backup_and_restore">Sichern und Wiederherstellen</string>
     <string name="unknown">Unbekannt</string>
@@ -178,7 +162,6 @@
     <string name="special_junk_packet">Spezielles Junk-Paket</string>
     <!-- AmneziaWG 3.0 -->
     <string name="copy_from">Kopiere von</string>
-    <string name="export_unsupported">Der Export wird auf diesem Gerät nicht unterstützt</string>
     <string name="export_canceled">Export abgebrochen</string>
     <string name="proxy_channel_description">Ein Kanal für Proxy-Statusbenachrichtigungen</string>
     <string name="initializing">Initialisiere…</string>
@@ -211,7 +194,6 @@
     <string name="tunnel_state_resolving_dns">DNS auflösen</string>
     <string name="tunnel_state_handshake_failure">Handshake Fehler</string>
     <string name="tunnel_state_disconnected">Getrennt</string>
-    <string name="tunnel_state_starting">Wird gestartet</string>
     <string name="status_template">Status: %1$s</string>
     <string name="uptime_template">Uptime: %1$s</string>
     <string name="peer_template">Peer: %1$s</string>
@@ -233,12 +215,6 @@
     <!-- Errors -->
     <string name="vpn_permission_required">
         VPN-Berechtigung benötigt
-    </string>
-    <string name="included_apps">
-        %1$s Apps eingeschlossen
-    </string>
-    <string name="excluded_apps">
-        %1$s Apps ausgeschlossen
     </string>
     <string name="error">Fehler</string>
     <string name="tunnel_globals">Globale Tunnel-Einstellungen</string>
@@ -272,9 +248,6 @@
     <string name="lockdown_desc">Permanenter Notschalter der alle nicht-Tunnelverbindungen blockiert </string>
     <string name="vpn_desc">Normaler systemweiter VPN-Modus</string>
     <string name="local_logging_desc">Lokaler Log-Speicher mit Live-Viewer</string>
-    <string name="tunnel_globals_desc">Globale Konfiguration für alle Tunnel</string>
-    <string name="tunnel_configuration">Tunneleinstellungen</string>
-    <string name="amnezia_configuration">Amnezia Einstellungen</string>
     <string name="screen_recording_protection_desc">Bildschirmaufnahme auf Bildschirmen mit sensiblen Daten blockieren</string>
     <string name="app_lock">App-Sperre</string>
     <string name="app_lock_desc">PIN zum Zugriff auf die App erfordern</string>
@@ -298,13 +271,10 @@
     <string name="local_network_permission_recommendation">Das Erteilen dieser Berechtigung wird dringend empfohlen.</string>
     <string name="local_network_permission_nearby_devices">Hinweis: Android nennt diese Berechtigung „Geräte in der Nähe“.</string>
     <string name="local_network_permission_denied">Lokaler Netzwerkzugriff verweigert. Einige Funktionen funktionieren möglicherweise nicht korrekt</string>
-    <string name="add">Hinzufügen</string>
     <string name="log_export_success">Logs erfolgreich exportiert</string>
     <string name="stored_logs_deleted">Gespeicherte Logs erfolgreich gelöscht</string>
-    <string name="snackbar_seamless_recovery_attempt">Es wurde ein Verbindungsproblem festgestellt. Wiederherstellung läuft </string>
-    <string name="seamless_recovery_attempt_title">Nahtlose Wiederherstellung</string>
+    <string name="snackbar_seamless_recovery_attempt">Es wurde ein Verbindungsproblem festgestellt. Wiederherstellung von %s läuft…</string>
     <string name="seamless_recovery_attempt_message">Es wurde ein Verbindungsproblem festgestellt. Es wird versucht, das Problem automatisch zu beheben.</string>
-    <string name="local_domain_suffixes">Lokale Domain-Suffixe</string>
     <string name="encrypted_dns">Verschlüsseltes DNS</string>
     <string name="split_dns">Split-DNS</string>
     <string name="system_dns_only">Nur System-DNS</string>

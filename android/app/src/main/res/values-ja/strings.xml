@@ -4,8 +4,6 @@
     <string name="thank_you">WGトンネルをご利用いただきありがとうございます！</string>
     <string name="config_changes_saved">設定変更が保存された。</string>
     <string name="dns_servers">DNSサーバー</string>
-    <string name="peer">ピア</string>
-    <string name="endpoint">エンドポイント</string>
     <string name="always_on_vpn_support">常時VPN接続を許可</string>
     <string name="vpn_on">VPNオン</string>
     <string name="vpn_off">VPNオフ</string>
@@ -15,8 +13,6 @@
     <string name="error_no_file_explorer">ファイルエクスプローラーはインストールされていません</string>
     <string name="delete_tunnel">トンネルの削除</string>
     <string name="delete_tunnel_message">このトンネルを削除しますか？</string>
-    <string name="yes">はい</string>
-    <string name="no_email_detected">メールアプリは検出されません</string>
     <string name="no_browser_detected">ブラウザは検出されません</string>
     <string name="incorrect_pin">PINが無効です</string>
     <string name="pin_created">PINの登録が完了しました</string>

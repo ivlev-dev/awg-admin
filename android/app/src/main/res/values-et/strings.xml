@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Seadistuse muudatused on salvestatud.</string>
     <string name="addresses">Aadressid</string>
     <string name="dns_servers">Nimeserverid</string>
-    <string name="peer">Partner</string>
-    <string name="endpoint">Otspunkt</string>
     <string name="always_on_vpn_support">Luba alaliselt sisse lülitatud VPN</string>
     <string name="vpn_on">VPN on kasutusel</string>
     <string name="vpn_off">VPN pole kasutusel</string>
-    <string name="random">(juhuslik)</string>
     <string name="seconds">Sekundit</string>
     <string name="cancel">Katkesta</string>
     <string name="unknown_error">Tekkis tundmatu viga</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Failihaldurit pole paigaldatud</string>
     <string name="delete_tunnel">Kustuta tunnel</string>
     <string name="delete_tunnel_message">Kindel, et valitud tunnelid kustutada?</string>
-    <string name="yes">Jah</string>
-    <string name="no_email_detected">E-posti rakendust ei õnnestu tuvastada</string>
     <string name="no_browser_detected">Veebibrauserit ei õnnestu tuvastada</string>
-    <string name="auto">(automaatne)</string>
     <string name="incorrect_pin">PIN-kood pole õige</string>
     <string name="pin_created">PIN-koodi loomine õnnestus</string>
     <string name="enter_pin">Sisesta PIN-kood</string>
@@ -58,8 +52,6 @@
     <string name="language">Keel</string>
     <string name="display_theme">Kujundus</string>
     <string name="primary_tunnel">Vaikimisi tunnel</string>
-    <string name="skip">Jäta vahele</string>
-    <string name="launch_app_settings">Käivita rakenduse seadistused</string>
     <string name="learn_more">Lisateave</string>
     <string name="local_logging">Kohalike logide jälgija</string>
     <string name="native_kill_switch">Rakenduse avariinupp</string>
@@ -109,17 +101,11 @@
     <string name="done">Valmis</string>
     <string name="_default">Vaikimisi meetod</string>
     <string name="release_notes">Muudatuste logi</string>
-    <string name="sort">Järjesta</string>
     <string name="drag_handle">Käepide sikutamiseks</string>
     <string name="move_up">Liiguta ülespoole</string>
     <string name="move_down">Liiguta allapoole</string>
-    <string name="open_settings">Ava seadistused</string>
     <string name="fix">Paranda</string>
-    <string name="start">Käivita</string>
-    <string name="tunnel_monitoring">Tunnelo monitooring</string>
     <string name="backup_success">Varundus õnnestus.</string>
-    <string name="restore_success">Taastamine õnnestus.</string>
-    <string name="restarting_app">Muudatuste jõustamiseks taaskäivitan rakenduse…</string>
     <string name="restore_failed">Varukoopiast taastamine ei õnnestunud.</string>
     <string name="backup_failed">Varukoopia loomine ei õnnestunud.</string>
     <string name="backup_application">Varunda rakenduse andmed</string>
@@ -143,7 +129,6 @@
     <string name="system">Süsteemne</string>
     <string name="doh">DNS üle HTTPS-i (DoH)</string>
     <string name="comma_separated">Eraldatud komadega</string>
-    <string name="read_failed">Andmete lugemine ei õnnestunud.</string>
     <string name="config_error_template">Vigane seadistus. %1$s asukohas: %2$s.</string>
     <string name="ports_must_differ">Ei õnnestunud. Proksidel peavad olema erinevad pordid.</string>
     <string name="password_no_spaces">Salasõnas ei tohi olla tühikuid.</string>
@@ -160,9 +145,7 @@
     <string name="configuration">Seadistused</string>
     <string name="about">Rakenduse teave</string>
     <string name="resources">Ressursid</string>
-    <string name="review">Hinda rakendust</string>
     <string name="other">Muu</string>
-    <string name="options">Valikud</string>
     <string name="general">Üldist</string>
     <string name="backup_and_restore">Varundus ja taastamine</string>
     <string name="unknown">Pole teada</string>
@@ -181,7 +164,6 @@
     <string name="restart_message_template">Muudatuste salvestamine käivitab „%1$s“ tunneli uuesti. Kas sa soovid jätkata?</string>
     <string name="_continue">Jätka</string>
     <string name="kill_switch">kiirpeatamine</string>
-    <string name="info">Teave</string>
     <string name="cookie_packet_junk_size">Küpsisepaketi rämpsuosa suurus</string>
     <string name="transport_packet_junk_size">Transpordipaketi rämpsuosa suurus</string>
     <!-- AmneziaWG 3.0 -->

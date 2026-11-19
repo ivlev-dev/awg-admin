@@ -18,36 +18,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.CheckCircleOutline
-import androidx.compose.material.icons.outlined.ErrorOutline
-import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Info
-import androidx.compose.material.icons.outlined.WarningAmber
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.surfaceColorAtElevation
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -57,19 +39,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.intl.Locale
-import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import androidx.core.app.ActivityCompat
@@ -78,16 +55,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.currentStateAsState
 import androidx.lifecycle.lifecycleScope
-import androidx.lifecycle.viewmodel.navigation3.rememberViewModelStoreNavEntryDecorator
-import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
-import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
-import androidx.navigation3.ui.NavDisplay
-import com.dokar.sonner.TextToastAction
 import com.dokar.sonner.Toast
-import com.dokar.sonner.ToastCloseButton
 import com.dokar.sonner.ToastType
-import com.dokar.sonner.Toaster
 import com.dokar.sonner.rememberToasterState
 import kotlin.system.exitProcess
 import kotlin.time.Duration.Companion.milliseconds
@@ -97,9 +67,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.koin.android.ext.android.inject
-import org.koin.androidx.compose.koinViewModel
 import org.koin.androidx.viewmodel.ext.android.viewModel
-import org.koin.core.parameter.parametersOf
 import org.orbitmvi.orbit.compose.collectAsState
 import space.ivlev.umbravpn.core.lock.AppLockManager
 import space.ivlev.umbravpn.core.orchestration.AutoConnectEvent
@@ -112,7 +80,6 @@ import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.enums.StrictSplitNotice
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.model.TunnelConfig
-import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AppStateRepository
@@ -128,10 +95,12 @@ import space.ivlev.umbravpn.notification.NotificationService.Companion.UPDATE_AV
 import space.ivlev.umbravpn.service.tile.TunnelTileRefresher
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
 import space.ivlev.umbravpn.ui.LocalNavController
+import space.ivlev.umbravpn.ui.common.AppToaster
 import space.ivlev.umbravpn.ui.common.banner.AppAlertBanner
 import space.ivlev.umbravpn.ui.common.dialog.LocalNetworkPermissionDialog
 import space.ivlev.umbravpn.ui.common.dialog.VpnDeniedDialog
 import space.ivlev.umbravpn.ui.common.sheet.StrictSplitNoticeSheet
+import space.ivlev.umbravpn.ui.navigation.AppNavDisplay
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.navigation.SecureRoute
 import space.ivlev.umbravpn.ui.navigation.Tab
@@ -140,45 +109,9 @@ import space.ivlev.umbravpn.ui.navigation.components.DynamicTopAppBar
 import space.ivlev.umbravpn.ui.navigation.components.currentRouteAsNavbarState
 import space.ivlev.umbravpn.ui.navigation.functions.rememberNavController
 import space.ivlev.umbravpn.ui.navigation.resolveStartRedirect
-import space.ivlev.umbravpn.ui.screens.account.AccessBlockedScreen
-import space.ivlev.umbravpn.ui.screens.account.AccountDeviceDetailsScreen
-import space.ivlev.umbravpn.ui.screens.account.AccountDevicesScreen
-import space.ivlev.umbravpn.ui.screens.account.AccountScreen
-import space.ivlev.umbravpn.ui.screens.account.ForgotPasswordScreen
-import space.ivlev.umbravpn.ui.screens.account.LoginScreen
-import space.ivlev.umbravpn.ui.screens.account.OnboardingScreen
-import space.ivlev.umbravpn.ui.screens.account.RegisterScreen
-import space.ivlev.umbravpn.ui.screens.account.ResetPasswordScreen
-import space.ivlev.umbravpn.ui.screens.account.SessionExpiredScreen
-import space.ivlev.umbravpn.ui.screens.account.VerifyPendingScreen
 import space.ivlev.umbravpn.ui.screens.pin.LocalAppLocked
 import space.ivlev.umbravpn.ui.screens.pin.PinLockOverlay
-import space.ivlev.umbravpn.ui.screens.pin.PinLockScreen
-import space.ivlev.umbravpn.ui.screens.settings.SettingsScreen
-import space.ivlev.umbravpn.ui.screens.settings.advanced.AdvancedScreen
-import space.ivlev.umbravpn.ui.screens.settings.amnezia.GlobalAmneziaScreen
-import space.ivlev.umbravpn.ui.screens.settings.appearance.AppearanceScreen
-import space.ivlev.umbravpn.ui.screens.settings.appearance.display.DisplayScreen
-import space.ivlev.umbravpn.ui.screens.settings.appearance.language.LanguageScreen
-import space.ivlev.umbravpn.ui.screens.settings.appearance.notifications.NotificationsScreen
-import space.ivlev.umbravpn.ui.screens.settings.dns.DnsSettingsScreen
-import space.ivlev.umbravpn.ui.screens.settings.integrations.AndroidIntegrationsScreen
-import space.ivlev.umbravpn.ui.screens.settings.lockdown.LockdownSettingsScreen
-import space.ivlev.umbravpn.ui.screens.settings.logs.LogsScreen
-import space.ivlev.umbravpn.ui.screens.settings.monitoring.MonitoringScreen
-import space.ivlev.umbravpn.ui.screens.settings.proxy.ProxySettingsScreen
-import space.ivlev.umbravpn.ui.screens.settings.security.SecurityScreen
-import space.ivlev.umbravpn.ui.screens.support.SupportScreen
-import space.ivlev.umbravpn.ui.screens.support.license.LicenseScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.TunnelsScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.settings.TunnelSettingsScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.ConfigScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.settings.entry.EntryTunnelScreen
-import space.ivlev.umbravpn.ui.screens.tunnels.settings.ipv6.IPv6Screen
-import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.SplitTunnelScreen
 import space.ivlev.umbravpn.ui.theme.AlertRed
-import space.ivlev.umbravpn.ui.theme.Heart
-import space.ivlev.umbravpn.ui.theme.LocalStatusColors
 import space.ivlev.umbravpn.ui.theme.OffWhite
 import space.ivlev.umbravpn.ui.theme.UmbraVpnTheme
 import space.ivlev.umbravpn.util.FileUtils
@@ -189,8 +122,6 @@ import space.ivlev.umbravpn.util.extensions.openWebUrl
 import space.ivlev.umbravpn.util.permission.LocalNetworkPermissionHelper
 import space.ivlev.umbravpn.viewmodel.EmailVerificationViewModel
 import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
-import space.ivlev.umbravpn.viewmodel.SplitTunnelViewModel
-import space.ivlev.umbravpn.viewmodel.TunnelViewModel
 
 class MainActivity : AppCompatActivity() {
 
@@ -258,6 +189,7 @@ class MainActivity : AppCompatActivity() {
 
         setContent {
             val context = LocalContext.current
+            val resources = LocalResources.current
             val isTv = isRunningOnTv()
             val uiState by viewModel.collectAsState()
             val scope = rememberCoroutineScope()
@@ -328,7 +260,7 @@ class MainActivity : AppCompatActivity() {
                         } else {
                             toaster.show(
                                 message =
-                                    context.getString(R.string.local_network_permission_denied),
+                                    resources.getString(R.string.local_network_permission_denied),
                                 type = ToastType.Warning,
                                 duration = 6000.milliseconds,
                             )
@@ -348,8 +280,10 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            val session by authRepository.session.collectAsStateWithLifecycle()
+
             val initialRoute =
-                when (authRepository.session.value) {
+                when (session) {
                     is SessionState.Active,
                     is SessionState.Unknown -> Route.Tunnels
                     is SessionState.Blocked -> Route.AccessBlocked
@@ -393,7 +327,6 @@ class MainActivity : AppCompatActivity() {
                 if (redirect != null) navController.resetTo(redirect)
             }
 
-            val session by authRepository.session.collectAsStateWithLifecycle()
             LaunchedEffect(uiState.isAppLoaded, session, backStack.lastOrNull()) {
                 if (!uiState.isAppLoaded) return@LaunchedEffect
                 val current = backStack.lastOrNull()
@@ -667,7 +600,9 @@ class MainActivity : AppCompatActivity() {
                                 showLocalNetworkRationale = false
                                 toaster.show(
                                     message =
-                                        context.getString(R.string.local_network_permission_denied),
+                                        resources.getString(
+                                            R.string.local_network_permission_denied,
+                                        ),
                                     type = ToastType.Warning,
                                     duration = 6000.milliseconds,
                                 )
@@ -800,283 +735,29 @@ class MainActivity : AppCompatActivity() {
                                         BackHandler(enabled = uiState.selectedTunnelCount > 0) {
                                             viewModel.clearSelectedTunnels()
                                         }
-                                        NavDisplay(
+                                        AppNavDisplay(
                                             backStack = backStack,
-                                            modifier = Modifier.fillMaxSize(),
-                                            onBack = { navController.pop() },
-                                            transitionSpec = {
-                                                val initialIndex =
-                                                    previousRoute?.let(Tab::fromRoute)?.index ?: 0
-                                                val targetIndex =
-                                                    currentRoute?.let(Tab::fromRoute)?.index ?: 0
-                                                if (initialIndex != targetIndex) {
-                                                    val dir =
-                                                        if (targetIndex > initialIndex) 1 else -1
-                                                    (slideInHorizontally { dir * it } +
-                                                        fadeIn()) togetherWith
-                                                        (slideOutHorizontally { dir * -it } +
-                                                            fadeOut())
-                                                } else {
-                                                    (slideInHorizontally { it } +
-                                                        fadeIn()) togetherWith
-                                                        (slideOutHorizontally { -it } + fadeOut())
+                                            navController = navController,
+                                            previousRoute = previousRoute,
+                                            currentRoute = currentRoute,
+                                            session = session,
+                                            onSwitchAccount = {
+                                                lifecycleScope.launch {
+                                                    logoutCoordinator.logout()
+                                                    navController.resetTo(Route.Login)
                                                 }
                                             },
-                                            popTransitionSpec = {
-                                                (slideInHorizontally { -it } +
-                                                    fadeIn()) togetherWith
-                                                    (slideOutHorizontally { it } + fadeOut())
+                                            onOpenSupport = { navController.push(Route.Support) },
+                                            onSessionExpiredSignIn = {
+                                                navController.resetTo(Route.Login)
                                             },
-                                            predictivePopTransitionSpec = {
-                                                (slideInHorizontally { -it } +
-                                                    fadeIn()) togetherWith
-                                                    (slideOutHorizontally { it } + fadeOut())
-                                            },
-                                            entryDecorators =
-                                                listOf(
-                                                    rememberSaveableStateHolderNavEntryDecorator(),
-                                                    rememberViewModelStoreNavEntryDecorator(),
-                                                ),
-                                            entryProvider =
-                                                entryProvider {
-                                                    entry<Route.Lock> { PinLockScreen() }
-                                                    entry<Route.Onboarding> { OnboardingScreen() }
-                                                    entry<Route.Login> { LoginScreen() }
-                                                    entry<Route.AccessBlocked> {
-                                                        val blocked =
-                                                            session as? SessionState.Blocked
-                                                        AccessBlockedScreen(
-                                                            reason =
-                                                                blocked?.reason
-                                                                    ?: BlockReason.Disabled,
-                                                            email = blocked?.email,
-                                                            onSwitchAccount = {
-                                                                lifecycleScope.launch {
-                                                                    logoutCoordinator.logout()
-                                                                    navController.resetTo(
-                                                                        Route.Login,
-                                                                    )
-                                                                }
-                                                            },
-                                                            onSupport = {
-                                                                navController.push(Route.Support)
-                                                            },
-                                                        )
-                                                    }
-                                                    entry<Route.SessionExpired> {
-                                                        SessionExpiredScreen(
-                                                            onSignIn = {
-                                                                navController.resetTo(Route.Login)
-                                                            },
-                                                        )
-                                                    }
-                                                    entry<Route.Register> { RegisterScreen() }
-                                                    entry<Route.VerifyPending> { key ->
-                                                        VerifyPendingScreen(key.email)
-                                                    }
-                                                    entry<Route.ForgotPassword> {
-                                                        ForgotPasswordScreen()
-                                                    }
-                                                    entry<Route.ResetPassword> {
-                                                        ResetPasswordScreen()
-                                                    }
-                                                    entry<Route.Account> { AccountScreen() }
-                                                    entry<Route.AccountDevices> {
-                                                        AccountDevicesScreen()
-                                                    }
-                                                    entry<Route.AccountDeviceDetails> { key ->
-                                                        AccountDeviceDetailsScreen(key.id)
-                                                    }
-                                                    entry<Route.Tunnels> { TunnelsScreen() }
-                                                    entry<Route.TunnelSettings> { key ->
-                                                        val viewModel: TunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        TunnelSettingsScreen(viewModel)
-                                                    }
-                                                    entry<Route.Config> { key ->
-                                                        val viewModel: TunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        ConfigScreen(viewModel, key.live)
-                                                    }
-                                                    entry<Route.SplitTunnel> { key ->
-                                                        val viewModel: SplitTunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        SplitTunnelScreen(viewModel)
-                                                    }
-                                                    entry<Route.Settings> { SettingsScreen() }
-                                                    entry<Route.AndroidIntegrations> {
-                                                        AndroidIntegrationsScreen()
-                                                    }
-                                                    entry<Route.Dns> { DnsSettingsScreen() }
-                                                    entry<Route.ConfigGlobal> {
-                                                        GlobalAmneziaScreen()
-                                                    }
-                                                    entry<Route.GlobalAmnezia> {
-                                                        GlobalAmneziaScreen()
-                                                    }
-                                                    entry<Route.SplitTunnelGlobal> { key ->
-                                                        val viewModel: SplitTunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        SplitTunnelScreen(viewModel)
-                                                    }
-                                                    entry<Route.IPv6> { key ->
-                                                        val viewModel: TunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        IPv6Screen(viewModel)
-                                                    }
-                                                    entry<Route.EntryTunnel> { key ->
-                                                        val viewModel: TunnelViewModel =
-                                                            koinViewModel(
-                                                                parameters = {
-                                                                    parametersOf(key.id)
-                                                                },
-                                                            )
-                                                        EntryTunnelScreen(viewModel)
-                                                    }
-                                                    entry<Route.LockdownSettings> {
-                                                        LockdownSettingsScreen()
-                                                    }
-                                                    entry<Route.ProxySettings> {
-                                                        ProxySettingsScreen()
-                                                    }
-                                                    entry<Route.Appearance> { AppearanceScreen() }
-                                                    entry<Route.Language> { LanguageScreen() }
-                                                    entry<Route.Display> { DisplayScreen() }
-                                                    entry<Route.Notifications> {
-                                                        NotificationsScreen()
-                                                    }
-                                                    entry<Route.Logs> { LogsScreen() }
-                                                    entry<Route.Support> { SupportScreen() }
-                                                    entry<Route.License> { LicenseScreen() }
-                                                    entry<Route.TunnelGlobals> { AdvancedScreen() }
-                                                    entry<Route.Advanced> { AdvancedScreen() }
-                                                    entry<Route.Security> { SecurityScreen() }
-                                                    entry<Route.Monitoring> { MonitoringScreen() }
-                                                    entry<Route.TunnelRecovery> {
-                                                        MonitoringScreen()
-                                                    }
-                                                    entry<Route.MonitoringAndRecovery> {
-                                                        MonitoringScreen()
-                                                    }
-                                                },
                                         )
                                     }
                                 }
                                 // Toasts draw in their own window above the lock, so they wait for
                                 // unlock
                                 if (!showLock) {
-                                    Toaster(
-                                        state = toaster,
-                                        maxVisibleToasts = 1,
-                                        alignment = Alignment.BottomCenter,
-                                        offset = IntOffset(0, -220),
-                                        richColors = true,
-                                        background = {
-                                            Brush.linearGradient(
-                                                listOf(
-                                                    MaterialTheme.colorScheme
-                                                        .surfaceColorAtElevation(
-                                                            2.dp,
-                                                        ),
-                                                    MaterialTheme.colorScheme
-                                                        .surfaceColorAtElevation(
-                                                            2.dp,
-                                                        ),
-                                                ),
-                                            )
-                                        },
-                                        elevation = 1.dp,
-                                        shadowAmbientColor =
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f),
-                                        shadowSpotColor =
-                                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f),
-                                        border = {
-                                            BorderStroke(
-                                                0.dp,
-                                                androidx.compose.ui.graphics.Color.Transparent,
-                                            )
-                                        },
-                                        actionSlot = { toast ->
-                                            (toast.action as? TextToastAction)?.let { action ->
-                                                TextButton(
-                                                    onClick = { action.onClick(toast) },
-                                                    colors =
-                                                        ButtonDefaults.textButtonColors(
-                                                            contentColor =
-                                                                MaterialTheme.colorScheme.primary,
-                                                        ),
-                                                    modifier = Modifier.fillMaxWidth(.25f),
-                                                    contentPadding =
-                                                        PaddingValues(horizontal = 12.dp),
-                                                ) {
-                                                    Text(
-                                                        text = action.text,
-                                                        fontWeight = FontWeight.Medium,
-                                                        softWrap = true,
-                                                        maxLines = 5,
-                                                    )
-                                                }
-                                            }
-                                        },
-                                        iconSlot = { toast ->
-                                            val statusColors = LocalStatusColors.current
-                                            val (icon, color) =
-                                                (toast.icon as? ImageVector)?.let {
-                                                    it to MaterialTheme.colorScheme.primary
-                                                }
-                                                    ?: when (toast.type) {
-                                                        ToastType.Success ->
-                                                            Icons.Outlined.CheckCircleOutline to
-                                                                statusColors.success
-                                                        ToastType.Error ->
-                                                            Icons.Outlined.ErrorOutline to
-                                                                statusColors.error
-                                                        ToastType.Warning ->
-                                                            Icons.Outlined.WarningAmber to
-                                                                statusColors.warning
-                                                        ToastType.Info ->
-                                                            Icons.Outlined.Info to
-                                                                MaterialTheme.colorScheme.onSurface
-                                                        ToastType.Normal ->
-                                                            Icons.Outlined.FavoriteBorder to Heart
-                                                    }
-                                            Icon(
-                                                imageVector = icon,
-                                                contentDescription = null,
-                                                tint = color,
-                                                modifier = Modifier.padding(end = 12.dp),
-                                            )
-                                        },
-                                        contentColor = { MaterialTheme.colorScheme.onSurface },
-                                        shape = { RoundedCornerShape(16.dp) },
-                                        closeButton = { toast ->
-                                            ToastCloseButton(
-                                                onClick = { toaster.dismiss(toast) },
-                                                modifier = Modifier.align(Alignment.TopEnd),
-                                                offset = DpOffset(8.dp, (-8).dp),
-                                            )
-                                        },
-                                    )
+                                    AppToaster(toaster)
                                 }
                             }
                         }

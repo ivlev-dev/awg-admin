@@ -3,20 +3,11 @@ package space.ivlev.umbravpn.ui.screens.account
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,8 +23,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import org.koin.androidx.compose.koinViewModel
 import org.orbitmvi.orbit.compose.collectAsState
@@ -44,8 +33,9 @@ import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountFormField
-import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
+import space.ivlev.umbravpn.ui.screens.account.components.AccountFormScaffold
 import space.ivlev.umbravpn.ui.screens.account.components.AccountLoadingButton
+import space.ivlev.umbravpn.ui.screens.account.components.AccountPasswordField
 import space.ivlev.umbravpn.viewmodel.LoginSideEffect
 import space.ivlev.umbravpn.viewmodel.LoginViewModel
 
@@ -65,19 +55,10 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
         }
     }
 
-    Column(
-        modifier =
-            Modifier.fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    AccountFormScaffold(
+        title = stringResource(R.string.account_login_title),
+        subtitle = stringResource(R.string.account_login_subtitle),
     ) {
-        AccountHeader(
-            title = stringResource(R.string.account_login_title),
-            subtitle = stringResource(R.string.account_login_subtitle),
-        )
-
         AccountFormField(
             value = state.email,
             onValueChange = viewModel::onEmailChange,
@@ -90,11 +71,12 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
             contentType = ContentType.EmailAddress,
         )
 
-        AccountFormField(
+        AccountPasswordField(
             value = state.password,
             onValueChange = viewModel::onPasswordChange,
             label = stringResource(R.string.password),
             error = state.passwordError,
+            visible = state.passwordVisible,
             keyboardOptions =
                 KeyboardOptions(
                     keyboardType = KeyboardType.Password,
@@ -107,23 +89,7 @@ fun LoginScreen(viewModel: LoginViewModel = koinViewModel()) {
                     KeyboardActions(onDone = { viewModel.submit() })
                 },
             contentType = ContentType.Password,
-            visualTransformation =
-                if (state.passwordVisible) VisualTransformation.None
-                else PasswordVisualTransformation(),
-            trailing = { modifier ->
-                IconButton(onClick = viewModel::togglePasswordVisibility, modifier = modifier) {
-                    Icon(
-                        imageVector =
-                            if (state.passwordVisible) Icons.Outlined.VisibilityOff
-                            else Icons.Outlined.Visibility,
-                        contentDescription =
-                            stringResource(
-                                if (state.passwordVisible) R.string.hide_password
-                                else R.string.show_password,
-                            ),
-                    )
-                }
-            },
+            onToggleVisibility = viewModel::togglePasswordVisibility,
         )
 
         if (state.showTotp) {

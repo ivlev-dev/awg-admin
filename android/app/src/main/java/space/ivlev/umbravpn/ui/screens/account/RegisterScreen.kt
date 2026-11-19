@@ -1,27 +1,12 @@
 package space.ivlev.umbravpn.ui.screens.account
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Visibility
-import androidx.compose.material.icons.outlined.VisibilityOff
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalFocusManager
@@ -29,9 +14,6 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.unit.dp
 import org.koin.androidx.compose.koinViewModel
 import org.koin.compose.viewmodel.koinActivityViewModel
 import org.orbitmvi.orbit.compose.collectAsState
@@ -40,10 +22,12 @@ import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.ui.LocalNavController
 import space.ivlev.umbravpn.ui.common.text.DescriptionText
 import space.ivlev.umbravpn.ui.navigation.Route
+import space.ivlev.umbravpn.ui.screens.account.components.AccountBackToLoginButton
 import space.ivlev.umbravpn.ui.screens.account.components.AccountErrorCard
 import space.ivlev.umbravpn.ui.screens.account.components.AccountFormField
-import space.ivlev.umbravpn.ui.screens.account.components.AccountHeader
+import space.ivlev.umbravpn.ui.screens.account.components.AccountFormScaffold
 import space.ivlev.umbravpn.ui.screens.account.components.AccountLoadingButton
+import space.ivlev.umbravpn.ui.screens.account.components.AccountPasswordField
 import space.ivlev.umbravpn.viewmodel.EmailVerificationViewModel
 import space.ivlev.umbravpn.viewmodel.RegisterSideEffect
 import space.ivlev.umbravpn.viewmodel.RegisterViewModel
@@ -70,19 +54,10 @@ fun RegisterScreen(
         }
     }
 
-    Column(
-        modifier =
-            Modifier.fillMaxSize()
-                .verticalScroll(rememberScrollState())
-                .imePadding()
-                .padding(horizontal = 24.dp, vertical = 32.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+    AccountFormScaffold(
+        title = stringResource(R.string.account_register_title),
+        subtitle = stringResource(R.string.account_register_subtitle),
     ) {
-        AccountHeader(
-            title = stringResource(R.string.account_register_title),
-            subtitle = stringResource(R.string.account_register_subtitle),
-        )
-
         AccountFormField(
             value = state.email,
             onValueChange = viewModel::onEmailChange,
@@ -95,11 +70,12 @@ fun RegisterScreen(
             contentType = ContentType.EmailAddress,
         )
 
-        AccountFormField(
+        AccountPasswordField(
             value = state.password,
             onValueChange = viewModel::onPasswordChange,
             label = stringResource(R.string.password),
             error = state.passwordError,
+            visible = state.passwordVisible,
             keyboardOptions =
                 KeyboardOptions(
                     keyboardType = KeyboardType.Password,
@@ -108,30 +84,15 @@ fun RegisterScreen(
             keyboardActions =
                 KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) }),
             contentType = ContentType.NewPassword,
-            visualTransformation =
-                if (state.passwordVisible) VisualTransformation.None
-                else PasswordVisualTransformation(),
-            trailing = { modifier ->
-                IconButton(onClick = viewModel::togglePasswordVisibility, modifier = modifier) {
-                    Icon(
-                        imageVector =
-                            if (state.passwordVisible) Icons.Outlined.VisibilityOff
-                            else Icons.Outlined.Visibility,
-                        contentDescription =
-                            stringResource(
-                                if (state.passwordVisible) R.string.hide_password
-                                else R.string.show_password,
-                            ),
-                    )
-                }
-            },
+            onToggleVisibility = viewModel::togglePasswordVisibility,
         )
 
-        AccountFormField(
+        AccountPasswordField(
             value = state.confirmation,
             onValueChange = viewModel::onConfirmationChange,
             label = stringResource(R.string.account_password_confirm),
             error = state.confirmationError,
+            visible = state.passwordVisible,
             keyboardOptions =
                 KeyboardOptions(
                     keyboardType = KeyboardType.Password,
@@ -139,9 +100,7 @@ fun RegisterScreen(
                 ),
             keyboardActions = KeyboardActions(onDone = { viewModel.submit() }),
             contentType = ContentType.NewPassword,
-            visualTransformation =
-                if (state.passwordVisible) VisualTransformation.None
-                else PasswordVisualTransformation(),
+            showToggle = false,
         )
 
         DescriptionText(
@@ -162,11 +121,6 @@ fun RegisterScreen(
             color = MaterialTheme.colorScheme.outline,
         )
 
-        TextButton(
-            onClick = { navController.pop() },
-            modifier = Modifier.align(Alignment.CenterHorizontally),
-        ) {
-            Text(stringResource(R.string.account_back_to_login))
-        }
+        AccountBackToLoginButton(onClick = { navController.pop() })
     }
 }

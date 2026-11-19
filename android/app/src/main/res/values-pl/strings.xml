@@ -8,12 +8,9 @@
     <string name="config_changes_saved">Zmiany konfiguracji zostały zapisane.</string>
     <string name="addresses">Adresy</string>
     <string name="dns_servers">Serwery DNS</string>
-    <string name="peer">Peer</string>
-    <string name="endpoint">Punkt końcowy</string>
     <string name="always_on_vpn_support">Zezwalaj na stały VPN</string>
     <string name="vpn_on">Włącz VPN</string>
     <string name="vpn_off">Wyłącz VPN</string>
-    <string name="random">(losowy)</string>
     <string name="seconds">sek.</string>
     <string name="cancel">Anuluj</string>
     <string name="unknown_error">Wystąpił nieznany błąd</string>
@@ -21,10 +18,7 @@
     <string name="error_no_file_explorer">Eksplorator plików nie jest zainstalowany</string>
     <string name="delete_tunnel">Usuń tunel</string>
     <string name="delete_tunnel_message">Czy na pewno chcesz usunąć wybrane tunele?</string>
-    <string name="yes">Tak</string>
-    <string name="no_email_detected">Nie wykryto aplikacji pocztowej</string>
     <string name="no_browser_detected">Nie wykryto przeglądarki</string>
-    <string name="auto">(Automatycznie)</string>
     <string name="incorrect_pin">Kod PIN jest nieprawidłowy</string>
     <string name="pin_created">Kod PIN został pomyślnie utworzony</string>
     <string name="enter_pin">Podaj kod PIN</string>
@@ -64,8 +58,6 @@
     <string name="entry_tunnel_none_desc">Użyj tego tunelu samodzielnie.</string>
     <string name="entry_tunnel_add_another">Dodaj kolejny tunel, aby użyć go jako wpisu.</string>
     <string name="via_entry">poprzez %1$s</string>
-    <string name="skip">Pomiń</string>
-    <string name="launch_app_settings">Uruchom ustawienia aplikacji</string>
     <string name="learn_more">Dowiedz się więcej</string>
     <string name="local_logging">Lokalne rejestrowanie</string>
     <string name="native_kill_switch">Natywny wyłącznik awaryjny</string>
@@ -133,7 +125,6 @@
     <string name="done">Gotowe</string>
     <string name="_default">Domyślnie</string>
     <string name="release_notes">Informacje o wydaniu</string>
-    <string name="sort">Sortuj</string>
     <string name="sort_by_name">Sortuj według nazwy</string>
     <string name="sort_by_latency">Sortuj według opóźnienia</string>
     <string name="ping_servers">Pingowanie serwerów</string>
@@ -143,13 +134,8 @@
     <string name="move_up">Przesuń w górę</string>
     <string name="move_down">Przesuń w dół</string>
     <string name="tunnel">Tunel</string>
-    <string name="open_settings">Otwórz ustawienia</string>
     <string name="fix">Napraw</string>
-    <string name="start">Uruchom</string>
-    <string name="tunnel_monitoring">Monitorowanie tunelu</string>
     <string name="backup_success">Powodzenie tworzenia kopii zapasowej.</string>
-    <string name="restore_success">Powodzenie przywracania.</string>
-    <string name="restarting_app">Ponowne uruchomienie aplikacji w celu zastosowania zmian…</string>
     <string name="restore_failed">Nie udało się przywrócić danych z kopii zapasowej.</string>
     <string name="backup_failed">Nie udało się utworzyć kopii zapasowej.</string>
     <string name="backup_application">Utwórz kopię zapasową danych aplikacji</string>
@@ -177,7 +163,6 @@
     <string name="doh_desc">Rozwiązuj za pomocą DNS-poprzez-HTTPS</string>
     <string name="bootstrap_system_dns_desc">Rozwiązuj za pomocą skonfigurowanego DNS urządzenia</string>
     <string name="comma_separated">Oddzielone przecinkiem</string>
-    <string name="read_failed">Nie udało się odczytać danych.</string>
     <string name="config_error_template">Błędna konfiguracja. %1$s w lokalizacji: %2$s.</string>
     <string name="ports_must_differ">Nie udało się. Serwery proxy muszą mieć różne porty.</string>
     <string name="password_no_spaces">Hasło nie może zawierać spacji</string>
@@ -195,9 +180,7 @@
     <string name="kernel_wireguard_unsupported">Kernel nie zawiera wsparcia dla WireGuard (brak modułu albo nie wbudowany w kernel)!</string>
     <string name="about">O aplikacji</string>
     <string name="resources">Zasoby</string>
-    <string name="review">Oceń aplikację</string>
     <string name="other">Inne</string>
-    <string name="options">Opcje</string>
     <string name="general">Ogólne</string>
     <string name="multihop">Wieloskokowy</string>
     <string name="backup_and_restore">Kopia zapasowa i przywracanie</string>
@@ -222,7 +205,6 @@
     <string name="save_and_restart">Zapisz i uruchom ponownie</string>
     <string name="_continue">Kontynuuj</string>
     <string name="kill_switch">wyłącznik awaryjny</string>
-    <string name="info">Informacje</string>
     <string name="cookie_packet_junk_size">Rozmiar śmieciowego pakietu ciasteczka</string>
     <string name="transport_packet_junk_size">Rozmiar śmieciowego pakietu transportu</string>
     <string name="special_junk_packet">Specjalny pakiet śmieciowy</string>
@@ -231,7 +213,6 @@
     <string name="show_system_apps">Pokaż aplikacje systemowe</string>
     <string name="hide_system_apps">Ukryj aplikacje systemowe</string>
     <string name="split_tunneling">Dzielone tunelowanie</string>
-    <string name="split_tunneling_desc">Przekieruj określone aplikacje przez ten tunel lub wokół niego</string>
     <string name="split_tunnel_all_label">Tuneluj wszystko</string>
     <string name="split_tunnel_all_desc">Każda aplikacja używa tego tunelu</string>
     <string name="split_tunnel_include_label">Tunel</string>
@@ -242,9 +223,6 @@
     <string name="select_apps_to_exclude">Wybierz aplikacje do wykluczenia</string>
     <string name="split_mode">Tryb dzielony</string>
     <string name="split_mode_desc">Tuneluj każdą aplikację lub wybierz aplikacje do tunelu lub obejścia</string>
-    <string name="global_split_off">Każdy tunel używa własnej listy aplikacji</string>
-    <string name="global_split_applies">Dotyczy każdego tunelu</string>
-    <string name="export_unsupported">Eksport nie jest obsługiwany na tym urządzeniu</string>
     <string name="export_canceled">Eksport anulowano</string>
     <string name="proxy_channel_description">Powiadomienia dotyczące tuneli proxy.</string>
     <string name="initializing">Inicjalizacja…</string>
@@ -280,7 +258,6 @@
     <string name="tunnel_state_resolving_dns">Rozwiązywanie DNS</string>
     <string name="tunnel_state_handshake_failure">Niepowodzenie wymiany potwierdzeń</string>
     <string name="tunnel_state_disconnected">Rozłączono</string>
-    <string name="tunnel_state_starting">Uruchamianie</string>
     <string name="status_template">stan: %1$s</string>
     <string name="uptime_template">czas pracy: %1$s</string>
     <string name="socks5_proxy_template">serwer proxy socks5: %1$s</string>
@@ -299,8 +276,6 @@
     <string name="notification_dynamic_dns_message">%1$s zaktualizowany po zmianie dynamicznego DNS</string>
     <!-- Errors -->
     <string name="vpn_permission_required">Wymagane zezwolenie VPN</string>
-    <string name="included_apps">Uwzględnione aplikacje: %1$s</string>
-    <string name="excluded_apps">Wykluczone aplikacje: %1$s</string>
     <plurals name="apps_tunneled">
         <item quantity="one">%d aplikacja tunelowana</item>
         <item quantity="few">%d aplikacje tunelowane</item>
@@ -356,9 +331,6 @@
     <string name="lockdown_desc">Przełącznik blokujący ruch omijający tunel</string>
     <string name="vpn_desc">Standardowy tryb ogólnosystemowy VPN</string>
     <string name="local_logging_desc">Zapisuj dzienniki lokalnie z podglądem na żywo</string>
-    <string name="tunnel_globals_desc">Konfiguracja nadrzędna</string>
-    <string name="tunnel_configuration">Konfiguracja tunelu</string>
-    <string name="amnezia_configuration">Konfiguracja tunelu Amnezia </string>
     <string name="screen_recording_protection_desc">Blokuj nagrywanie ekranu na ekranach zawierających poufne dane</string>
     <string name="app_lock">Blokada aplikacji</string>
     <string name="app_lock_desc">Blokada aplikacji kodem PIN</string>
@@ -385,7 +357,6 @@
     <string name="local_network_permission_recommendation">Udzielenie tego uprawnienia jest zdecydowanie zalecane.</string>
     <string name="local_network_permission_nearby_devices">Uwaga: Android opisuje to uprawnienie jako \"pobliskie urządzenia\".</string>
     <string name="local_network_permission_denied">Odmowa dostępu do sieci lokalnej. Niektóre funkcje mogą nie działać poprawnie</string>
-    <string name="add">Dodaj</string>
     <string name="log_export_success">Dzienniki zostały pomyślnie wyeksportowane</string>
     <string name="stored_logs_deleted">Zapisane dzienniki zostały pomyślnie usunięte</string>
     <string name="seamless_recovery">Odzyskanie bezproblemowe tunelu</string>
@@ -397,9 +368,7 @@
     <string name="recovery_events">Odzyskania: %d</string>
     <string name="recovery_last_event">Ostatnie odzyskanie: %s</string>
     <string name="snackbar_seamless_recovery_attempt">Wykryto problem z połączeniem. Przywracanie %s…</string>
-    <string name="seamless_recovery_attempt_title">Odzyskanie bezproblemowe</string>
     <string name="seamless_recovery_attempt_message">Wykryto problem z połączeniem. Próba automatycznego odzyskania.</string>
-    <string name="local_domain_suffixes">Sufiksy domeny lokalnej</string>
     <string name="domain_suffixes">Sufiksy domeny</string>
     <string name="encrypted_dns">Zaszyfrowany DNS</string>
     <string name="split_dns">Podzielony DNS</string>
