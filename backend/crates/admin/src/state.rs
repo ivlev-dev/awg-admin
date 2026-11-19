@@ -31,6 +31,7 @@ pub struct AppState {
     pub audit: Arc<AuditService>,
     pub billing: Arc<BillingService>,
     pub idempotency: Arc<IdempotencyStore>,
+    pub import_lock: Arc<tokio::sync::Mutex<()>>,
     pub login_limiter: RateLimitScope,
     pub refresh_limiter: RateLimitScope,
     pub register_limiter: RateLimitScope,

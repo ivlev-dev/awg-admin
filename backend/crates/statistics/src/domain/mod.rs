@@ -309,6 +309,18 @@ pub trait StatsRepository: Send + Sync {
         }
         Ok(out)
     }
+
+    /// Totals for every device scope in a single backend pass.
+    ///
+    /// Backends that cannot scan all device buckets at once may fall back to
+    /// returning an empty map, which callers treat as "no traffic yet".
+    fn device_totals(
+        &self,
+        _from_hour: i64,
+        _to_hour: i64,
+    ) -> awg_shared::CoreResult<HashMap<Uuid, (u64, u64)>> {
+        Ok(HashMap::new())
+    }
 }
 
 pub trait StatsBroadcaster: Send + Sync {
@@ -317,4 +329,19 @@ pub trait StatsBroadcaster: Send + Sync {
 
 pub trait DeviceDirectory: Send + Sync {
     fn group_and_user(&self, device_id: Uuid) -> awg_shared::CoreResult<Option<(Uuid, Uuid)>>;
+
+    /// Resolves many devices at once. Implementations backed by a key-value
+    /// store should override this to avoid one lookup per device.
+    fn group_and_user_many(
+        &self,
+        device_ids: &[Uuid],
+    ) -> awg_shared::CoreResult<HashMap<Uuid, (Uuid, Uuid)>> {
+        let mut out = HashMap::with_capacity(device_ids.len());
+        for device_id in device_ids {
+            if let Some(ids) = self.group_and_user(*device_id)? {
+                out.insert(*device_id, ids);
+            }
+        }
+        Ok(out)
+    }
 }

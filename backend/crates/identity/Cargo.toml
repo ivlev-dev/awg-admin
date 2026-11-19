@@ -10,7 +10,6 @@ awg-storage = { path = "../storage" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-thiserror.workspace = true
 argon2.workspace = true
 jsonwebtoken.workspace = true
 sha2.workspace = true

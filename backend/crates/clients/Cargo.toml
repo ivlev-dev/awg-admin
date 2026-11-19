@@ -13,8 +13,6 @@ awg-tariffs = { path = "../tariffs" }
 serde.workspace = true
 uuid.workspace = true
 chrono.workspace = true
-ipnet.workspace = true
-rand.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]

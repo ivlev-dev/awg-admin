@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
@@ -17,6 +18,31 @@ struct Directory {
 impl DeviceDirectory for Directory {
     fn group_and_user(&self, _device_id: Uuid) -> awg_shared::CoreResult<Option<(Uuid, Uuid)>> {
         Ok(Some((self.group_id, self.user_id)))
+    }
+}
+
+struct BatchDirectory {
+    group_id: Uuid,
+    user_id: Uuid,
+    batch_calls: AtomicUsize,
+    single_calls: AtomicUsize,
+}
+
+impl DeviceDirectory for BatchDirectory {
+    fn group_and_user(&self, _device_id: Uuid) -> awg_shared::CoreResult<Option<(Uuid, Uuid)>> {
+        self.single_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Some((self.group_id, self.user_id)))
+    }
+
+    fn group_and_user_many(
+        &self,
+        device_ids: &[Uuid],
+    ) -> awg_shared::CoreResult<std::collections::HashMap<Uuid, (Uuid, Uuid)>> {
+        self.batch_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(device_ids
+            .iter()
+            .map(|id| (*id, (self.group_id, self.user_id)))
+            .collect())
     }
 }
 
@@ -713,4 +739,80 @@ fn series_reports_rates_for_sorted_adjacent_buckets() {
             tx_bps: 1.0,
         }
     );
+}
+
+#[test]
+fn device_totals_are_collected_in_a_single_scan() {
+    let fixture = fixture();
+    let other_device = Uuid::new_v4();
+    let hour = Aggregator::hour_of(Utc::now());
+    fixture
+        .repo
+        .add_bucket(StatsScope::Device(fixture.device_id), hour, 10, 20)
+        .unwrap();
+    fixture
+        .repo
+        .add_bucket(StatsScope::Device(other_device), hour, 3, 4)
+        .unwrap();
+    fixture
+        .repo
+        .add_bucket(StatsScope::Global, hour, 99, 99)
+        .unwrap();
+    fixture
+        .repo
+        .add_bucket(StatsScope::Device(fixture.device_id), hour - 86_400, 50, 50)
+        .unwrap();
+
+    let totals = fixture.service.today_device_totals().unwrap();
+
+    assert_eq!(totals.get(&fixture.device_id).copied(), Some((10, 20)));
+    assert_eq!(totals.get(&other_device).copied(), Some((3, 4)));
+    assert_eq!(totals.len(), 2);
+    assert_eq!(fixture.repo.device_scan_count(), 1);
+}
+
+#[test]
+fn snapshot_directory_resolves_all_devices_in_one_batch() {
+    let fixture = fixture();
+    let directory = BatchDirectory {
+        group_id: fixture.group_id,
+        user_id: fixture.user_id,
+        batch_calls: AtomicUsize::new(0),
+        single_calls: AtomicUsize::new(0),
+    };
+    let second_device = Uuid::new_v4();
+    let node_id = Uuid::new_v4();
+    let samples = [
+        (
+            fixture.interface_id,
+            fixture.device_id,
+            CounterSample {
+                peer_id: fixture.peer_id,
+                rx_total: 10,
+                tx_total: 20,
+            },
+        ),
+        (
+            fixture.interface_id,
+            second_device,
+            CounterSample {
+                peer_id: Uuid::new_v4(),
+                rx_total: 5,
+                tx_total: 6,
+            },
+        ),
+    ];
+
+    fixture
+        .service
+        .record_node_snapshot(node_id, &samples, &directory)
+        .unwrap();
+
+    assert_eq!(directory.batch_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(directory.single_calls.load(Ordering::SeqCst), 0);
+    let (rx, tx) = fixture
+        .service
+        .today(StatsScope::Device(second_device))
+        .unwrap();
+    assert_eq!((rx, tx), (5, 6));
 }

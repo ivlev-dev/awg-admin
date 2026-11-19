@@ -128,6 +128,19 @@ impl WorkerRegistry {
         nodes
     }
 
+    /// Marks an online node as needing a fresh snapshot on the next tick.
+    /// Returns `false` when the node is not connected.
+    pub fn mark_dirty(&self, node_id: Uuid) -> bool {
+        let mut workers = self.workers.lock().expect("worker registry lock");
+        match workers.get_mut(&node_id) {
+            Some(entry) => {
+                entry.dirty = true;
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn is_online(&self, node_id: Uuid) -> bool {
         self.workers
             .lock()
@@ -193,6 +206,9 @@ impl OrchestrationService {
     }
 
     pub fn publish(&self, node_id: Uuid) -> CoreResult<bool> {
+        if !self.registry.is_online(node_id) {
+            return Ok(false);
+        }
         let state = self.snapshot(node_id)?;
         Ok(self.registry.push(node_id, &state))
     }
@@ -257,6 +273,7 @@ impl OrchestrationService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicUsize;
 
     fn state(node_id: Uuid) -> DesiredState {
         DesiredState {
@@ -336,6 +353,51 @@ mod tests {
         fn build(&self, node_id: Uuid) -> CoreResult<DesiredState> {
             Ok(state(node_id).seal())
         }
+    }
+
+    struct CountingSource {
+        builds: AtomicUsize,
+    }
+
+    impl CountingSource {
+        fn new() -> Self {
+            Self {
+                builds: AtomicUsize::new(0),
+            }
+        }
+
+        fn count(&self) -> usize {
+            self.builds.load(Ordering::SeqCst)
+        }
+    }
+
+    impl SnapshotSource for CountingSource {
+        fn build(&self, node_id: Uuid) -> CoreResult<DesiredState> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            Ok(state(node_id).seal())
+        }
+    }
+
+    #[test]
+    fn publish_skips_snapshot_builds_without_an_online_worker() {
+        let registry = Arc::new(WorkerRegistry::new());
+        let node_id = Uuid::new_v4();
+        let source = Arc::new(CountingSource::new());
+        let service = OrchestrationService::new(
+            registry.clone(),
+            source.clone(),
+            Arc::new(StatsService::new(Arc::new(EmptyStats), Arc::new(Hub))),
+            Arc::new(Directory),
+            Arc::new(Nodes),
+        );
+
+        assert!(!service.publish(node_id).unwrap());
+        assert_eq!(source.count(), 0);
+
+        let (sender, _receiver) = tokio::sync::mpsc::channel(4);
+        registry.register(node_id, sender, None);
+        assert!(service.publish(node_id).unwrap());
+        assert_eq!(source.count(), 1);
     }
 
     struct Directory;

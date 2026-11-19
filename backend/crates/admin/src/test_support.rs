@@ -829,6 +829,7 @@ fn app_env_with(
         audit,
         billing,
         idempotency,
+        import_lock: Arc::new(tokio::sync::Mutex::new(())),
         login_limiter: scope("login"),
         refresh_limiter: scope("refresh"),
         register_limiter: scope("register"),

@@ -66,4 +66,22 @@ impl DeviceDirectory for DevicesAdapter {
             Err(error) => Err(error),
         }
     }
+
+    fn group_and_user_many(
+        &self,
+        device_ids: &[uuid::Uuid],
+    ) -> awg_shared::CoreResult<std::collections::HashMap<uuid::Uuid, (uuid::Uuid, uuid::Uuid)>>
+    {
+        if device_ids.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+        let wanted: std::collections::HashSet<uuid::Uuid> = device_ids.iter().copied().collect();
+        Ok(self
+            .devices
+            .list_all()?
+            .into_iter()
+            .filter(|device| wanted.contains(&device.id))
+            .map(|device| (device.id, (device.group_id, device.user_id)))
+            .collect())
+    }
 }

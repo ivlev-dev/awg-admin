@@ -5,11 +5,8 @@ use uuid::Uuid;
 use crate::state::AppState;
 
 pub(crate) fn publish_group(state: &AppState, group_id: Uuid) {
-    if let Ok(interfaces) = state.network.interfaces_by_group(group_id) {
-        let mut nodes: Vec<Uuid> = interfaces.iter().map(|i| i.node_id).collect();
-        nodes.sort();
-        nodes.dedup();
-        for node in nodes {
+    for node in node_ids_for_group(state, group_id) {
+        if state.registry.mark_dirty(node) {
             let _ = state.orchestration.publish(node);
         }
     }
@@ -19,7 +16,9 @@ pub(crate) fn publish_nodes(state: &AppState, mut nodes: Vec<Uuid>) {
     nodes.sort();
     nodes.dedup();
     for node in nodes {
-        let _ = state.orchestration.publish(node);
+        if state.registry.mark_dirty(node) {
+            let _ = state.orchestration.publish(node);
+        }
     }
 }
 

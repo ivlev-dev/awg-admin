@@ -3,4 +3,8 @@ ignore = [
   # paste 1.0.15 (RUSTSEC-2024-0436, unmaintained) приходит транзитивно через
   # netlink-packet-core -> genetlink/netlink-proto; замены и фикса нет.
   "RUSTSEC-2024-0436",
+  # chrono 0.4.45 (RUSTSEC-2026-0543, unmaintained): используется в публичных
+  # моделях/ключах хранения, миграция на time/jiff затронет формат данных.
+  # TODO: спланировать замену chrono после появления совместимого форка.
+  "RUSTSEC-2026-0543",
 ]

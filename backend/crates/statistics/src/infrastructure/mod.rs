@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use redb::ReadableTable;
+use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
 use awg_storage::{StorageError, Store, Table, prefix_upper_bound};
@@ -35,6 +36,7 @@ fn bucket_key(scope: StatsScope, hour: i64) -> String {
 pub struct RedbStatsRepository {
     store: Arc<Store>,
     write_transactions: AtomicUsize,
+    device_scans: AtomicUsize,
 }
 
 impl RedbStatsRepository {
@@ -42,11 +44,17 @@ impl RedbStatsRepository {
         Self {
             store,
             write_transactions: AtomicUsize::new(0),
+            device_scans: AtomicUsize::new(0),
         }
     }
 
     pub fn write_transaction_count(&self) -> usize {
         self.write_transactions.load(Ordering::SeqCst)
+    }
+
+    /// Number of full device-bucket scans performed by [`Self::device_totals`].
+    pub fn device_scan_count(&self) -> usize {
+        self.device_scans.load(Ordering::SeqCst)
     }
 }
 
@@ -198,6 +206,39 @@ impl StatsRepository for RedbStatsRepository {
                         }
                     }
                     out.insert(*scope, totals);
+                }
+                Ok(out)
+            })
+            .map_err(map_err)
+    }
+
+    fn device_totals(&self, from_hour: i64, to_hour: i64) -> CoreResult<HashMap<Uuid, (u64, u64)>> {
+        self.device_scans.fetch_add(1, Ordering::SeqCst);
+        let prefix = format!("{}|", StatsScope::Device(Uuid::nil()).kind());
+        self.store
+            .with_read_txn(|txn| {
+                let table = txn.open_table(Table::TrafficBuckets.definition())?;
+                let mut out: HashMap<Uuid, (u64, u64)> = HashMap::new();
+                let Some(upper) = prefix_upper_bound(&prefix) else {
+                    return Ok(out);
+                };
+                for entry in table.range::<&str>(prefix.as_str()..upper.as_str())? {
+                    let (key, value) = entry?;
+                    let bucket: Bucket = serde_json::from_slice(value.value())?;
+                    if bucket.hour < from_hour || bucket.hour > to_hour {
+                        continue;
+                    }
+                    let Some(id) = key
+                        .value()
+                        .strip_prefix(&prefix)
+                        .and_then(|rest| rest.split('|').next())
+                        .and_then(|id| Uuid::parse_str(id).ok())
+                    else {
+                        continue;
+                    };
+                    let totals = out.entry(id).or_default();
+                    totals.0 = totals.0.saturating_add(bucket.rx);
+                    totals.1 = totals.1.saturating_add(bucket.tx);
                 }
                 Ok(out)
             })

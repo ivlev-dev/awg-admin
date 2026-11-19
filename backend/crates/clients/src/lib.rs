@@ -3,7 +3,7 @@ pub mod domain;
 pub mod infrastructure;
 
 pub use application::{
-    DeviceProfile, DeviceService, NewDevice, PeerChangeSet, ProfileService, ShareService,
+    DeviceProfile, DeviceService, NewDevice, PeerChangeSet, PeerUndo, ProfileService, ShareService,
 };
 pub use domain::{
     Device, DevicePeer, Forwarding, ForwardingPolicy, ShareConsume, ShareFormat, ShareLink,

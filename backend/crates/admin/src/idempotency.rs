@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use axum::body::{Body, HttpBody as _, to_bytes};
@@ -31,6 +32,10 @@ const EXCLUDED_PREFIXES: [&str; 2] = ["/api/v1/auth/", "/api/v1/billing/webhook/
 const EXCLUDED_PATHS: [&str; 1] = ["/api/v1/app/devices"];
 const MAX_CACHED_BODY_BYTES: usize = 2 * 1024 * 1024;
 const MAX_REQUEST_BODY_BYTES: usize = 16 * 1024 * 1024;
+const PRUNE_CHUNK_SIZE: usize = 256;
+/// Per-user bound for the mobile app's idempotency keys. Older records are
+/// evicted on write so a single client cannot grow the table without limit.
+const MAX_USER_RECORDS: usize = 1000;
 const JSON_CONTENT_TYPE: &str = "application/json";
 const ANONYMOUS_SCOPE: &str = "anon";
 
@@ -146,6 +151,7 @@ pub struct IdempotencyStore {
     store: Arc<Store>,
     sealer: Arc<Sealer>,
     locks: Mutex<HashMap<String, Arc<AsyncMutex<()>>>>,
+    prune_chunks: AtomicUsize,
 }
 
 impl IdempotencyStore {
@@ -154,6 +160,7 @@ impl IdempotencyStore {
             store,
             sealer,
             locks: Mutex::new(HashMap::new()),
+            prune_chunks: AtomicUsize::new(0),
         }
     }
 
@@ -182,9 +189,21 @@ impl IdempotencyStore {
     }
 
     pub fn prune_expired(&self, now: i64) -> CoreResult<usize> {
-        self.store
-            .retain::<IdempotencyRecord>(Table::Idempotency, |_, record| !record.is_expired(now))
-            .map_err(map_err)
+        let (removed, chunks) = self
+            .store
+            .retain_chunked::<IdempotencyRecord>(
+                Table::Idempotency,
+                PRUNE_CHUNK_SIZE,
+                |_, record| !record.is_expired(now),
+            )
+            .map_err(map_err)?;
+        self.prune_chunks.fetch_add(chunks, Ordering::SeqCst);
+        Ok(removed)
+    }
+
+    /// Number of bounded write transactions used by the last pruning runs.
+    pub fn prune_chunk_count(&self) -> usize {
+        self.prune_chunks.load(Ordering::SeqCst)
     }
 
     pub fn get(&self, key: &str) -> CoreResult<Option<IdempotentResponse>> {
@@ -321,9 +340,41 @@ impl IdempotencyStore {
     }
 
     fn put_record(&self, key: &str, record: &IdempotencyRecord) -> CoreResult<()> {
+        self.enforce_user_limit(key)?;
         self.store
             .put(Table::Idempotency, key, record)
             .map_err(map_err)
+    }
+
+    fn enforce_user_limit(&self, key: &str) -> CoreResult<()> {
+        let Some(rest) = key.strip_prefix("user:") else {
+            return Ok(());
+        };
+        let Some((user, _)) = rest.split_once(':') else {
+            return Ok(());
+        };
+        let prefix = format!("user:{user}:");
+        let mut records = self
+            .store
+            .list_prefix::<IdempotencyRecord>(Table::Idempotency, &prefix)
+            .map_err(map_err)?;
+        if records.len() < MAX_USER_RECORDS {
+            return Ok(());
+        }
+        records.sort_by_key(|(_, record)| record.created_at);
+        let excess = records.len() - MAX_USER_RECORDS + 1;
+        let stale: Vec<String> = records
+            .into_iter()
+            .filter(|(existing, _)| existing != key)
+            .take(excess)
+            .map(|(existing, _)| existing)
+            .collect();
+        if !stale.is_empty() {
+            self.store
+                .delete_many(Table::Idempotency, &stale)
+                .map_err(map_err)?;
+        }
+        Ok(())
     }
 }
 
@@ -589,6 +640,51 @@ mod tests {
             raw.get::<IdempotencyRecord>(Table::Idempotency, "scope:active-prune-1")
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn prune_uses_bounded_write_transactions() {
+        let (store, _) = store();
+        let body_sealed = store.sealer.seal_str(r#"{"ok":true}"#).unwrap();
+        let total = PRUNE_CHUNK_SIZE * 2 + 88;
+        let base = Utc::now().timestamp() - IDEMPOTENCY_TTL_SECS - total as i64 - 60;
+        for index in 0..total {
+            let mut record = IdempotencyRecord::new(200, body_sealed.clone(), None);
+            record.created_at = base + index as i64;
+            record.expires_at = record.created_at + IDEMPOTENCY_TTL_SECS;
+            store
+                .put_record(&format!("scope:bulk-prune-{index}"), &record)
+                .unwrap();
+        }
+
+        assert_eq!(store.prune_expired(Utc::now().timestamp()).unwrap(), total);
+        assert_eq!(store.prune_chunk_count(), total.div_ceil(PRUNE_CHUNK_SIZE));
+    }
+
+    #[test]
+    fn puts_evict_oldest_user_records_above_the_limit() {
+        let (store, raw) = store();
+        let body_sealed = store.sealer.seal_str(r#"{"ok":true}"#).unwrap();
+        let user = Uuid::new_v4();
+        let base = Utc::now().timestamp() - 10_000;
+        for index in 0..=MAX_USER_RECORDS {
+            let mut record = IdempotencyRecord::new(200, body_sealed.clone(), None);
+            record.created_at = base + index as i64;
+            record.expires_at = record.created_at + IDEMPOTENCY_TTL_SECS;
+            store
+                .put_record(&format!("user:{user}:key-{index}"), &record)
+                .unwrap();
+        }
+
+        let remaining = raw
+            .list_prefix::<IdempotencyRecord>(Table::Idempotency, &format!("user:{user}:key-"))
+            .unwrap();
+        assert_eq!(remaining.len(), MAX_USER_RECORDS);
+        assert!(
+            raw.get::<IdempotencyRecord>(Table::Idempotency, &format!("user:{user}:key-0"))
+                .unwrap()
+                .is_none()
         );
     }
 

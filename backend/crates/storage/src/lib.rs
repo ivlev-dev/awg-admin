@@ -277,6 +277,56 @@ impl Store {
         Ok(())
     }
 
+    pub fn delete_many(&self, table: Table, keys: &[String]) -> Result<usize> {
+        if keys.is_empty() {
+            return Ok(0);
+        }
+        let txn = self.db.begin_write()?;
+        {
+            let mut t = txn.open_table(table.definition())?;
+            for key in keys {
+                t.remove(key.as_str())?;
+            }
+        }
+        txn.commit()?;
+        Ok(keys.len())
+    }
+
+    /// Removes entries in bounded write transactions so that pruning a large
+    /// table does not block writers for an unbounded amount of time.
+    pub fn retain_chunked<T>(
+        &self,
+        table: Table,
+        chunk_size: usize,
+        mut keep: impl FnMut(&str, &T) -> bool,
+    ) -> Result<(usize, usize)>
+    where
+        T: DeserializeOwned,
+    {
+        let stale: Vec<String> = {
+            let txn = self.db.begin_read()?;
+            let t = txn.open_table(table.definition())?;
+            let mut stale = Vec::new();
+            for entry in t.iter()? {
+                let (key, value) = entry?;
+                let key = key.value().to_string();
+                let value: T = serde_json::from_slice(value.value())?;
+                if !keep(&key, &value) {
+                    stale.push(key);
+                }
+            }
+            stale
+        };
+        let chunk_size = chunk_size.max(1);
+        let mut removed = 0;
+        let mut chunks = 0;
+        for chunk in stale.chunks(chunk_size) {
+            removed += self.delete_many(table, chunk)?;
+            chunks += 1;
+        }
+        Ok((removed, chunks))
+    }
+
     pub fn delete_prefix(&self, table: Table, prefix: &str) -> Result<usize> {
         let txn = self.db.begin_write()?;
         let mut removed = 0;

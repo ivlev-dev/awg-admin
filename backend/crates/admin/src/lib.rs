@@ -380,6 +380,7 @@ pub async fn run() -> Result<()> {
         audit,
         billing,
         idempotency,
+        import_lock: Arc::new(tokio::sync::Mutex::new(())),
         login_limiter,
         refresh_limiter,
         register_limiter,
@@ -436,6 +437,25 @@ pub async fn run() -> Result<()> {
         let state = state.clone();
         let mut shutdown = shutdown_rx.clone();
         background.push(tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(Duration::from_secs(1));
+            ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+            ticker.tick().await;
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {}
+                    _ = wait_for_shutdown(&mut shutdown) => break,
+                }
+                let state = state.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || state.orchestration.publish_dirty()).await;
+            }
+        }));
+    }
+
+    {
+        let state = state.clone();
+        let mut shutdown = shutdown_rx.clone();
+        background.push(tokio::spawn(async move {
             let mut ticker = tokio::time::interval(Duration::from_secs(30));
             ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
             ticker.tick().await;
@@ -444,7 +464,9 @@ pub async fn run() -> Result<()> {
                     _ = ticker.tick() => {}
                     _ = wait_for_shutdown(&mut shutdown) => break,
                 }
-                state.orchestration.publish_all();
+                let state = state.clone();
+                let _ =
+                    tokio::task::spawn_blocking(move || state.orchestration.publish_all()).await;
             }
         }));
     }

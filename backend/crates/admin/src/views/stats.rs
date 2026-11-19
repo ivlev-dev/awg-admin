@@ -52,6 +52,15 @@ pub struct DeviceTrafficView {
 }
 
 #[derive(Debug, Serialize)]
+pub struct DeviceStatsView {
+    pub device_id: Uuid,
+    pub today: TrafficTotals,
+    pub month: TrafficTotals,
+    pub rx_bps: f64,
+    pub tx_bps: f64,
+}
+
+#[derive(Debug, Serialize)]
 pub struct QuotaView {
     pub used_bytes: u64,
     pub quota_bytes: Option<u64>,

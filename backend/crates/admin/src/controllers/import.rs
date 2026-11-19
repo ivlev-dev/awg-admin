@@ -50,6 +50,7 @@ pub async fn run(
     Json(request): Json<ImportRequest>,
 ) -> ApiResult<Json<ImportReport>> {
     user.require_admin()?;
+    let _import_guard = state.import_lock.lock().await;
 
     let server = parse_server_conf(&request.server_config).map_err(ApiError::from)?;
     let server_public = public_from_private(&server.private_key).map_err(ApiError::from)?;
@@ -187,6 +188,7 @@ pub async fn clients_apply(
     Json(request): Json<ClientsImportRequest>,
 ) -> ApiResult<Json<ClientsImportApplyView>> {
     user.require_admin()?;
+    let _import_guard = state.import_lock.lock().await;
     let owner_id = resolve_owner(&state, &user, request.owner_user_id)?;
     let (plan, created) = apply_clients_import(&state.network, &state.devices, &request, owner_id)?;
     let mut nodes: HashSet<Uuid> = HashSet::new();
@@ -1250,6 +1252,7 @@ struct ClientsCreatedInterface {
     node_id: Uuid,
     device_ids: Vec<Uuid>,
     updated_device_ids: Vec<Uuid>,
+    updated: Vec<awg_clients::PeerUndo>,
 }
 
 impl ClientsCreated {
@@ -1803,20 +1806,7 @@ fn apply_clients_import(
     request: &ClientsImportRequest,
     owner_id: Uuid,
 ) -> ApiResult<(ClientsImportPlan, ClientsCreated)> {
-    let started_at = chrono::Utc::now();
-    let existing_devices: HashSet<Uuid> = devices
-        .list_all()
-        .map_err(ApiError::from)?
-        .iter()
-        .map(|device| device.id)
-        .collect();
     let mut plan = plan_clients_import(network, devices, request)?;
-    let group_ids: HashSet<Uuid> = plan
-        .interfaces
-        .iter()
-        .filter(|interface| !interface.id.is_nil())
-        .map(|interface| interface.group_id)
-        .collect();
 
     let mut created = ClientsCreated::default();
     let mut fatal: Option<CoreError> = None;
@@ -1827,6 +1817,7 @@ fn apply_clients_import(
         }
         let mut device_ids = Vec::new();
         let mut updated_device_ids = Vec::new();
+        let mut updated = Vec::new();
         for client in &mut interface.clients {
             match client.status {
                 ImportClientStatus::Create => {
@@ -1862,11 +1853,15 @@ fn apply_clients_import(
                     let Some(update) = client.update.take() else {
                         continue;
                     };
-                    match devices.apply_peer_update(update.device_id, interface.id, update.changes)
-                    {
-                        Ok(device) => {
+                    match devices.apply_peer_update_tracked(
+                        update.device_id,
+                        interface.id,
+                        update.changes,
+                    ) {
+                        Ok((device, undo)) => {
                             client.device_id = Some(device.id);
                             updated_device_ids.push(device.id);
+                            updated.push(undo);
                         }
                         Err(error @ (CoreError::Io(_) | CoreError::NotFound(_))) => {
                             fatal = Some(error);
@@ -1887,6 +1882,7 @@ fn apply_clients_import(
             node_id: interface.node_id,
             device_ids,
             updated_device_ids,
+            updated,
         });
         if fatal.is_some() {
             break;
@@ -1894,8 +1890,7 @@ fn apply_clients_import(
     }
 
     if let Some(error) = fatal {
-        let rollback_errors =
-            rollback_clients(devices, &created, &group_ids, &existing_devices, started_at);
+        let rollback_errors = rollback_clients(devices, &created);
         return Err(clients_rollback_error(error, &rollback_errors));
     }
 
@@ -1908,17 +1903,19 @@ fn apply_clients_import(
     Ok((plan, created))
 }
 
-fn rollback_clients(
-    devices: &DeviceService,
-    created: &ClientsCreated,
-    group_ids: &HashSet<Uuid>,
-    existing: &HashSet<Uuid>,
-    started_at: chrono::DateTime<chrono::Utc>,
-) -> Vec<String> {
+fn rollback_clients(devices: &DeviceService, created: &ClientsCreated) -> Vec<String> {
     let mut errors = Vec::new();
     let mut deleted: HashSet<Uuid> = HashSet::new();
 
     for interface in created.interfaces.iter().rev() {
+        for undo in interface.updated.iter().rev() {
+            if let Err(error) = devices.restore_peer(undo) {
+                errors.push(format!(
+                    "failed to restore device {}: {error}",
+                    undo.device.id
+                ));
+            }
+        }
         for device_id in interface.device_ids.iter().rev() {
             if !deleted.insert(*device_id) {
                 continue;
@@ -1927,24 +1924,6 @@ fn rollback_clients(
                 errors.push(format!("failed to delete device {device_id}: {error}"));
             }
         }
-    }
-
-    match devices.list_all() {
-        Ok(list) => {
-            for device in list.iter().filter(|device| {
-                group_ids.contains(&device.group_id)
-                    && !existing.contains(&device.id)
-                    && device.created_at >= started_at
-            }) {
-                if !deleted.insert(device.id) {
-                    continue;
-                }
-                if let Err(error) = devices.delete(device.id) {
-                    errors.push(format!("failed to delete device {}: {error}", device.id));
-                }
-            }
-        }
-        Err(error) => errors.push(format!("failed to list devices during rollback: {error}")),
     }
 
     errors
@@ -2430,6 +2409,96 @@ mod tests {
             inner: RedbDevicePeerRepository::new(store.clone()),
             saves: AtomicUsize::new(0),
             fail_after,
+        });
+        let devices = Arc::new(DeviceService::new(
+            Arc::new(RedbDeviceRepository::new(store.clone())),
+            peers,
+            network.clone(),
+            tariffs,
+            sealer.clone(),
+        ));
+        let profiles = Arc::new(ProfileService::new(
+            Arc::new(RedbDeviceRepository::new(store.clone())),
+            Arc::new(RedbDevicePeerRepository::new(store)),
+            network.clone(),
+            sealer,
+            Vec::new(),
+        ));
+        Harness {
+            network,
+            devices,
+            profiles,
+        }
+    }
+
+    struct FailingOncePeers {
+        inner: RedbDevicePeerRepository,
+        saves: AtomicUsize,
+        fail_at: usize,
+    }
+
+    impl DevicePeerRepository for FailingOncePeers {
+        fn find(
+            &self,
+            device_id: Uuid,
+            interface_id: Uuid,
+        ) -> Result<Option<DevicePeer>, CoreError> {
+            self.inner.find(device_id, interface_id)
+        }
+
+        fn list(&self) -> Result<Vec<DevicePeer>, CoreError> {
+            self.inner.list()
+        }
+
+        fn by_device(&self, device_id: Uuid) -> Result<Vec<DevicePeer>, CoreError> {
+            self.inner.by_device(device_id)
+        }
+
+        fn by_interface(&self, interface_id: Uuid) -> Result<Vec<DevicePeer>, CoreError> {
+            self.inner.by_interface(interface_id)
+        }
+
+        fn save(&self, peer: &DevicePeer) -> Result<(), CoreError> {
+            let attempt = self.saves.fetch_add(1, Ordering::SeqCst);
+            if attempt == self.fail_at {
+                return Err(CoreError::Io(std::io::Error::other("peer save failed")));
+            }
+            self.inner.save(peer)
+        }
+
+        fn delete_for_device(&self, device_id: Uuid) -> Result<usize, CoreError> {
+            self.inner.delete_for_device(device_id)
+        }
+
+        fn delete_peer(&self, peer_id: Uuid) -> Result<(), CoreError> {
+            self.inner.delete_peer(peer_id)
+        }
+
+        fn delete(&self, device_id: Uuid, interface_id: Uuid) -> Result<(), CoreError> {
+            self.inner.delete(device_id, interface_id)
+        }
+    }
+
+    fn failing_once_harness(fail_at: usize) -> Harness {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let sealer = Arc::new(
+            Sealer::from_master_key(&base64::engine::general_purpose::STANDARD.encode([11u8; 32]))
+                .unwrap(),
+        );
+        let network = Arc::new(NetworkService::new(
+            Arc::new(RedbGroupRepository::new(store.clone())),
+            Arc::new(RedbNodeRepository::new(store.clone())),
+            Arc::new(RedbInterfaceRepository::new(store.clone())),
+            Arc::new(RedbCidrPoolRepository::new(store.clone())),
+            sealer.clone(),
+        ));
+        let tariffs = Arc::new(TariffService::new(Arc::new(RedbTariffRepository::new(
+            store.clone(),
+        ))));
+        let peers = Arc::new(FailingOncePeers {
+            inner: RedbDevicePeerRepository::new(store.clone()),
+            saves: AtomicUsize::new(0),
+            fail_at,
         });
         let devices = Arc::new(DeviceService::new(
             Arc::new(RedbDeviceRepository::new(store.clone())),
@@ -3443,6 +3512,114 @@ mod tests {
         assert_eq!(
             phone_peer.ips.values().next().copied(),
             Some(IpAddr::V4(Ipv4Addr::new(10, 8, 0, 3)))
+        );
+    }
+
+    #[test]
+    fn clients_rollback_only_deletes_devices_created_by_the_import() {
+        let h = harness();
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let foreign = seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "foreign",
+            &generate_keypair(),
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+        );
+        let ours = seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "ours",
+            &generate_keypair(),
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 3),
+        );
+        let created = ClientsCreated {
+            interfaces: vec![ClientsCreatedInterface {
+                id: a.interface_id,
+                node_id: node.id,
+                device_ids: vec![ours],
+                updated_device_ids: Vec::new(),
+                updated: Vec::new(),
+            }],
+        };
+
+        let errors = rollback_clients(&h.devices, &created);
+
+        assert!(errors.is_empty(), "{errors:?}");
+        assert!(h.devices.get(ours).is_err());
+        assert!(h.devices.get(foreign).is_ok());
+    }
+
+    #[test]
+    fn clients_apply_rollback_restores_updated_peers() {
+        let h = failing_once_harness(1);
+        let (node, _) = h.network.create_node("node-a").unwrap();
+        let server = generate_keypair();
+        let a = seed(
+            &h,
+            node.id,
+            "g1",
+            "10.8.0.0/24",
+            "awg0",
+            &server,
+            &[("default", "10.8.0.0/25")],
+        );
+        let phone = generate_keypair();
+        let phone_id = seed_device(
+            &h,
+            owner(),
+            a.group_id,
+            a.interface_id,
+            "phone",
+            &phone,
+            a.pool_ids[0],
+            Ipv4Addr::new(10, 8, 0, 2),
+        );
+        let laptop = generate_keypair();
+        let request = clients_request(
+            Some(a.interface_id),
+            vec![
+                client("phone-renamed", &phone, &public_of(&server), "10.8.0.3/25"),
+                client("laptop", &laptop, &public_of(&server), "10.8.0.4/25"),
+            ],
+        );
+
+        let error = apply_clients_import(&h.network, &h.devices, &request, owner()).unwrap_err();
+        assert!(matches!(error, ApiError::Internal(_)));
+
+        let devices = h.devices.list_all().unwrap();
+        let phone_device = devices
+            .iter()
+            .find(|device| device.id == phone_id)
+            .expect("the updated device must survive");
+        assert_eq!(phone_device.name, "phone");
+        assert_eq!(devices.len(), 1, "the failed create must be cleaned up");
+        let peer = h
+            .devices
+            .peers_for(phone_id)
+            .unwrap()
+            .into_iter()
+            .next()
+            .expect("the original peer must survive");
+        assert_eq!(
+            peer.ips.values().next().copied(),
+            Some(IpAddr::V4(Ipv4Addr::new(10, 8, 0, 2)))
         );
     }
 

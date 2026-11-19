@@ -46,6 +46,12 @@ pub struct PeerChangeSet {
 }
 
 #[derive(Debug, Clone)]
+pub struct PeerUndo {
+    pub device: Device,
+    pub peer: DevicePeer,
+}
+
+#[derive(Debug, Clone)]
 pub struct DeviceProfile {
     pub peer_id: Uuid,
     pub label: String,
@@ -602,7 +608,10 @@ impl DeviceService {
             created_at: now,
         };
         self.devices.save(&device)?;
-        self.peers.save(&peer)?;
+        if let Err(error) = self.peers.save(&peer) {
+            let _ = self.devices.delete(device.id);
+            return Err(error);
+        }
         Ok(device)
     }
 
@@ -672,7 +681,10 @@ impl DeviceService {
             created_at: now,
         };
         self.devices.save(&device)?;
-        self.peers.save(&peer)?;
+        if let Err(error) = self.peers.save(&peer) {
+            let _ = self.devices.delete(device.id);
+            return Err(error);
+        }
         Ok(device)
     }
 
@@ -682,11 +694,27 @@ impl DeviceService {
         interface_id: Uuid,
         changes: PeerChangeSet,
     ) -> CoreResult<Device> {
+        self.apply_peer_update_tracked(device_id, interface_id, changes)
+            .map(|(device, _)| device)
+    }
+
+    /// Applies an import-style peer update and returns the previous state so
+    /// that a failed batch import can restore exactly this peer and device.
+    pub fn apply_peer_update_tracked(
+        &self,
+        device_id: Uuid,
+        interface_id: Uuid,
+        changes: PeerChangeSet,
+    ) -> CoreResult<(Device, PeerUndo)> {
         let mut device = self.get(device_id)?;
         let mut peer = self
             .peers
             .find(device_id, interface_id)?
             .ok_or_else(|| CoreError::NotFound("device peer".into()))?;
+        let undo = PeerUndo {
+            device: device.clone(),
+            peer: peer.clone(),
+        };
         if let Some(name) = changes.name {
             validate_device_name(&name)?;
             device.name = name.trim().to_string();
@@ -713,8 +741,16 @@ impl DeviceService {
         let now = Utc::now();
         device.updated_at = now;
         self.peers.save(&peer)?;
-        self.devices.save(&device)?;
-        Ok(device)
+        if let Err(error) = self.devices.save(&device) {
+            let _ = self.peers.save(&undo.peer);
+            return Err(error);
+        }
+        Ok((device, undo))
+    }
+
+    pub fn restore_peer(&self, undo: &PeerUndo) -> CoreResult<()> {
+        self.peers.save(&undo.peer)?;
+        self.devices.save(&undo.device)
     }
 
     pub fn revoke(&self, id: Uuid, revoked: bool) -> CoreResult<Device> {

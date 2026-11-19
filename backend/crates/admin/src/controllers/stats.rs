@@ -11,7 +11,9 @@ use awg_statistics::{AggregateBucket, StatsScope};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
-use crate::views::{DeviceTrafficView, OverviewView, StatsPoint, StatsSeriesPoint, TrafficTotals};
+use crate::views::{
+    DeviceStatsView, DeviceTrafficView, OverviewView, StatsPoint, StatsSeriesPoint, TrafficTotals,
+};
 
 #[derive(Debug, Deserialize)]
 pub struct SeriesQuery {
@@ -36,6 +38,8 @@ pub struct AggregateView {
     pub points: Vec<StatsPoint>,
 }
 
+const TOP_DEVICES: usize = 8;
+
 pub async fn overview(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -57,32 +61,9 @@ pub async fn overview(
             .list_for_user(user.id())
             .map_err(ApiError::from)?
     };
-    let mut top = Vec::new();
-    let device_scopes: Vec<StatsScope> = devices
-        .iter()
-        .filter(|d| !d.revoked)
-        .map(|device| StatsScope::Device(device.id))
-        .collect();
-    let today = state
-        .stats
-        .today_many(&device_scopes)
-        .map_err(ApiError::from)?;
-    for device in devices.iter().filter(|d| !d.revoked) {
-        let (rx, tx) = today
-            .get(&StatsScope::Device(device.id))
-            .copied()
-            .unwrap_or_default();
-        top.push(DeviceTrafficView {
-            device_id: device.id,
-            name: device.name.clone(),
-            user_id: device.user_id,
-            rx,
-            tx,
-            online: false,
-        });
-    }
-    top.sort_by_key(|d| std::cmp::Reverse(d.rx + d.tx));
-    top.truncate(8);
+    let devices_total = devices.len();
+    let today_by_device = state.stats.today_device_totals().map_err(ApiError::from)?;
+    let top = top_devices(&devices, &today_by_device, TOP_DEVICES);
 
     let nodes = if user.is_admin() {
         state.network.list_nodes().map_err(ApiError::from)?
@@ -121,7 +102,7 @@ pub async fn overview(
         } else {
             0
         },
-        devices: state.devices.list_all().map_err(ApiError::from)?.len(),
+        devices: devices_total,
         users: if user.is_admin() {
             state.identity.list().map_err(ApiError::from)?.len()
         } else {
@@ -129,6 +110,78 @@ pub async fn overview(
         },
         top_devices: top,
     }))
+}
+
+fn top_devices(
+    devices: &[awg_clients::Device],
+    totals: &std::collections::HashMap<Uuid, (u64, u64)>,
+    limit: usize,
+) -> Vec<DeviceTrafficView> {
+    let mut ranked: Vec<DeviceTrafficView> = devices
+        .iter()
+        .filter(|device| !device.revoked)
+        .map(|device| {
+            let (rx, tx) = totals.get(&device.id).copied().unwrap_or_default();
+            DeviceTrafficView {
+                device_id: device.id,
+                name: device.name.clone(),
+                user_id: device.user_id,
+                rx,
+                tx,
+                online: false,
+            }
+        })
+        .collect();
+    if ranked.len() > limit {
+        ranked.select_nth_unstable_by(limit, |left, right| {
+            (right.rx + right.tx).cmp(&(left.rx + left.tx))
+        });
+        ranked.truncate(limit);
+    }
+    ranked.sort_by_key(|device| std::cmp::Reverse(device.rx + device.tx));
+    ranked
+}
+
+pub async fn devices(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+) -> ApiResult<Json<Vec<DeviceStatsView>>> {
+    let devices = if user.is_admin() {
+        state.devices.list_all().map_err(ApiError::from)?
+    } else {
+        state
+            .devices
+            .list_for_user(user.id())
+            .map_err(ApiError::from)?
+    };
+    let scopes: Vec<StatsScope> = devices
+        .iter()
+        .filter(|device| !device.revoked)
+        .map(|device| StatsScope::Device(device.id))
+        .collect();
+    let today = state.stats.today_many(&scopes).map_err(ApiError::from)?;
+    let month = state.stats.month_many(&scopes).map_err(ApiError::from)?;
+    let mut views = Vec::with_capacity(scopes.len());
+    for device in devices.iter().filter(|device| !device.revoked) {
+        let scope = StatsScope::Device(device.id);
+        let (today_rx, today_tx) = today.get(&scope).copied().unwrap_or_default();
+        let (month_rx, month_tx) = month.get(&scope).copied().unwrap_or_default();
+        let rate = state.stats.current_rate(&scope).unwrap_or_default();
+        views.push(DeviceStatsView {
+            device_id: device.id,
+            today: TrafficTotals {
+                rx: today_rx,
+                tx: today_tx,
+            },
+            month: TrafficTotals {
+                rx: month_rx,
+                tx: month_tx,
+            },
+            rx_bps: rate.rx_bps,
+            tx_bps: rate.tx_bps,
+        });
+    }
+    Ok(Json(views))
 }
 
 pub async fn series(

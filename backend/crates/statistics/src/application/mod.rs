@@ -133,12 +133,17 @@ impl StatsService {
             .collect();
         let previous = self.repo.counters(&keys)?;
 
+        let mut device_ids: Vec<Uuid> =
+            samples.iter().map(|(_, device_id, _)| *device_id).collect();
+        device_ids.sort_unstable();
+        device_ids.dedup();
+        let directory_map = directory.group_and_user_many(&device_ids)?;
+
         let mut counters = Vec::with_capacity(samples.len());
         let mut bucket_deltas: HashMap<(StatsScope, i64), (u64, u64)> = HashMap::new();
         let mut device_updates: BTreeMap<(Uuid, Uuid), (Uuid, Uuid, u64, u64)> = BTreeMap::new();
         let mut scoped: HashMap<StatsScope, (u64, u64)> = HashMap::new();
         let mut device_totals: HashMap<Uuid, (u64, u64)> = HashMap::new();
-        let mut directory_cache: HashMap<Uuid, Option<(Uuid, Uuid)>> = HashMap::new();
 
         for (interface_id, device_id, sample) in samples {
             let key = CounterKey {
@@ -147,15 +152,7 @@ impl StatsService {
                 device_id: *device_id,
                 peer_id: sample.peer_id,
             };
-            let scoped_ids = match directory_cache.get(device_id) {
-                Some(cached) => *cached,
-                None => {
-                    let resolved = directory.group_and_user(*device_id)?;
-                    directory_cache.insert(*device_id, resolved);
-                    resolved
-                }
-            };
-            let Some((group_id, user_id)) = scoped_ids else {
+            let Some((group_id, user_id)) = directory_map.get(device_id).copied() else {
                 continue;
             };
             let totals = device_totals.entry(*device_id).or_default();
@@ -393,6 +390,13 @@ impl StatsService {
     pub fn today_many(&self, scopes: &[StatsScope]) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
         let (start, end) = day_range(Utc::now());
         self.totals_many(scopes, start, end)
+    }
+
+    /// Today's totals for every device in one backend pass.
+    pub fn today_device_totals(&self) -> CoreResult<HashMap<Uuid, (u64, u64)>> {
+        let (start, end) = day_range(Utc::now());
+        self.repo
+            .device_totals(Aggregator::hour_of(start), Aggregator::hour_of(end))
     }
 
     pub fn month(&self, scope: StatsScope) -> CoreResult<(u64, u64)> {
