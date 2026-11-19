@@ -5,6 +5,7 @@ import { enAuth } from "./locales/en/auth";
 import { enClients } from "./locales/en/clients";
 import { enCommand } from "./locales/en/command";
 import { enCommon } from "./locales/en/common";
+import { enErrors } from "./locales/en/errors";
 import { enGroups } from "./locales/en/groups";
 import { enImport } from "./locales/en/import";
 import { enInterfaces } from "./locales/en/interfaces";
@@ -22,6 +23,7 @@ export const en: Dictionary = {
   ...enClients,
   ...enCommand,
   ...enCommon,
+  ...enErrors,
   ...enGroups,
   ...enImport,
   ...enInterfaces,

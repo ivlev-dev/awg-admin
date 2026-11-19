@@ -46,8 +46,8 @@ export class DefaultAuthService implements AuthService {
   async login(input: LoginInput): Promise<AuthSession> {
     const code = input.totp_code?.trim();
     return this.repository.login({
-      login: requireText(input.login, "Логин"),
-      password: requireText(input.password, "Пароль"),
+      login: requireText(input.login, "error.label.login"),
+      password: requireText(input.password, "error.label.password"),
       ...(code ? { totp_code: code } : {}),
     });
   }
@@ -62,7 +62,7 @@ export class DefaultAuthService implements AuthService {
   }
 
   async verifyEmail(token: string): Promise<VerifyEmailResult> {
-    return this.repository.verifyEmail(requireText(token, "Токен подтверждения"));
+    return this.repository.verifyEmail(requireText(token, "error.label.verifyToken"));
   }
 
   async resendVerification(email: string): Promise<void> {
@@ -75,13 +75,13 @@ export class DefaultAuthService implements AuthService {
 
   async resetPassword(token: string, password: string): Promise<ResetPasswordResult> {
     return this.repository.resetPassword(
-      requireText(token, "Токен сброса пароля"),
+      requireText(token, "error.label.resetToken"),
       validatePassword(password),
     );
   }
 
   async refresh(refreshToken: string): Promise<AuthSession> {
-    return this.repository.refresh(requireText(refreshToken, "Refresh-токен"));
+    return this.repository.refresh(requireText(refreshToken, "error.label.refreshToken"));
   }
 
   async logout(refreshToken: string | null): Promise<void> {
@@ -95,7 +95,7 @@ export class DefaultAuthService implements AuthService {
 
   async changePassword(current: string | null, next: string): Promise<void> {
     if (current !== null && !current.trim()) {
-      throw new ValidationError("Текущий пароль обязателен");
+      throw new ValidationError("error.validation.authCurrentPassword");
     }
     await this.repository.changePassword(current, validatePassword(next));
   }
@@ -110,7 +110,7 @@ export class DefaultAuthService implements AuthService {
 
   async totpDisable(password: string, code: string): Promise<TotpToggleResult> {
     return this.repository.totpDisable(
-      requireText(password, "Пароль"),
+      requireText(password, "error.label.password"),
       validateTotpCode(code),
     );
   }
@@ -120,7 +120,7 @@ export class DefaultAuthService implements AuthService {
   }
 
   async revokeSession(jti: string): Promise<void> {
-    await this.repository.revokeSession(requireId(jti, "Сессия"));
+    await this.repository.revokeSession(requireId(jti, "error.label.session"));
   }
 
   logoutAll(): Promise<LogoutAllResult> {

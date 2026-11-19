@@ -3,6 +3,7 @@ import { ruAuth } from "./locales/ru/auth";
 import { ruClients } from "./locales/ru/clients";
 import { ruCommand } from "./locales/ru/command";
 import { ruCommon } from "./locales/ru/common";
+import { ruErrors } from "./locales/ru/errors";
 import { ruGroups } from "./locales/ru/groups";
 import { ruImport } from "./locales/ru/import";
 import { ruInterfaces } from "./locales/ru/interfaces";
@@ -20,6 +21,7 @@ export const ru = {
   ...ruClients,
   ...ruCommand,
   ...ruCommon,
+  ...ruErrors,
   ...ruGroups,
   ...ruImport,
   ...ruInterfaces,

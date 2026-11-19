@@ -13,7 +13,7 @@ import type { AuthSessionInfo, TotpSetup } from "@/domain/auth/types";
 import { copyText } from "@/domain/clipboard";
 import { initials, userAgentLabel } from "@/domain/format";
 import {
-  LANGUAGE_OPTIONS,
+  languageOptions,
   isLocale,
   locale,
   setLocale,
@@ -429,7 +429,7 @@ export class ProfilePageVM extends ViewModel {
   }
 
   get languageOptions(): readonly LanguageOption[] {
-    return LANGUAGE_OPTIONS;
+    return languageOptions();
   }
 
   @computed

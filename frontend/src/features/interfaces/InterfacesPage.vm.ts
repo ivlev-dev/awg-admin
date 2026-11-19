@@ -7,6 +7,7 @@ import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
+import { userMessage } from "@/application/errors";
 import type { InterfaceBulkAction } from "@/domain/interfaces/repository";
 import type { InterfaceInput } from "@/domain/interfaces/types";
 import type { Group, InterfaceInfo, NodeInfo } from "@/domain/types";
@@ -263,7 +264,7 @@ export class InterfacesPageVM extends ViewModel {
       this.nodes = nodes;
       this.syncFilters();
     } catch (error) {
-      this.error = messageOf(error, t("interfaces.error.load"));
+      this.error = userMessage(error, t("interfaces.error.load"));
     } finally {
       this.loading = false;
     }
@@ -395,7 +396,7 @@ export class InterfacesPageVM extends ViewModel {
       this.resetValidation();
       this.toasts.success(t("interfaces.toast.created", { name: created.name }));
     } catch (error) {
-      const message = messageOf(error, t("interfaces.error.create"));
+      const message = userMessage(error, t("interfaces.error.create"));
       this.formError = message;
       this.toasts.error(message);
     } finally {
@@ -494,7 +495,7 @@ export class InterfacesPageVM extends ViewModel {
       this.resetValidation();
       this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
     } catch (error) {
-      const message = messageOf(error, t("interfaces.error.update"));
+      const message = userMessage(error, t("interfaces.error.update"));
       this.editError = message;
       this.toasts.error(message);
     } finally {
@@ -561,7 +562,7 @@ export class InterfacesPageVM extends ViewModel {
       this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
     } catch (error) {
       const fallback = action === "delete" ? t("interfaces.error.delete") : t("interfaces.error.update");
-      this.toasts.error(messageOf(error, fallback));
+      this.toasts.error(userMessage(error, fallback));
     } finally {
       this.bulkBusy = false;
       this.clearSelection();
@@ -585,7 +586,7 @@ export class InterfacesPageVM extends ViewModel {
       this.rotatedCopied = false;
       this.toasts.success(t("interfaces.toast.rotated"));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("interfaces.error.rotate")));
+      this.toasts.error(userMessage(error, t("interfaces.error.rotate")));
     } finally {
       this.busy = false;
     }
@@ -622,7 +623,7 @@ export class InterfacesPageVM extends ViewModel {
       this.interfaces = this.interfaces.filter((current) => current.id !== item.id);
       this.toasts.success(t("interfaces.toast.deleted", { name: item.name }));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("interfaces.error.delete")));
+      this.toasts.error(userMessage(error, t("interfaces.error.delete")));
     } finally {
       this.busy = false;
     }
@@ -681,10 +682,6 @@ export class InterfacesPageVM extends ViewModel {
   private replace(item: InterfaceInfo): void {
     this.interfaces = this.interfaces.map((current) => (current.id === item.id ? item : current));
   }
-}
-
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function isPort(value: string): boolean {

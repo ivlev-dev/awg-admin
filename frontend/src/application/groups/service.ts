@@ -31,28 +31,28 @@ export class DefaultGroupsService implements GroupsService {
 
   async updateGroup(id: string, input: Partial<GroupInput>): Promise<Group> {
     const patch: Partial<GroupInput> = { ...input };
-    if (input.name !== undefined) patch.name = requireText(input.name, "Название группы");
+    if (input.name !== undefined) patch.name = requireText(input.name, "error.label.groupName");
     if (input.description !== undefined) patch.description = input.description.trim();
     if (input.base_cidr !== undefined) patch.base_cidr = requireCidr(input.base_cidr);
-    return this.repository.updateGroup(requireId(id, "Группа"), patch);
+    return this.repository.updateGroup(requireId(id, "error.label.group"), patch);
   }
 
   async deleteGroup(id: string): Promise<void> {
-    await this.repository.deleteGroup(requireId(id, "Группа"));
+    await this.repository.deleteGroup(requireId(id, "error.label.group"));
   }
 
   bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {
-    const targets = ids.map((id) => requireId(id, "Группа"));
+    const targets = ids.map((id) => requireId(id, "error.label.group"));
     return this.repository.bulk(action, targets);
   }
 
   listPools(groupId: string): Promise<CidrPool[]> {
-    return this.repository.listPools(requireId(groupId, "Группа"));
+    return this.repository.listPools(requireId(groupId, "error.label.group"));
   }
 
   async createPool(groupId: string, input: PoolInput): Promise<CidrPool> {
     return this.repository.createPool(
-      requireId(groupId, "Группа"),
+      requireId(groupId, "error.label.group"),
       normalizePool(input),
     );
   }
@@ -62,19 +62,19 @@ export class DefaultGroupsService implements GroupsService {
     input: Partial<PoolInput> & { enabled?: boolean },
   ): Promise<CidrPool> {
     const patch: Partial<PoolInput> & { enabled?: boolean } = { ...input };
-    if (input.name !== undefined) patch.name = requireText(input.name, "Название пула");
+    if (input.name !== undefined) patch.name = requireText(input.name, "error.label.poolName");
     if (input.cidr !== undefined) patch.cidr = requireCidr(input.cidr);
-    return this.repository.updatePool(requireId(id, "Пул"), patch);
+    return this.repository.updatePool(requireId(id, "error.label.pool"), patch);
   }
 
   async deletePool(id: string): Promise<void> {
-    await this.repository.deletePool(requireId(id, "Пул"));
+    await this.repository.deletePool(requireId(id, "error.label.pool"));
   }
 }
 
 function normalizeGroup(input: GroupInput): GroupInput {
   return {
-    name: requireText(input.name, "Название группы"),
+    name: requireText(input.name, "error.label.groupName"),
     description: input.description.trim(),
     base_cidr: requireCidr(input.base_cidr),
     forwarding_default: input.forwarding_default,
@@ -83,7 +83,7 @@ function normalizeGroup(input: GroupInput): GroupInput {
 
 function normalizePool(input: PoolInput): PoolInput {
   return {
-    name: requireText(input.name, "Название пула"),
+    name: requireText(input.name, "error.label.poolName"),
     cidr: requireCidr(input.cidr),
     mode: input.mode,
     gateway: input.gateway,
@@ -92,6 +92,6 @@ function normalizePool(input: PoolInput): PoolInput {
 
 function requireCidr(value: string): string {
   const cidr = value.trim();
-  if (!isCidr(cidr)) throw new ValidationError(`Некорректный CIDR: ${value}`);
+  if (!isCidr(cidr)) throw new ValidationError("error.validation.importCidr", { cidr: value });
   return cidr;
 }

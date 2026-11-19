@@ -24,7 +24,7 @@ export class Router {
       routes: ROUTE_RECORDS,
       load: (context: RouterComponentLoadContext) => loadRoutePage(context.record.name),
       onError: (error: RouterNavigationError): void => {
-        console.error(`Не удалось перейти на ${error.to || "маршрут"}`, error);
+        console.error(`Navigation to ${error.to || "route"} failed`, error);
         options.onError?.(error);
       },
       ...(options.container === undefined ? {} : { container: options.container }),
@@ -54,11 +54,6 @@ export class Router {
   @computed
   get params(): Record<string, string> {
     return this.resolve(this.path)?.params ?? this.match.params;
-  }
-
-  @computed
-  get title(): string {
-    return this.match.route.title;
   }
 
   navigate(path: string, options: { replace?: boolean } = {}): void {

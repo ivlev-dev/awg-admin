@@ -22,8 +22,6 @@ export const ruProfile = {
   "profile.account.subtitle": "Email и пароль для входа в панель",
   "profile.account.email": "Email",
   "profile.account.emailHint": "Email задаёт администратор.",
-  "profile.account.login": "Логин",
-  "profile.account.loginHint": "Логин назначает администратор, изменить его нельзя.",
   "profile.password.title": "Смена пароля",
   "profile.password.subtitle": "Текущая сессия останется активной после смены пароля.",
   "profile.password.current": "Текущий пароль",

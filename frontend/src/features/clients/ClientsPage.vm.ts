@@ -3,12 +3,15 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 import type { DevicesService } from "@/application/devices/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { UsersService } from "@/application/users/service";
+import { userMessage } from "@/application/errors";
 import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
 import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
+import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
+import { PAGE_SIZES, currentPage, pageCount, pageSlice, pageWindow } from "@/app/table-pagination";
 import { ToastStore } from "@/app/toast";
 import type { DevicesBulkAction } from "@/domain/devices/repository";
 import type { Device, InterfaceInfo, User } from "@/domain/types";
@@ -49,7 +52,6 @@ export interface ClientFormState {
 
 const EMPTY_FILTERS: ClientsFilters = { query: "", interfaceFilter: "" };
 const EMPTY_EXTRA_FILTERS: ClientsExtraFilters = { status: "all" };
-const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export const clientsFiltersStorage = persistedSignal<ClientsFilters>(
   "awg.ui.clients.filters",
@@ -322,27 +324,24 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get pageCount(): number {
-    return Math.max(1, Math.ceil(this.filteredDevices.length / this.pageSize));
+    return pageCount(this.filteredDevices.length, this.pageSize);
   }
 
   @computed
   get currentPage(): number {
-    return Math.min(Math.max(1, this.page), this.pageCount);
+    return currentPage(this.page, this.filteredDevices.length, this.pageSize);
   }
 
   @computed
   get pagedDevices(): Device[] {
-    const start = (this.currentPage - 1) * this.pageSize;
-    return this.filteredDevices.slice(start, start + this.pageSize);
+    return pageSlice(this.filteredDevices, this.currentPage, this.pageSize);
   }
 
   @computed
   get pageSummary(): string {
     const total = this.filteredDevices.length;
-    if (total === 0) return t("users.pagination.summary", { from: 0, to: 0, total: 0 });
-    const from = (this.currentPage - 1) * this.pageSize + 1;
-    const to = Math.min(from + this.pageSize - 1, total);
-    return t("users.pagination.summary", { from, to, total });
+    const window = pageWindow(total, this.page, this.pageSize);
+    return t("users.pagination.summary", { from: window.from, to: window.to, total });
   }
 
   @computed
@@ -456,7 +455,7 @@ export class ClientsPageVM extends ViewModel {
       this.interfaces = interfaces;
       this.users = users;
     } catch (error) {
-      const message = messageOf(error, t("clients.error.load"));
+      const message = userMessage(error, t("clients.error.load"));
       this.error = message;
       this.toasts.error(message);
     } finally {
@@ -584,7 +583,7 @@ export class ClientsPageVM extends ViewModel {
       this.toasts.success(t("clients.toast.created", { name: device.name }));
       await this.load();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.error.create")));
+      this.toasts.error(userMessage(error, t("clients.error.create")));
     } finally {
       this.submitting = false;
     }
@@ -671,25 +670,16 @@ export class ClientsPageVM extends ViewModel {
   }
 
   private syncLocation(): void {
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.startsWith("/clients")) return;
-    const params = new URLSearchParams();
-    if (this.query.trim().length > 0) params.set("query", this.query);
-    if (this.interfaceFilter.length > 0) params.set("interface", this.interfaceFilter);
-    if (this.statusFilter !== "all") params.set("status", this.statusFilter);
-    const query = params.toString();
-    const next = `${window.location.pathname}${query.length > 0 ? `?${query}` : ""}${window.location.hash}`;
-    try {
-      window.history.replaceState(window.history.state, "", next);
-    } catch {
-      // История недоступна (sandboxed iframe) — фильтры всё равно сохранены локально.
-    }
+    syncFilterQuery("/clients", [
+      ["query", this.query.trim().length > 0 ? this.query : null],
+      ["interface", this.interfaceFilter.length > 0 ? this.interfaceFilter : null],
+      ["status", this.statusFilter !== "all" ? this.statusFilter : null],
+    ]);
   }
 
   private restoreFromLocation(): void {
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.startsWith("/clients")) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = readFilterQuery("/clients");
+    if (params === null) return;
     if (params.has("query")) {
       const query = params.get("query") ?? "";
       this.query = query;
@@ -732,10 +722,6 @@ function validateClientsFilters(value: unknown): ClientsFilters | null {
   const interfaceFilter = stringField(value, "interfaceFilter", FILTER_ID_LIMIT);
   if (query === null || interfaceFilter === null) return null;
   return { query, interfaceFilter };
-}
-
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function sanitizeKbps(value: number): number {

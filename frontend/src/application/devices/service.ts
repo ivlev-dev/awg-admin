@@ -39,7 +39,7 @@ export class DefaultDevicesService implements DevicesService {
   }
 
   async getDevice(id: string): Promise<Device> {
-    return this.repository.getDevice(requireId(id, "Устройство"));
+    return this.repository.getDevice(requireId(id, "error.label.device"));
   }
 
   async createDevice(input: DeviceInput): Promise<Device> {
@@ -50,90 +50,93 @@ export class DefaultDevicesService implements DevicesService {
       group_id: input.group_id,
       ...(primary ? { interface_id: primary } : {}),
       ...(interfaceIds.length > 0 ? { interface_ids: interfaceIds } : {}),
-      name: requireText(input.name, "Имя устройства"),
-      down_kbps: requireRate(input.down_kbps, "Скорость скачивания"),
-      up_kbps: requireRate(input.up_kbps, "Скорость отдачи"),
+      name: requireText(input.name, "error.label.deviceName"),
+      down_kbps: requireRate(input.down_kbps, "error.label.downRate"),
+      up_kbps: requireRate(input.up_kbps, "error.label.upRate"),
       forwarding: input.forwarding,
     });
   }
 
   async updateDevice(id: string, input: DeviceUpdateInput): Promise<Device> {
     const patch: DeviceUpdateInput = { ...input };
-    if (input.name !== undefined) patch.name = requireText(input.name, "Имя устройства");
+    if (input.name !== undefined) patch.name = requireText(input.name, "error.label.deviceName");
     if (input.down_kbps !== undefined) {
-      patch.down_kbps = requireRate(input.down_kbps, "Скорость скачивания");
+      patch.down_kbps = requireRate(input.down_kbps, "error.label.downRate");
     }
     if (input.up_kbps !== undefined) {
-      patch.up_kbps = requireRate(input.up_kbps, "Скорость отдачи");
+      patch.up_kbps = requireRate(input.up_kbps, "error.label.upRate");
     }
-    return this.repository.updateDevice(requireId(id, "Устройство"), patch);
+    return this.repository.updateDevice(requireId(id, "error.label.device"), patch);
   }
 
   async deleteDevice(id: string): Promise<void> {
-    await this.repository.deleteDevice(requireId(id, "Устройство"));
+    await this.repository.deleteDevice(requireId(id, "error.label.device"));
   }
 
   async listProfiles(id: string): Promise<Profile[]> {
-    return this.repository.listProfiles(requireId(id, "Устройство"));
+    return this.repository.listProfiles(requireId(id, "error.label.device"));
   }
 
   async getProfile(id: string, interfaceId: string): Promise<Profile> {
     return this.repository.getProfile(
-      requireId(id, "Устройство"),
-      requireId(interfaceId, "Интерфейс"),
+      requireId(id, "error.label.device"),
+      requireId(interfaceId, "error.label.interface"),
     );
   }
 
   async profileByPeer(id: string, peerId: string): Promise<Profile> {
     return this.repository.profileByPeer(
-      requireId(id, "Устройство"),
-      requireId(peerId, "Туннель"),
+      requireId(id, "error.label.device"),
+      requireId(peerId, "error.label.tunnel"),
     );
   }
 
   async addTunnel(id: string, interfaceId: string, label?: string): Promise<Device> {
     const trimmed = label?.trim() ?? "";
     if (trimmed.length > PEER_LABEL_MAX) {
-      throw new ValidationError(`Метка туннеля: не длиннее ${PEER_LABEL_MAX} символов`);
+      throw new ValidationError("error.validation.peerLabelTooLong", {
+        label: "error.label.tunnelLabel",
+        max: PEER_LABEL_MAX,
+      });
     }
-    return this.repository.addTunnel(requireId(id, "Устройство"), {
-      interfaceId: requireId(interfaceId, "Интерфейс"),
+    return this.repository.addTunnel(requireId(id, "error.label.device"), {
+      interfaceId: requireId(interfaceId, "error.label.interface"),
       ...(trimmed.length > 0 ? { label: trimmed } : {}),
     });
   }
 
   async renameTunnel(id: string, peerId: string, label: string): Promise<Device> {
     return this.repository.renameTunnel(
-      requireId(id, "Устройство"),
-      requireId(peerId, "Туннель"),
+      requireId(id, "error.label.device"),
+      requireId(peerId, "error.label.tunnel"),
       requirePeerLabel(label),
     );
   }
 
   async deleteTunnel(id: string, peerId: string): Promise<void> {
     await this.repository.deleteTunnel(
-      requireId(id, "Устройство"),
-      requireId(peerId, "Туннель"),
+      requireId(id, "error.label.device"),
+      requireId(peerId, "error.label.tunnel"),
     );
   }
 
   async deviceStats(id: string, options: DeviceStatsQueryOptions = {}): Promise<DeviceStats> {
-    const normalized = requireId(id, "Устройство");
+    const normalized = requireId(id, "error.label.device");
     return options.signal === undefined
       ? this.repository.deviceStats(normalized)
       : this.repository.deviceStats(normalized, options);
   }
 
   async listShares(id: string): Promise<ShareLink[]> {
-    return this.repository.listShares(requireId(id, "Устройство"));
+    return this.repository.listShares(requireId(id, "error.label.device"));
   }
 
   async createShare(id: string, input: CreateShareInput): Promise<ShareLink> {
     if (input.ttlSecs !== undefined && (!Number.isInteger(input.ttlSecs) || input.ttlSecs <= 0)) {
-      throw new ValidationError("Срок жизни ссылки должен быть положительным числом секунд");
+      throw new ValidationError("error.validation.shareTtl");
     }
     if (input.oneTime && input.maxUses !== undefined) {
-      throw new ValidationError("Одноразовая ссылка не может иметь отдельный лимит использований");
+      throw new ValidationError("error.validation.shareOneTimeLimit");
     }
     const maxUses = input.maxUses;
     if (
@@ -141,10 +144,10 @@ export class DefaultDevicesService implements DevicesService {
       maxUses !== undefined &&
       (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 1000)
     ) {
-      throw new ValidationError("Лимит использований должен быть от 1 до 1000");
+      throw new ValidationError("error.validation.shareMaxUses");
     }
-    return this.repository.createShare(requireId(id, "Устройство"), {
-      interfaceId: requireId(input.interfaceId, "Интерфейс"),
+    return this.repository.createShare(requireId(id, "error.label.device"), {
+      interfaceId: requireId(input.interfaceId, "error.label.interface"),
       format: input.format,
       ...(input.ttlSecs !== undefined ? { ttlSecs: input.ttlSecs } : {}),
       ...(input.oneTime === true ? { oneTime: true } : {}),
@@ -153,15 +156,15 @@ export class DefaultDevicesService implements DevicesService {
   }
 
   async revokeShare(token: string): Promise<void> {
-    await this.repository.revokeShare(requireId(token, "Ссылка"));
+    await this.repository.revokeShare(requireId(token, "error.label.share"));
   }
 
   async revokeAllShares(id: string): Promise<number> {
-    return this.repository.revokeAllShares(requireId(id, "Устройство"));
+    return this.repository.revokeAllShares(requireId(id, "error.label.device"));
   }
 
   async bulk(action: DevicesBulkAction, ids: readonly string[]): Promise<BulkResult> {
-    const normalized = ids.map((id) => requireId(id, "Устройство"));
+    const normalized = ids.map((id) => requireId(id, "error.label.device"));
     return this.repository.bulk(action, normalized);
   }
 }

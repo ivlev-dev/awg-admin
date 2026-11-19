@@ -1,11 +1,5 @@
 import type { Tariff } from "@/domain/types";
-import {
-  clampDeviceLimits,
-  validateGroupSum,
-  validateTariff,
-  isCidr,
-  cidrContains,
-} from "@/domain/validation";
+import { validateTariff, isCidr, cidrContains } from "@/domain/validation";
 
 function makeTariff(overrides: Partial<Tariff> = {}): Tariff {
   return {
@@ -26,77 +20,17 @@ function makeTariff(overrides: Partial<Tariff> = {}): Tariff {
   };
 }
 
-describe("clampDeviceLimits", () => {
-  it("max 0 means unlimited", () => {
-    const tariff = makeTariff({ device_down_kbps: 0, device_up_kbps: 0 });
-    expect(clampDeviceLimits(tariff, { down: 7, up: 9 })).toEqual({
-      down: 7,
-      up: 9,
-    });
-  });
-
-  it("requested 0 becomes max", () => {
-    const tariff = makeTariff({ device_down_kbps: 100, device_up_kbps: 50 });
-    expect(clampDeviceLimits(tariff, { down: 0, up: 0 })).toEqual({
-      down: 100,
-      up: 50,
-    });
-  });
-
-  it("clamps requested to max", () => {
-    const tariff = makeTariff({ device_down_kbps: 100, device_up_kbps: 50 });
-    expect(clampDeviceLimits(tariff, { down: 200, up: 10 })).toEqual({
-      down: 100,
-      up: 10,
-    });
-  });
-});
-
-describe("validateGroupSum", () => {
-  it("exceeds down", () => {
-    const tariff = makeTariff({ group_down_kbps: 100 });
-    expect(
-      validateGroupSum(tariff, [
-        { down: 60, up: 10 },
-        { down: 60, up: 10 },
-      ]),
-    ).not.toBeNull();
-  });
-
-  it("exceeds up", () => {
-    const tariff = makeTariff({ group_up_kbps: 50 });
-    expect(
-      validateGroupSum(tariff, [
-        { down: 10, up: 30 },
-        { down: 10, up: 30 },
-      ]),
-    ).not.toBeNull();
-  });
-
-  it("ok", () => {
-    const tariff = makeTariff();
-    expect(
-      validateGroupSum(tariff, [
-        { down: 100, up: 50 },
-        { down: 50, up: 25 },
-      ]),
-    ).toBeNull();
-  });
-});
-
 describe("validateTariff", () => {
   it("empty name", () => {
     const tariff = makeTariff({ name: "   " });
     const { id, created_at, updated_at, ...input } = tariff;
-    expect(validateTariff(input)).toBe("Название тарифа обязательно");
+    expect(validateTariff(input)).toEqual({ code: "error.validation.tariffName" });
   });
 
   it("max_devices 0", () => {
     const tariff = makeTariff({ max_devices: 0 });
     const { id, created_at, updated_at, ...input } = tariff;
-    expect(validateTariff(input)).toBe(
-      "Тариф должен разрешать хотя бы одно устройство",
-    );
+    expect(validateTariff(input)).toEqual({ code: "error.validation.tariffMaxDevices" });
   });
 
   it("device > group", () => {
@@ -105,9 +39,22 @@ describe("validateTariff", () => {
       group_down_kbps: 200,
     });
     const { id, created_at, updated_at, ...input } = tariff;
-    expect(validateTariff(input)).toBe(
-      "Лимит устройства не может превышать лимит группы",
-    );
+    expect(validateTariff(input)).toEqual({ code: "error.validation.tariffDeviceDown" });
+  });
+
+  it("device upload > group upload", () => {
+    const tariff = makeTariff({
+      device_up_kbps: 300,
+      group_up_kbps: 200,
+    });
+    const { id, created_at, updated_at, ...input } = tariff;
+    expect(validateTariff(input)).toEqual({ code: "error.validation.tariffDeviceUp" });
+  });
+
+  it("valid", () => {
+    const tariff = makeTariff();
+    const { id, created_at, updated_at, ...input } = tariff;
+    expect(validateTariff(input)).toBeNull();
   });
 });
 

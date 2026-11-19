@@ -5,6 +5,7 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { User } from "@/domain/types";
 import { ApiError } from "@/domain/errors";
 import type { TokenStore } from "@/infrastructure/storage";
+import { t } from "@/i18n";
 
 const LOGOUT_TIMEOUT_MS = 1500;
 
@@ -68,7 +69,7 @@ export class Session implements AuthSessionState {
     } catch (error) {
       this.errorCode = error instanceof ApiError ? error.code : null;
       this.totpRequired = this.errorCode === "totp_required";
-      this.error = error instanceof Error ? error.message : "Не удалось войти";
+      this.error = error instanceof Error ? error.message : t("auth.login.error.failed");
       return false;
     } finally {
       this.busy = false;

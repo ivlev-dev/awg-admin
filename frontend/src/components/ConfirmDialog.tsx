@@ -2,23 +2,7 @@ import { Show, createEffect, createSignal } from "@ivlev-dev/silent-core";
 
 import { confirmStore } from "@/app/confirm";
 import { t } from "@/i18n";
-
-function trapTab(event: KeyboardEvent): void {
-  if (event.key !== "Tab") return;
-  const root = event.currentTarget;
-  if (!(root instanceof HTMLElement)) return;
-  const buttons = Array.from(root.querySelectorAll<HTMLElement>("button:not([disabled])"));
-  if (buttons.length === 0) return;
-  const first = buttons[0];
-  const last = buttons[buttons.length - 1];
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault();
-    last?.focus();
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault();
-    first?.focus();
-  }
-}
+import { trapTab } from "@/components/overlay";
 
 export function ConfirmDialog() {
   const [root, setRoot] = createSignal<HTMLElement | null>(null);
@@ -56,7 +40,7 @@ export function ConfirmDialog() {
             confirmStore.cancel();
             return;
           }
-          trapTab(event);
+          trapTab(event, root());
         }}
       >
         <div

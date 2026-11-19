@@ -10,20 +10,21 @@ import type {
 } from "@/domain/devices/types";
 import type { Device, Profile, ShareLink } from "@/domain/types";
 import type { HttpClient } from "./client";
+import { readDevice, readDevices, readShareLink, readShareLinks } from "./response";
 
 export class HttpDevicesRepository implements DevicesRepository {
   constructor(private readonly client: HttpClient) {}
 
   listDevices(): Promise<Device[]> {
-    return this.client.get<Device[]>("/devices");
+    return this.client.get<unknown>("/devices").then(readDevices);
   }
 
   getDevice(id: string): Promise<Device> {
-    return this.client.get<Device>(`/devices/${id}`);
+    return this.client.get<unknown>(`/devices/${id}`).then(readDevice);
   }
 
   createDevice(input: DeviceInput): Promise<Device> {
-    return this.client.post<Device>("/devices", {
+    return this.client.post<unknown>("/devices", {
       user_id: input.user_id,
       group_id: input.group_id,
       ...(input.interface_id ? { interface_id: input.interface_id } : {}),
@@ -34,11 +35,11 @@ export class HttpDevicesRepository implements DevicesRepository {
       down_kbps: input.down_kbps,
       up_kbps: input.up_kbps,
       forwarding: input.forwarding,
-    });
+    }).then(readDevice);
   }
 
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device> {
-    return this.client.patch<Device>(`/devices/${id}`, input);
+    return this.client.patch<unknown>(`/devices/${id}`, input).then(readDevice);
   }
 
   async deleteDevice(id: string): Promise<void> {
@@ -60,17 +61,18 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   addTunnel(id: string, input: TunnelInput): Promise<Device> {
-    return this.client.post<Device>(`/devices/${id}/tunnels`, {
-      interface_id: input.interfaceId,
-      ...(input.label === undefined ? {} : { label: input.label }),
-    });
+    return this.client
+      .post<unknown>(`/devices/${id}/tunnels`, {
+        interface_id: input.interfaceId,
+        ...(input.label === undefined ? {} : { label: input.label }),
+      })
+      .then(readDevice);
   }
 
   renameTunnel(id: string, peerId: string, label: string): Promise<Device> {
-    return this.client.patch<Device>(
-      `/devices/${id}/tunnels/${encodeURIComponent(peerId)}`,
-      { label },
-    );
+    return this.client
+      .patch<unknown>(`/devices/${id}/tunnels/${encodeURIComponent(peerId)}`, { label })
+      .then(readDevice);
   }
 
   async deleteTunnel(id: string, peerId: string): Promise<void> {
@@ -85,17 +87,17 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   listShares(id: string): Promise<ShareLink[]> {
-    return this.client.get<ShareLink[]>(`/devices/${id}/shares`);
+    return this.client.get<unknown>(`/devices/${id}/shares`).then(readShareLinks);
   }
 
   createShare(id: string, input: CreateShareInput): Promise<ShareLink> {
-    return this.client.post<ShareLink>(`/devices/${id}/shares`, {
+    return this.client.post<unknown>(`/devices/${id}/shares`, {
       interface_id: input.interfaceId,
       format: input.format,
       ttl_secs: input.ttlSecs ?? null,
       max_uses: input.oneTime === true ? null : (input.maxUses ?? null),
       one_time: input.oneTime === true,
-    });
+    }).then(readShareLink);
   }
 
   async revokeShare(token: string): Promise<void> {

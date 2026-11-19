@@ -37,7 +37,7 @@ export function normalizeAuditFilters(filters: AuditFilters): AuditFilters {
   const from = normalizeTimestamp(filters.from);
   const to = normalizeTimestamp(filters.to);
   if (from !== undefined && to !== undefined && from > to) {
-    throw new ValidationError("Начало периода не может быть позже конца");
+    throw new ValidationError("error.validation.auditRange");
   }
   return {
     limit: normalizeLimit(filters.limit),

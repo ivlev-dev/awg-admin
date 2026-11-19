@@ -1,5 +1,6 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
+import { Cooldown } from "@/app/cooldown";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import type { AuthService } from "@/application/auth/service";
@@ -31,7 +32,9 @@ export class RegisterVM extends ViewModel {
   @reactive accessor resendNotice: string | null = null;
   @reactive accessor resendError: string | null = null;
 
-  private timer: number | null = null;
+  private readonly clock = new Cooldown(COOLDOWN_SECONDS, (remaining) => {
+    this.cooldown = remaining;
+  });
 
   override created(): void {
     if (this.session.authenticated) {
@@ -155,22 +158,11 @@ export class RegisterVM extends ViewModel {
   }
 
   private startCooldown(): void {
-    this.stopCooldown();
-    this.cooldown = COOLDOWN_SECONDS;
-    this.timer = window.setInterval(() => {
-      if (this.cooldown <= 1) {
-        this.cooldown = 0;
-        this.stopCooldown();
-        return;
-      }
-      this.cooldown -= 1;
-    }, 1000);
+    this.clock.start();
   }
 
   private stopCooldown(): void {
-    if (this.timer !== null) {
-      window.clearInterval(this.timer);
-      this.timer = null;
-    }
+    this.clock.stop();
   }
+
 }

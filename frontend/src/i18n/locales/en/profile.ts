@@ -22,8 +22,6 @@ export const enProfile = {
   "profile.account.subtitle": "Email and password for signing in to the panel",
   "profile.account.email": "Email",
   "profile.account.emailHint": "The administrator sets the email.",
-  "profile.account.login": "Username",
-  "profile.account.loginHint": "The administrator assigns the login; it cannot be changed.",
   "profile.password.title": "Change password",
   "profile.password.subtitle": "The current session stays active after the password is changed.",
   "profile.password.current": "Current password",

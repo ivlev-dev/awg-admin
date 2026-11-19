@@ -1,6 +1,7 @@
 import { ViewModel, computed, createEffect, createRoot } from "@ivlev-dev/silent-core";
 
 import type { AuditRowView } from "@/features/audit/AuditPage.vm";
+import { focusableElements, trapTab } from "@/components/overlay";
 
 export interface AuditDetailsDrawerProps {
   row: AuditRowView | null;
@@ -9,17 +10,6 @@ export interface AuditDetailsDrawerProps {
 }
 
 const EMPTY_VALUE = "—";
-
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "area[href]",
-  "button:not([disabled])",
-  "input:not([disabled]):not([type=\"hidden\"])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[contenteditable=\"true\"]",
-  "[tabindex]:not([tabindex=\"-1\"])",
-].join(",");
 
 let drawerCounter = 0;
 
@@ -179,9 +169,7 @@ export class AuditDetailsDrawerVM extends ViewModel<AuditDetailsDrawerProps> {
   private focusables(): HTMLElement[] {
     const root = this.root;
     if (root === null) return [];
-    return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-      (element) => element.getAttribute("aria-hidden") !== "true",
-    );
+    return focusableElements(root);
   }
 
   private readonly onKeydown = (event: KeyboardEvent): void => {
@@ -191,33 +179,6 @@ export class AuditDetailsDrawerVM extends ViewModel<AuditDetailsDrawerProps> {
       this.close();
       return;
     }
-    if (event.key !== "Tab") return;
-    const root = this.root;
-    if (root === null) return;
-    const focusables = this.focusables();
-    if (focusables.length === 0) {
-      event.preventDefault();
-      root.focus();
-      return;
-    }
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (first === undefined || last === undefined) return;
-    const active = document.activeElement;
-    const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
-    if (index === -1) {
-      event.preventDefault();
-      (event.shiftKey ? last : first).focus();
-      return;
-    }
-    if (event.shiftKey && index === 0) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && index === focusables.length - 1) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapTab(event, this.root);
   };
 }

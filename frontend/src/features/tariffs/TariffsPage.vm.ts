@@ -2,7 +2,7 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { ToastStore } from "@/app/toast";
-import { userMessage } from "@/application/errors";
+import { issueMessage, userMessage } from "@/application/errors";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { TariffsService } from "@/application/tariffs/service";
 import { compareNumber, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
@@ -371,7 +371,7 @@ export class TariffsPageVM extends ViewModel {
       group_up_kbps: input.group_up_kbps,
     });
     if (validationError) {
-      this.formError = validationError;
+      this.formError = issueMessage(validationError);
       return;
     }
     this.saving = true;

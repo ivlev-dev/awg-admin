@@ -1,35 +1,5 @@
 import type { Tariff } from "./types";
 
-export interface Limits {
-  down: number;
-  up: number;
-}
-
-export function clampDeviceLimits(tariff: Tariff, requested: Limits): Limits {
-  return {
-    down: clampTo(tariff.device_down_kbps, requested.down),
-    up: clampTo(tariff.device_up_kbps, requested.up),
-  };
-}
-
-function clampTo(max: number, requested: number): number {
-  if (max <= 0) return Math.max(0, requested);
-  if (requested <= 0) return max;
-  return Math.min(max, requested);
-}
-
-export function validateGroupSum(tariff: Tariff, devices: Limits[]): string | null {
-  const down = devices.reduce((sum, d) => sum + d.down, 0);
-  const up = devices.reduce((sum, d) => sum + d.up, 0);
-  if (tariff.group_down_kbps > 0 && down > tariff.group_down_kbps) {
-    return `Суммарная скорость скачивания (${down} Кбит/с) превышает лимит тарифа (${tariff.group_down_kbps} Кбит/с)`;
-  }
-  if (tariff.group_up_kbps > 0 && up > tariff.group_up_kbps) {
-    return `Суммарная скорость отдачи (${up} Кбит/с) превышает лимит тарифа (${tariff.group_up_kbps} Кбит/с)`;
-  }
-  return null;
-}
-
 export type TariffValidationTarget = Pick<
   Tariff,
   | "name"
@@ -40,22 +10,32 @@ export type TariffValidationTarget = Pick<
   | "group_up_kbps"
 >;
 
-export function validateTariff(tariff: TariffValidationTarget): string | null {
-  if (!tariff.name.trim()) return "Название тарифа обязательно";
-  if (tariff.max_devices <= 0) return "Тариф должен разрешать хотя бы одно устройство";
+export type TariffValidationCode =
+  | "error.validation.tariffName"
+  | "error.validation.tariffMaxDevices"
+  | "error.validation.tariffDeviceDown"
+  | "error.validation.tariffDeviceUp";
+
+export interface TariffValidationIssue {
+  readonly code: TariffValidationCode;
+}
+
+export function validateTariff(tariff: TariffValidationTarget): TariffValidationIssue | null {
+  if (!tariff.name.trim()) return { code: "error.validation.tariffName" };
+  if (tariff.max_devices <= 0) return { code: "error.validation.tariffMaxDevices" };
   if (
     tariff.device_down_kbps > 0 &&
     tariff.group_down_kbps > 0 &&
     tariff.device_down_kbps > tariff.group_down_kbps
   ) {
-    return "Лимит устройства не может превышать лимит группы";
+    return { code: "error.validation.tariffDeviceDown" };
   }
   if (
     tariff.device_up_kbps > 0 &&
     tariff.group_up_kbps > 0 &&
     tariff.device_up_kbps > tariff.group_up_kbps
   ) {
-    return "Лимит отдачи устройства не может превышать лимит группы";
+    return { code: "error.validation.tariffDeviceUp" };
   }
   return null;
 }

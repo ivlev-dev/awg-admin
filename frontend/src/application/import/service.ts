@@ -62,7 +62,7 @@ export class DefaultImportService implements ImportService {
 function normalizeImport(input: ImportInput): ImportInput {
   const baseCidr = requireBaseCidr(input.base_cidr);
   if (input.interfaces.length === 0) {
-    throw new ValidationError("Добавьте хотя бы один интерфейс");
+    throw new ValidationError("error.validation.importInterfacesRequired");
   }
 
   const names = new Set<string>();
@@ -70,15 +70,15 @@ function normalizeImport(input: ImportInput): ImportInput {
     const normalized = normalizeInterface(iface, baseCidr);
     const key = normalized.name.toLowerCase();
     if (names.has(key)) {
-      throw new ValidationError(`Имя интерфейса повторяется: ${normalized.name}`);
+      throw new ValidationError("error.validation.importInterfaceDuplicate", { name: normalized.name });
     }
     names.add(key);
     return normalized;
   });
 
   return {
-    node_id: requireId(input.node_id, "Нода"),
-    group_name: requireText(input.group_name, "Название группы"),
+    node_id: requireId(input.node_id, "error.label.node"),
+    group_name: requireText(input.group_name, "error.label.groupName"),
     group_description: input.group_description.trim(),
     base_cidr: baseCidr,
     owner_user_id: input.owner_user_id ? input.owner_user_id.trim() || null : null,
@@ -87,18 +87,18 @@ function normalizeImport(input: ImportInput): ImportInput {
 }
 
 function normalizeInterface(iface: ImportInterfaceInput, baseCidr: string): ImportInterfaceInput {
-  const serverConfig = requireText(iface.server_config, "Конфигурация сервера");
+  const serverConfig = requireText(iface.server_config, "error.label.serverConfig");
   if (!isServerConfig(serverConfig)) {
-    throw new ValidationError("Конфигурация сервера должна содержать [Interface] и PrivateKey");
+    throw new ValidationError("error.validation.importServerConfig");
   }
-  const name = requireText(iface.name, "Имя интерфейса");
+  const name = requireText(iface.name, "error.label.interfaceName");
   return {
     server_config: serverConfig,
     name,
     label: iface.label.trim(),
-    endpoint_host: requireText(iface.endpoint_host, "Хост эндпоинта"),
-    endpoint_port: requirePort(iface.endpoint_port, "Порт эндпоинта"),
-    listen_port: requirePort(iface.listen_port, "Порт прослушивания"),
+    endpoint_host: requireText(iface.endpoint_host, "error.label.endpointHost"),
+    endpoint_port: requirePort(iface.endpoint_port, "error.label.endpointPort"),
+    listen_port: requirePort(iface.listen_port, "error.label.listenPort"),
     mtu: requireMtu(iface.mtu),
     pools: normalizePools(iface.pools, baseCidr),
     clients: normalizeClients(iface.clients),
@@ -107,22 +107,22 @@ function normalizeInterface(iface: ImportInterfaceInput, baseCidr: string): Impo
 
 function normalizePools(pools: PoolInput[], baseCidr: string): PoolInput[] {
   if (pools.length === 0) {
-    throw new ValidationError("Добавьте хотя бы один пул");
+    throw new ValidationError("error.validation.importPoolsRequired");
   }
   const names = new Set<string>();
   const normalized = pools.map((pool) => {
-    const name = requireText(pool.name, "Название пула");
+    const name = requireText(pool.name, "error.label.poolName");
     const key = name.toLowerCase();
     if (names.has(key)) {
-      throw new ValidationError(`Имя пула повторяется: ${name}`);
+      throw new ValidationError("error.validation.importPoolDuplicate", { name });
     }
     names.add(key);
     const cidr = pool.cidr.trim();
     if (!isCidr(cidr)) {
-      throw new ValidationError(`Некорректный CIDR пула: ${pool.cidr}`);
+      throw new ValidationError("error.validation.importPoolCidr", { cidr: pool.cidr });
     }
     if (!cidrContains(baseCidr, cidr)) {
-      throw new ValidationError(`Пул ${name} не входит в base CIDR ${baseCidr}`);
+      throw new ValidationError("error.validation.importPoolOutside", { name, base: baseCidr });
     }
     return {
       name,
@@ -139,7 +139,10 @@ function normalizePools(pools: PoolInput[], baseCidr: string): PoolInput[] {
       const other = normalized[otherIndex];
       if (!other) continue;
       if (cidrsOverlap(pool.cidr, other.cidr)) {
-        throw new ValidationError(`Пулы ${pool.name} и ${other.name} пересекаются`);
+        throw new ValidationError("error.validation.importPoolsOverlap", {
+          first: pool.name,
+          second: other.name,
+        });
       }
     }
   }
@@ -149,14 +152,14 @@ function normalizePools(pools: PoolInput[], baseCidr: string): PoolInput[] {
 
 function normalizeClients(clients: ImportClientInput[]): ImportClientInput[] {
   return clients.map((client) => ({
-    name: requireText(client.name, "Имя клиента"),
-    config: requireText(client.config, `Конфигурация клиента ${client.name}`),
+    name: requireText(client.name, "error.label.clientName"),
+    config: requireText(client.config, "error.label.clientConfig"),
   }));
 }
 
 function normalizeClientsImport(input: ClientsImportInput): ClientsImportInput {
   if (input.clients.length === 0) {
-    throw new ValidationError("Добавьте хотя бы один клиентский конфиг");
+    throw new ValidationError("error.validation.importClientsRequired");
   }
   return {
     interface_id: input.interface_id?.trim() ? input.interface_id.trim() : null,
@@ -167,22 +170,22 @@ function normalizeClientsImport(input: ClientsImportInput): ClientsImportInput {
 
 function normalizeLegacyImport(input: LegacyImportInput): LegacyImportInput {
   const baseCidr = requireBaseCidr(input.base_cidr);
-  const serverConfig = requireText(input.server_config, "Конфигурация сервера");
+  const serverConfig = requireText(input.server_config, "error.label.serverConfig");
   if (!isServerConfig(serverConfig)) {
-    throw new ValidationError("Конфигурация сервера должна содержать [Interface] и PrivateKey");
+    throw new ValidationError("error.validation.importServerConfig");
   }
   return {
     server_config: serverConfig,
-    node_id: requireId(input.node_id, "Нода"),
-    group_name: requireText(input.group_name, "Название группы"),
+    node_id: requireId(input.node_id, "error.label.node"),
+    group_name: requireText(input.group_name, "error.label.groupName"),
     group_description: input.group_description.trim(),
     base_cidr: baseCidr,
     pools: normalizePools(input.pools, baseCidr),
     interface: {
-      name: requireText(input.interface.name, "Имя интерфейса"),
-      endpoint_host: requireText(input.interface.endpoint_host, "Хост эндпоинта"),
-      endpoint_port: requirePort(input.interface.endpoint_port, "Порт эндпоинта"),
-      listen_port: requirePort(input.interface.listen_port, "Порт прослушивания"),
+      name: requireText(input.interface.name, "error.label.interfaceName"),
+      endpoint_host: requireText(input.interface.endpoint_host, "error.label.endpointHost"),
+      endpoint_port: requirePort(input.interface.endpoint_port, "error.label.endpointPort"),
+      listen_port: requirePort(input.interface.listen_port, "error.label.listenPort"),
       mtu: requireMtu(input.interface.mtu),
     },
     clients: normalizeClients(input.clients),
@@ -193,7 +196,7 @@ function normalizeLegacyImport(input: LegacyImportInput): LegacyImportInput {
 function requireBaseCidr(value: string): string {
   const cidr = value.trim();
   if (!isCidr(cidr)) {
-    throw new ValidationError(`Некорректный CIDR: ${value}`);
+    throw new ValidationError("error.validation.importCidr", { cidr: value });
   }
   return cidr;
 }

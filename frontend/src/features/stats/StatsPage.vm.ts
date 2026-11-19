@@ -110,7 +110,7 @@ function failedRow(device: Device): DeviceRow {
 }
 
 function abortError(): Error {
-  const error = new Error("Запрос отменён");
+  const error = new Error("Request aborted");
   error.name = "AbortError";
   return error;
 }
@@ -379,7 +379,7 @@ export class StatsVM extends ViewModel {
 
   @computed
   get liveError(): string | null {
-    return this.liveStats.error;
+    return this.liveStats.error === null ? null : t("stats.error.live");
   }
 
   @computed

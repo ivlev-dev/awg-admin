@@ -21,13 +21,13 @@ export class DefaultSettingsService implements SettingsService {
   async updateSettings(input: Partial<Settings>): Promise<Settings> {
     const patch: Partial<Settings> = { ...input };
     if (patch.obfuscation !== undefined && patch.obfuscation.s_min < MIN_S_PADDING) {
-      throw new ValidationError(
-        `S-паддинг должен быть не меньше ${MIN_S_PADDING} при включённой защите заголовков`,
-      );
+      throw new ValidationError("error.validation.settingsPadding", {
+        min: MIN_S_PADDING,
+      });
     }
     if (patch.share_default_ttl_secs !== undefined) {
       if (!Number.isFinite(patch.share_default_ttl_secs)) {
-        throw new ValidationError("Некорректный срок жизни ссылок по умолчанию");
+        throw new ValidationError("error.validation.settingsLinkTtl");
       }
       patch.share_default_ttl_secs = clamp(
         Math.trunc(patch.share_default_ttl_secs),

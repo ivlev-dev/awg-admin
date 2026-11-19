@@ -52,7 +52,6 @@ export const enSettings = {
   "settings.links.ttl": "Lifetime, hours",
   "settings.links.ttlHint": "The API stores the value in seconds: {seconds} s. 0 means no expiry.",
   "settings.action.save": "Save settings",
-  "settings.dirty.title": "Unsaved changes",
   "settings.dirty.text": "You have unsaved changes",
   "settings.dirty.reset": "Discard changes",
   "settings.dirty.confirm.title": "Discard changes?",

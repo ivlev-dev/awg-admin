@@ -5,6 +5,8 @@ import { debounce } from "@/app/debounce";
 import { compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
+import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
+import { PAGE_SIZES, currentPage, pageCount, pageSlice, pageWindow } from "@/app/table-pagination";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { validateEmail, validatePassword } from "@/application/guards";
@@ -37,7 +39,6 @@ const FILTER_ID_LIMIT = 100;
 
 const EMPTY_FILTERS: UsersFilters = { tab: "active", query: "" };
 const EMPTY_ADVANCED_FILTERS: UsersAdvancedFilters = { role: "all", status: "all", node: "all" };
-const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export const usersFiltersStorage = persistedSignal<UsersFilters>(
   "awg.ui.users.filters",
@@ -275,27 +276,24 @@ export class UsersPageVM extends ViewModel {
 
   @computed
   get pageCount(): number {
-    return Math.max(1, Math.ceil(this.filteredActiveUsers.length / this.pageSize));
+    return pageCount(this.filteredActiveUsers.length, this.pageSize);
   }
 
   @computed
   get currentPage(): number {
-    return Math.min(Math.max(1, this.page), this.pageCount);
+    return currentPage(this.page, this.filteredActiveUsers.length, this.pageSize);
   }
 
   @computed
   get pagedActiveUsers(): User[] {
-    const start = (this.currentPage - 1) * this.pageSize;
-    return this.filteredActiveUsers.slice(start, start + this.pageSize);
+    return pageSlice(this.filteredActiveUsers, this.currentPage, this.pageSize);
   }
 
   @computed
   get pageSummary(): string {
     const total = this.filteredActiveUsers.length;
-    if (total === 0) return t("users.pagination.summary", { from: 0, to: 0, total: 0 });
-    const from = (this.currentPage - 1) * this.pageSize + 1;
-    const to = Math.min(from + this.pageSize - 1, total);
-    return t("users.pagination.summary", { from, to, total });
+    const window = pageWindow(total, this.page, this.pageSize);
+    return t("users.pagination.summary", { from: window.from, to: window.to, total });
   }
 
   @computed
@@ -926,27 +924,18 @@ export class UsersPageVM extends ViewModel {
   }
 
   private syncLocation(): void {
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.startsWith("/users")) return;
-    const params = new URLSearchParams();
-    if (this.tab !== "active") params.set("tab", this.tab);
-    if (this.query.trim().length > 0) params.set("query", this.query);
-    if (this.roleFilter !== "all") params.set("role", this.roleFilter);
-    if (this.statusFilter !== "all") params.set("status", this.statusFilter);
-    if (this.nodeFilter !== "all") params.set("node", this.nodeFilter);
-    const query = params.toString();
-    const next = `${window.location.pathname}${query.length > 0 ? `?${query}` : ""}${window.location.hash}`;
-    try {
-      window.history.replaceState(window.history.state, "", next);
-    } catch {
-      // История недоступна (sandboxed iframe) — фильтры всё равно сохранены локально.
-    }
+    syncFilterQuery("/users", [
+      ["tab", this.tab !== "active" ? this.tab : null],
+      ["query", this.query.trim().length > 0 ? this.query : null],
+      ["role", this.roleFilter !== "all" ? this.roleFilter : null],
+      ["status", this.statusFilter !== "all" ? this.statusFilter : null],
+      ["node", this.nodeFilter !== "all" ? this.nodeFilter : null],
+    ]);
   }
 
   private restoreFromLocation(): void {
-    if (typeof window === "undefined") return;
-    if (!window.location.pathname.startsWith("/users")) return;
-    const params = new URLSearchParams(window.location.search);
+    const params = readFilterQuery("/users");
+    if (params === null) return;
     if (params.has("tab")) {
       const tab = params.get("tab");
       if (tab === "active" || tab === "pending") this.tab = tab;

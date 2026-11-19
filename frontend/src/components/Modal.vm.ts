@@ -1,6 +1,14 @@
 import { ViewModel, createEffect, createRoot } from "@ivlev-dev/silent-core";
 import type { Children } from "@ivlev-dev/silent-core";
 
+import {
+  FIELD_SELECTOR,
+  createBackgroundGuard,
+  focusableElements,
+  isFocusableElement,
+  trapTab,
+} from "./overlay";
+
 export interface ModalProps {
   open: boolean;
   title: string;
@@ -11,33 +19,6 @@ export interface ModalProps {
   closable?: boolean;
   ariaLabel?: string;
   describedBy?: string;
-}
-
-const FIELD_SELECTOR = [
-  "input:not([disabled]):not([type=\"hidden\"])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-].join(",");
-
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "area[href]",
-  "button:not([disabled])",
-  "input:not([disabled]):not([type=\"hidden\"])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "iframe",
-  "object",
-  "embed",
-  "summary",
-  "[contenteditable=\"true\"]",
-  "[tabindex]:not([tabindex=\"-1\"])",
-].join(",");
-
-interface BackgroundSnapshot {
-  element: Element;
-  inert: boolean;
-  ariaHidden: string | null;
 }
 
 const openModals: ModalVM[] = [];
@@ -56,7 +37,7 @@ export class ModalVM extends ViewModel<ModalProps> {
   private opener: HTMLElement | null = null;
   private root: HTMLElement | null = null;
   private stopEffect: (() => void) | null = null;
-  private background: BackgroundSnapshot[] = [];
+  private readonly background = createBackgroundGuard();
   private focusRetries = 0;
   private listening = false;
 
@@ -139,13 +120,12 @@ export class ModalVM extends ViewModel<ModalProps> {
     const root = this.root;
     if (root === null) return null;
     const requested = root.querySelector<HTMLElement>("[data-autofocus]");
-    if (requested !== null && this.isFocusable(requested)) return requested;
+    if (requested !== null && isFocusableElement(requested)) return requested;
     const body = root.querySelector<HTMLElement>(".modal__body");
     if (body !== null) {
       const field = body.querySelector<HTMLElement>(FIELD_SELECTOR);
-      if (field !== null && this.isFocusable(field)) return field;
-      const focusable = Array.from(body.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
-        .find((element) => this.isFocusable(element));
+      if (field !== null && isFocusableElement(field)) return field;
+      const focusable = focusableElements(body).find((element) => isFocusableElement(element));
       if (focusable !== undefined) return focusable;
     }
     return this.focusables()[0] ?? null;
@@ -162,48 +142,15 @@ export class ModalVM extends ViewModel<ModalProps> {
   private focusables(): HTMLElement[] {
     const root = this.root;
     if (root === null) return [];
-    return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter((element) => this.isFocusable(element));
-  }
-
-  private isFocusable(element: HTMLElement): boolean {
-    if (element.hasAttribute("disabled")) return false;
-    if (element.getAttribute("aria-hidden") === "true") return false;
-    if (element.closest("[hidden]") !== null) return false;
-    return true;
+    return focusableElements(root);
   }
 
   private suppressBackground(): void {
-    this.restoreBackground();
-    const root = this.root;
-    if (root === null) return;
-    let node: Element = root;
-    while (node.parentElement !== null) {
-      const parent = node.parentElement;
-      if (parent === document.body) break;
-      for (const sibling of Array.from(parent.children)) {
-        if (sibling === node || this.containsOpenModal(sibling)) continue;
-        this.background.push({
-          element: sibling,
-          inert: sibling.hasAttribute("inert"),
-          ariaHidden: sibling.getAttribute("aria-hidden"),
-        });
-        sibling.setAttribute("inert", "");
-        sibling.setAttribute("aria-hidden", "true");
-      }
-      node = parent;
-    }
+    this.background.suppress(this.root, (element) => this.containsOpenModal(element));
   }
 
   private restoreBackground(): void {
-    for (let index = this.background.length - 1; index >= 0; index -= 1) {
-      const snapshot = this.background[index];
-      if (snapshot === undefined) continue;
-      if (snapshot.inert) snapshot.element.setAttribute("inert", "");
-      else snapshot.element.removeAttribute("inert");
-      if (snapshot.ariaHidden === null) snapshot.element.removeAttribute("aria-hidden");
-      else snapshot.element.setAttribute("aria-hidden", snapshot.ariaHidden);
-    }
-    this.background = [];
+    this.background.restore();
   }
 
   private containsOpenModal(element: Element): boolean {
@@ -222,33 +169,6 @@ export class ModalVM extends ViewModel<ModalProps> {
       this.props.onClose();
       return;
     }
-    if (event.key !== "Tab") return;
-    const root = this.root;
-    if (root === null) return;
-    const focusables = this.focusables();
-    if (focusables.length === 0) {
-      event.preventDefault();
-      root.focus();
-      return;
-    }
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (first === undefined || last === undefined) return;
-    const active = document.activeElement;
-    const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
-    if (index === -1) {
-      event.preventDefault();
-      (event.shiftKey ? last : first).focus();
-      return;
-    }
-    if (event.shiftKey && index === 0) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && index === focusables.length - 1) {
-      event.preventDefault();
-      first.focus();
-    }
+    trapTab(event, this.root);
   };
 }

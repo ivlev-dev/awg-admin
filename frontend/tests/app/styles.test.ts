@@ -25,7 +25,7 @@ describe("Стили таблиц и доступности", () => {
   it("держит контраст и rem-размер индикатора сортировки", () => {
     const css = read("../../src/styles/tables.css");
 
-    expect(css).toMatch(/\.sort-indicator\s*\{[^}]*color:\s*var\(--muted\)/s);
+    expect(css).toMatch(/\.sort-indicator\s*\{[^}]*color:\s*var\(--muted-2-ink\)/s);
     expect(css).toMatch(/\.sort-indicator\s*\{[^}]*font-size:\s*0\.6875rem/s);
   });
 

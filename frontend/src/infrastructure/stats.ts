@@ -117,7 +117,7 @@ export class LiveStats {
     });
     socket.addEventListener("error", () => {
       if (!isCurrent()) return;
-      this.error = "Нет соединения со статистикой";
+      this.error = "live_stats_unavailable";
     });
   }
 

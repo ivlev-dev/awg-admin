@@ -19,12 +19,12 @@ export class DefaultStatsService implements StatsService {
   }
 
   async series(scope: string, id: string | null, from: number, to: number): Promise<StatsPoint[]> {
-    const normalizedScope = requireText(scope, "Область статистики");
+    const normalizedScope = requireText(scope, "error.label.statsScope");
     if (!Number.isFinite(from) || !Number.isFinite(to)) {
-      throw new ValidationError("Некорректный интервал статистики");
+      throw new ValidationError("error.validation.statsInterval");
     }
     if (from > to) {
-      throw new ValidationError("Начало интервала не может быть позже конца");
+      throw new ValidationError("error.validation.statsRange");
     }
     return this.repository.series(normalizedScope, id, from, to);
   }

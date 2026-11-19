@@ -4,6 +4,7 @@ import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
+import { userMessage } from "@/application/errors";
 import type { Group } from "@/domain/types";
 import { isCidr } from "@/domain/validation";
 import { t } from "@/i18n";
@@ -98,7 +99,7 @@ export class GroupsPageVM extends ViewModel {
       const ids = new Set(this.groups.map((group) => group.id));
       this.selectedIds = this.selectedIds.filter((id) => ids.has(id));
     } catch (error) {
-      this.error = messageOf(error, t("groups.error.load"));
+      this.error = userMessage(error, t("groups.error.load"));
       this.toasts.error(this.error);
     }
   }
@@ -215,7 +216,7 @@ export class GroupsPageVM extends ViewModel {
       this.formSnapshot = this.formState();
       await this.reload();
     } catch (error) {
-      this.formError = messageOf(error, t("groups.error.save"));
+      this.formError = userMessage(error, t("groups.error.save"));
       this.toasts.error(this.formError);
     } finally {
       this.saving = false;
@@ -235,7 +236,7 @@ export class GroupsPageVM extends ViewModel {
       this.toasts.success(t("groups.toast.deleted", { name: group.name }));
       await this.reload();
     } catch (error) {
-      const message = messageOf(error, t("groups.error.delete"));
+      const message = userMessage(error, t("groups.error.delete"));
       this.error = message.toLowerCase().includes("still has interfaces")
         ? t("groups.error.inUse", { name: group.name })
         : message;
@@ -265,7 +266,7 @@ export class GroupsPageVM extends ViewModel {
       await this.reload();
       this.clearSelection();
     } catch (error) {
-      this.error = messageOf(error, t("groups.error.delete"));
+      this.error = userMessage(error, t("groups.error.delete"));
       this.toasts.error(this.error);
     } finally {
       this.bulkBusy = false;
@@ -273,8 +274,3 @@ export class GroupsPageVM extends ViewModel {
   }
 }
 
-function messageOf(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim().length > 0) return error;
-  return fallback;
-}

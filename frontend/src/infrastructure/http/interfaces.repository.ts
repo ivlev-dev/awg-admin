@@ -3,24 +3,25 @@ import type { InterfaceBulkAction, InterfacesRepository } from "@/domain/interfa
 import type { InterfaceInput, InterfaceUpdateInput } from "@/domain/interfaces/types";
 import type { InterfaceInfo } from "@/domain/types";
 import type { HttpClient } from "./client";
+import { readInterfaceInfo, readInterfaces } from "./response";
 
 export class HttpInterfacesRepository implements InterfacesRepository {
   constructor(private readonly client: HttpClient) {}
 
   listInterfaces(): Promise<InterfaceInfo[]> {
-    return this.client.get<InterfaceInfo[]>("/interfaces");
+    return this.client.get<unknown>("/interfaces").then(readInterfaces);
   }
 
   createInterface(input: InterfaceInput): Promise<InterfaceInfo> {
-    return this.client.post<InterfaceInfo>("/interfaces", input);
+    return this.client.post<unknown>("/interfaces", input).then(readInterfaceInfo);
   }
 
   updateInterface(id: string, input: InterfaceUpdateInput): Promise<InterfaceInfo> {
-    return this.client.patch<InterfaceInfo>(`/interfaces/${id}`, input);
+    return this.client.patch<unknown>(`/interfaces/${id}`, input).then(readInterfaceInfo);
   }
 
   rotateInterface(id: string): Promise<InterfaceInfo> {
-    return this.client.post<InterfaceInfo>(`/interfaces/${id}/rotate`);
+    return this.client.post<unknown>(`/interfaces/${id}/rotate`).then(readInterfaceInfo);
   }
 
   async deleteInterface(id: string): Promise<void> {

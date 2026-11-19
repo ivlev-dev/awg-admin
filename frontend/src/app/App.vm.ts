@@ -72,29 +72,6 @@ const ADMIN_ONLY_PATHS: ReadonlySet<string> = new Set(
 
 const GROUP_ROUTE_NAMES: ReadonlySet<string> = new Set(["groups", "group"]);
 
-const ROUTE_TITLES: Readonly<Record<string, TranslationKey>> = {
-  overview: "route.overview",
-  nodes: "route.nodes",
-  interfaces: "route.interfaces",
-  groups: "route.groups",
-  group: "route.group",
-  clients: "route.clients",
-  client: "route.client",
-  tariffs: "route.tariffs",
-  users: "route.users",
-  audit: "route.audit",
-  import: "route.import",
-  stats: "route.stats",
-  profile: "route.profile",
-  settings: "route.settings",
-  login: "route.login",
-  register: "route.register",
-  "verify-email": "route.verifyEmail",
-  "forgot-password": "auth.forgot.title",
-  "reset-password": "auth.reset.title",
-  "not-found": "route.notFound",
-};
-
 function localize(definitions: NavDefinition[]): NavItem[] {
   return definitions.map((item) => ({
     path: item.path,
@@ -213,9 +190,7 @@ export class AppVM extends ViewModel {
 
   @computed
   get title(): string {
-    const route = this.router.committedMatch.route;
-    const key = ROUTE_TITLES[route.name];
-    return key ? t(key) : route.title;
+    return t(this.router.committedMatch.route.titleKey);
   }
 
   @computed

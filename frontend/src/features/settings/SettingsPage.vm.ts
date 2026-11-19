@@ -4,9 +4,10 @@ import { askConfirm } from "@/app/confirm";
 import { density, setDensity, type TableDensity } from "@/app/density";
 import { ToastStore } from "@/app/toast";
 import type { SettingsService } from "@/application/settings/service";
+import { userMessage } from "@/application/errors";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
 import {
-  LANGUAGE_OPTIONS,
+  languageOptions,
   isLocale,
   locale,
   setLocale,
@@ -180,7 +181,7 @@ export class SettingsPageVM extends ViewModel {
   }
 
   get languageOptions(): readonly LanguageOption[] {
-    return LANGUAGE_OPTIONS;
+    return languageOptions();
   }
 
   isLanguage(value: Locale): boolean {
@@ -261,7 +262,7 @@ export class SettingsPageVM extends ViewModel {
       this.savedSnapshot = this.snapshot();
     } catch (error) {
       this.loaded = false;
-      this.error = messageOf(error, t("settings.error.load"));
+      this.error = userMessage(error, t("settings.error.load"));
       this.toasts.error(this.error);
     } finally {
       this.loading = false;
@@ -291,7 +292,7 @@ export class SettingsPageVM extends ViewModel {
       this.savedSnapshot = this.snapshot();
       this.toasts.success(t("settings.saved"));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("settings.error.save")));
+      this.toasts.error(userMessage(error, t("settings.error.save")));
     } finally {
       this.saving = false;
     }
@@ -461,6 +462,3 @@ function formatHours(seconds: number): string {
   return String(Math.round((seconds / 3600) * 100) / 100);
 }
 
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.length > 0 ? error.message : fallback;
-}

@@ -5,6 +5,7 @@ import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
 import type { GroupsService } from "@/application/groups/service";
 import type { InterfacesService } from "@/application/interfaces/service";
+import { userMessage } from "@/application/errors";
 import type { CidrPool, Group, InterfaceInfo, PoolMode } from "@/domain/types";
 import { cidrContains, isCidr } from "@/domain/validation";
 import { t } from "@/i18n";
@@ -144,7 +145,7 @@ export class GroupDetailsVM extends ViewModel {
       this.interfaces = interfaces.filter((item) => item.group_id === id);
     } catch (error) {
       if (generation !== this.loadGeneration) return;
-      this.error = messageOf(error, t("groups.details.error.load"));
+      this.error = userMessage(error, t("groups.details.error.load"));
       this.toasts.error(this.error);
     } finally {
       if (generation === this.loadGeneration) this.loading = false;
@@ -231,7 +232,7 @@ export class GroupDetailsVM extends ViewModel {
       this.formOpen = false;
       this.toasts.success(t("groups.details.toast.updated", { name }));
     } catch (error) {
-      this.formError = messageOf(error, t("groups.details.error.save"));
+      this.formError = userMessage(error, t("groups.details.error.save"));
       this.toasts.error(this.formError);
     } finally {
       this.formSaving = false;
@@ -335,7 +336,7 @@ export class GroupDetailsVM extends ViewModel {
       this.poolOpen = false;
       await this.loadPools();
     } catch (error) {
-      this.poolError = messageOf(error, t("groups.details.pools.error.save"));
+      this.poolError = userMessage(error, t("groups.details.pools.error.save"));
       this.toasts.error(this.poolError);
     } finally {
       this.poolSaving = false;
@@ -354,7 +355,7 @@ export class GroupDetailsVM extends ViewModel {
       this.toasts.success(t("groups.details.pools.toast.deleted", { name: pool.name }));
       await this.loadPools();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("groups.details.pools.error.delete")));
+      this.toasts.error(userMessage(error, t("groups.details.pools.error.delete")));
     }
   }
 
@@ -362,14 +363,9 @@ export class GroupDetailsVM extends ViewModel {
     try {
       this.pools = await this.groupsService.listPools(this.groupId);
     } catch (error) {
-      this.error = messageOf(error, t("groups.details.pools.error.load"));
+      this.error = userMessage(error, t("groups.details.pools.error.load"));
       this.toasts.error(this.error);
     }
   }
 }
 
-function messageOf(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim().length > 0) return error;
-  return fallback;
-}

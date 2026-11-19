@@ -5,6 +5,7 @@ import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
 import type { DevicesService } from "@/application/devices/service";
 import { PEER_LABEL_MAX } from "@/application/guards";
 import type { InterfacesService } from "@/application/interfaces/service";
+import { userMessage } from "@/application/errors";
 import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
@@ -616,7 +617,7 @@ export class ClientDetailsVM extends ViewModel {
       this.syncTunnelSelection();
     } catch (error) {
       if (generation !== this.loadGeneration) return;
-      const message = messageOf(error, t("clients.details.error.load"));
+      const message = userMessage(error, t("clients.details.error.load"));
       this.error = message;
       this.toasts.error(message);
     } finally {
@@ -889,7 +890,7 @@ export class ClientDetailsVM extends ViewModel {
       if (isConflict(error)) {
         this.toasts.error(t("clients.details.tunnels.lastError"));
       } else {
-        this.toasts.error(messageOf(error, t("clients.details.error.tunnelDelete")));
+        this.toasts.error(userMessage(error, t("clients.details.error.tunnelDelete")));
       }
     } finally {
       this.tunnelBusy = false;
@@ -957,7 +958,7 @@ export class ClientDetailsVM extends ViewModel {
       this.hydrateForm(updated);
       this.toasts.success(t("clients.details.toast.saved"));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.save")));
+      this.toasts.error(userMessage(error, t("clients.details.error.save")));
     } finally {
       this.saving = false;
     }
@@ -979,7 +980,7 @@ export class ClientDetailsVM extends ViewModel {
       this.toasts.success(t("clients.details.toast.revoked"));
       this.back();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.revoke")));
+      this.toasts.error(userMessage(error, t("clients.details.error.revoke")));
     } finally {
       this.actionBusy = false;
     }
@@ -1001,7 +1002,7 @@ export class ClientDetailsVM extends ViewModel {
       this.toasts.success(t("clients.details.toast.deleted"));
       this.back();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.delete")));
+      this.toasts.error(userMessage(error, t("clients.details.error.delete")));
     } finally {
       this.actionBusy = false;
     }
@@ -1023,7 +1024,7 @@ export class ClientDetailsVM extends ViewModel {
       this.shares = [share, ...this.shares];
       this.toasts.success(t("clients.details.toast.shareCreated"));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.shareCreate")));
+      this.toasts.error(userMessage(error, t("clients.details.error.shareCreate")));
     } finally {
       this.shareBusy = false;
     }
@@ -1037,7 +1038,7 @@ export class ClientDetailsVM extends ViewModel {
       this.shares = this.shares.filter((share) => share.token !== token);
       this.toasts.success(t("clients.details.toast.shareRevoked"));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.shareRevoke")));
+      this.toasts.error(userMessage(error, t("clients.details.error.shareRevoke")));
     } finally {
       this.shareBusy = false;
     }
@@ -1071,7 +1072,7 @@ export class ClientDetailsVM extends ViewModel {
         t("clients.details.toast.sharesRevoked", { count: revoked }),
       );
     } catch (error) {
-      this.toasts.error(messageOf(error, t("clients.details.error.sharesRevoke")));
+      this.toasts.error(userMessage(error, t("clients.details.error.sharesRevoke")));
     } finally {
       this.shareBusy = false;
     }
@@ -1239,7 +1240,7 @@ export class ClientDetailsVM extends ViewModel {
 
   private tunnelError(error: unknown, fallback: string): string {
     if (isConflict(error)) return t("clients.details.tunnels.conflict");
-    return messageOf(error, fallback);
+    return userMessage(error, fallback);
   }
 
   private async applyTunnelUpdate(updated: Device, selectPeerId?: string): Promise<void> {
@@ -1394,7 +1395,7 @@ export class ClientDetailsVM extends ViewModel {
         } catch (error) {
           const failed = changes.slice(index).map((item) => item.rowId);
           this.restoreRows(snapshot, failed);
-          this.toasts.error(messageOf(error, t("clients.details.error.forwarding")));
+          this.toasts.error(userMessage(error, t("clients.details.error.forwarding")));
           return;
         }
       }
@@ -1427,10 +1428,6 @@ function forwardingPayload(mode: ForwardingMode, allowed: string[]): Forwarding 
 
 function parseForwardingMode(value: string): ForwardingMode {
   return value === "all" || value === "selected" ? value : "off";
-}
-
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 
 function sanitizeKbps(value: number): number {

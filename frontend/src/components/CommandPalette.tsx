@@ -3,6 +3,7 @@ import { For, Show, ViewModel, computed, createEffect, createRoot, onCleanup } f
 import { CommandStore, filterCommands, type CommandItem } from "@/app/command";
 import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
+import { createBackgroundGuard, trapTab } from "@/components/overlay";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -11,22 +12,7 @@ export interface CommandPaletteProps {
   onClose: () => void;
 }
 
-const FOCUSABLE_SELECTOR = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled]):not([type=\"hidden\"])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  "[tabindex]:not([tabindex=\"-1\"])",
-].join(",");
-
 let paletteCounter = 0;
-
-interface BackgroundSnapshot {
-  element: Element;
-  inert: boolean;
-  ariaHidden: string | null;
-}
 
 export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   readonly store = new CommandStore();
@@ -47,7 +33,7 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
 
   private opener: HTMLElement | null = null;
 
-  private background: BackgroundSnapshot[] = [];
+  private readonly background = createBackgroundGuard();
 
   @computed
   get visible(): CommandItem[] {
@@ -154,37 +140,11 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   }
 
   private suppressBackground(): void {
-    this.restoreBackground();
-    const root = this.root;
-    if (root === null) return;
-    let node: Element = root;
-    while (node.parentElement !== null) {
-      const parent = node.parentElement;
-      if (parent === document.body) break;
-      for (const sibling of Array.from(parent.children)) {
-        if (sibling === node) continue;
-        this.background.push({
-          element: sibling,
-          inert: sibling.hasAttribute("inert"),
-          ariaHidden: sibling.getAttribute("aria-hidden"),
-        });
-        sibling.setAttribute("inert", "");
-        sibling.setAttribute("aria-hidden", "true");
-      }
-      node = parent;
-    }
+    this.background.suppress(this.root);
   }
 
   private restoreBackground(): void {
-    for (let index = this.background.length - 1; index >= 0; index -= 1) {
-      const snapshot = this.background[index];
-      if (snapshot === undefined) continue;
-      if (snapshot.inert) snapshot.element.setAttribute("inert", "");
-      else snapshot.element.removeAttribute("inert");
-      if (snapshot.ariaHidden === null) snapshot.element.removeAttribute("aria-hidden");
-      else snapshot.element.setAttribute("aria-hidden", snapshot.ariaHidden);
-    }
-    this.background = [];
+    this.background.restore();
   }
 
   private tryFocus(): void {
@@ -215,41 +175,6 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     }
   }
 
-  private trapTab(event: KeyboardEvent): void {
-    const root = this.root;
-    if (root === null) {
-      event.preventDefault();
-      return;
-    }
-    const focusables = Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)).filter(
-      (element) => element.tabIndex >= 0 && !element.hasAttribute("disabled"),
-    );
-    if (focusables.length === 0) {
-      event.preventDefault();
-      root.focus();
-      return;
-    }
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-    if (first === undefined || last === undefined) return;
-    const active = document.activeElement;
-    const index = active instanceof HTMLElement ? focusables.indexOf(active) : -1;
-    if (index === -1) {
-      event.preventDefault();
-      (event.shiftKey ? last : first).focus();
-      return;
-    }
-    if (event.shiftKey && index === 0) {
-      event.preventDefault();
-      last.focus();
-      return;
-    }
-    if (!event.shiftKey && index === focusables.length - 1) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
   private readonly onKeydown = (event: KeyboardEvent): void => {
     if (!this.props.open || event.defaultPrevented) return;
     if (event.key === "Escape") {
@@ -276,7 +201,7 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
       return;
     }
     if (event.key === "Tab") {
-      this.trapTab(event);
+      trapTab(event, this.root);
     }
   };
 }

@@ -20,15 +20,15 @@ export class DefaultNodesService implements NodesService {
   }
 
   async createNode(name: string): Promise<NodeCreated> {
-    return this.repository.createNode(requireText(name, "Имя ноды"));
+    return this.repository.createNode(requireText(name, "error.label.nodeName"));
   }
 
   async rotateNode(id: string): Promise<NodeRotated> {
-    return this.repository.rotateNode(requireId(id, "Нода"));
+    return this.repository.rotateNode(requireId(id, "error.label.node"));
   }
 
   async deleteNode(id: string): Promise<void> {
-    await this.repository.deleteNode(requireId(id, "Нода"));
+    await this.repository.deleteNode(requireId(id, "error.label.node"));
   }
 
   bulk(action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult> {

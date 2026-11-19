@@ -911,9 +911,10 @@ describe("DefaultAuditService", () => {
     const repository = new FakeAuditRepository();
     const service = new DefaultAuditService(repository);
 
-    await expect(service.list({ from: 2_000, to: 1_000 })).rejects.toThrow(
-      "Начало периода не может быть позже конца",
-    );
+    await expect(service.list({ from: 2_000, to: 1_000 })).rejects.toMatchObject({
+      name: "ValidationError",
+      code: "error.validation.auditRange",
+    });
     expect(repository.calls).toHaveLength(0);
   });
 
@@ -950,9 +951,10 @@ describe("DefaultAuditService", () => {
     const repository = new FakeAuditRepository();
     const service = new DefaultAuditService(repository);
 
-    await expect(service.clear({ from: 2_000, to: 1_000 })).rejects.toThrow(
-      "Начало периода не может быть позже конца",
-    );
+    await expect(service.clear({ from: 2_000, to: 1_000 })).rejects.toMatchObject({
+      name: "ValidationError",
+      code: "error.validation.auditRange",
+    });
     expect(repository.clearCalls).toHaveLength(0);
   });
 });

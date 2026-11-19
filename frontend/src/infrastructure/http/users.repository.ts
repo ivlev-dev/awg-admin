@@ -3,32 +3,33 @@ import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository
 import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import type { HttpClient } from "./client";
+import { readUser, readUsers } from "./response";
 
 export class HttpUsersRepository implements UsersRepository {
   constructor(private readonly client: HttpClient) {}
 
   listUsers(): Promise<User[]> {
-    return this.client.get<User[]>("/users");
+    return this.client.get<unknown>("/users").then(readUsers);
   }
 
   listPending(): Promise<User[]> {
-    return this.client.get<User[]>("/users/pending");
+    return this.client.get<unknown>("/users/pending").then(readUsers);
   }
 
   approveUser(id: string, input: ApproveUserInput): Promise<User> {
-    return this.client.post<User>(`/users/${id}/approve`, input);
+    return this.client.post<unknown>(`/users/${id}/approve`, input).then(readUser);
   }
 
   rejectUser(id: string): Promise<User> {
-    return this.client.post<User>(`/users/${id}/reject`);
+    return this.client.post<unknown>(`/users/${id}/reject`).then(readUser);
   }
 
   createUser(input: CreateUserInput): Promise<User> {
-    return this.client.post<User>("/users", input);
+    return this.client.post<unknown>("/users", input).then(readUser);
   }
 
   updateUser(id: string, input: UpdateUserInput): Promise<User> {
-    return this.client.patch<User>(`/users/${id}`, input);
+    return this.client.patch<unknown>(`/users/${id}`, input).then(readUser);
   }
 
   async deleteUser(id: string): Promise<void> {

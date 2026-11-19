@@ -23,14 +23,14 @@ describe("matchRoute", () => {
   it("audit is admin only", () => {
     const match = matchRoute("/audit");
     expect(match.route.name).toBe("audit");
-    expect(match.route.title).toBe("Аудит");
+    expect(match.route.titleKey).toBe("route.audit");
     expect(match.route.adminOnly).toBe(true);
   });
 
   it("unknown path resolves to the not-found route", () => {
     const match = matchRoute("/does-not-exist");
     expect(match.route.name).toBe("not-found");
-    expect(match.route.title).toBe("Раздел не найден");
+    expect(match.route.titleKey).toBe("route.notFound");
     expect(match.route.public).toBe(true);
     expect(match.params).toEqual({});
   });
@@ -38,7 +38,7 @@ describe("matchRoute", () => {
   it("register is public", () => {
     const match = matchRoute("/register");
     expect(match.route.name).toBe("register");
-    expect(match.route.title).toBe("Регистрация");
+    expect(match.route.titleKey).toBe("route.register");
     expect(match.route.public).toBe(true);
     expect(match.route.adminOnly).toBeUndefined();
   });
@@ -46,14 +46,14 @@ describe("matchRoute", () => {
   it("verify-email is public", () => {
     const match = matchRoute("/verify-email");
     expect(match.route.name).toBe("verify-email");
-    expect(match.route.title).toBe("Подтверждение почты");
+    expect(match.route.titleKey).toBe("route.verifyEmail");
     expect(match.route.public).toBe(true);
   });
 
   it("forgot-password is public", () => {
     const match = matchRoute("/forgot-password");
     expect(match.route.name).toBe("forgot-password");
-    expect(match.route.title).toBe("Восстановление пароля");
+    expect(match.route.titleKey).toBe("auth.forgot.title");
     expect(match.route.public).toBe(true);
     expect(match.route.adminOnly).toBeUndefined();
   });
@@ -61,7 +61,7 @@ describe("matchRoute", () => {
   it("reset-password is public and ignores the query string", () => {
     const match = matchRoute("/reset-password");
     expect(match.route.name).toBe("reset-password");
-    expect(match.route.title).toBe("Сброс пароля");
+    expect(match.route.titleKey).toBe("auth.reset.title");
     expect(match.route.public).toBe(true);
     expect(match.params).toEqual({});
   });

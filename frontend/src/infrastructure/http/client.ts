@@ -91,7 +91,7 @@ export class HttpClient {
           : new ApiError(
               0,
               "network_error",
-              error instanceof Error ? error.message : "Ошибка сети",
+              error instanceof Error ? error.message : "Network error",
             );
       return {
         request,

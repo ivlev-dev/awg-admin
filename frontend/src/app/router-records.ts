@@ -33,7 +33,6 @@ export const ROUTE_RECORDS: readonly RouteRecord[] = ROUTES.map((route) => ({
   name: route.name,
   ...(hiddenGroupsRoute(route.name) ? { redirect: "/interfaces" } : {}),
   meta: {
-    title: route.title,
     public: route.public === true,
     adminOnly: route.adminOnly === true,
   },

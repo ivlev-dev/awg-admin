@@ -8,6 +8,7 @@ import {
   loadQrMatrix,
   type QrMatrix,
 } from "./qr-loader";
+import { t } from "@/i18n";
 
 export type QrCodeStatus = "idle" | "loading" | "ready" | "error" | "limit";
 
@@ -42,22 +43,22 @@ export class QrCodeVm extends ViewModel<QrCodeProps> {
 
   @computed
   get ariaLabel(): string {
-    return this.props.label ?? "QR-код";
+    return this.props.label ?? t("qr.label");
   }
 
   @computed
   get loadingLabel(): string {
-    return this.props.loadingLabel ?? "Готовим QR-код…";
+    return this.props.loadingLabel ?? t("qr.loading");
   }
 
   @computed
   get errorText(): string {
-    return this.props.errorLabel ?? "Не удалось создать QR-код";
+    return this.props.errorLabel ?? t("qr.error");
   }
 
   @computed
   get limitText(): string {
-    return this.props.limitLabel ?? "Слишком длинное значение для QR-кода";
+    return this.props.limitLabel ?? t("qr.limit");
   }
 
   @computed

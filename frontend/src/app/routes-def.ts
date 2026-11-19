@@ -1,39 +1,39 @@
-import { computed, reactive } from "@ivlev-dev/silent-core";
+import type { TranslationKey } from "@/i18n";
 
 export interface RouteDef {
   name: string;
   path: string;
-  title: string;
+  titleKey: TranslationKey;
   adminOnly?: boolean;
   public?: boolean;
 }
 
 export const ROUTES: RouteDef[] = [
-  { name: "overview", path: "/", title: "Обзор" },
-  { name: "nodes", path: "/nodes", title: "Ноды", adminOnly: true },
-  { name: "interfaces", path: "/interfaces", title: "Интерфейсы", adminOnly: true },
-  { name: "groups", path: "/groups", title: "Группы", adminOnly: true },
-  { name: "group", path: "/groups/:id", title: "Группа", adminOnly: true },
-  { name: "clients", path: "/clients", title: "Клиенты" },
-  { name: "client", path: "/clients/:id", title: "Устройство" },
-  { name: "tariffs", path: "/tariffs", title: "Тарифы", adminOnly: true },
-  { name: "users", path: "/users", title: "Пользователи", adminOnly: true },
-  { name: "audit", path: "/audit", title: "Аудит", adminOnly: true },
-  { name: "import", path: "/import", title: "Импорт", adminOnly: true },
-  { name: "stats", path: "/stats", title: "Статистика" },
-  { name: "profile", path: "/profile", title: "Профиль" },
-  { name: "settings", path: "/settings", title: "Настройки", adminOnly: true },
-  { name: "login", path: "/login", title: "Вход", public: true },
-  { name: "register", path: "/register", title: "Регистрация", public: true },
-  { name: "verify-email", path: "/verify-email", title: "Подтверждение почты", public: true },
-  { name: "forgot-password", path: "/forgot-password", title: "Восстановление пароля", public: true },
-  { name: "reset-password", path: "/reset-password", title: "Сброс пароля", public: true },
+  { name: "overview", path: "/", titleKey: "route.overview" },
+  { name: "nodes", path: "/nodes", titleKey: "route.nodes", adminOnly: true },
+  { name: "interfaces", path: "/interfaces", titleKey: "route.interfaces", adminOnly: true },
+  { name: "groups", path: "/groups", titleKey: "route.groups", adminOnly: true },
+  { name: "group", path: "/groups/:id", titleKey: "route.group", adminOnly: true },
+  { name: "clients", path: "/clients", titleKey: "route.clients" },
+  { name: "client", path: "/clients/:id", titleKey: "route.client" },
+  { name: "tariffs", path: "/tariffs", titleKey: "route.tariffs", adminOnly: true },
+  { name: "users", path: "/users", titleKey: "route.users", adminOnly: true },
+  { name: "audit", path: "/audit", titleKey: "route.audit", adminOnly: true },
+  { name: "import", path: "/import", titleKey: "route.import", adminOnly: true },
+  { name: "stats", path: "/stats", titleKey: "route.stats" },
+  { name: "profile", path: "/profile", titleKey: "route.profile" },
+  { name: "settings", path: "/settings", titleKey: "route.settings", adminOnly: true },
+  { name: "login", path: "/login", titleKey: "route.login", public: true },
+  { name: "register", path: "/register", titleKey: "route.register", public: true },
+  { name: "verify-email", path: "/verify-email", titleKey: "route.verifyEmail", public: true },
+  { name: "forgot-password", path: "/forgot-password", titleKey: "auth.forgot.title", public: true },
+  { name: "reset-password", path: "/reset-password", titleKey: "auth.reset.title", public: true },
 ];
 
 export const NOT_FOUND_ROUTE: RouteDef = {
   name: "not-found",
   path: "*",
-  title: "Раздел не найден",
+  titleKey: "route.notFound",
   public: true,
 };
 

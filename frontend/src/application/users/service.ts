@@ -41,28 +41,28 @@ export class DefaultUsersService implements UsersService {
 
   async updateUser(id: string, input: UpdateUserInput): Promise<User> {
     const email = input.email === undefined ? undefined : validateEmail(input.email);
-    return this.repository.updateUser(requireId(id, "Пользователь"), {
+    return this.repository.updateUser(requireId(id, "error.label.user"), {
       ...input,
       ...(email === undefined ? {} : { email }),
     });
   }
 
   async deleteUser(id: string): Promise<void> {
-    await this.repository.deleteUser(requireId(id, "Пользователь"));
+    await this.repository.deleteUser(requireId(id, "error.label.user"));
   }
 
   async resetPassword(id: string, password: string): Promise<void> {
     await this.repository.resetPassword(
-      requireId(id, "Пользователь"),
+      requireId(id, "error.label.user"),
       validatePassword(password),
     );
   }
 
   async approveUser(id: string, input: ApproveUserInput): Promise<User> {
     if (!input.tariff_id.trim()) {
-      throw new ValidationError("Выберите тариф");
+      throw new ValidationError("error.validation.userTariffRequired");
     }
-    return this.repository.approveUser(requireId(id, "Пользователь"), {
+    return this.repository.approveUser(requireId(id, "error.label.user"), {
       tariff_id: input.tariff_id.trim(),
       node_id: input.node_id ? input.node_id : null,
       group_id: input.group_id ? input.group_id : null,
@@ -70,11 +70,11 @@ export class DefaultUsersService implements UsersService {
   }
 
   async rejectUser(id: string): Promise<User> {
-    return this.repository.rejectUser(requireId(id, "Пользователь"));
+    return this.repository.rejectUser(requireId(id, "error.label.user"));
   }
 
   async bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult> {
-    const normalized = ids.map((id) => requireId(id, "Пользователь"));
+    const normalized = ids.map((id) => requireId(id, "error.label.user"));
     return this.repository.bulk(action, normalized);
   }
 }

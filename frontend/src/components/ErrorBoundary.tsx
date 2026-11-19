@@ -47,7 +47,7 @@ export function AppErrorBoundary(props: AppErrorBoundaryProps): Node {
   return (
     <ErrorBoundary
       fallback={(error: unknown, reset: () => void) => {
-        console.error("Ошибка интерфейса", error);
+        console.error("UI error", error);
         return <AppErrorFallback error={error} reset={reset} onHome={props.onHome} />;
       }}
     >

@@ -60,7 +60,7 @@ export class HttpTransport {
     try {
       return JSON.parse(text) as T;
     } catch {
-      throw new ApiError(response.status, "invalid_response", "Некорректный ответ сервера");
+      throw new ApiError(response.status, "invalid_response", "Invalid server response");
     }
   }
 }

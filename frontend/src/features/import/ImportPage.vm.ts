@@ -6,6 +6,7 @@ import type { ImportService } from "@/application/import/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { UsersService } from "@/application/users/service";
+import { userMessage } from "@/application/errors";
 import type {
   ClientsApplyResult,
   ClientsImportInput,
@@ -35,6 +36,7 @@ import {
 } from "@/domain/import/validation";
 import type { InterfaceInfo, NodeInfo, PoolMode, User } from "@/domain/types";
 import { t } from "@/i18n";
+import { formatBytesI18n } from "@/i18n/format";
 
 export interface PoolDraft {
   name: string;
@@ -80,7 +82,6 @@ const DEFAULT_PORT = 51820;
 const DEFAULT_MTU = 1280;
 const MAX_IMPORT_FILES = 50;
 const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
-const MAX_IMPORT_FILE_LABEL = "2 МБ";
 
 const DEFAULT_STEP: ImportStep = 1;
 
@@ -126,7 +127,7 @@ function validateFiles(files: readonly File[]): string | null {
   if (oversized !== undefined) {
     return t("import.error.fileTooLarge", {
       name: oversized.name,
-      max: MAX_IMPORT_FILE_LABEL,
+      max: formatBytesI18n(MAX_IMPORT_FILE_BYTES, 0),
     });
   }
   return null;
@@ -180,10 +181,6 @@ async function readClientFileDrafts(files: File[], used: Set<string>): Promise<C
       name: uniqueName(item.name || `client-${used.size + index + 1}`, used),
       config: item.config,
     }));
-}
-
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message.length > 0 ? error.message : fallback;
 }
 
 function isPoolIssue(issue: ImportInterfaceIssue, poolIndex: number): boolean {
@@ -687,7 +684,7 @@ export class ImportVM extends ViewModel {
     try {
       this.nodes = await this.nodesService.listNodes();
     } catch (error) {
-      this.nodesError = messageOf(error, t("import.error.nodesLoad"));
+      this.nodesError = userMessage(error, t("import.error.nodesLoad"));
       this.toasts.error(this.nodesError);
     } finally {
       this.nodesLoading = false;
@@ -701,7 +698,7 @@ export class ImportVM extends ViewModel {
       this.owners = await this.usersService.listUsers();
     } catch (error) {
       this.owners = [];
-      this.ownersError = messageOf(error, t("import.error.usersLoad"));
+      this.ownersError = userMessage(error, t("import.error.usersLoad"));
       this.toasts.error(this.ownersError);
     } finally {
       this.ownersLoading = false;
@@ -715,7 +712,7 @@ export class ImportVM extends ViewModel {
       this.interfaceList = await this.interfacesService.listInterfaces();
     } catch (error) {
       this.interfaceList = [];
-      this.interfacesError = messageOf(error, t("import.clients.error.interfaces"));
+      this.interfacesError = userMessage(error, t("import.clients.error.interfaces"));
       this.toasts.error(this.interfacesError);
     } finally {
       this.interfacesLoading = false;
@@ -785,7 +782,7 @@ export class ImportVM extends ViewModel {
       }
       this.toasts.success(t("import.toast.serverLoaded", { name: file.name }));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("import.toast.readFileFailed")));
+      this.toasts.error(userMessage(error, t("import.toast.readFileFailed")));
     } finally {
       input.value = "";
     }
@@ -930,7 +927,7 @@ export class ImportVM extends ViewModel {
         this.touch();
       }
     } catch (error) {
-      this.toasts.error(messageOf(error, t("import.toast.readFilesFailed")));
+      this.toasts.error(userMessage(error, t("import.toast.readFilesFailed")));
     } finally {
       input.value = "";
     }
@@ -1004,7 +1001,7 @@ export class ImportVM extends ViewModel {
       this.toasts.success(t("import.toast.clientsUploaded", { count: additions.length }));
       this.touchClients();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("import.toast.readFilesFailed")));
+      this.toasts.error(userMessage(error, t("import.toast.readFilesFailed")));
     } finally {
       input.value = "";
     }
@@ -1079,7 +1076,7 @@ export class ImportVM extends ViewModel {
       );
     } catch (error) {
       this.clientsPreview = null;
-      this.clientsPreviewError = messageOf(error, t("import.clients.error.preview"));
+      this.clientsPreviewError = userMessage(error, t("import.clients.error.preview"));
       this.toasts.error(this.clientsPreviewError);
     } finally {
       this.clientsPreviewing = false;
@@ -1116,7 +1113,7 @@ export class ImportVM extends ViewModel {
         );
       }
     } catch (error) {
-      this.clientsApplyError = messageOf(error, t("import.clients.error.apply"));
+      this.clientsApplyError = userMessage(error, t("import.clients.error.apply"));
       this.toasts.error(this.clientsApplyError);
     } finally {
       this.clientsApplying = false;
@@ -1390,7 +1387,7 @@ export class ImportVM extends ViewModel {
       );
     } catch (error) {
       this.preview = null;
-      this.previewError = messageOf(error, t("import.error.preview"));
+      this.previewError = userMessage(error, t("import.error.preview"));
       this.toasts.error(this.previewError);
     } finally {
       this.previewing = false;
@@ -1426,7 +1423,7 @@ export class ImportVM extends ViewModel {
         );
       }
     } catch (error) {
-      this.applyError = messageOf(error, t("import.error.apply"));
+      this.applyError = userMessage(error, t("import.error.apply"));
       this.toasts.error(this.applyError);
     } finally {
       this.applying = false;

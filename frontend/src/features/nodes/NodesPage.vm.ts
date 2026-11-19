@@ -12,6 +12,7 @@ import {
   formatTokenIssuedAt,
 } from "@/application/nodes/metrics";
 import type { NodesService } from "@/application/nodes/service";
+import { userMessage } from "@/application/errors";
 import type { NodeCreated, NodeRotated } from "@/domain/nodes/types";
 import type { NodeInfo } from "@/domain/types";
 import { copyText } from "@/domain/clipboard";
@@ -127,7 +128,7 @@ export class NodesPageVM extends ViewModel {
       const failed = result.failed.length;
       this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
     } catch (error) {
-      this.toasts.error(messageOf(error, t("nodes.error.delete")));
+      this.toasts.error(userMessage(error, t("nodes.error.delete")));
     } finally {
       this.bulkBusy = false;
       this.clearSelection();
@@ -154,7 +155,7 @@ export class NodesPageVM extends ViewModel {
         (left, right) => Number(right.online) - Number(left.online) || left.name.localeCompare(right.name),
       );
     } catch (error) {
-      this.error = messageOf(error, t("nodes.error.load"));
+      this.error = userMessage(error, t("nodes.error.load"));
     } finally {
       this.loading = false;
     }
@@ -200,7 +201,7 @@ export class NodesPageVM extends ViewModel {
       this.toasts.success(t("nodes.toast.created", { name: result.node.name }));
       await this.load();
     } catch (error) {
-      const message = messageOf(error, t("nodes.error.create"));
+      const message = userMessage(error, t("nodes.error.create"));
       this.formError = message;
       this.toasts.error(message);
     } finally {
@@ -248,7 +249,7 @@ export class NodesPageVM extends ViewModel {
       this.toasts.success(t("nodes.toast.rotated", { name: result.node.name }));
       await this.load();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("nodes.error.rotate")));
+      this.toasts.error(userMessage(error, t("nodes.error.rotate")));
     } finally {
       this.busy = false;
     }
@@ -268,7 +269,7 @@ export class NodesPageVM extends ViewModel {
       this.toasts.success(t("nodes.toast.deleted", { name: node.name }));
       await this.load();
     } catch (error) {
-      this.toasts.error(messageOf(error, t("nodes.error.delete")));
+      this.toasts.error(userMessage(error, t("nodes.error.delete")));
     } finally {
       this.busy = false;
     }
@@ -315,9 +316,5 @@ export class NodesPageVM extends ViewModel {
   tokenIssuedLabel(node: NodeInfo): string {
     return formatTokenIssuedAt(node.token_issued_at);
   }
-}
-
-function messageOf(error: unknown, fallback: string): string {
-  return error instanceof Error && error.message ? error.message : fallback;
 }
 

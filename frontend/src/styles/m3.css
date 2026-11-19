@@ -333,6 +333,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   border: 1px solid var(--md-outline-variant);
   border-radius: var(--shape-lg);
   box-shadow: none;
+  transition: box-shadow var(--dur-2) var(--ease), border-color var(--dur-2) var(--ease);
 }
 [data-theme="dark"] .card { background: var(--md-surface-low); }
 .card--filled { background: var(--md-surface-container); border-color: transparent; }
@@ -342,7 +343,9 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   box-shadow: var(--shadow-1);
 }
 [data-theme="dark"] .card--elevated { background: color-mix(in oklab, var(--md-surface-low) 95%, var(--md-primary) 5%); }
-.card__head { border-bottom: 0; padding: 20px 20px 0; }
+.card__head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-3); border-bottom: 0; padding: 20px 20px 0; }
+.card__title { font-size: var(--type-title); font-weight: 650; letter-spacing: -0.01em; }
+.card__sub { color: var(--md-on-surface-variant); font-size: var(--t-xs); line-height: 1.45; }
 .card__head--bordered { border-bottom: 1px solid var(--md-outline-variant); padding-bottom: 16px; }
 .card__body { padding: 16px 20px 20px; }
 .card__foot { background: transparent; }
@@ -374,8 +377,6 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 @media (max-width: 767px) {
   .modal { border-radius: var(--shape-xl) var(--shape-xl) 0 0; }
   .modal-backdrop { padding: 0; }
-  .card { border-radius: var(--shape-lg); }
-  .card--filled { background: var(--md-surface-container); }
   .card__head { padding: 16px 16px 0; }
   .card__body { padding: 14px 16px 16px; }
   .table--cards tr:has(td.cell-select) { padding-top: 16px; padding-inline: 14px; }
@@ -399,8 +400,6 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 }
 
 .stat { background: var(--md-surface-container); }
-.card--filled { background: var(--md-surface-container); }
-[data-theme="dark"] .card--filled { background: var(--md-surface-container); }
 
 .card:hover { border-color: var(--md-outline-variant); }
 .card--elevated:hover { border-color: transparent; }

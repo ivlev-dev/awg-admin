@@ -12,10 +12,12 @@ export interface LanguageOption {
   readonly label: string;
 }
 
-export const LANGUAGE_OPTIONS: readonly LanguageOption[] = [
-  { value: "ru", label: "Русский" },
-  { value: "en", label: "English" },
-];
+export function languageOptions(): readonly LanguageOption[] {
+  return [
+    { value: "ru", label: t("language.ru") },
+    { value: "en", label: t("language.en") },
+  ];
+}
 
 const DICTIONARIES: Partial<Record<Locale, Dictionary>> = { ru };
 const LAZY_LOADERS: Partial<Record<Locale, () => Promise<Dictionary>>> = {
@@ -48,7 +50,7 @@ export function loadLocale(next: Locale): Promise<void> {
       DICTIONARIES[next] = dictionary;
     })
     .catch((error: unknown) => {
-      console.error(`Не удалось загрузить перевод «${next}»`, error);
+      console.error(`Failed to load locale "${next}"`, error);
     })
     .finally(() => {
       delete pending[next];

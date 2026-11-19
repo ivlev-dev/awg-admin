@@ -52,7 +52,6 @@ export const ruSettings = {
   "settings.links.ttl": "Время жизни, часы",
   "settings.links.ttlHint": "В API значение хранится в секундах: {seconds} с. 0 — без ограничения срока.",
   "settings.action.save": "Сохранить настройки",
-  "settings.dirty.title": "Есть несохранённые изменения",
   "settings.dirty.text": "Есть несохранённые изменения",
   "settings.dirty.reset": "Отменить изменения",
   "settings.dirty.confirm.title": "Отменить изменения?",

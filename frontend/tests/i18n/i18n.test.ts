@@ -2,7 +2,7 @@ import { en } from "@/i18n/en";
 import { ru } from "@/i18n/ru";
 import {
   DEFAULT_LOCALE,
-  LANGUAGE_OPTIONS,
+  languageOptions,
   LOCALES,
   isLocale,
   locale,
@@ -119,7 +119,7 @@ describe("locale helpers", () => {
     expect(isLocale("de")).toBe(false);
     expect(isLocale(null)).toBe(false);
     expect(LOCALES).toEqual(["ru", "en"]);
-    expect(LANGUAGE_OPTIONS.map((option) => option.label)).toEqual(["Русский", "English"]);
+    expect(languageOptions().map((option) => option.label)).toEqual(["Русский", "English"]);
   });
 
   it("склоняет подписи по правилам языка", () => {
