@@ -476,17 +476,22 @@ pub async fn run() -> Result<()> {
         (Some(cert), Some(key)) => Some(crate::grpc::server_tls_config(
             std::path::Path::new(cert),
             std::path::Path::new(key),
+            config
+                .grpc_tls_client_ca
+                .as_deref()
+                .map(std::path::Path::new),
         )?),
         _ => None,
     };
     let grpc_tls_enabled = grpc_tls.is_some();
+    let grpc_mtls_enabled = config.grpc_tls_client_ca.is_some();
     let mut grpc_server = crate::grpc::build_server(grpc_tls)?;
     let grpc_state = state.clone();
     let grpc_bind = config.grpc_bind;
     let mut grpc_shutdown = shutdown_rx.clone();
     let grpc_handle = tokio::spawn(async move {
         let service = WorkerGrpc::new(grpc_state);
-        tracing::info!(%grpc_bind, tls = grpc_tls_enabled, "worker gRPC listening");
+        tracing::info!(%grpc_bind, tls = grpc_tls_enabled, mtls = grpc_mtls_enabled, "worker gRPC listening");
         let result = grpc_server
             .add_service(WorkerGatewayServer::new(service))
             .serve_with_shutdown(grpc_bind, async move {

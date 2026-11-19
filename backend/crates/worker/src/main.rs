@@ -41,12 +41,14 @@ async fn main() -> Result<()> {
 
     tracing::info!(%node_id, %grpc_url, dry_run, "worker starting");
 
-    let tls = GrpcTlsOptions::from_env();
+    let tls = GrpcTlsOptions::from_env()?;
+    tls.client_config()?;
     if tls.is_enabled() {
         tracing::info!(
             ca = ?tls.ca_path,
             domain = ?tls.domain,
             system_roots = tls.use_system_roots,
+            mtls = tls.is_mtls_enabled(),
             "gRPC TLS enabled"
         );
     }

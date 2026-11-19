@@ -10,6 +10,9 @@ services:
     environment:
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
+      AWG_GRPC_TLS_CERT: ${AWG_GRPC_TLS_CERT:-}
+      AWG_GRPC_TLS_KEY: ${AWG_GRPC_TLS_KEY:-}
+      AWG_GRPC_TLS_CLIENT_CA: ${AWG_GRPC_TLS_CLIENT_CA:-}
       AWG_DB_PATH: /data/awg-admin.redb
     volumes:
       - .:/app
@@ -59,6 +62,8 @@ services:
       AWG_GRPC_TLS_CA: ${AWG_GRPC_TLS_CA:-}
       AWG_GRPC_TLS_DOMAIN: ${AWG_GRPC_TLS_DOMAIN:-}
       AWG_GRPC_TLS_SYSTEM_ROOTS: ${AWG_GRPC_TLS_SYSTEM_ROOTS:-false}
+      AWG_GRPC_TLS_CLIENT_CERT: ${AWG_GRPC_TLS_CLIENT_CERT:-}
+      AWG_GRPC_TLS_CLIENT_KEY: ${AWG_GRPC_TLS_CLIENT_KEY:-}
       AWG_NODE_ID: ${AWG_NODE_ID:-}
       AWG_NODE_TOKEN: ${AWG_NODE_TOKEN:-}
       AWG_DRY_RUN: "true"

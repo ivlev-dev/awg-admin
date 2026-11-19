@@ -159,6 +159,7 @@ pub struct ConfigInput {
     pub grpc_bind: String,
     pub grpc_tls_cert: Option<String>,
     pub grpc_tls_key: Option<String>,
+    pub grpc_tls_client_ca: Option<String>,
     pub db_path: String,
     pub master_key: Option<String>,
     pub jwt_secret: Option<String>,
@@ -210,6 +211,7 @@ pub struct Config {
     pub grpc_bind: SocketAddr,
     pub grpc_tls_cert: Option<String>,
     pub grpc_tls_key: Option<String>,
+    pub grpc_tls_client_ca: Option<String>,
     pub db_path: String,
     pub master_key: String,
     pub jwt_secret: Vec<u8>,
@@ -281,9 +283,21 @@ impl Config {
                 "AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY must be set together (or both empty for plaintext h2c)"
             ),
         };
+        let grpc_tls_client_ca =
+            non_empty(&input.grpc_tls_client_ca).map(|value| value.trim().to_string());
+        if grpc_tls_client_ca.is_some() && grpc_tls_cert.is_none() {
+            bail!(
+                "AWG_GRPC_TLS_CLIENT_CA requires AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY (mTLS is layered on top of server-auth TLS)"
+            );
+        }
         if production && grpc_tls_cert.is_none() {
             tracing::warn!(
                 "worker gRPC is listening without TLS; set AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY to enable server-auth TLS"
+            );
+        }
+        if production && grpc_tls_cert.is_some() && grpc_tls_client_ca.is_none() {
+            tracing::warn!(
+                "AWG_GRPC_TLS_CLIENT_CA is not set; worker gRPC verifies the server but does not require a worker client certificate"
             );
         }
 
@@ -410,6 +424,7 @@ impl Config {
             grpc_bind,
             grpc_tls_cert,
             grpc_tls_key,
+            grpc_tls_client_ca,
             db_path: input.db_path,
             master_key,
             jwt_secret,
@@ -555,6 +570,7 @@ fn input_from_env() -> Result<ConfigInput> {
         grpc_bind: env("AWG_GRPC_BIND", "0.0.0.0:9090"),
         grpc_tls_cert: env_optional("AWG_GRPC_TLS_CERT"),
         grpc_tls_key: env_optional("AWG_GRPC_TLS_KEY"),
+        grpc_tls_client_ca: env_optional("AWG_GRPC_TLS_CLIENT_CA"),
         db_path: env("AWG_DB_PATH", "/data/awg-admin.redb"),
         master_key: env_optional("AWG_MASTER_KEY"),
         jwt_secret: env_optional("AWG_JWT_SECRET"),
@@ -639,6 +655,7 @@ mod tests {
             grpc_bind: "127.0.0.1:9090".into(),
             grpc_tls_cert: None,
             grpc_tls_key: None,
+            grpc_tls_client_ca: None,
             db_path: "/tmp/awg-admin-test.redb".into(),
             master_key: Some(valid_master_key()),
             jwt_secret: Some("test-secret-that-is-long-enough-32+".into()),
@@ -1042,9 +1059,31 @@ mod tests {
         let mut input = base_input(Environment::Development);
         input.grpc_tls_cert = Some("  /etc/awg/tls.crt ".into());
         input.grpc_tls_key = Some(" /etc/awg/tls.key ".into());
+        input.grpc_tls_client_ca = Some(" /etc/awg/tls/worker-ca.crt ".into());
         let config = Config::from_input(input).unwrap();
         assert_eq!(config.grpc_tls_cert.as_deref(), Some("/etc/awg/tls.crt"));
         assert_eq!(config.grpc_tls_key.as_deref(), Some("/etc/awg/tls.key"));
+        assert_eq!(
+            config.grpc_tls_client_ca.as_deref(),
+            Some("/etc/awg/tls/worker-ca.crt")
+        );
+    }
+
+    #[test]
+    fn grpc_tls_client_ca_requires_server_certificate() {
+        let mut input = base_input(Environment::Development);
+        input.grpc_tls_client_ca = Some("/etc/awg/tls/worker-ca.crt".into());
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_GRPC_TLS_CLIENT_CA requires"), "{error}");
+
+        let mut input = base_input(Environment::Development);
+        input.grpc_tls_cert = Some("/etc/awg/tls.crt".into());
+        input.grpc_tls_client_ca = Some("/etc/awg/tls/worker-ca.crt".into());
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(
+            error.contains("AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY"),
+            "{error}"
+        );
     }
 
     #[test]
@@ -1052,5 +1091,6 @@ mod tests {
         let config = Config::from_input(base_input(Environment::Production)).unwrap();
         assert!(config.grpc_tls_cert.is_none());
         assert!(config.grpc_tls_key.is_none());
+        assert!(config.grpc_tls_client_ca.is_none());
     }
 }

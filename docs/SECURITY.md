@@ -126,9 +126,15 @@ Protocols`).
 - Транспорт gRPC по умолчанию plaintext (h2c). Server-auth TLS включается
   `AWG_GRPC_TLS_CERT`/`AWG_GRPC_TLS_KEY` на admin; worker доверяет серверу по
   `AWG_GRPC_TLS_CA`, `AWG_GRPC_TLS_DOMAIN` (system roots) или
-  `AWG_GRPC_TLS_SYSTEM_ROOTS=true`. Подробности — `OPERATIONS.md`, раздел 9.1.
-  mTLS (клиентские сертификаты worker) не реализован: TLS защищает канал от
-  прослушивания и MITM, но не заменяет `AWG_NODE_TOKEN`.
+  `AWG_GRPC_TLS_SYSTEM_ROOTS=true`.
+- Опциональный mTLS: при заданном на admin `AWG_GRPC_TLS_CLIENT_CA` сервер
+  требует клиентский сертификат и проверяет его подпись этим CA; worker
+  предъявляет `AWG_GRPC_TLS_CLIENT_CERT`/`AWG_GRPC_TLS_CLIENT_KEY`. Оба
+  параметра задаются только вместе и только при включённом TLS. Без
+  client CA сервер остаётся в режиме server-auth.
+- mTLS не заменяет `AWG_NODE_TOKEN`: CN сертификата не связывается с
+  `node_id`, CRL/OCSP нет, отзыв клиентского сертификата выполняется
+  ротацией CA. Подробности — `OPERATIONS.md`, раздел 9.1.
 
 ## Рекомендации по развертыванию
 
@@ -199,8 +205,8 @@ pnpm audit --audit-level high --prod
 ## Ограничения
 
 - gRPC worker gateway по умолчанию работает без TLS; TLS включается
-  сертификатом (server-auth), mTLS с клиентскими сертификатами worker пока не
-  реализован (см. `OPERATIONS.md`, 9.1).
+  сертификатом (server-auth), mTLS — дополнительно `AWG_GRPC_TLS_CLIENT_CA`
+  на admin и клиентским сертификатом worker (см. `OPERATIONS.md`, 9.1).
 - h2c backend ожидает proxy с поддержкой h2c (Traefik `h2c`).
 - Self-signed сертификаты для HTTP/3 не используются; выпускаются нормальные сертификаты в Traefik.
 
@@ -226,7 +232,9 @@ logout-гонки, WebSocket reconnect, CSV-инъекции, share-токены
   устранения XSS-риска нужен переход на `HttpOnly; Secure; SameSite` cookies
   и CSRF-токен на backend.
 - gRPC worker gateway по умолчанию работает без TLS; TLS включается
-  сертификатом (server-auth), mTLS — отдельный этап.
+  сертификатом (server-auth), mTLS — дополнительным клиентским CA на admin и
+  сертификатами worker. mTLS не заменяет токен ноды и не поддерживает
+  CRL/OCSP, поэтому отзыв — только ротацией CA.
 - Блокирующие операции redb и argon2 выполняются в async-контексте; нужен
   `spawn_blocking`/отдельный writer-пул.
 - per-group mutex и worker registry локальны для процесса; для нескольких

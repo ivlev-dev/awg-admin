@@ -498,6 +498,7 @@ fn app_config(
         grpc_bind: "127.0.0.1:0".into(),
         grpc_tls_cert: None,
         grpc_tls_key: None,
+        grpc_tls_client_ca: None,
         db_path: ":memory:".into(),
         master_key: Some(master_key),
         jwt_secret: Some("test-secret-with-at-least-32-bytes!!".into()),

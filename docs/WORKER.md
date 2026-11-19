@@ -11,12 +11,37 @@
 | `AWG_GRPC_TLS_CA` | — | PEM CA для проверки admin; включает TLS |
 | `AWG_GRPC_TLS_DOMAIN` | host из URL | SNI/имя сервера; включает TLS (system roots) |
 | `AWG_GRPC_TLS_SYSTEM_ROOTS` | `false` | доверять системным корням; включает TLS |
+| `AWG_GRPC_TLS_CLIENT_CERT` | — | PEM клиентский сертификат воркера (mTLS); только вместе с ключом и CA |
+| `AWG_GRPC_TLS_CLIENT_KEY` | — | PEM ключ клиентского сертификата (mTLS) |
 | `AWG_NODE_ID` | — | UUID ноды из админки (обязателен) |
 | `AWG_NODE_TOKEN` | — | токен ноды, выдаётся один раз при создании (обязателен) |
 | `AWG_DRY_RUN` | `false` | только логировать команды, ничего не применять |
 | `AWG_COUNTERS_PATH` | `/var/lib/awg-worker/counters.json` | локальный снапшот счётчиков |
 | `AWG_STATS_INTERVAL_SECS` | `2` | период опроса статистики |
 | `RUST_LOG` | `info` | уровень логирования |
+
+## TLS и mTLS
+
+По умолчанию канал plaintext (h2c). TLS включается на воркере, если задан
+`AWG_GRPC_TLS_CA`, `AWG_GRPC_TLS_DOMAIN` или `AWG_GRPC_TLS_SYSTEM_ROOTS=true`;
+при этом воркер проверяет сертификат admin. Для взаимной аутентификации
+дополнительно задаются `AWG_GRPC_TLS_CLIENT_CERT` и `AWG_GRPC_TLS_CLIENT_KEY`:
+воркер предъявляет клиентский сертификат, подписанный CA из
+`AWG_GRPC_TLS_CLIENT_CA` на стороне admin.
+
+Правила валидации при старте:
+
+- client cert и ключ задаются только вместе;
+- client cert/ключ допустимы только при включённом TLS (CA/DOMAIN/SYSTEM_ROOTS) —
+  иначе процесс завершается с ошибкой, так как mTLS без проверки сервера
+  бессмыслен и небезопасен;
+- файлы читаются при старте, PEM проверяется до подключения;
+- без client cert/ключа поведение прежнее — server-auth TLS либо plaintext.
+
+Выпуск CA и сертификатов, ротация и ограничения описаны в `OPERATIONS.md`,
+раздел 9.1. Клиентский сертификат не заменяет `AWG_NODE_TOKEN`: токен
+по-прежнему проверяется в `Hello`, mTLS лишь отсекает подключения без
+доверенного клиентского сертификата на уровне TLS.
 
 ## Протокол сессии
 

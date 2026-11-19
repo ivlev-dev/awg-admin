@@ -306,54 +306,185 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 - без тарифа у пользователя `user_limits` пуст и tc не применяется; пул без `gateway` даёт интерфейс без адреса.
 - worker не чистит интерфейс, удалённый из desired state, если worker был остановлен в момент удаления.
 
-### 9.1 TLS для worker gRPC
+### 9.1 TLS и mTLS для worker gRPC
 
-По умолчанию gRPC-канал admin↔worker работает без TLS (h2c) и должен быть
-доступен только из доверенной сети (порт `9090` не публикуется наружу).
-Симметричное включение TLS:
+Канал admin↔worker поддерживает три режима:
 
-1. Выпустите сертификат на внутреннее имя admin (например
-   `admin.internal`) и положите `grpc.crt`/`grpc.key` в контейнер admin:
+| Режим | Admin | Worker | Когда использовать |
+|---|---|---|---|
+| plaintext (по умолчанию) | — | — | одна доверенная сеть, порт `9090` не опубликован |
+| server-auth TLS | `AWG_GRPC_TLS_CERT`/`KEY` | `AWG_GRPC_TLS_CA`/`DOMAIN`/`SYSTEM_ROOTS` | канал пересекает недоверенную сеть |
+| mTLS | + `AWG_GRPC_TLS_CLIENT_CA` | + `AWG_GRPC_TLS_CLIENT_CERT`/`KEY` | нужно отсекать подключения без доверенного клиентского сертификата |
 
-   ```bash
-   openssl req -x509 -newkey rsa:4096 -nodes -days 825 \
-     -keyout grpc.key -out grpc.crt \
-     -subj "/CN=admin.internal" \
-     -addext "subjectAltName=DNS:admin.internal"
-   chmod 600 grpc.key
-   ```
+Plaintext остаётся поведением по умолчанию: без переменных admin слушает h2c,
+worker подключается по `http://`. В production при выключенном TLS admin
+пишет предупреждение; при включённом TLS без `AWG_GRPC_TLS_CLIENT_CA` —
+предупреждение, что клиентский сертификат не требуется.
 
-2. Admin: задайте `AWG_GRPC_TLS_CERT` и `AWG_GRPC_TLS_KEY` (только вместе;
-   иначе старт завершается ошибкой). Файлы читаются при старте, PEM
-   валидируется до открытия порта. Смонтируйте каталог с сертификатами,
-   например добавьте в сервис `admin` compose-файл `docker-compose.override.yml`:
+#### Выпуск CA и сертификатов (openssl)
 
-   ```yaml
-   services:
-     admin:
-       volumes:
-         - ./certs:/etc/awg/tls:ro
-   ```
+Все команды выполняются в каталоге, который не попадает в git (например
+`./certs`, он монтируется в контейнеры только для чтения).
 
-   В `.env`: `AWG_GRPC_TLS_CERT=/etc/awg/tls/grpc.crt`,
-   `AWG_GRPC_TLS_KEY=/etc/awg/tls/grpc.key`.
+CA (один раз, хранится отдельно от серверных ключей):
 
-3. Worker: укажите `AWG_GRPC_URL=https://admin.internal:9090` и один из
-   вариантов доверия:
-   - `AWG_GRPC_TLS_CA=/etc/awg/tls/grpc-ca.crt` — проверка по конкретному CA
-     (для self-signed это сам `grpc.crt`);
-   - `AWG_GRPC_TLS_SYSTEM_ROOTS=true` — системные корневые сертификаты;
-   - `AWG_GRPC_TLS_DOMAIN=admin.internal` — SNI/имя для проверки (по умолчанию
-     берётся host из `AWG_GRPC_URL`).
+```bash
+mkdir -p certs && cd certs
+openssl genrsa -out grpc-ca.key 4096
+openssl req -x509 -new -nodes -key grpc-ca.key -sha256 -days 3650 \
+  -subj "/CN=awg-grpc-ca" -out grpc-ca.crt
+chmod 600 grpc-ca.key
+```
 
-   TLS в worker включается, если задан `AWG_GRPC_TLS_CA`,
-   `AWG_GRPC_TLS_DOMAIN` или `AWG_GRPC_TLS_SYSTEM_ROOTS=true`. Без них
-   поведение прежнее — plaintext.
+Серверный сертификат admin на внутреннее имя `admin.internal`
+(`grpc.ext`):
 
-Ограничения: это server-auth TLS (клиент проверяет сервер), взаимной
-аутентификации нет — worker не предъявляет клиентский сертификат. Узел
-по-прежнему аутентифицируется токеном `AWG_NODE_TOKEN` в сообщении `Hello`.
-mTLS потребует клиентских сертификатов и отдельного этапа.
+```ini
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature,keyEncipherment
+extendedKeyUsage=serverAuth
+subjectAltName=DNS:admin.internal
+```
+
+```bash
+openssl genrsa -out grpc.key 4096
+openssl req -new -key grpc.key -subj "/CN=admin.internal" -out grpc.csr
+openssl x509 -req -in grpc.csr -CA grpc-ca.crt -CAkey grpc-ca.key \
+  -CAcreateserial -days 825 -sha256 -extfile grpc.ext -out grpc.crt
+chmod 600 grpc.key
+```
+
+Клиентский сертификат воркера (отдельный на каждую ноду, `CN` —
+`worker-<node-id>`; `worker.ext`):
+
+```ini
+basicConstraints=CA:FALSE
+keyUsage=critical,digitalSignature
+extendedKeyUsage=clientAuth
+```
+
+```bash
+openssl genrsa -out worker-<node-id>.key 4096
+openssl req -new -key worker-<node-id>.key \
+  -subj "/CN=worker-<node-id>" -out worker-<node-id>.csr
+openssl x509 -req -in worker-<node-id>.csr -CA grpc-ca.crt -CAkey grpc-ca.key \
+  -CAcreateserial -days 825 -sha256 -extfile worker.ext \
+  -out worker-<node-id>.crt
+chmod 600 worker-<node-id>.key
+```
+
+Для server-auth TLS без mTLS достаточно `grpc.crt`/`grpc.key`; можно
+использовать и самоподписанный сертификат (тогда worker указывает его в
+`AWG_GRPC_TLS_CA`).
+
+#### Admin
+
+```bash
+AWG_GRPC_TLS_CERT=/etc/awg/tls/grpc.crt
+AWG_GRPC_TLS_KEY=/etc/awg/tls/grpc.key
+# mTLS: PEM CA, которому доверяем клиентские сертификаты
+AWG_GRPC_TLS_CLIENT_CA=/etc/awg/tls/worker-ca.crt
+```
+
+Правила и ошибки старта:
+
+- `AWG_GRPC_TLS_CERT` и `AWG_GRPC_TLS_KEY` задаются только вместе, иначе
+  `AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY must be set together`.
+- `AWG_GRPC_TLS_CLIENT_CA` допустим только вместе с CERT/KEY, иначе
+  `AWG_GRPC_TLS_CLIENT_CA requires AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY`.
+- Файлы читаются при старте; ошибки чтения и не-PEM содержимое называют
+  конкретную переменную (`failed to read AWG_GRPC_TLS_CLIENT_CA ...`,
+  `AWG_GRPC_TLS_CLIENT_CA ... does not contain a PEM certificate`).
+- При заданном `AWG_GRPC_TLS_CLIENT_CA` сервер требует клиентский
+  сертификат и проверяет цепочку до этого CA; подключение без сертификата
+  или с сертификатом чужого CA обрывается на TLS-рукопожатии.
+- В одном PEM-файле можно перечислить несколько CA (bundle) — это
+  используется при ротации. Файл перечитывается только при рестарте admin.
+
+#### Worker
+
+```bash
+AWG_GRPC_URL=https://admin.internal:9090
+AWG_GRPC_TLS_CA=/etc/awg/tls/grpc-ca.crt
+AWG_GRPC_TLS_DOMAIN=admin.internal
+AWG_GRPC_TLS_CLIENT_CERT=/etc/awg/tls/worker-<node-id>.crt
+AWG_GRPC_TLS_CLIENT_KEY=/etc/awg/tls/worker-<node-id>.key
+```
+
+- TLS включается при заданном `AWG_GRPC_TLS_CA`, `AWG_GRPC_TLS_DOMAIN` или
+  `AWG_GRPC_TLS_SYSTEM_ROOTS=true`; иначе канал plaintext.
+- `AWG_GRPC_TLS_CLIENT_CERT` и `AWG_GRPC_TLS_CLIENT_KEY` задаются только
+  вместе и только при включённом TLS. Иначе старт завершается ошибкой
+  `... must be set together` / `... requires TLS to be enabled`.
+- `AWG_GRPC_TLS_DOMAIN` по умолчанию берётся из host `AWG_GRPC_URL`; для
+  IP-адреса задайте DNS-имя из SAN сертификата.
+- Без `AWG_GRPC_TLS_CA` используются системные корни
+  (`AWG_GRPC_TLS_SYSTEM_ROOTS=true` или `DOMAIN`).
+
+#### Compose
+
+Смонтируйте каталог с сертификатами в оба контейнера только для чтения
+(пример `docker-compose.override.yml`):
+
+```yaml
+services:
+  admin:
+    volumes:
+      - ./certs:/etc/awg/tls:ro
+  worker:
+    volumes:
+      - ./certs:/etc/awg/tls:ro
+```
+
+Переменные передаются через `.env` (файл в `.gitignore`); сами сертификаты
+и ключи в git не коммитятся. Compose уже пробрасывает
+`AWG_GRPC_TLS_CLIENT_CA` в admin и `AWG_GRPC_TLS_CLIENT_CERT`/`KEY` в worker.
+
+#### Проверка
+
+```bash
+# без клиентского сертификата сервер должен отказать
+openssl s_client -connect admin.internal:9090 -CAfile certs/grpc-ca.crt \
+  -alpn h2 </dev/null
+
+# с клиентским сертификатом рукопожатие проходит
+openssl s_client -connect admin.internal:9090 -CAfile certs/grpc-ca.crt \
+  -cert certs/worker-<node-id>.crt -key certs/worker-<node-id>.key \
+  -alpn h2 </dev/null
+```
+
+Ожидаемо: первый вызов завершается ошибкой (`certificate required`), второй
+показывает `Verify return code: 0 (ok)`. В логах admin при старте:
+`worker gRPC listening tls=true mtls=true`.
+
+#### Ротация
+
+- **Клиентский сертификат воркера.** Выпустите новый, обновите переменные
+  ноды и перезапустите worker. Старый сертификат продолжает работать до
+  истечения срока: CRL/OCSP не поддерживаются.
+- **Отзыв доступа.** Единственный надёжный способ — ротация клиентского CA:
+  выпустите новый CA, подпишите им сертификаты всех воркеров, положите в
+  `AWG_GRPC_TLS_CLIENT_CA` bundle из старого и нового CA, перезапустите
+  admin, обновите воркеры, затем уберите старый CA из bundle и перезапустите
+  admin ещё раз.
+- **Серверный сертификат admin.** Замените `grpc.crt`/`grpc.key`,
+  перезапустите admin. Worker доверяет CA, а не листовому сертификату,
+  поэтому его переменные менять не нужно.
+- **CA.** Храните ключ CA offline; при компрометации меняйте и серверный, и
+  клиентские сертификаты.
+- **Токен ноды** (`AWG_NODE_TOKEN`) ротируется независимо от TLS.
+
+#### Ограничения
+
+- mTLS аутентифицирует ноду на транспорте, но авторизация по-прежнему идёт
+  по `AWG_NODE_TOKEN` в `Hello`; admin не связывает CN сертификата с
+  `node_id` и не ведёт allowlist отпечатков.
+- Нет CRL/OCSP и срока жизни сессии: отзыв возможен только ротацией CA.
+- Один файл `AWG_GRPC_TLS_CLIENT_CA`, читается при старте; изменения
+  требуют рестарта admin.
+- Plaintext и server-auth TLS без mTLS остаются допустимыми режимами;
+  mTLS не включается автоматически.
+
 
 ## 10. Инциденты
 
