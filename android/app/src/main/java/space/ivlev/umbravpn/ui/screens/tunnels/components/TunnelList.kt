@@ -189,7 +189,11 @@ fun TunnelList(
                 return@LazyColumn
             }
 
-            itemsIndexed(items = rows, key = { _, row -> row.key }) { index, row ->
+            itemsIndexed(
+                items = rows,
+                key = { _, row -> row.key },
+                contentType = { _, row -> row.javaClass },
+            ) { index, row ->
                 if (uiState.isReorderMode) {
                     ReorderableItem(reorderableLazyListState, row.key) { isDragging ->
                         val latency =

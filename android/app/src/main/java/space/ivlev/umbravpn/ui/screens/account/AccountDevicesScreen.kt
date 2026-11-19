@@ -65,16 +65,17 @@ fun AccountDevicesScreen(viewModel: AccountViewModel = koinActivityViewModel()) 
                 },
         )
 
+        val error = state.error
         when {
-            state.snapshot == null && state.error == null ->
+            state.snapshot == null && error == null ->
                 Box(
                     modifier = Modifier.fillMaxSize().padding(top = 32.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     CircularProgressIndicator()
                 }
-            state.snapshot == null && state.error != null -> {
-                AccountErrorCard(state.error!!)
+            state.snapshot == null && error != null -> {
+                AccountErrorCard(error)
                 AccountLoadingButton(
                     text = stringResource(R.string.account_retry),
                     onClick = viewModel::retry,

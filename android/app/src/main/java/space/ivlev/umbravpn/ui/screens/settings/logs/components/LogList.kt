@@ -29,7 +29,11 @@ fun LogList(
                 ),
         verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        itemsIndexed(items = logs, key = { _, item -> item.id }) { _, item ->
+        itemsIndexed(
+            items = logs,
+            key = { _, item -> item.id },
+            contentType = { _, _ -> "log" },
+        ) { _, item ->
             LogItem(log = item.message)
         }
     }

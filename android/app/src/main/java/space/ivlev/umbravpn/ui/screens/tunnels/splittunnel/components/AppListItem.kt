@@ -37,7 +37,8 @@ fun AppListItem(
             try {
                 context.packageManager.getApplicationIcon(installedPackage.packageName)
             } catch (_: PackageManager.NameNotFoundException) {
-                AppCompatResources.getDrawable(context, R.drawable.resource_package)!!
+                AppCompatResources.getDrawable(context, R.drawable.resource_package)
+                    ?: android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT)
             }
         }
     }

@@ -56,7 +56,7 @@ class ManagedTunnelSyncWorker(
                     .build()
 
             WorkManager.getInstance(context)
-                .enqueueUniquePeriodicWork(PERIODIC_TAG, ExistingPeriodicWorkPolicy.UPDATE, request)
+                .enqueueUniquePeriodicWork(PERIODIC_TAG, ExistingPeriodicWorkPolicy.KEEP, request)
             Timber.i("ManagedTunnelSyncWorker scheduled every $SYNC_INTERVAL_HOURS hours")
         }
 

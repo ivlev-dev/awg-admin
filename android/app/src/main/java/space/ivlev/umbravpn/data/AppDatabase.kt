@@ -40,7 +40,7 @@ import space.ivlev.umbravpn.data.entity.TunnelGroup
             LockdownSettings::class,
             ManagedTunnel::class,
         ],
-    version = 45,
+    version = 46,
     autoMigrations =
         [
             AutoMigration(from = 1, to = 2),
@@ -81,6 +81,7 @@ import space.ivlev.umbravpn.data.entity.TunnelGroup
             AutoMigration(from = 39, to = 40),
             AutoMigration(from = 40, to = 41),
             AutoMigration(from = 41, to = 42),
+            AutoMigration(from = 45, to = 46),
         ],
     exportSchema = true,
 )

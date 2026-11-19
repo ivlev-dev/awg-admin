@@ -2,6 +2,7 @@ package space.ivlev.umbravpn.ui.state
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import space.ivlev.umbravpn.domain.model.TunnelConfig
@@ -27,8 +28,29 @@ class TunnelsUiStateTest {
         assertFalse(3 in state.managedTunnelIds)
         assertEquals(
             listOf(1, 2, 3),
-            state.rows.filterIsInstance<TunnelListRow.TunnelRow>().map { it.tunnel.id },
+            state.withComputedRows().rows.filterIsInstance<TunnelListRow.TunnelRow>().map {
+                it.tunnel.id
+            },
         )
+    }
+
+    @Test
+    fun rowsAreReusedWhenStateIsCopiedForUnrelatedFields() {
+        val state =
+            TunnelsUiState(
+                    tunnels =
+                        listOf(
+                            tunnel(id = 1, name = "Pixel", position = 0),
+                            tunnel(id = 2, name = "Laptop", position = 1),
+                        ),
+                )
+                .withComputedRows()
+        val rows = state.rows
+
+        val copied = state.copy(pingLatencies = mapOf(1 to 12.5))
+
+        assertSame(rows, copied.rows)
+        assertEquals(2, copied.rows.size)
     }
 
     @Test

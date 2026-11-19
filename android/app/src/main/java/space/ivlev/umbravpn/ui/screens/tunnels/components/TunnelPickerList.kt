@@ -66,7 +66,7 @@ fun TunnelPickerList(
             flingBehavior = ScrollableDefaults.flingBehavior(),
         ) {
             if (leadingItem != null) item { leadingItem() }
-            items(filtered, key = { it.id }) { tunnel ->
+            items(filtered, key = { it.id }, contentType = { "tunnel" }) { tunnel ->
                 val selected = isSelected(tunnel)
                 SurfaceRow(
                     leading = leading,

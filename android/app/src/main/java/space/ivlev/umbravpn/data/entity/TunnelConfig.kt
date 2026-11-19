@@ -22,6 +22,7 @@ import androidx.room.PrimaryKey
             Index(value = ["name"], unique = true),
             Index(value = ["group_id"]),
             Index(value = ["entry_tunnel_id"]),
+            Index(value = ["position"]),
         ],
 )
 data class TunnelConfig(

@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.ui.state
 
+import androidx.compose.runtime.Immutable
 import space.ivlev.umbravpn.domain.account.AccountMessage
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
@@ -37,6 +38,7 @@ sealed interface AccountSideEffect {
     data class Notice(val message: AccountMessage, val isError: Boolean = false) : AccountSideEffect
 }
 
+@Immutable
 data class AccountUiState(
     val session: SessionState = SessionState.Unknown,
     val serverUrl: String = "",

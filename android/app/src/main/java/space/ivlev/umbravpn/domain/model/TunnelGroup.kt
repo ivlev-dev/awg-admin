@@ -1,5 +1,8 @@
 package space.ivlev.umbravpn.domain.model
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class TunnelGroup(
     val id: Int = 0,
     val name: String,

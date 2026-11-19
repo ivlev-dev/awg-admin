@@ -1,10 +1,12 @@
 package space.ivlev.umbravpn.ui.state
 
+import androidx.compose.runtime.Immutable
 import com.wgtunnel.backend.state.BackendStatus
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.TunnelGroup
 import space.ivlev.umbravpn.domain.model.account.ManagedTunnel
 
+@Immutable
 data class TunnelsUiState(
     val tunnels: List<TunnelConfig> = emptyList(),
     val groups: List<TunnelGroup> = emptyList(),
@@ -18,6 +20,7 @@ data class TunnelsUiState(
     val reorderLatencies: Map<Int, Double> = emptyMap(),
     val pingLatencies: Map<Int, Double> = emptyMap(),
     val managedTunnelIds: Set<Int> = emptySet(),
+    val rows: List<TunnelListRow> = emptyList(),
 ) {
     val hasActiveTunnel: Boolean
         get() = backendStatus.activeTunnels.isNotEmpty()
@@ -42,16 +45,18 @@ data class TunnelsUiState(
 
     val reorderScopeGroup: TunnelGroup?
         get() = reorderScopeGroupId?.let { id -> groups.firstOrNull { it.id == id } }
+}
 
-    val rows: List<TunnelListRow>
-        get() =
+fun TunnelsUiState.withComputedRows(): TunnelsUiState =
+    copy(
+        rows =
             buildTunnelListRows(
                 groups = groups,
                 tunnels = tunnels,
                 activeTunnelIds = backendStatus.activeTunnels.keys,
                 collapseGroups = isReorderMode && reorderScopeGroupId == null,
                 scopeGroupId = if (isReorderMode) reorderScopeGroupId else null,
-            )
-}
+            ),
+    )
 
 fun List<ManagedTunnel>.toManagedTunnelIds(): Set<Int> = mapTo(mutableSetOf()) { it.tunnelId }

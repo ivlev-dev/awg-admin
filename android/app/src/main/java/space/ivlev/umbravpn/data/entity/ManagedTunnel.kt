@@ -7,7 +7,11 @@ import androidx.room.Index
 @Entity(
     tableName = "managed_tunnel",
     primaryKeys = ["device_id", "interface_id", "peer_id"],
-    indices = [Index(value = ["tunnel_id"], unique = true)],
+    indices =
+        [
+            Index(value = ["tunnel_id"], unique = true),
+            Index(value = ["device_name", "interface_id", "peer_id"]),
+        ],
 )
 data class ManagedTunnel(
     @ColumnInfo(name = "device_id") val deviceId: String,

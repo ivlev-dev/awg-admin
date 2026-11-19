@@ -1,8 +1,10 @@
 package space.ivlev.umbravpn.ui.state
 
+import androidx.compose.runtime.Immutable
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.TunnelGroup
 
+@Immutable
 sealed class TunnelListRow {
     abstract val key: String
     abstract val scopeKey: String

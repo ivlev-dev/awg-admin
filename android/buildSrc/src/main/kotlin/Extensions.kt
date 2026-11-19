@@ -1,19 +1,33 @@
+import java.io.File
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
 
+private const val MINIMUM_FULL_COVERAGE_PERCENT = 90.0
+private val translatableEntry = Regex("<(string|plurals)\\s")
+
 fun Project.languageListProvider(): Provider<List<String>> {
     return providers.provider {
-        fileTree("../app/src/main/res") { include("**/strings.xml") }
+        val resDir = file("../app/src/main/res")
+        val baseCount = countTranslatableEntries(File(resDir, "values/strings.xml"))
+        if (baseCount == 0) return@provider listOf("en")
+        fileTree(resDir) { include("**/strings.xml") }
             .asSequence()
+            .filter { it.parentFile.name.startsWith("values-") }
+            .filter { file ->
+                countTranslatableEntries(file).toDouble() / baseCount * 100.0 >=
+                    MINIMUM_FULL_COVERAGE_PERCENT
+            }
             .map { stringFile -> stringFile.parentFile.name }
             .map { valuesFolderName -> valuesFolderName.replace("values-", "") }
-            .filter { valuesFolderName -> valuesFolderName != "values" }
             .map { languageCode -> languageCode.replace("-r", "_") }
             .distinct()
             .sorted()
             .toList() + "en"
     }
 }
+
+private fun countTranslatableEntries(file: File): Int =
+    if (file.exists()) translatableEntry.findAll(file.readText()).count() else 0
 
 fun allowedLicenses(): List<String> {
     return listOf("MIT", "Apache-2.0", "BSD-3-Clause")

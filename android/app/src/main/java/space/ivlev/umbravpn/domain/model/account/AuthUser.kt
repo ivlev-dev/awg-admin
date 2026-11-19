@@ -2,11 +2,13 @@
 
 package space.ivlev.umbravpn.domain.model.account
 
+import androidx.compose.runtime.Immutable
 import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
 @Serializable
+@Immutable
 data class AuthUser(
     val id: String,
     val login: String,

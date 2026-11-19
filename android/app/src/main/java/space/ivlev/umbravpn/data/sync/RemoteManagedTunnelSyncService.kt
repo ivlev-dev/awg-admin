@@ -2,12 +2,19 @@ package space.ivlev.umbravpn.data.sync
 
 import com.wgtunnel.parser.Config
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeout
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountError
@@ -33,6 +40,9 @@ class RemoteManagedTunnelSyncService(
     private val tunnelRepository: TunnelRepository,
     private val deviceNameProvider: () -> String,
     private val now: () -> Long = { System.currentTimeMillis() },
+    private val syncTimeoutMillis: Long = DEFAULT_SYNC_TIMEOUT_MILLIS,
+    private val maxParallelDeviceLoads: Int = DEFAULT_MAX_PARALLEL_DEVICE_LOADS,
+    private val onSyncFinished: suspend () -> Unit = {},
 ) : ManagedTunnelSyncService {
 
     private val mutex = Mutex()
@@ -40,7 +50,29 @@ class RemoteManagedTunnelSyncService(
 
     override val events: SharedFlow<SyncEvent> = _events.asSharedFlow()
 
-    override suspend fun sync(): SyncResult = mutex.withLock { performSync() }
+    override suspend fun sync(): SyncResult = mutex.withLock {
+        val result =
+            try {
+                withTimeout(syncTimeoutMillis) { performSync() }
+            } catch (e: TimeoutCancellationException) {
+                Timber.w(e, "Managed tunnel sync timed out after $syncTimeoutMillis ms")
+                SyncResult.Offline
+            } catch (e: SyncAbort) {
+                e.result
+            }
+        runPostSync()
+        result
+    }
+
+    private suspend fun runPostSync() {
+        try {
+            onSyncFinished()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Timber.w(e, "Managed tunnel sync post-processing failed")
+        }
+    }
 
     private suspend fun performSync(): SyncResult {
         if (session.value !is SessionState.Active) return SyncResult.NotConfigured
@@ -71,16 +103,7 @@ class RemoteManagedTunnelSyncService(
             }
         } else {
             activeDevices = snapshot.devices.filterNot { it.revoked }
-            val loaded = mutableMapOf<String, List<DeviceConfig>>()
-            for (device in activeDevices) {
-                val deviceConfigs =
-                    when (val result = accountRepository.deviceConfigs(device.id)) {
-                        is AccountResult.Failure -> return result.error.toSyncResult()
-                        is AccountResult.Success -> result.value
-                    }
-                loaded[device.id] = deviceConfigs
-            }
-            configs = loaded
+            configs = loadDeviceConfigs(activeDevices)
         }
 
         if (activeDevices.isNotEmpty()) accountSettingsRepository.setManagedProvisioned(true)
@@ -275,6 +298,25 @@ class RemoteManagedTunnelSyncService(
         )
     }
 
+    private suspend fun loadDeviceConfigs(
+        devices: List<AccountDevice>,
+    ): Map<String, List<DeviceConfig>> = coroutineScope {
+        val permits = Semaphore(maxParallelDeviceLoads.coerceAtLeast(1))
+        devices
+            .map { device ->
+                async {
+                    permits.withPermit {
+                        when (val result = accountRepository.deviceConfigs(device.id)) {
+                            is AccountResult.Failure -> throw SyncAbort(result.error.toSyncResult())
+                            is AccountResult.Success -> device.id to result.value
+                        }
+                    }
+                }
+            }
+            .awaitAll()
+            .toMap()
+    }
+
     private fun emitEvents(
         updatedCount: Int,
         updatedNames: List<String>,
@@ -351,8 +393,12 @@ class RemoteManagedTunnelSyncService(
         const val UNKNOWN_ERROR_MESSAGE = "Unknown sync error"
         const val ACCESS_RESTRICTED_MESSAGE = "Account access is restricted"
         const val EVENT_BUFFER_CAPACITY = 16
+        const val DEFAULT_SYNC_TIMEOUT_MILLIS = 25_000L
+        const val DEFAULT_MAX_PARALLEL_DEVICE_LOADS = 4
     }
 }
+
+private class SyncAbort(val result: SyncResult) : Exception()
 
 internal data class BindingKey(
     val deviceId: String,

@@ -100,7 +100,7 @@ fun LanguageScreen(sharedViewModel: SharedAppViewModel = koinActivityViewModel()
                 )
             }
         }
-        items(sortedLocales, key = { it }) { locale ->
+        items(sortedLocales, key = { it }, contentType = { "locale" }) { locale ->
             val buttonText =
                 locale.getDisplayName(locale).replaceFirstChar {
                     if (it.isLowerCase()) it.titlecase(locale) else it.toString()

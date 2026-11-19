@@ -2,11 +2,13 @@
 
 package space.ivlev.umbravpn.domain.model.account
 
+import androidx.compose.runtime.Immutable
 import java.time.Instant
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.UseSerializers
 
 @Serializable
+@Immutable
 data class AccountSnapshot(
     val user: AuthUser,
     val tariff: AccountTariff?,
@@ -18,6 +20,7 @@ data class AccountSnapshot(
 )
 
 @Serializable
+@Immutable
 data class AccountInterface(
     val id: String,
     val name: String,
@@ -26,6 +29,7 @@ data class AccountInterface(
 )
 
 @Serializable
+@Immutable
 data class AccountTariff(
     val id: String,
     val name: String,
@@ -37,6 +41,7 @@ data class AccountTariff(
 )
 
 @Serializable
+@Immutable
 data class AccountQuota(
     val usedBytes: Long,
     val quotaBytes: Long?,
@@ -49,6 +54,7 @@ data class AccountQuota(
 )
 
 @Serializable
+@Immutable
 data class AccountDevice(
     val id: String,
     val userId: String,
@@ -68,6 +74,7 @@ data class AccountDevice(
 )
 
 @Serializable
+@Immutable
 data class DevicePeer(
     val interfaceId: String,
     val interfaceName: String,
@@ -78,6 +85,7 @@ data class DevicePeer(
 )
 
 @Serializable
+@Immutable
 data class DeviceConfig(
     val interfaceId: String,
     val interfaceName: String,
@@ -91,6 +99,7 @@ data class DeviceConfig(
 )
 
 @Serializable
+@Immutable
 data class CreatedDevice(
     val device: AccountDevice,
     val config: DeviceConfig,

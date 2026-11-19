@@ -5,6 +5,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.io.IOException
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -154,4 +155,58 @@ class MigrationTest {
             assertEquals(2, cursor.getInt(0))
         }
     }
+
+    @Test
+    @Throws(IOException::class)
+    fun migrate45To46AddsHotOrderByIndices() {
+        helper.createDatabase(dbName, 45).apply {
+            execSQL(
+                """
+                INSERT INTO `managed_tunnel`
+                    (`device_id`, `tunnel_id`, `device_name`, `interface_id`, `endpoint`,
+                     `revision`, `synced_at`, `peer_id`, `label`)
+                VALUES ('device-1', 7, 'Pixel', 'iface-1', NULL, 'rev-1', 1, '', '')
+                """
+                    .trimIndent(),
+            )
+            execSQL(
+                """
+                INSERT INTO `tunnel_config`
+                    (`name`, `quick_config`, `position`)
+                VALUES ('Pixel', '', 0)
+                """
+                    .trimIndent(),
+            )
+            close()
+        }
+
+        val db = helper.runMigrationsAndValidate(dbName, 46, true)
+
+        val managedTunnelIndices = db.indexNames("managed_tunnel")
+        assertTrue(
+            managedTunnelIndices.contains(
+                "index_managed_tunnel_device_name_interface_id_peer_id",
+            ),
+        )
+        assertTrue(db.indexNames("tunnel_config").contains("index_tunnel_config_position"))
+
+        db.query(
+                "SELECT COUNT(*) FROM `managed_tunnel` WHERE `device_id` = 'device-1' " +
+                    "AND `peer_id` = ''",
+            )
+            .use { cursor ->
+                cursor.moveToFirst()
+                assertEquals(1, cursor.getInt(0))
+            }
+    }
+
+    private fun androidx.sqlite.db.SupportSQLiteDatabase.indexNames(table: String): Set<String> =
+        query("PRAGMA index_list(`$table`)").use { cursor ->
+            val nameIndex = cursor.getColumnIndex("name")
+            buildSet {
+                while (cursor.moveToNext()) {
+                    add(cursor.getString(nameIndex))
+                }
+            }
+        }
 }

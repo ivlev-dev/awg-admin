@@ -4,6 +4,7 @@ import com.wgtunnel.parser.Config
 import com.wgtunnel.parser.InterfaceSection
 import com.wgtunnel.parser.PeerSection
 import com.wgtunnel.parser.crypto.Key
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -146,6 +147,10 @@ internal class FakeAccountRepository(
     var removeTunnelResult: AccountResult<Unit> = AccountResult.Success(Unit)
     val addedTunnels = mutableListOf<Triple<String, String, String?>>()
     val removedTunnels = mutableListOf<Pair<String, String>>()
+    var deviceConfigsDelayMillis: Long = 0L
+    private var activeDeviceConfigCalls = 0
+    var maxConcurrentDeviceConfigCalls = 0
+        private set
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
@@ -167,15 +172,25 @@ internal class FakeAccountRepository(
         deviceConfigResults[id]
             ?: AccountResult.Failure(AccountError.Unexpected("no config for $id"))
 
-    override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> =
-        deviceConfigsResults[id]
-            ?: deviceConfigResults[id]?.let { result ->
-                when (result) {
-                    is AccountResult.Success -> AccountResult.Success(listOf(result.value))
-                    is AccountResult.Failure -> result
+    override suspend fun deviceConfigs(id: String): AccountResult<List<DeviceConfig>> {
+        activeDeviceConfigCalls++
+        if (activeDeviceConfigCalls > maxConcurrentDeviceConfigCalls) {
+            maxConcurrentDeviceConfigCalls = activeDeviceConfigCalls
+        }
+        return try {
+            if (deviceConfigsDelayMillis > 0) delay(deviceConfigsDelayMillis)
+            deviceConfigsResults[id]
+                ?: deviceConfigResults[id]?.let { result ->
+                    when (result) {
+                        is AccountResult.Success -> AccountResult.Success(listOf(result.value))
+                        is AccountResult.Failure -> result
+                    }
                 }
-            }
-            ?: AccountResult.Failure(AccountError.Unexpected("no configs for $id"))
+                ?: AccountResult.Failure(AccountError.Unexpected("no configs for $id"))
+        } finally {
+            activeDeviceConfigCalls--
+        }
+    }
 
     override suspend fun renameDevice(id: String, name: String): AccountResult<AccountDevice> =
         AccountResult.Failure(AccountError.Unexpected("renameDevice not supported"))
@@ -373,6 +388,7 @@ internal fun syncEnvironment(
     tunnels: List<TunnelConfig> = emptyList(),
     bindings: List<ManagedTunnel> = emptyList(),
     deviceName: String = "Test Device",
+    syncTimeoutMillis: Long = 25_000L,
     configure: FakeAccountRepository.() -> Unit = {},
 ): SyncTestEnvironment {
     val account = FakeAccountRepository(AccountResult.Success(snapshot)).apply(configure)
@@ -389,6 +405,7 @@ internal fun syncEnvironment(
             tunnelRepository = tunnelRepository,
             deviceNameProvider = { deviceName },
             now = { SYNC_TIMESTAMP },
+            syncTimeoutMillis = syncTimeoutMillis,
         )
     return SyncTestEnvironment(
         account = account,

@@ -10,20 +10,18 @@ import space.ivlev.umbravpn.data.entity.ManagedTunnel
 interface ManagedTunnelDao {
 
     @Query(
-        "SELECT * FROM managed_tunnel ORDER BY device_name COLLATE NOCASE ASC, " +
-            "interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
+        "SELECT * FROM managed_tunnel ORDER BY device_name, interface_id, peer_id",
     )
     fun getAllFlow(): Flow<List<ManagedTunnel>>
 
     @Query(
-        "SELECT * FROM managed_tunnel ORDER BY device_name COLLATE NOCASE ASC, " +
-            "interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
+        "SELECT * FROM managed_tunnel ORDER BY device_name, interface_id, peer_id",
     )
     suspend fun getAll(): List<ManagedTunnel>
 
     @Query(
         "SELECT * FROM managed_tunnel WHERE device_id = :deviceId " +
-            "ORDER BY interface_id COLLATE NOCASE ASC, peer_id COLLATE NOCASE ASC",
+            "ORDER BY interface_id, peer_id",
     )
     suspend fun getByDevice(deviceId: String): List<ManagedTunnel>
 

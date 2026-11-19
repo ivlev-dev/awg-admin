@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChangedBy
 import kotlinx.coroutines.launch
 import space.ivlev.umbravpn.core.tunnel.TunnelProvider
+import space.ivlev.umbravpn.data.DatabaseMaintenance
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.repository.DnsSettingsRepository
 import space.ivlev.umbravpn.domain.repository.GeneralSettingRepository
@@ -29,6 +30,7 @@ class AppBoostrapCoordinator(
     private val tunnelProvider: TunnelProvider,
     private val dnsSettingsCoordinator: DnsSettingsCoordinator,
     private val logReader: LogReader,
+    private val databaseMaintenance: DatabaseMaintenance,
 ) {
 
     private val _isReady = MutableStateFlow(false)
@@ -36,6 +38,7 @@ class AppBoostrapCoordinator(
 
     suspend fun bootstrap(context: Context) = coroutineScope {
         launch { bootstrapLogging() }
+        launch { databaseMaintenance.checkpoint() }
 
         val criticalTasks =
             listOf(

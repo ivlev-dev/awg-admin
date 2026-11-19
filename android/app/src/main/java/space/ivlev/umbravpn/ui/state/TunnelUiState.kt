@@ -1,8 +1,10 @@
 package space.ivlev.umbravpn.ui.state
 
+import androidx.compose.runtime.Immutable
 import com.wgtunnel.parser.ActiveConfig
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 
+@Immutable
 data class TunnelUiState(
     val tunnel: TunnelConfig? = null,
     val userTunnels: List<TunnelConfig> = emptyList(),

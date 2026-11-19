@@ -1,5 +1,8 @@
 package space.ivlev.umbravpn.domain.model.account
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 data class ManagedTunnel(
     val deviceId: String,
     val tunnelId: Int,

@@ -2,6 +2,7 @@ package space.ivlev.umbravpn.ui.state
 
 import android.content.Context
 import androidx.annotation.StringRes
+import androidx.compose.runtime.Immutable
 import androidx.compose.ui.graphics.Color
 import com.wgtunnel.backend.Tunnel
 import com.wgtunnel.backend.state.ActiveTunnel
@@ -11,6 +12,7 @@ import space.ivlev.umbravpn.ui.theme.StatusColors
 import space.ivlev.umbravpn.ui.theme.StatusKind
 import space.ivlev.umbravpn.ui.theme.StatusPalettes
 
+@Immutable
 sealed class DisplayTunnelState {
     data object Disconnected : DisplayTunnelState()
 

@@ -1,5 +1,8 @@
 package space.ivlev.umbravpn.ui.state
 
+import androidx.compose.runtime.Immutable
+
+@Immutable
 sealed interface SplitAppListSummary {
     data class Tunneled(val count: Int) : SplitAppListSummary
 

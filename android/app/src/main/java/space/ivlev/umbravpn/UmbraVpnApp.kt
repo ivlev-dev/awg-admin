@@ -119,7 +119,6 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
             )
             options(viewModelScopeFactory())
         }
-        instance = this
 
         notificationService.createAllChannels()
 
@@ -200,10 +199,5 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
         if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) {
             applicationScope.launch { get<LogReader>().clearBufferedLogs() }
         }
-    }
-
-    companion object {
-        lateinit var instance: UmbraVpnApp
-            private set
     }
 }

@@ -272,6 +272,114 @@ class ManagedTunnelSyncServiceTest {
     }
 
     @Test
+    fun deviceConfigsLoadInParallel() = runTest {
+        val devices =
+            (1..3).map {
+                accountDevice(id = "device-$it", name = "Pixel $it", interfaceId = "iface-$it")
+            }
+        val env =
+            syncEnvironment(snapshot = accountSnapshot(devices = devices)) {
+                deviceConfigsDelayMillis = 100L
+                devices.forEach { device ->
+                    deviceConfigsResults[device.id] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    revision = "rev-${device.id}",
+                                    interfaceId = device.interfaceId,
+                                ),
+                            ),
+                        )
+                }
+            }
+
+        val result = env.service.sync()
+
+        assertTrue(result is SyncResult.Success)
+        assertEquals(3, env.account.maxConcurrentDeviceConfigCalls)
+    }
+
+    @Test
+    fun deviceConfigLoadsAreLimitedToFourConcurrentRequests() = runTest {
+        val devices =
+            (1..6).map {
+                accountDevice(id = "device-$it", name = "Pixel $it", interfaceId = "iface-$it")
+            }
+        val env =
+            syncEnvironment(snapshot = accountSnapshot(devices = devices)) {
+                deviceConfigsDelayMillis = 100L
+                devices.forEach { device ->
+                    deviceConfigsResults[device.id] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    revision = "rev-${device.id}",
+                                    interfaceId = device.interfaceId,
+                                ),
+                            ),
+                        )
+                }
+            }
+
+        val result = env.service.sync()
+
+        assertTrue(result is SyncResult.Success)
+        assertEquals(4, env.account.maxConcurrentDeviceConfigCalls)
+    }
+
+    @Test
+    fun syncTimeoutReturnsOfflineAndKeepsTunnels() = runTest {
+        val devices =
+            (1..3).map {
+                accountDevice(id = "device-$it", name = "Pixel $it", interfaceId = "iface-$it")
+            }
+        val env =
+            syncEnvironment(
+                snapshot = accountSnapshot(devices = devices),
+                tunnels = listOf(TunnelConfig(id = 7, name = "Pixel", quickConfig = quickConfig())),
+                bindings = listOf(managedBinding(tunnelId = 7)),
+                syncTimeoutMillis = 50L,
+            ) {
+                deviceConfigsDelayMillis = 10_000L
+                devices.forEach { device ->
+                    deviceConfigsResults[device.id] =
+                        AccountResult.Success(
+                            listOf(
+                                deviceConfig(
+                                    revision = "rev-${device.id}",
+                                    interfaceId = device.interfaceId,
+                                ),
+                            ),
+                        )
+                }
+            }
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Offline, result)
+        assertEquals(1, env.tunnels.tunnels.size)
+        assertEquals(1, env.managed.bindings.size)
+        assertEquals(0, env.tunnels.deleteCount)
+    }
+
+    @Test
+    fun apiErrorInDeviceConfigsReturnsFailed() = runTest {
+        val env =
+            syncEnvironment(
+                configure = {
+                    deviceConfigsResults["device-1"] =
+                        AccountResult.Failure(
+                            AccountError.Api(status = 500, code = "internal", message = "boom"),
+                        )
+                },
+            )
+
+        val result = env.service.sync()
+
+        assertEquals(SyncResult.Failed("boom"), result)
+    }
+
+    @Test
     fun nameConflictAddsSuffix() = runTest {
         val manual = TunnelConfig(id = 9, name = "Pixel", quickConfig = quickConfig())
         val env =

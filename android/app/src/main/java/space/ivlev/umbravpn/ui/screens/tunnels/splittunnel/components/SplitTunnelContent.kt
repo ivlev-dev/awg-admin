@@ -123,7 +123,11 @@ fun SplitTunnelContent(
                 AppSearchField(query = query, onQueryChange = { query = it })
             }
             LazyColumn(modifier = Modifier.fillMaxSize()) {
-                items(filteredAndSortedPackages, key = { it.packageName }) { pkg ->
+                items(
+                    filteredAndSortedPackages,
+                    key = { it.packageName },
+                    contentType = { "app" },
+                ) { pkg ->
                     val selected = selectedPackages.contains(pkg.packageName)
                     AppListItem(
                         installedPackage = pkg,

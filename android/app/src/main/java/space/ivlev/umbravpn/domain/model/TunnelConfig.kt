@@ -1,5 +1,6 @@
 package space.ivlev.umbravpn.domain.model
 
+import androidx.compose.runtime.Immutable
 import com.wgtunnel.backend.Tunnel
 import com.wgtunnel.parser.Config
 import com.wgtunnel.parser.InterfaceSection
@@ -9,6 +10,7 @@ import space.ivlev.umbravpn.data.entity.TunnelConfig.Companion.GLOBAL_CONFIG_NAM
 import space.ivlev.umbravpn.ui.state.TunnelSummary
 import space.ivlev.umbravpn.util.extensions.defaultName
 
+@Immutable
 data class TunnelConfig(
     val id: Int = 0,
     val name: String,

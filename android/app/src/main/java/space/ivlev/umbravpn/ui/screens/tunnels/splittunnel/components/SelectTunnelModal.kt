@@ -47,7 +47,7 @@ fun SelectTunnelModal(
                     userScrollEnabled = true,
                     flingBehavior = ScrollableDefaults.flingBehavior(),
                 ) {
-                    items(tunnels, key = { it.id }) { tunnel ->
+                    items(tunnels, key = { it.id }, contentType = { "tunnel" }) { tunnel ->
                         SurfaceRow(
                             title = tunnel.name,
                             trailing =

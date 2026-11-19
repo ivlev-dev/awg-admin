@@ -16,6 +16,7 @@ import space.ivlev.umbravpn.R
 import space.ivlev.umbravpn.data.AppDatabase
 import space.ivlev.umbravpn.data.DataStoreManager
 import space.ivlev.umbravpn.data.DatabaseCallback
+import space.ivlev.umbravpn.data.DatabaseMaintenance
 import space.ivlev.umbravpn.data.backup.DatabaseBackup
 import space.ivlev.umbravpn.data.migrations.MIGRATION_23_24
 import space.ivlev.umbravpn.data.migrations.MIGRATION_25_26
@@ -84,6 +85,8 @@ val databaseModule = module {
     single { get<AppDatabase>().managedTunnelDao() }
 
     single { DataStoreManager(androidContext(), get(named(Dispatcher.IO))) }
+
+    single { DatabaseMaintenance(get(), get(named(Dispatcher.IO))) }
 
     single<AppStateRepository> {
         DataStoreAppStateRepository(get(), get(named(Scope.APPLICATION)), get(named(Dispatcher.IO)))

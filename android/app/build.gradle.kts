@@ -27,15 +27,29 @@ configure<ApplicationExtension> {
     namespace = Constants.APP_ID
     compileSdk = libs.versions.compileSdk.get().toInt()
 
-    androidResources { generateLocaleConfig = true }
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters.addAll(project.languageListProvider().get())
+    }
 
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
     }
 
+    lint {
+        // Only fully translated locales are shipped (see localeFilters); the remaining Crowdin
+        // folders are kept for future updates, so missing keys there are not actionable.
+        disable += "MissingTranslation"
+    }
+
     // fix okhttp proguard issue
-    packaging { resources { pickFirsts.add("okhttp3/internal/publicsuffix/publicsuffixes.gz") } }
+    packaging {
+        resources { pickFirsts.add("okhttp3/internal/publicsuffix/publicsuffixes.gz") }
+        // Compressed native libraries reduce the release APK by several megabytes; the loader
+        // extracts them on install, so loading .so files keeps working on every supported API.
+        jniLibs { useLegacyPackaging = true }
+    }
 
     splits {
         abi {
@@ -82,10 +96,6 @@ configure<ApplicationExtension> {
     }
 
     buildTypes {
-        packaging.jniLibs.keepDebugSymbols.addAll(
-            listOf("libwg-go.so", "libwg-quick.so", "libwg.so"),
-        )
-
         release {
             isDebuggable = false
             isMinifyEnabled = true
@@ -159,6 +169,12 @@ configure<ApplicationExtension> {
 androidComponents {
     onVariants { variant ->
         val isNightly = project.isNightlyBuild()
+
+        if (variant.buildType == "debug") {
+            variant.packaging.jniLibs.keepDebugSymbols.addAll(
+                listOf("libam-go.so", "libam-quick.so", "libam.so"),
+            )
+        }
 
         if (isNightly) {
             variant.outputs.forEach { output ->
@@ -267,6 +283,7 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
     testImplementation(libs.androidx.junit)
+    testImplementation(libs.sqlite.jdbc)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))

@@ -61,6 +61,7 @@ import space.ivlev.umbravpn.ui.state.sortRootByName
 import space.ivlev.umbravpn.ui.state.toManagedTunnelIds
 import space.ivlev.umbravpn.ui.state.ungroupKeepingOrder
 import space.ivlev.umbravpn.ui.state.uniqueDisplayName
+import space.ivlev.umbravpn.ui.state.withComputedRows
 import space.ivlev.umbravpn.ui.theme.Theme
 import space.ivlev.umbravpn.util.FileUtils
 import space.ivlev.umbravpn.util.LocaleUtil
@@ -218,17 +219,18 @@ class SharedAppViewModel(
                         }
 
                     TunnelsUiState(
-                        tunnels = draft?.tunnels ?: tunnels,
-                        groups = draft?.groups ?: groups,
-                        backendStatus = backendStatus,
-                        displayStates = displayStates,
-                        selectedTunnels = selection.tunnels,
-                        selectedGroups = selection.groups,
-                        isLoading = false,
-                        isReorderMode = draft != null,
-                        reorderScopeGroupId = draft?.scopeGroupId,
-                        reorderLatencies = draft?.latencies.orEmpty(),
-                    )
+                            tunnels = draft?.tunnels ?: tunnels,
+                            groups = draft?.groups ?: groups,
+                            backendStatus = backendStatus,
+                            displayStates = displayStates,
+                            selectedTunnels = selection.tunnels,
+                            selectedGroups = selection.groups,
+                            isLoading = false,
+                            isReorderMode = draft != null,
+                            reorderScopeGroupId = draft?.scopeGroupId,
+                            reorderLatencies = draft?.latencies.orEmpty(),
+                        )
+                        .withComputedRows()
                 },
                 pingLatencies,
                 managedTunnelRepository.flow,

@@ -197,7 +197,7 @@ private fun MoveToGroupTab(
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
         )
         LazyColumn(modifier = Modifier.weight(1f).nestedScroll(listNestedScrollConnection)) {
-            items(sortedGroups, key = { it.id }) { group ->
+            items(sortedGroups, key = { it.id }, contentType = { "group" }) { group ->
                 val count = tunnels.count { it.groupId == group.id }
                 SurfaceRow(
                     leading = { Icon(Icons.Outlined.Folder, contentDescription = null) },

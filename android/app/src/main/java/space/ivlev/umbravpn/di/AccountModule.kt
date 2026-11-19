@@ -5,6 +5,7 @@ import org.koin.core.qualifier.named
 import org.koin.dsl.module
 import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
 import space.ivlev.umbravpn.core.orchestration.TunnelCoordinator
+import space.ivlev.umbravpn.data.DatabaseMaintenance
 import space.ivlev.umbravpn.data.account.AccountApi
 import space.ivlev.umbravpn.data.account.AccountSnapshotCache
 import space.ivlev.umbravpn.data.account.SessionManager
@@ -90,6 +91,7 @@ val accountModule = module {
             managedTunnelRepository = get(),
             tunnelRepository = get(),
             deviceNameProvider = { defaultManagedDeviceName() },
+            onSyncFinished = { get<DatabaseMaintenance>().checkpoint() },
         )
     }
     single {
