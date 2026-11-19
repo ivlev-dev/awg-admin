@@ -5,33 +5,15 @@ import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.ScrollableDefaults
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.overscroll
 import androidx.compose.foundation.rememberOverscrollEffect
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.DragHandle
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.rounded.Circle
-import androidx.compose.material.icons.rounded.Cloud
-import androidx.compose.material.icons.rounded.ExpandLess
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -42,42 +24,21 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.pluralStringResource
-import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.wgtunnel.backend.state.ActiveTunnel
-import sh.calvin.reorderable.DragGestureDetector
-import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
-import space.ivlev.umbravpn.R
-import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.ui.LocalIsAndroidTV
 import space.ivlev.umbravpn.ui.LocalNavController
-import space.ivlev.umbravpn.ui.common.ExpandingRowListItem
-import space.ivlev.umbravpn.ui.common.button.SurfaceRow
-import space.ivlev.umbravpn.ui.common.button.SwitchWithDivider
 import space.ivlev.umbravpn.ui.common.scroll.appScrollbar
 import space.ivlev.umbravpn.ui.navigation.Route
 import space.ivlev.umbravpn.ui.screens.pin.LocalAppLocked
-import space.ivlev.umbravpn.ui.state.DisplayTunnelState
 import space.ivlev.umbravpn.ui.state.TunnelListRow
 import space.ivlev.umbravpn.ui.state.TunnelsUiState
 import space.ivlev.umbravpn.ui.state.applyDisplayedOrder
 import space.ivlev.umbravpn.ui.state.buildTunnelListRows
-import space.ivlev.umbravpn.ui.theme.LocalStatusColors
-import space.ivlev.umbravpn.ui.theme.StatusKind
 import space.ivlev.umbravpn.viewmodel.SharedAppViewModel
 
 @OptIn(ExperimentalFoundationApi::class)
@@ -88,7 +49,6 @@ fun TunnelList(
     viewModel: SharedAppViewModel,
 ) {
     val navController = LocalNavController.current
-    val context = LocalContext.current
     val isTv = LocalIsAndroidTV.current
     val hapticFeedback = LocalHapticFeedback.current
 
@@ -114,6 +74,11 @@ fun TunnelList(
                 uiState.reorderScopeGroupId,
             )
         viewModel.applyReorderDraft(groups, tunnels)
+    }
+
+    fun moveRow(from: Int, to: Int) {
+        editableRows = editableRows.toMutableList().apply { add(to, removeAt(from)) }
+        persistRows(editableRows)
     }
 
     val reorderableLazyListState =
@@ -195,126 +160,19 @@ fun TunnelList(
                 contentType = { _, row -> row.javaClass },
             ) { index, row ->
                 if (uiState.isReorderMode) {
-                    ReorderableItem(reorderableLazyListState, row.key) { isDragging ->
-                        val latency =
-                            (row as? TunnelListRow.TunnelRow)?.let {
-                                uiState.reorderLatencies[it.tunnel.id]
-                            }
-                        val latencyLabel = latency?.let { pingLatencyLabel(it) }
-                        val latencyColor = latency?.let { pingLatencyColor(it) }
-                        val title = buildAnnotatedString {
-                            when (row) {
-                                is TunnelListRow.GroupHeader -> {
-                                    // Not pinged as a unit, so there's no latency for a header
-                                    append(
-                                        if (row.childCount == 0) row.group.name
-                                        else
-                                            stringResource(
-                                                R.string.group_with_count,
-                                                row.group.name,
-                                                row.childCount,
-                                            ),
-                                    )
-                                }
-                                is TunnelListRow.TunnelRow -> {
-                                    append(row.tunnel.name)
-                                    if (
-                                        latency != null &&
-                                            latencyLabel != null &&
-                                            latencyColor != null
-                                    ) {
-                                        append(" - ")
-                                        withStyle(SpanStyle(color = latencyColor)) {
-                                            append(latencyLabel)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        ExpandingRowListItem(
-                            leading = {
-                                if (row is TunnelListRow.GroupHeader) {
-                                    Icon(
-                                        Icons.Outlined.Folder,
-                                        contentDescription = row.group.name,
-                                        modifier = Modifier.size(20.dp),
-                                    )
-                                }
-                            },
-                            text = title,
-                            // Whole row, not just the folder icon, so it's an easy tap target
-                            onClick =
-                                if (row is TunnelListRow.GroupHeader && row.childCount > 0) {
-                                    { viewModel.enterReorderScope(row.group.id) }
-                                } else {
-                                    null
-                                },
-                            trailing = {
-                                if (!isTv) {
-                                    Icon(
-                                        Icons.Default.DragHandle,
-                                        stringResource(R.string.drag_handle),
-                                    )
-                                } else {
-                                    Row {
-                                        IconButton(
-                                            onClick = {
-                                                editableRows =
-                                                    editableRows.toMutableList().apply {
-                                                        add(index - 1, removeAt(index))
-                                                    }
-                                                persistRows(editableRows)
-                                            },
-                                            enabled = index != 0,
-                                        ) {
-                                            Icon(
-                                                Icons.Default.ArrowUpward,
-                                                stringResource(R.string.move_up),
-                                            )
-                                        }
-                                        IconButton(
-                                            onClick = {
-                                                editableRows =
-                                                    editableRows.toMutableList().apply {
-                                                        add(index + 1, removeAt(index))
-                                                    }
-                                                persistRows(editableRows)
-                                            },
-                                            enabled = index != rows.size - 1,
-                                        ) {
-                                            Icon(
-                                                Icons.Default.ArrowDownward,
-                                                stringResource(R.string.move_down),
-                                            )
-                                        }
-                                    }
-                                }
-                            },
-                            isSelected = isDragging,
-                            expanded = {},
-                            modifier =
-                                if (!isTv)
-                                    Modifier.draggableHandle(
-                                        onDragStarted = {
-                                            hapticFeedback.performHapticFeedback(
-                                                HapticFeedbackType.GestureThresholdActivate,
-                                            )
-                                        },
-                                        onDragStopped = {
-                                            hapticFeedback.performHapticFeedback(
-                                                HapticFeedbackType.GestureEnd,
-                                            )
-                                        },
-                                        dragGestureDetector = DragGestureDetector.LongPress,
-                                    )
-                                else Modifier,
-                        )
-                    }
-                } else {
-                    ListRow(
+                    ReorderableTunnelRow(
+                        reorderableState = reorderableLazyListState,
                         row = row,
                         index = index,
                         rowCount = rows.size,
+                        uiState = uiState,
+                        isTv = isTv,
+                        onEnterScope = viewModel::enterReorderScope,
+                        onMove = ::moveRow,
+                    )
+                } else {
+                    TunnelListRowContent(
+                        row = row,
                         uiState = uiState,
                         viewModel = viewModel,
                         isTv = isTv,
@@ -327,268 +185,4 @@ fun TunnelList(
             }
         }
     }
-}
-
-@Composable
-private fun ListRow(
-    row: TunnelListRow,
-    index: Int,
-    rowCount: Int,
-    uiState: TunnelsUiState,
-    viewModel: SharedAppViewModel,
-    isTv: Boolean,
-    isDragging: Boolean,
-    focusRequester: FocusRequester?,
-    onNavigateTunnel: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    when (row) {
-        is TunnelListRow.GroupHeader -> {
-            SurfaceRow(
-                modifier =
-                    modifier.then(
-                        if (focusRequester != null) Modifier.focusRequester(focusRequester)
-                        else Modifier,
-                    ),
-                leading = {
-                    Icon(
-                        if (row.visibleExpanded) Icons.Outlined.FolderOpen
-                        else Icons.Outlined.Folder,
-                        contentDescription = null,
-                        modifier = Modifier.size(20.dp),
-                    )
-                },
-                title = row.group.name,
-                description =
-                    // Count of tunnels in the group, not a suffix on the name
-                    if (row.childCount > 0 && !uiState.isReorderMode) {
-                        {
-                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text =
-                                        pluralStringResource(
-                                            R.plurals.group_tunnel_count,
-                                            row.childCount,
-                                            row.childCount,
-                                        ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                                if (row.activeCount > 0) {
-                                    Text(
-                                        text = "·",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                    Text(
-                                        text =
-                                            stringResource(
-                                                R.string.group_active_count,
-                                                row.activeCount,
-                                            ),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            }
-                        }
-                    } else null,
-                onClick = {
-                    when {
-                        uiState.isReorderMode -> viewModel.enterReorderScope(row.group.id)
-                        uiState.isSelectionMode -> viewModel.toggleSelectedGroup(row.group.id)
-                        row.childCount > 0 -> viewModel.toggleGroupExpanded(row.group)
-                        else -> Unit
-                    }
-                },
-                selected = isDragging || uiState.selectedGroups.any { it.id == row.group.id },
-                onLongClick =
-                    if (uiState.isReorderMode) null
-                    else {
-                        { viewModel.toggleSelectedGroup(row.group.id) }
-                    },
-                trailing =
-                    // Nothing to expand into, an empty group has no chevron
-                    if (row.childCount > 0) {
-                        { _ ->
-                            Icon(
-                                if (row.visibleExpanded) Icons.Rounded.ExpandLess
-                                else Icons.Rounded.ExpandMore,
-                                contentDescription =
-                                    stringResource(
-                                        if (row.visibleExpanded) R.string.collapse_group
-                                        else R.string.expand_group,
-                                    ),
-                            )
-                        }
-                    } else null,
-            )
-        }
-        is TunnelListRow.TunnelRow -> {
-            val tunnel = row.tunnel
-            val activeTunnel = uiState.backendStatus.activeTunnels[tunnel.id] ?: ActiveTunnel()
-            val displayState = remember(activeTunnel) { DisplayTunnelState.from(activeTunnel) }
-            val isRunning = uiState.backendStatus.activeTunnels.containsKey(tunnel.id)
-            val statusLabel = stringResource(displayState.labelRes())
-            val statusColors = LocalStatusColors.current
-            val selected =
-                remember(uiState.selectedTunnels) {
-                    uiState.selectedTunnels.any { it.id == tunnel.id }
-                }
-            SurfaceRow(
-                modifier =
-                    modifier
-                        .then(if (row.grouped) Modifier.padding(start = 24.dp) else Modifier)
-                        .semantics { stateDescription = statusLabel },
-                leading = {
-                    Icon(
-                        Icons.Rounded.Circle,
-                        contentDescription = null,
-                        tint = statusColors.colorFor(displayState.statusKind()),
-                        modifier = Modifier.size(14.dp),
-                    )
-                },
-                title = tunnel.name,
-                description = tunnelRowDescription(tunnel, uiState, displayState),
-                onClick = {
-                    when {
-                        uiState.isReorderMode -> Unit
-                        uiState.isSelectionMode -> viewModel.toggleSelectedTunnel(tunnel.id)
-                        else -> {
-                            onNavigateTunnel(tunnel.id)
-                            viewModel.clearSelectedTunnels()
-                        }
-                    }
-                },
-                selected = selected || isDragging,
-                expandedContent =
-                    if (isRunning && !uiState.isReorderMode) {
-                        { TunnelStatisticsRow(activeTunnel) }
-                    } else {
-                        null
-                    },
-                onLongClick =
-                    if (uiState.isReorderMode) null
-                    else {
-                        { viewModel.toggleSelectedTunnel(tunnel.id) }
-                    },
-                trailingOutsideClickTarget = isTv,
-                trailing = { rowModifier ->
-                    SwitchWithDivider(
-                        checked = isRunning,
-                        onClick = { checked ->
-                            if (checked) {
-                                viewModel.startTunnel(tunnel)
-                            } else {
-                                viewModel.stopTunnel(tunnel)
-                            }
-                        },
-                        modifier =
-                            rowModifier.then(
-                                if (focusRequester != null) Modifier.focusRequester(focusRequester)
-                                else Modifier,
-                            ),
-                    )
-                },
-            )
-        }
-    }
-}
-
-private fun tunnelRowDescription(
-    tunnel: TunnelConfig,
-    uiState: TunnelsUiState,
-    displayState: DisplayTunnelState? = null,
-): (@Composable () -> Unit)? {
-    val entryName =
-        tunnel.entryTunnelId?.let { id -> uiState.tunnels.firstOrNull { it.id == id }?.name }
-    val latency = uiState.pingLatencies[tunnel.id]
-    val managed = tunnel.id in uiState.managedTunnelIds
-    val showStatus = displayState != null && displayState != DisplayTunnelState.Disconnected
-    if (!managed && entryName == null && latency == null && !showStatus) return null
-    return {
-        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            if (showStatus) {
-                val statusColors = LocalStatusColors.current
-                val state = displayState
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        Icons.Rounded.Circle,
-                        contentDescription = null,
-                        tint = statusColors.colorFor(state.statusKind()),
-                        modifier = Modifier.size(8.dp),
-                    )
-                    Text(
-                        text = stringResource(state.labelRes()),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = statusColors.colorFor(state.statusKind()),
-                    )
-                }
-            }
-            if (managed) {
-                ManagedTunnelBadge()
-            }
-            if (entryName != null) {
-                Text(
-                    text = stringResource(R.string.via_entry, entryName),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline,
-                )
-            }
-            if (latency != null) {
-                PingLatencyText(latency)
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManagedTunnelBadge() {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-    ) {
-        Icon(
-            Icons.Rounded.Cloud,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(12.dp),
-        )
-        Text(
-            text = stringResource(R.string.tunnel_managed_badge),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.primary,
-        )
-    }
-}
-
-@Composable
-private fun PingLatencyText(latency: Double) {
-    Text(
-        text = pingLatencyLabel(latency),
-        style = MaterialTheme.typography.bodySmall,
-        color = pingLatencyColor(latency),
-    )
-}
-
-@Composable
-private fun pingLatencyLabel(latency: Double): String {
-    return if (latency == Double.MAX_VALUE) stringResource(R.string.ping_unreachable)
-    else "${latency.toInt()}ms"
-}
-
-@Composable
-private fun pingLatencyColor(latency: Double): Color {
-    val statusColors = LocalStatusColors.current
-    return statusColors.colorFor(
-        when {
-            latency == Double.MAX_VALUE -> StatusKind.ERROR
-            latency <= 50.0 -> StatusKind.SUCCESS
-            latency <= 150.0 -> StatusKind.WARNING
-            else -> StatusKind.ERROR
-        },
-    )
 }
