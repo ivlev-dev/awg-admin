@@ -69,6 +69,7 @@ services:
 
   traefik:
     image: ${TRAEFIK_IMAGE:-traefik:v3.6}
+    profiles: ["tls"]
     command:
       - sh
       - -c

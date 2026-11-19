@@ -5,7 +5,7 @@
 ```bash
 cp .env.example .env
 $EDITOR .env
-docker compose up -d --build
+docker compose up -d --build   # admin/frontend; traefik: --profile tls
 ```
 
 С профилем worker:
@@ -498,7 +498,7 @@ openssl s_client -connect admin.internal:9090 -CAfile certs/grpc-ca.crt \
 ## 11. Обновление
 
 1. Backup БД (раздел 3) и `.env`.
-2. Обновить образы: `docker compose build --pull` или `docker compose up -d --build`.
+2. Обновить образы: `docker compose build --pull` или `docker compose up -d --build   # admin/frontend; traefik: --profile tls`.
 3. Запустить admin, применятся миграции redb (одна write-транзакция, при ошибке откат).
 4. Проверить health, логи, версию схемы.
 5. Запустить worker: `docker compose --profile worker up -d --build`.

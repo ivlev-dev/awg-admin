@@ -39,7 +39,9 @@ docker compose up -d --build
 эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` (приватные ключи устройств станут
 нечитаемыми после рестарта), а логин/пароль будут `admin`/`admin12345`.
 
-Откройте `https://panel.localhost` (или `AWG_DOMAIN`). Первый вход:
+Traefik с портами 80/443 запускается отдельным профилем:
+`docker compose --profile tls up -d`. Без него порты 80/443 не занимаются.
+Затем откройте `https://panel.localhost` (или `AWG_DOMAIN`). Первый вход:
 `AWG_ADMIN_EMAIL` / `AWG_ADMIN_PASSWORD` из `.env` (по умолчанию
 `admin@local` / `admin12345`); legacy-логин `AWG_ADMIN_LOGIN` (`admin`) тоже
 принимается — **смените пароль после входа**.
