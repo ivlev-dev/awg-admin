@@ -59,7 +59,9 @@ impl UserStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: Uuid,
-    pub login: String,
+    pub email: String,
+    #[serde(default)]
+    pub full_name: Option<String>,
     pub password_hash: String,
     pub role: Role,
     pub tariff_id: Option<Uuid>,
@@ -67,8 +69,6 @@ pub struct User {
     #[serde(default)]
     pub node_id: Option<Uuid>,
     pub disabled: bool,
-    #[serde(default)]
-    pub email: Option<String>,
     #[serde(default)]
     pub status: UserStatus,
     #[serde(default)]
@@ -114,26 +114,6 @@ impl User {
         }
         Ok(())
     }
-
-    pub fn email_or_login(&self) -> String {
-        self.email.clone().unwrap_or_else(|| self.login.clone())
-    }
-}
-
-pub fn validate_login(login: &str) -> CoreResult<()> {
-    let login = login.trim();
-    if login.len() < 3 || login.len() > 64 {
-        return Err(CoreError::Invalid("login must be 3..64 characters".into()));
-    }
-    if !login
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '@'))
-    {
-        return Err(CoreError::Invalid(
-            "login may contain letters, digits, _ - . @".into(),
-        ));
-    }
-    Ok(())
 }
 
 pub fn validate_password(password: &str) -> CoreResult<()> {
@@ -148,31 +128,21 @@ pub fn validate_password(password: &str) -> CoreResult<()> {
     Ok(())
 }
 
-pub fn sanitize_login(raw: &str) -> String {
-    let mut sanitized: String = raw
-        .trim()
-        .to_ascii_lowercase()
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.') {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    sanitized.truncate(64);
-    sanitized.trim_matches(['-', '.']).to_string()
+pub const MAX_FULL_NAME_LEN: usize = 200;
+
+pub fn normalize_full_name(raw: &str) -> CoreResult<String> {
+    let full_name = raw.trim();
+    let len = full_name.chars().count();
+    if len == 0 || len > MAX_FULL_NAME_LEN {
+        return Err(CoreError::Invalid(format!(
+            "full_name must be 1..{MAX_FULL_NAME_LEN} characters"
+        )));
+    }
+    Ok(full_name.to_string())
 }
 
-pub fn email_from_login(login: &str) -> String {
-    let local = sanitize_login(login);
-    let local = if local.is_empty() {
-        "user".to_string()
-    } else {
-        local
-    };
-    format!("{local}@local")
+pub fn normalize_optional_full_name(raw: Option<String>) -> CoreResult<Option<String>> {
+    raw.map(|value| normalize_full_name(&value)).transpose()
 }
 
 pub fn normalize_email(raw: &str) -> CoreResult<String> {
@@ -253,7 +223,6 @@ pub trait EmailVerificationRepository: Send + Sync {
 
 pub trait UserRepository: Send + Sync {
     fn find_by_id(&self, id: Uuid) -> CoreResult<Option<User>>;
-    fn find_by_login(&self, login: &str) -> CoreResult<Option<User>>;
     fn find_by_email(&self, email: &str) -> CoreResult<Option<User>>;
     fn list(&self) -> CoreResult<Vec<User>>;
     fn save(&self, user: &User) -> CoreResult<()>;
@@ -267,9 +236,9 @@ pub trait UserRepository: Send + Sync {
             .filter(|user| query.matches(user))
             .collect();
         matched.sort_by(|left, right| {
-            left.email_or_login()
+            left.email
                 .to_lowercase()
-                .cmp(&right.email_or_login().to_lowercase())
+                .cmp(&right.email.to_lowercase())
                 .then_with(|| left.id.cmp(&right.id))
         });
         let total = matched.len();
@@ -337,8 +306,9 @@ impl UserPageQuery {
             return false;
         }
         if let Some(q) = self.q.as_deref() {
-            let email = user.email.as_deref().unwrap_or_default().to_lowercase();
-            if !email.contains(q) && !user.login.to_lowercase().contains(q) {
+            let email = user.email.to_lowercase();
+            let full_name = user.full_name.as_deref().unwrap_or_default().to_lowercase();
+            if !email.contains(q) && !full_name.contains(q) {
                 return false;
             }
         }
@@ -452,7 +422,7 @@ mod tests {
     fn legacy_user_json() -> &'static str {
         r#"{
             "id": "00000000-0000-0000-0000-000000000001",
-            "login": "admin",
+            "email": "admin@local",
             "password_hash": "hash",
             "role": "admin",
             "tariff_id": null,
@@ -467,11 +437,25 @@ mod tests {
     fn legacy_users_default_to_active_without_totp() {
         let user: User = serde_json::from_str(legacy_user_json()).unwrap();
         assert_eq!(user.status, UserStatus::Active);
-        assert!(user.email.is_none());
+        assert_eq!(user.email, "admin@local");
+        assert!(user.full_name.is_none());
         assert!(!user.totp_enabled);
         assert!(user.totp_secret_sealed.is_none());
         assert!(user.recovery_codes.is_empty());
         assert!(user.ensure_active().is_ok());
+    }
+
+    #[test]
+    fn users_without_email_are_rejected() {
+        let raw = r#"{
+            "id": "00000000-0000-0000-0000-000000000001",
+            "login": "admin",
+            "password_hash": "hash",
+            "role": "admin",
+            "created_at": "2026-01-02T03:04:05Z",
+            "updated_at": "2026-01-02T03:04:05Z"
+        }"#;
+        assert!(serde_json::from_str::<User>(raw).is_err());
     }
 
     #[test]
@@ -548,13 +532,19 @@ mod tests {
     }
 
     #[test]
-    fn sanitizes_legacy_logins_and_builds_local_emails() {
-        assert_eq!(sanitize_login("  Admin "), "admin");
-        assert_eq!(sanitize_login("User Name!"), "user-name");
-        assert_eq!(sanitize_login("new.user"), "new.user");
-        assert_eq!(sanitize_login("--"), "");
-        assert_eq!(email_from_login("Admin"), "admin@local");
-        assert_eq!(email_from_login("User Name"), "user-name@local");
-        assert_eq!(email_from_login(""), "user@local");
+    fn validates_full_names() {
+        assert_eq!(
+            normalize_full_name("  Иван Петров  ").unwrap(),
+            "Иван Петров"
+        );
+        assert!(normalize_full_name("").is_err());
+        assert!(normalize_full_name("   ").is_err());
+        assert!(normalize_full_name(&"a".repeat(MAX_FULL_NAME_LEN)).is_ok());
+        assert!(normalize_full_name(&"a".repeat(MAX_FULL_NAME_LEN + 1)).is_err());
+        assert_eq!(normalize_optional_full_name(None).unwrap(), None::<String>);
+        assert_eq!(
+            normalize_optional_full_name(Some(" Ann ".into())).unwrap(),
+            Some("Ann".to_string())
+        );
     }
 }

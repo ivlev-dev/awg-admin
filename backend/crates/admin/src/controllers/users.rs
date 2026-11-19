@@ -155,6 +155,7 @@ pub async fn create(
         let identity = state.identity.clone();
         let input = NewUser {
             email: request.email,
+            full_name: request.full_name,
             password,
             role: request.role,
             tariff_id: request.tariff_id,
@@ -198,6 +199,7 @@ pub async fn update(
             id,
             UserChanges {
                 email: request.email,
+                full_name: request.full_name,
                 role: request.role,
                 tariff_id: request.tariff_id,
                 group_id: request.group_id,
@@ -290,6 +292,7 @@ pub async fn approve(
                 approved.id,
                 UserChanges {
                     email: None,
+                    full_name: None,
                     role: None,
                     tariff_id: None,
                     group_id: Some(Some(group_id)),

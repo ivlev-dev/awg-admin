@@ -11,11 +11,11 @@ pub const MIN_GRAM: usize = 3;
 
 const EMPTY: &[u8] = &[];
 
-/// Characters that survive search-index normalization. Emails and logins use
-/// the same alphabet, so a query made of these characters can be matched by
-/// intersecting trigram postings without losing substring matches.
+/// Characters that survive search-index normalization. Emails and full names
+/// share the same alphabet, so a query made of these characters can be matched
+/// by intersecting trigram postings without losing substring matches.
 fn is_index_char(c: char) -> bool {
-    c.is_ascii_alphanumeric() || matches!(c, '@' | '.' | '-')
+    c.is_alphanumeric() || matches!(c, '@' | '.' | '-')
 }
 
 /// Lower-cases `raw` and drops every character outside the indexed alphabet.
@@ -23,24 +23,25 @@ fn is_index_char(c: char) -> bool {
 pub fn normalize(raw: &str) -> String {
     raw.trim()
         .chars()
-        .map(|c| c.to_ascii_lowercase())
+        .flat_map(char::to_lowercase)
         .filter(|c| is_index_char(*c))
         .collect()
 }
 
 /// Returns the trigrams of `value`, or the whole (short) value when it has
-/// fewer than three characters.
+/// fewer than three characters. Trigrams are built from Unicode characters so
+/// that names written in any script stay searchable.
 pub fn grams(value: &str) -> Vec<String> {
-    let bytes = value.as_bytes();
-    if bytes.is_empty() {
+    let chars: Vec<char> = value.chars().collect();
+    if chars.is_empty() {
         return Vec::new();
     }
-    if bytes.len() < MIN_GRAM {
+    if chars.len() < MIN_GRAM {
         return vec![value.to_string()];
     }
-    bytes
+    chars
         .windows(MIN_GRAM)
-        .map(|window| String::from_utf8_lossy(window).into_owned())
+        .map(|window| window.iter().collect())
         .collect()
 }
 
@@ -53,22 +54,24 @@ pub fn search_keys(value: &str, user_id: Uuid) -> Vec<String> {
 
 fn values_for_entry(entry: &UserPageEntry) -> Vec<&str> {
     let mut values: Vec<&str> = Vec::new();
-    if let Some(email) = entry
-        .email
-        .as_deref()
-        .map(str::trim)
-        .filter(|email| !email.is_empty())
-    {
+    let email = entry.email.trim();
+    if !email.is_empty() {
         values.push(email);
     }
-    values.push(&entry.login);
+    if let Some(full_name) = entry
+        .full_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|full_name| !full_name.is_empty())
+    {
+        values.push(full_name);
+    }
     values
 }
 
-/// Every `user_search_index` key that must exist for `entry`. Emails and
-/// logins are indexed separately (deduplicated) so that a query can still match
-/// a login that is not a prefix of the email, preserving the legacy
-/// `email.contains(q) || login.contains(q)` semantics.
+/// Every `user_search_index` key that must exist for `entry`. Emails and full
+/// names are indexed separately (deduplicated) so that a query can match either
+/// field, mirroring `email.contains(q) || full_name.contains(q)`.
 pub fn keys_for_entry(entry: &UserPageEntry) -> Vec<String> {
     let mut keys: BTreeSet<String> = BTreeSet::new();
     for raw in values_for_entry(entry) {
@@ -119,7 +122,7 @@ fn query_grams(q: &str) -> Option<Vec<String>> {
     if !q
         .trim()
         .chars()
-        .all(|c| is_index_char(c.to_ascii_lowercase()))
+        .all(|c| c.to_lowercase().all(is_index_char))
     {
         return None;
     }
@@ -177,8 +180,8 @@ const POINT_LOOKUP_THRESHOLD: usize = 512;
 const BROAD_FALLBACK_THRESHOLD: usize = 1024;
 
 /// Intersects the postings of every query trigram. The returned set is a
-/// superset of the users whose normalized email or login contains the query;
-/// the caller still verifies the raw substring.
+/// superset of the users whose normalized email or full name contains the
+/// query; the caller still verifies the raw substring.
 pub fn candidates(txn: &ReadTransaction, q: &str) -> Result<Option<BTreeSet<Uuid>>> {
     let Some(mut grams) = query_grams(q) else {
         return Ok(None);
@@ -316,11 +319,11 @@ pub(crate) fn backfill(txn: &WriteTransaction) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn entry(email: Option<&str>, login: &str) -> UserPageEntry {
+    fn entry(email: &str, full_name: Option<&str>) -> UserPageEntry {
         UserPageEntry::new(
             Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap(),
-            email.map(str::to_string),
-            login,
+            email.to_string(),
+            full_name.map(str::to_string),
             "user",
             "active",
             false,
@@ -332,7 +335,7 @@ mod tests {
     fn normalization_lowercases_and_keeps_only_the_indexed_alphabet() {
         assert_eq!(normalize("  Alice@Example.COM "), "alice@example.com");
         assert_eq!(normalize("User_Name!"), "username");
-        assert_eq!(normalize("ЖУК@example.com"), "@example.com");
+        assert_eq!(normalize("ЖУК@example.com"), "жук@example.com");
         assert_eq!(normalize("---"), "---");
         assert_eq!(normalize("!!!"), "");
         assert_eq!(normalize("Ab-C.d@e"), "ab-c.d@e");
@@ -344,6 +347,7 @@ mod tests {
         assert_eq!(grams("abcd"), vec!["abc", "bcd"]);
         assert_eq!(grams("ab"), vec!["ab"]);
         assert_eq!(grams("a"), vec!["a"]);
+        assert_eq!(grams("жук"), vec!["жук"]);
         assert!(grams("").is_empty());
     }
 
@@ -358,20 +362,20 @@ mod tests {
     }
 
     #[test]
-    fn keys_cover_email_and_login_and_skip_empty_values() {
-        let keys = keys_for_entry(&entry(Some("Alice@Example.COM"), "alice"));
+    fn keys_cover_email_and_full_name_and_skip_empty_values() {
+        let keys = keys_for_entry(&entry("Alice@Example.COM", Some("Alice")));
         assert!(keys.iter().any(|key| key.starts_with("ali|")));
         assert_eq!(
             keys.iter().filter(|key| key.starts_with("ali|")).count(),
             1,
-            "duplicate grams across email and login are deduplicated"
+            "duplicate grams across email and full name are deduplicated"
         );
 
-        let distinct = keys_for_entry(&entry(Some("person@example.com"), "legacy-login"));
-        assert!(distinct.iter().any(|key| key.starts_with("leg|")));
+        let distinct = keys_for_entry(&entry("person@example.com", Some("Иван Петров")));
+        assert!(distinct.iter().any(|key| key.starts_with("пет|")));
         assert!(distinct.iter().any(|key| key.starts_with("per|")));
 
-        assert!(keys_for_entry(&entry(None, "")).is_empty());
+        assert!(keys_for_entry(&entry("", None)).is_empty());
     }
 
     #[test]
@@ -380,7 +384,7 @@ mod tests {
         assert!(query_grams("a").is_none());
         assert!(query_grams("abc").is_some());
         assert!(query_grams("ab_cd").is_none());
-        assert!(query_grams("жук").is_none());
+        assert!(query_grams("жук").is_some());
         assert!(query_grams("AbC").is_some());
         assert!(query_grams(" a b ").is_none());
     }

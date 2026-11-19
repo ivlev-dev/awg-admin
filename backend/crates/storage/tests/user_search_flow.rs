@@ -10,38 +10,31 @@ use awg_storage::{Store, Table};
 
 struct Seeded {
     id: Uuid,
-    email: Option<String>,
-    login: String,
+    email: String,
+    full_name: Option<String>,
 }
 
 impl Seeded {
     fn matches(&self, q: &str) -> bool {
         let q = q.to_lowercase();
-        self.email
-            .as_deref()
-            .unwrap_or_default()
-            .to_lowercase()
-            .contains(&q)
-            || self.login.to_lowercase().contains(&q)
+        self.email.to_lowercase().contains(&q)
+            || self
+                .full_name
+                .as_deref()
+                .is_some_and(|full_name| full_name.to_lowercase().contains(&q))
     }
 
     fn sort_key(&self) -> String {
-        let name = self
-            .email
-            .as_deref()
-            .filter(|email| !email.trim().is_empty())
-            .unwrap_or(&self.login)
-            .to_lowercase();
-        format!("{name}|{}", self.id)
+        format!("{}|{}", self.email.to_lowercase(), self.id)
     }
 }
 
-fn save_user(store: &Store, id: Uuid, login: &str, email: Option<&str>, index: i64) -> Seeded {
+fn save_user(store: &Store, id: Uuid, email: &str, full_name: Option<&str>, index: i64) -> Seeded {
     let created = DateTime::<Utc>::UNIX_EPOCH + Duration::seconds(index);
     let entry = UserPageEntry::new(
         id,
-        email.map(str::to_string),
-        login,
+        email.to_string(),
+        full_name.map(str::to_string),
         "user",
         "active",
         false,
@@ -49,8 +42,8 @@ fn save_user(store: &Store, id: Uuid, login: &str, email: Option<&str>, index: i
     );
     let user = json!({
         "id": id,
-        "login": login,
         "email": email,
+        "full_name": full_name,
         "role": "user",
         "status": "active",
         "disabled": false,
@@ -59,8 +52,8 @@ fn save_user(store: &Store, id: Uuid, login: &str, email: Option<&str>, index: i
     user_index::upsert_user(store, &id.to_string(), &user, &entry).unwrap();
     Seeded {
         id,
-        email: email.map(str::to_string),
-        login: login.to_string(),
+        email: email.to_string(),
+        full_name: full_name.map(str::to_string),
     }
 }
 
@@ -93,8 +86,8 @@ fn seed_250(store: &Store) -> Vec<Seeded> {
             save_user(
                 store,
                 id,
-                &format!("user-{index:03}"),
-                Some(&format!("user-{index:03}@example.com")),
+                &format!("user-{index:03}@example.com"),
+                None,
                 index as i64,
             )
         })
@@ -125,30 +118,50 @@ fn trigram_search_matches_case_insensitively() {
 }
 
 #[test]
+fn trigram_search_finds_full_names_in_any_script() {
+    let store = Store::open_in_memory().unwrap();
+    let users = vec![
+        save_user(
+            &store,
+            Uuid::from_u128(1),
+            "a@example.com",
+            Some("Иван Петров"),
+            1,
+        ),
+        save_user(
+            &store,
+            Uuid::from_u128(2),
+            "b@example.com",
+            Some("John Smith"),
+            2,
+        ),
+    ];
+
+    assert_eq!(search_ids(&store, "иван"), vec![users[0].id]);
+    assert_eq!(search_ids(&store, "ПЕТРОВ"), vec![users[0].id]);
+    assert_eq!(search_ids(&store, "smith"), vec![users[1].id]);
+    assert_eq!(search_ids(&store, "иван"), brute_force(&users, "иван"));
+}
+
+#[test]
 fn trigram_search_has_no_false_positives() {
     let store = Store::open_in_memory().unwrap();
     let users = vec![
         save_user(
             &store,
             Uuid::from_u128(1),
-            "alpha-one",
-            Some("team-alpha-eng@corp.example"),
+            "team-alpha-eng@corp.example",
+            None,
             1,
         ),
         save_user(
             &store,
             Uuid::from_u128(2),
-            "beta-two",
-            Some("beta-team@corp.example"),
+            "beta-team@corp.example",
+            None,
             2,
         ),
-        save_user(
-            &store,
-            Uuid::from_u128(3),
-            "gamma-three",
-            Some("gamma@other.example"),
-            3,
-        ),
+        save_user(&store, Uuid::from_u128(3), "gamma@other.example", None, 3),
     ];
 
     assert_eq!(search_ids(&store, "alpha"), brute_force(&users, "alpha"));
@@ -197,8 +210,8 @@ fn trigram_search_keeps_role_status_and_tab_filters() {
 
     let entry = UserPageEntry::new(
         disabled,
-        Some("user-002@example.com".into()),
-        "user-002",
+        "user-002@example.com".into(),
+        None,
         "user",
         "active",
         true,
@@ -206,7 +219,6 @@ fn trigram_search_keeps_role_status_and_tab_filters() {
     );
     let user = json!({
         "id": disabled,
-        "login": "user-002",
         "email": "user-002@example.com",
         "role": "user",
         "status": "active",
@@ -217,8 +229,8 @@ fn trigram_search_keeps_role_status_and_tab_filters() {
 
     let pending_entry = UserPageEntry::new(
         pending,
-        Some("user-003@example.com".into()),
-        "user-003",
+        "user-003@example.com".into(),
+        None,
         "user",
         "pending_approval",
         false,
@@ -226,7 +238,6 @@ fn trigram_search_keeps_role_status_and_tab_filters() {
     );
     let pending_user = json!({
         "id": pending,
-        "login": "user-003",
         "email": "user-003@example.com",
         "role": "user",
         "status": "pending_approval",
@@ -252,29 +263,29 @@ fn trigram_search_keeps_role_status_and_tab_filters() {
 }
 
 #[test]
-fn index_follows_email_login_changes_and_deletion() {
+fn index_follows_email_and_full_name_changes_and_deletion() {
     let store = Store::open_in_memory().unwrap();
     let id = Uuid::from_u128(42);
     save_user(
         &store,
         id,
-        "legacy-login",
-        Some("old-address@example.com"),
+        "old-address@example.com",
+        Some("Legacy-Login"),
         1,
     );
 
     assert_eq!(
         search_ids(&store, "legacy-login"),
         vec![id],
-        "the login is indexed even when an email exists"
+        "the full name is indexed even when an email exists"
     );
     assert_eq!(search_ids(&store, "old-address"), vec![id]);
 
     save_user(
         &store,
         id,
-        "renamed-login",
-        Some("new-address@example.com"),
+        "new-address@example.com",
+        Some("Renamed-Login"),
         1,
     );
 
@@ -286,8 +297,8 @@ fn index_follows_email_login_changes_and_deletion() {
         store.count(Table::UserSearchIndex).unwrap(),
         user_search::keys_for_entry(&UserPageEntry::new(
             id,
-            Some("new-address@example.com".into()),
-            "renamed-login",
+            "new-address@example.com".into(),
+            Some("Renamed-Login".into()),
             "user",
             "active",
             false,
@@ -307,7 +318,7 @@ fn short_and_non_indexable_queries_fall_back() {
     let store = Store::open_in_memory().unwrap();
     seed_250(&store);
 
-    for q in ["a", "ab", "ab_cd", "жук", "user_1"] {
+    for q in ["a", "ab", "ab_cd", "user_1"] {
         assert!(
             search(&store, q, 0, 50, |_| true).is_none(),
             "query {q:?} must use the page-index scan"
@@ -343,8 +354,8 @@ fn search_10k_users_uses_the_trigram_index() {
             save_user(
                 &store,
                 id,
-                &format!("user-{index:05}"),
-                Some(&format!("user-{index:05}@example.com")),
+                &format!("user-{index:05}@example.com"),
+                None,
                 index as i64,
             )
         })

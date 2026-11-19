@@ -16,7 +16,7 @@
 | GET | `/dev/mail` | admin | — | `DevMail[]` (только dev; `404` в production) |
 | DELETE | `/dev/mail` | admin | — | `204` (только dev) |
 | POST | `/auth/login` | public | `LoginRequest` | `AuthView` |
-| POST | `/auth/register` | public | `{email,login?,password}` | `202 {status:"pending_email"}` |
+| POST | `/auth/register` | public | `{email,password,full_name?}` | `202 {status:"pending_email"}` |
 | POST | `/auth/verify-email` | public | `{token}` | `{status:"pending_approval"}` |
 | POST | `/auth/resend-verification` | public | `{email}` | `202 {status:"sent"}` |
 | POST | `/auth/forgot-password` | public | `{email}` | `202 {status:"sent"}` |
@@ -28,6 +28,7 @@
 | POST | `/auth/logout` | user | `LogoutRequest` | `{ok:true}` |
 | POST | `/auth/logout-all` | user | — | `{ok:true,revoked}` |
 | GET | `/auth/me` | user | — | `UserView` |
+| PATCH | `/auth/me` | user | `{full_name?}` | `UserView` |
 | POST | `/auth/password` | user | `{current_password,new_password,totp_code?}` | `{ok:true}` |
 | GET | `/auth/sessions` | user | — | `SessionView[]` |
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
@@ -172,10 +173,10 @@
 `UserView` (ответы `/auth/me`, `/auth/login`, `/auth/refresh`, `/users*`)
 содержит обычные поля пользователя и:
 
-- `email: string` — основной идентификатор, всегда заполнен (после миграции
-  схемы); нормализуется (trim + нижний регистр), уникален без учёта регистра;
-- `login: string` — устаревшее поле (deprecated), сохранено для совместимости;
-  новые интеграции и UI используют `email`;
+- `email: string` — единственный идентификатор входа, всегда заполнен;
+  нормализуется (trim + нижний регистр), уникален без учёта регистра;
+- `full_name: string|null` — ФИО; trim, 1..200 символов, `null` — не задано.
+  Поле `login` в API отсутствует;
 - `node_id: string|null` — нода, к интерфейсам которой привязываются новые
   устройства пользователя; `null` — нода не задана;
 - `group_id: string|null` — устаревшее поле (deprecated), сохранено для
@@ -185,17 +186,17 @@
 
 - `email: string` — обязательный; невалидный email даёт `400 bad_request`,
   занятый (без учёта регистра) — `409 conflict`;
+- `full_name?: string` — ФИО; trim, 1..200 символов; невалидная длина —
+  `400 bad_request`;
 - `password?: string` — опционально; если не передан или пуст, генерируется
   случайный пароль, который затем меняется через `POST /users/{id}/password`;
 - `role`, `tariff_id`, `group_id?`, `node_id?` — как раньше;
-- `login` больше не принимается: лишнее поле в JSON игнорируется. Внутренний
-  `login` генерируется из local-part email: нижний регистр, допустимые символы
-  `[a-z0-9._-]`, при коллизии добавляется суффикс (`user-2`). Для существующих
-  пользователей `login` не меняется.
+- `login` не принимается и в модели отсутствует.
 
 `UpdateUserRequest` принимает `email?: string` — смена email с нормализацией и
 проверкой уникальности (занятый чужой email — `409 conflict`); отсутствие поля
-оставляет email без изменений. `login` в `UpdateUserRequest` отсутствует.
+оставляет email без изменений. `full_name` — double option: отсутствие поля
+не меняет ФИО, `null` очищает, строка задаёт новое значение (1..200 символов).
 Также `UpdateUserRequest` принимает `node_id` как double option:
 поле отсутствует — привязка не меняется, `null` — очистить, строка — привязать
 к ноде. `POST /users/{id}/approve` принимает `node_id?: string|null`;
@@ -303,7 +304,7 @@
 - `offset` — ≥ 0, по умолчанию 0; смещение за пределами выборки возвращает
   пустой `items` и корректный `total`.
 - `q` — подстрока без учёта регистра. Для устройств ищется по имени
-  устройства и email владельца; для пользователей — по email и логину.
+  устройства и email владельца; для пользователей — по email и `full_name`.
   Пустой `q` игнорируется.
 - Порядок детерминирован: при равенстве ключа сортировки используется
   `id` записи, поэтому страницы не пересекаются и не теряют элементы.
@@ -333,18 +334,17 @@
 - `status` — `all` (по умолчанию), `active` (`disabled=false`), `disabled`.
 - `tab` — `active` (по умолчанию; все, кроме ожидающих одобрения) или
   `pending` (только `status=pending_approval`).
-- `q` — подстрока в email или логине без учёта регистра.
+- `q` — подстрока в email или `full_name` без учёта регистра.
 
-Сортировка — по email (или логину, если email пуст) без учёта регистра, затем
-по `id`. Страница читается из индекса `user_page_index`; таблица `users`
+Сортировка — по email без учёта регистра, затем по `id`. Страница читается из индекса `user_page_index`; таблица `users`
 декодируется только для `limit` записей.
 
 При `q` из трёх и более символов используется триграммный индекс
 `user_search_index`: пересечение постеров 3-грамм, контрольная проверка
-подстроки по email/login и те же фильтры/сортировка. `total` при этом
+подстроки по email/`full_name` и те же фильтры/сортировка. `total` при этом
 считается по совпадениям без полного обхода `user_page_index`. `q` из одного
-или двух символов (а также `q` с символами вне `[a-z0-9@.-]`) идёт прежним
-обходом `user_page_index`. Семантика `q` не меняется.
+или двух символов (а также `q` с символами вне букв/цифр и `@.-`, например
+пробелами) идёт прежним обходом `user_page_index`. Семантика `q` не меняется.
 
 ### `GET /app/devices/page`
 
@@ -936,14 +936,17 @@ Access- и refresh-токены подписаны HS256 и содержат `su
   "token": "<access>",
   "refresh_token": "<refresh>",
   "expires_in": 900,
-  "user": {"id": "…", "email": "admin@local", "login": "admin", "role": "admin", "…": "…"}
+  "user": {"id": "…", "email": "admin@local", "full_name": null, "role": "admin", "…": "…"}
 }
 ```
 
-- `POST /auth/login` — `{"login":"…","password":"…"}`; в поле `login`
-  передаётся email (UI отправляет email); для обратной совместимости поиск
-  идёт сначала по email, затем по legacy-логину. Неверные данные и
-  заблокированный пользователь дают `403 forbidden`.
+- `POST /auth/login` — `{"email":"…","password":"…","totp_code?":"…"}`.
+  Поле `login` не принимается (запрос со старым полем отклоняется как
+  некорректный JSON). Неверные данные и заблокированный пользователь дают
+  `403 forbidden`.
+- `PATCH /auth/me` — `{"full_name":"Иван Петров"}` меняет только ФИО текущего
+  пользователя; `null` очищает, пустая строка и длина больше 200 дают
+  `400 bad_request`. Email через эту ручку не меняется. Ответ — `UserView`.
 - `POST /auth/refresh` — `{"refresh_token":"…"}`. Refresh одноразовый: успешный
   вызов помечает старую запись использованной и выдаёт новую пару в той же
   family. Повторное предъявление использованного или отозванного refresh —
@@ -1002,11 +1005,12 @@ refresh, повтор refresh, заблокированный или удалё�
 ссылке статус становится `pending_approval`, затем администратор подтверждает
 аккаунт и назначает тариф:
 
-1. `POST /auth/register` `{"email":"user@example.com","login":"optional","password":"…"}`
+1. `POST /auth/register`
+   `{"email":"user@example.com","password":"…","full_name":"Иван Петров"}`
    → `202 {"status":"pending_email"}`. Email нормализуется (trim + нижний
-   регистр), уникален без учёта регистра. `login` по умолчанию — local-part
-   email, при коллизии добавляется суффикс (`user-2`). Явно заданный занятый
-   `login` или существующий email дают `409 conflict`.
+   регистр), уникален без учёта регистра. `full_name` опционален: trim,
+   1..200 символов, иначе `400 bad_request`. Существующий email даёт
+   `409 conflict`.
 2. `POST /auth/verify-email` `{"token":"…"}` →
    `{"status":"pending_approval"}`. Повторный вызов — `400 bad_request`.
 3. `GET /users/pending` (admin) → `UserView[]` со статусом `pending_approval`.
@@ -1020,14 +1024,14 @@ refresh, повтор refresh, заблокированный или удалё�
 `resend-verification` ограничены по IP (`AWG_REGISTER_RATE_LIMIT`,
 `AWG_RESEND_RATE_LIMIT`).
 
-Вход `POST /auth/login` принимает в поле `login` email или логин (email
-проверяется первым). Незавершённые статусы дают `403` с кодом
+Вход `POST /auth/login` принимает только email. Незавершённые статусы дают
+`403` с кодом
 `email_not_verified`, `pending_approval` или `rejected`; отключённый
 администратором аккаунт (`disabled`) — `403 account_disabled`
 (`account is disabled`). Пользователи, созданные администратором, сразу
 `active`.
 
-`UserView` дополнен полями `email`, `status` (`pending_email`,
+`UserView` дополнен полями `email`, `full_name`, `status` (`pending_email`,
 `pending_approval`, `active`, `rejected`), `totp_enabled` и `node_id` (нода
 пользователя; `group_id` — устаревшее поле). `email` — строка, всегда
 заполнена.
@@ -1035,15 +1039,18 @@ refresh, повтор refresh, заблокированный или удалё�
 ### Seed-администратор и миграция email
 
 Seed-администратор создаётся при первом запуске с email из `AWG_ADMIN_EMAIL`
-(по умолчанию `admin@local`) и legacy-логином из `AWG_ADMIN_LOGIN`. Если email
-администратора в базе отличается от `AWG_ADMIN_EMAIL`, при старте он
-обновляется. `AWG_ADMIN_LOGIN` остаётся только для поиска существующей учётной
-записи и обратной совместимости; вход выполняется по email (fallback — логин).
+(по умолчанию `admin@local`). Если email администратора в базе отличается от
+`AWG_ADMIN_EMAIL`, при старте он обновляется. Переменная `AWG_ADMIN_LOGIN`
+удалена; вход выполняется только по email.
 
-Миграция схемы `5 → 6`: пользователям без email проставляется `<login>@local`
-(логин приводится к нижнему регистру, недопустимые символы заменяются на `-`);
-при коллизии добавляется `+id` (`admin+<uuid>@local`). Существующие email не
-меняются. После миграции email можно менять через `PATCH /users/{id}`.
+Миграция схемы `12 → 13`: у пользователей удаляется ключ `login`; если email
+пуст, он формируется из старого логина как `<login>@local` (нижний регистр,
+недопустимые символы заменяются на `-`, при коллизии добавляется `+id`),
+существующие email нормализуются в нижний регистр. Добавляется
+`full_name: null`, если поля нет; индексы `user_page_index` и
+`user_search_index` перестраиваются без логина. Идемпотентно; после миграции
+email меняется через `PATCH /users/{id}`, ФИО — через `PATCH /users/{id}` или
+`PATCH /auth/me`.
 
 TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 
@@ -1135,7 +1142,8 @@ email.
 [
   {
     "user_id": "…",
-    "login": "alice",
+    "email": "alice@example.com",
+    "full_name": "Alice",
     "used_bytes": 52428800,
     "quota_bytes": 107374182400,
     "exceeded": false,
@@ -1295,7 +1303,7 @@ Query-параметры (все необязательные, комбинир�
 | `before` | строка | курсор `next_cursor` предыдущей страницы в формате `<микросекунды>:<uuid>`; отдаются записи строго старше него |
 | `action` | строка | точное совпадение, например `POST`, `PATCH`, `PUT`, `DELETE` |
 | `entity` | строка | точное совпадение, например `devices`, `auth/login` |
-| `actor` | строка | регистронезависимое вхождение в `actor_login` |
+| `actor` | строка | регистронезависимое вхождение в `actor_email` |
 | `status` | целое | точный HTTP-код, например `200` |
 | `from` | целое | Unix-секунды, `at >= from` (включительно) |
 | `to` | целое | Unix-секунды, `at <= to` (включительно) |
@@ -1345,7 +1353,8 @@ share-токен из пути, `ip` — клиентский адрес: при
   "id": "…",
   "at": "2026-01-02T03:04:05Z",
   "actor_id": "…",
-  "actor_login": "admin",
+  "actor_email": "admin@local",
+  "actor_login": "admin@local",
   "action": "PATCH",
   "entity": "devices",
   "entity_id": "…",
@@ -1356,19 +1365,19 @@ share-токен из пути, `ip` — клиентский адрес: при
 ```
 
 Вход в систему пишется отдельно: успешный и неуспешный `POST /auth/login`
-(включая `429`), с логином из тела запроса.
+(включая `429`), с email из тела запроса.
 
 ## Rate limiting
 
 Скользящее окно в памяти процесса, без внешних зависимостей:
 
-- `POST /auth/login` — ключ `IP + login` (логин нормализуется), по умолчанию
+- `POST /auth/login` — ключ `IP + email` (email нормализуется), по умолчанию
   10 попыток за 300 секунд;
 - `POST /auth/refresh` — ключ `IP`, по умолчанию 60 попыток за 300 секунд.
 
 Настройки: `AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
 `AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`. `0` в лимите
-отключает ограничение. Успешный логин сбрасывает счётчик для пары IP+login.
+отключает ограничение. Успешный вход сбрасывает счётчик для пары IP+email.
 При превышении — `429 too_many_requests` и `Retry-After`.
 
 ## Биллинг (этап 2: checkout и webhook)

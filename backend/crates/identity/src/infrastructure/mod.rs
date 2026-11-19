@@ -36,27 +36,15 @@ impl UserRepository for RedbUserRepository {
             .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))
     }
 
-    fn find_by_login(&self, login: &str) -> CoreResult<Option<User>> {
-        let users: Vec<User> = self
-            .store
-            .list(Table::Users)
-            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
-        Ok(users
-            .into_iter()
-            .find(|u| u.login.eq_ignore_ascii_case(login)))
-    }
-
     fn find_by_email(&self, email: &str) -> CoreResult<Option<User>> {
         let wanted = email.trim();
         let users: Vec<User> = self
             .store
             .list(Table::Users)
             .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
-        Ok(users.into_iter().find(|u| {
-            u.email
-                .as_deref()
-                .is_some_and(|value| value.trim().eq_ignore_ascii_case(wanted))
-        }))
+        Ok(users
+            .into_iter()
+            .find(|u| u.email.trim().eq_ignore_ascii_case(wanted)))
     }
 
     fn list(&self) -> CoreResult<Vec<User>> {
@@ -131,7 +119,7 @@ fn index_entry(user: &User) -> UserPageEntry {
     UserPageEntry::new(
         user.id,
         user.email.clone(),
-        &user.login,
+        user.full_name.clone(),
         user.role.as_str(),
         user.status.as_str(),
         user.disabled,

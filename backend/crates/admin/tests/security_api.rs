@@ -63,6 +63,7 @@ async fn admin_token(env: &AppEnv) -> String {
         .update(
             env.owner_id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: Some(Role::Admin),
                 tariff_id: None,
@@ -444,6 +445,7 @@ async fn approving_a_user_publishes_the_assigned_group() {
         .identity
         .create(awg_identity::NewUser {
             email: "pending@example.com".into(),
+            full_name: None,
             password: PASSWORD.into(),
             role: Role::User,
             tariff_id: None,

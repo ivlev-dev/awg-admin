@@ -67,6 +67,7 @@ fn admin_token(env: &AppEnv) -> String {
         .identity
         .create(NewUser {
             email: email.into(),
+            full_name: None,
             password: "password123".into(),
             role: Role::Admin,
             tariff_id: None,

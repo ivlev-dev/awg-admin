@@ -9,9 +9,9 @@ use crate::{Result, Store, Table, WriteTransaction};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserPageEntry {
     pub user_id: Uuid,
+    pub email: String,
     #[serde(default)]
-    pub email: Option<String>,
-    pub login: String,
+    pub full_name: Option<String>,
     pub role: String,
     pub status: String,
     pub disabled: bool,
@@ -22,8 +22,8 @@ pub struct UserPageEntry {
 impl UserPageEntry {
     pub fn new(
         user_id: Uuid,
-        email: Option<String>,
-        login: &str,
+        email: String,
+        full_name: Option<String>,
         role: &str,
         status: &str,
         disabled: bool,
@@ -31,8 +31,8 @@ impl UserPageEntry {
     ) -> Self {
         Self {
             user_id,
-            email: email.filter(|value| !value.trim().is_empty()),
-            login: login.to_string(),
+            email,
+            full_name: full_name.filter(|value| !value.trim().is_empty()),
             role: role.to_string(),
             status: status.to_string(),
             disabled,
@@ -42,16 +42,17 @@ impl UserPageEntry {
 
     pub fn from_json(value: &Value) -> Option<Self> {
         let user_id = value.get("id")?.as_str().and_then(parse_uuid)?;
-        let login = value
-            .get("login")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
         let email = value
             .get("email")
             .and_then(Value::as_str)
             .map(str::trim)
-            .filter(|email| !email.is_empty())
+            .filter(|email| !email.is_empty())?
+            .to_lowercase();
+        let full_name = value
+            .get("full_name")
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|full_name| !full_name.is_empty())
             .map(str::to_string);
         let role = value
             .get("role")
@@ -74,7 +75,7 @@ impl UserPageEntry {
         Some(Self {
             user_id,
             email,
-            login,
+            full_name,
             role,
             status,
             disabled,
@@ -83,11 +84,7 @@ impl UserPageEntry {
     }
 
     pub fn sort_name(&self) -> String {
-        self.email
-            .as_deref()
-            .filter(|email| !email.is_empty())
-            .unwrap_or(&self.login)
-            .to_lowercase()
+        self.email.to_lowercase()
     }
 
     pub fn index_key(&self) -> String {
@@ -96,7 +93,11 @@ impl UserPageEntry {
 
     pub fn matches_search(&self, q: &str) -> bool {
         let q = q.to_lowercase();
-        self.sort_name().contains(&q) || self.login.to_lowercase().contains(&q)
+        self.email.to_lowercase().contains(&q)
+            || self
+                .full_name
+                .as_deref()
+                .is_some_and(|full_name| full_name.to_lowercase().contains(&q))
     }
 
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
@@ -141,7 +142,7 @@ pub fn remove_entry(txn: &WriteTransaction, entry: &UserPageEntry) -> Result<()>
     Ok(())
 }
 
-/// Scans the user page index in key order (email or login, case-insensitive)
+/// Scans the user page index in key order (email, case-insensitive)
 /// and returns the ids of the requested window together with the total number
 /// of matching entries. `keep` runs for every index entry, but at most
 /// `limit` ids are retained, so the caller never materializes the full user
@@ -293,11 +294,12 @@ mod tests {
     }
 
     #[test]
-    fn parses_user_json_and_falls_back_to_login() {
+    fn parses_user_json_with_email_and_full_name() {
         let id = Uuid::new_v4();
         let value = serde_json::json!({
             "id": id,
-            "login": "Alice",
+            "email": "Alice@Example.COM",
+            "full_name": " Алиса Иванова ",
             "role": "admin",
             "status": "pending_approval",
             "disabled": true,
@@ -305,8 +307,9 @@ mod tests {
         });
         let entry = UserPageEntry::from_json(&value).unwrap();
         assert_eq!(entry.user_id, id);
-        assert_eq!(entry.email, None);
-        assert_eq!(entry.sort_name(), "alice");
+        assert_eq!(entry.email, "alice@example.com");
+        assert_eq!(entry.full_name.as_deref(), Some("Алиса Иванова"));
+        assert_eq!(entry.sort_name(), "alice@example.com");
         assert_eq!(entry.role, "admin");
         assert_eq!(entry.status, "pending_approval");
         assert!(entry.disabled);
@@ -314,10 +317,17 @@ mod tests {
     }
 
     #[test]
-    fn rejects_entries_without_created_at() {
+    fn rejects_entries_without_created_at_or_email() {
+        let value = serde_json::json!({
+            "id": Uuid::new_v4(),
+            "email": "alice@example.com",
+        });
+        assert!(UserPageEntry::from_json(&value).is_none());
+
         let value = serde_json::json!({
             "id": Uuid::new_v4(),
             "login": "alice",
+            "created_at": "2026-01-02T03:04:05Z",
         });
         assert!(UserPageEntry::from_json(&value).is_none());
     }

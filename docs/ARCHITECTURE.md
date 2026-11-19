@@ -253,7 +253,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `12`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `13`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -352,23 +352,23 @@ Sealer только если в базе есть legacy-ссылки с отк�
 `GET /users/page` (только admin) больше не вызывает `IdentityService::list` и
 не декодирует таблицу `users` целиком. Вторичная таблица `user_page_index`
 хранит компактный JSON `UserPageEntry`
-`{user_id,email,login,role,status,disabled,created_at}`; ключ —
-`"{email_or_login_lower}|{user_id}"`, поэтому порядок redb совпадает с
-сортировкой по email (или login, если email пуст) без учёта регистра.
+`{user_id,email,full_name,role,status,disabled,created_at}`; ключ —
+`"{email_lower}|{user_id}"`, поэтому порядок redb совпадает с сортировкой по
+email без учёта регистра.
 
 Запрос страницы:
 
 1. обходит `user_page_index` в порядке ключей;
 2. применяет `role`, `status` (active/disabled), `tab`
    (active = статус не `pending_approval`, pending = `pending_approval`) и
-   `q` (подстрока email или login);
+   `q` (подстрока email или `full_name`);
 3. запоминает только `limit` идентификаторов после `offset` и считает `total`
    по всем совпадениям;
 4. читает `User` из `users` только для идентификаторов страницы
    (`Store::get_many`).
 
 Индекс обновляется в одной транзакции с записью пользователя:
-`user_index::upsert_user` удаляет ключ старой записи (смена email/login) и
+`user_index::upsert_user` удаляет ключ старой записи (смена email/ФИО) и
 вставляет новый, `delete_user` удаляет оба. Все изменения (`create`,
 `update`, `approve`, `reject`, `disable`, `delete`) идут через
 `RedbUserRepository::save/delete`, поэтому отдельной синхронизации в сервисах
@@ -380,24 +380,25 @@ Sealer только если в базе есть legacy-ссылки с отк�
 вторичная таблица `user_search_index` хранит ключи `"{gram}|{user_id}"` с
 пустым значением:
 
-- email (или login, если email пуст) и login нормализуются: trim,
-  lower-case, остаются только ASCII-буквы, цифры, `@`, `.`, `-`;
-- из нормализованного значения берутся все 3-граммы; значение короче трёх
-  символов хранится целиком под ключом `"{value}|{user_id}"`;
-- email и login индексируются раздельно (дубли 3-грамм схлопываются), поэтому
-  поиск по логину работает и при заполненном email.
+- email и `full_name` нормализуются: trim, lower-case, остаются буквы
+  (в любой письменности), цифры, `@`, `.`, `-`;
+- из нормализованного значения берутся все 3-граммы по Unicode-символам;
+  значение короче трёх символов хранится целиком под ключом
+  `"{value}|{user_id}"`;
+- email и `full_name` индексируются раздельно (дубли 3-грамм схлопываются).
 
 Запрос:
 
 1. нормализует `q` (`trim`, lower-case); если после нормализации меньше трёх
    символов или в `q` есть символы вне индексируемого алфавита (например,
-   `_` или кириллица), используется прежний обход `user_page_index`;
+   `_` или пробел), используется прежний обход `user_page_index`;
 2. для каждой 3-граммы делает range-скан `gram|` и пересекает множества
    `user_id` (короткое замыкание на пустом посте);
 3. для кандидатов читает `users`, применяет контрольную проверку
-   `email.contains(q) || login.contains(q)` и фильтры `role`/`status`/`tab`;
+   `email.contains(q) || full_name.contains(q)` и фильтры
+   `role`/`status`/`tab`;
 4. сортирует совпадения по тому же ключу, что и `user_page_index`
-   (`email_or_login|user_id`), считает `total` по числу совпадений и
+   (`email|user_id`), считает `total` по числу совпадений и
    возвращает окно `offset..offset+limit`.
 
 Такой запрос не декодирует `user_page_index` целиком; стоимость складывается
@@ -406,12 +407,12 @@ Sealer только если в базе есть legacy-ссылки с отк�
 1024 и больше четверти таблицы, поиск возвращается к обходу
 `user_page_index`: так широкий запрос не декодирует всю таблицу `users`.
 Индекс поддерживается в той же транзакции, что и `user_page_index`, через
-`user_index::insert_entry/remove_entry`; миграция `v12_user_search_index`
-очищает таблицу и строит её заново (идемпотентно). Поиск `q` из одного-двух
+`user_index::insert_entry/remove_entry`; миграции `v12_user_search_index` и
+`v13_user_identity` очищают таблицу и строят её заново (идемпотентно). Поиск `q` из одного-двух
 символов по-прежнему идёт через `user_page_index`.
 
 Индекс занимает примерно 20–40 ключей на пользователя (по 3-грамме на каждый
-символ email и login), то есть сотни мегабайт на миллион пользователей; ключ
+символ email и ФИО), то есть сотни мегабайт на миллион пользователей; ключ
 включает `user_id`, значение пустое.
 
 #### Share-ссылки at rest
@@ -546,11 +547,12 @@ access валиден до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по 
 
 ### Регистрация, email и TOTP
 
-`User` расширен полями `email`, `status`, `totp_secret_sealed`, `totp_enabled`
-и `recovery_codes`; все имеют `serde(default)`, поэтому записи старого формата
-читаются как `active` без 2FA. Статусы: `pending_email` → `pending_approval` →
-`active` либо `rejected`. `ensure_active` требует `status=active` и
-`disabled=false`; `login` ищет сначала по email, затем по login.
+`User` содержит обязательный `email`, опциональный `full_name` и поля
+`status`, `totp_secret_sealed`, `totp_enabled`, `recovery_codes`; служебные
+поля имеют `serde(default)`, поэтому записи старого формата без них читаются
+как `active` без 2FA. Логина в модели нет. Статусы: `pending_email` →
+`pending_approval` → `active` либо `rejected`. `ensure_active` требует
+`status=active` и `disabled=false`; вход и TOTP используют email.
 
 Одноразовые токены подтверждения email лежат в redb-таблице
 `email_verifications`: ключ — `sha256(token)` в hex, значение — `user_id`,
@@ -583,7 +585,7 @@ Base32-секрет шифруется `awg_shared::crypto::Sealer` перед �
 Лимитеры login/refresh/register/resend работают через трейт `RateLimiter`
 (`check(key, limit, window)`, `reset(key)`, `cleanup()`). Ключ в хранилище —
 `scope:sha256(key)`: scope задаёт контроллер (`login`, `refresh`, `register`,
-`resend`), хэш не даёт писать в БД сырые IP и логины. `RateLimitScope`
+`resend`), хэш не даёт писать в БД сырые IP и email. `RateLimitScope`
 связывает общий backend с лимитом и окном конкретного сценария, поэтому
 контроллеры по-прежнему вызывают `check(&key)`/`reset(&key)`.
 
@@ -959,7 +961,7 @@ snapshot/worker.
 
 Схема была поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
 таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
-Текущая версия схемы — `11` (шаг `v3_rate_limits` добавляет `rate_limits`,
+Текущая версия схемы — `13` (шаг `v3_rate_limits` добавляет `rate_limits`,
 `v4_device_interfaces` привязывает устройства к интерфейсу,
 `v5_user_nodes` привязывает пользователей к ноде по первому интерфейсу их
 группы, `v6_user_emails` проставляет email пользователям без email:
@@ -972,7 +974,10 @@ snapshot/worker.
 и времени создания, `v10_user_page_index` строит индекс пагинации
 пользователей, `v11_share_token_hash` заменяет открытый `token` share-ссылки
 на `token_hash = sha256(token)` и `token_sealed` (`Sealer`), переписывая ключ
-таблицы `share_links` на хэш).
+таблицы `share_links` на хэш), `v12_user_search_index` строит триграммный
+индекс поиска, `v13_user_identity` удаляет `login`, заполняет пропущенные
+email из старого логина, нормализует email, добавляет `full_name: null` и
+перестраивает оба пользовательских индекса).
 Backup/restore по-прежнему требует точного совпадения версии.
 
 Конфигурация:

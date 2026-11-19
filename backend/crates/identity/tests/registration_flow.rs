@@ -70,12 +70,12 @@ fn token_from_link(link: &str) -> String {
         .to_string()
 }
 
-async fn register(harness: &Harness, email: &str, login: Option<&str>) -> awg_identity::User {
+async fn register(harness: &Harness, email: &str, full_name: Option<&str>) -> awg_identity::User {
     harness
         .service
         .register(RegisterInput {
             email: email.into(),
-            login: login.map(str::to_string),
+            full_name: full_name.map(str::to_string),
             password: "password123".into(),
         })
         .await
@@ -95,8 +95,8 @@ async fn active_user(harness: &Harness, email: &str) -> awg_identity::User {
         .unwrap()
 }
 
-fn totp_code(secret: &str, login: &str) -> String {
-    totp_code_at(secret, login, 0)
+fn totp_code(secret: &str, account: &str) -> String {
+    totp_code_at(secret, account, 0)
 }
 
 fn reset_totp_step(harness: &Harness, user_id: Uuid, step: Option<u64>) {
@@ -108,7 +108,7 @@ fn reset_totp_step(harness: &Harness, user_id: Uuid, step: Option<u64>) {
         .unwrap();
 }
 
-fn totp_code_at(secret: &str, login: &str, offset_secs: u64) -> String {
+fn totp_code_at(secret: &str, account: &str, offset_secs: u64) -> String {
     let secret = Secret::try_from_base32(secret).unwrap();
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -116,7 +116,7 @@ fn totp_code_at(secret: &str, login: &str, offset_secs: u64) -> String {
         .as_secs();
     Builder::new()
         .with_secret(secret)
-        .with_account_name(login)
+        .with_account_name(account)
         .with_issuer(Some("awg-admin"))
         .build()
         .unwrap()
@@ -142,15 +142,20 @@ async fn registration_verification_and_approval_flow() {
     let harness = harness();
     let admin = harness
         .service
-        .seed_admin("admin", "password123")
+        .seed_admin("admin@local", "password123")
         .unwrap()
         .unwrap();
     let tariff_id = Uuid::new_v4();
 
-    let user = register(&harness, " New.User@Example.COM ", None).await;
+    let user = register(
+        &harness,
+        " New.User@Example.COM ",
+        Some("Новый Пользователь"),
+    )
+    .await;
     assert_eq!(user.status, UserStatus::PendingEmail);
-    assert_eq!(user.email.as_deref(), Some("new.user@example.com"));
-    assert_eq!(user.login, "new.user");
+    assert_eq!(user.email, "new.user@example.com");
+    assert_eq!(user.full_name.as_deref(), Some("Новый Пользователь"));
     assert_eq!(user.role, awg_identity::Role::User);
 
     let (to, link) = harness.mailer.last().unwrap();
@@ -194,33 +199,35 @@ async fn registration_verification_and_approval_flow() {
         .login("NEW.USER@example.com", "password123", &metadata())
         .unwrap();
     assert_eq!(by_email.user.id, user.id);
-    let by_login = harness
-        .service
-        .login("new.user", "password123", &metadata())
-        .unwrap();
-    assert_eq!(by_login.user.id, user.id);
+    assert!(
+        harness
+            .service
+            .login("new.user", "password123", &metadata())
+            .is_err(),
+        "a bare login is no longer accepted"
+    );
 
     let admin_session = harness
         .service
-        .login("admin", "password123", &metadata())
+        .login("admin@local", "password123", &metadata())
         .unwrap();
     assert_eq!(admin_session.user.id, admin.id);
 }
 
 #[tokio::test]
-async fn register_enforces_unique_email_and_login() {
+async fn register_enforces_unique_email() {
     let harness = harness();
     let first = register(&harness, "user@one.example", None).await;
-    assert_eq!(first.login, "user");
+    assert_eq!(first.email, "user@one.example");
 
     let second = register(&harness, "user@two.example", None).await;
-    assert_eq!(second.login, "user-2");
+    assert_eq!(second.email, "user@two.example");
 
     let duplicate = harness
         .service
         .register(RegisterInput {
             email: "USER@ONE.example".into(),
-            login: None,
+            full_name: None,
             password: "password123".into(),
         })
         .await
@@ -231,36 +238,32 @@ async fn register_enforces_unique_email_and_login() {
             .contains("email is already registered")
     );
 
-    let taken_login = harness
-        .service
-        .register(RegisterInput {
-            email: "third@example.com".into(),
-            login: Some("USER".into()),
-            password: "password123".into(),
-        })
-        .await
-        .unwrap_err();
-    assert!(taken_login.to_string().contains("login is already taken"));
+    for full_name in ["", "   ", &"a".repeat(201)] {
+        let error = harness
+            .service
+            .register(RegisterInput {
+                email: format!("bad-{}@example.com", full_name.len()),
+                full_name: Some(full_name.to_string()),
+                password: "password123".into(),
+            })
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("full_name"), "{error}");
+    }
 
-    harness
-        .service
-        .register(RegisterInput {
-            email: "fourth@example.com".into(),
-            login: Some("MixedCase".into()),
-            password: "password123".into(),
-        })
-        .await
-        .unwrap();
-    let case_conflict = harness
-        .service
-        .register(RegisterInput {
-            email: "fifth@example.com".into(),
-            login: Some("mixedcase".into()),
-            password: "password123".into(),
-        })
-        .await
-        .unwrap_err();
-    assert!(case_conflict.to_string().contains("login is already taken"));
+    let named = register(&harness, "named@example.com", Some("  Иван Петров  ")).await;
+    assert_eq!(named.full_name.as_deref(), Some("Иван Петров"));
+
+    let max = "b".repeat(200);
+    let at_limit = register(&harness, "limit@example.com", Some(&max)).await;
+    assert_eq!(at_limit.full_name.as_deref(), Some(max.as_str()));
+}
+
+#[tokio::test]
+async fn registration_without_full_name_leaves_it_empty() {
+    let harness = harness();
+    let user = register(&harness, "plain@example.com", None).await;
+    assert!(user.full_name.is_none());
 }
 
 #[tokio::test]
@@ -352,7 +355,7 @@ async fn totp_setup_enable_login_and_disable() {
     assert_eq!(stored.recovery_codes.len(), 8);
     assert!(!stored.recovery_codes.contains(&setup.recovery_codes[0]));
 
-    let code = totp_code(&setup.secret, &user.login);
+    let code = totp_code(&setup.secret, &user.email);
     harness.service.enable_totp(user.id, &code).unwrap();
     assert!(harness.service.find(user.id).unwrap().totp_enabled);
 
@@ -378,7 +381,7 @@ async fn totp_setup_enable_login_and_disable() {
         .login_with_totp(
             "totp@example.com",
             "password123",
-            Some(&totp_code_at(&setup.secret, &user.login, 30)),
+            Some(&totp_code_at(&setup.secret, &user.email, 30)),
             &metadata(),
         )
         .unwrap();
@@ -411,7 +414,7 @@ async fn totp_setup_enable_login_and_disable() {
         .disable_totp(
             user.id,
             "password123",
-            &totp_code(&setup.secret, &user.login),
+            &totp_code(&setup.secret, &user.email),
         )
         .unwrap();
     let cleared = harness.service.find(user.id).unwrap();
@@ -429,23 +432,23 @@ async fn totp_setup_enable_login_and_disable() {
 #[tokio::test]
 async fn login_rejects_oversized_credentials() {
     let harness = harness();
-    let oversized_login = "a".repeat(300);
+    let oversized_email = "a".repeat(300);
     let error = harness
         .service
-        .login(&oversized_login, "password123", &metadata())
+        .login(&oversized_email, "password123", &metadata())
         .unwrap_err();
     assert!(
-        error.to_string().contains("invalid login or password"),
+        error.to_string().contains("invalid email or password"),
         "{error}"
     );
 
     let oversized_password = "p".repeat(2000);
     let error = harness
         .service
-        .login("admin", &oversized_password, &metadata())
+        .login("admin@local", &oversized_password, &metadata())
         .unwrap_err();
     assert!(
-        error.to_string().contains("invalid login or password"),
+        error.to_string().contains("invalid email or password"),
         "{error}"
     );
 }
@@ -457,10 +460,10 @@ async fn totp_codes_cannot_be_replayed() {
     let setup = harness.service.setup_totp(user.id, None, None).unwrap();
     harness
         .service
-        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.email))
         .unwrap();
 
-    let code = totp_code_at(&setup.secret, &user.login, 30);
+    let code = totp_code_at(&setup.secret, &user.email, 30);
     harness
         .service
         .login_with_totp(
@@ -490,7 +493,7 @@ async fn totp_reconfiguration_requires_password_and_code() {
     let setup = harness.service.setup_totp(user.id, None, None).unwrap();
     harness
         .service
-        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.email))
         .unwrap();
 
     let missing = harness.service.setup_totp(user.id, None, None).unwrap_err();
@@ -517,7 +520,7 @@ async fn totp_reconfiguration_requires_password_and_code() {
         .setup_totp(
             user.id,
             Some("password123"),
-            Some(&totp_code_at(&setup.secret, &user.login, 30)),
+            Some(&totp_code_at(&setup.secret, &user.email, 30)),
         )
         .unwrap();
     let stored = harness.service.find(user.id).unwrap();
@@ -533,7 +536,7 @@ async fn totp_reconfiguration_requires_password_and_code() {
 
     harness
         .service
-        .enable_totp(user.id, &totp_code_at(&rebound.secret, &user.login, 30))
+        .enable_totp(user.id, &totp_code_at(&rebound.secret, &user.email, 30))
         .unwrap();
     let stored = harness.service.find(user.id).unwrap();
     assert!(stored.totp_enabled);
@@ -546,7 +549,7 @@ async fn totp_reconfiguration_requires_password_and_code() {
         .login_with_totp(
             "rebind@example.com",
             "password123",
-            Some(&totp_code(&rebound.secret, &user.login)),
+            Some(&totp_code(&rebound.secret, &user.email)),
             &metadata(),
         )
         .unwrap();
@@ -559,10 +562,10 @@ async fn password_change_accepts_a_totp_code_instead_of_the_password() {
     let setup = harness.service.setup_totp(user.id, None, None).unwrap();
     harness
         .service
-        .enable_totp(user.id, &totp_code(&setup.secret, &user.login))
+        .enable_totp(user.id, &totp_code(&setup.secret, &user.email))
         .unwrap();
 
-    let code = totp_code_at(&setup.secret, &user.login, 30);
+    let code = totp_code_at(&setup.secret, &user.email, 30);
     harness
         .service
         .change_password(user.id, "", Some(&code), "rotated12345")
@@ -575,7 +578,7 @@ async fn password_change_accepts_a_totp_code_instead_of_the_password() {
     );
 
     reset_totp_step(&harness, user.id, None);
-    let next = totp_code_at(&setup.secret, &user.login, 30);
+    let next = totp_code_at(&setup.secret, &user.email, 30);
     harness
         .service
         .login_with_totp(
@@ -626,7 +629,7 @@ async fn totp_disable_requires_password_and_code() {
         .disable_totp(
             user.id,
             "wrong-password",
-            &totp_code(&setup.secret, &user.login),
+            &totp_code(&setup.secret, &user.email),
         )
         .unwrap_err();
     assert!(wrong_password.to_string().contains("password is wrong"));

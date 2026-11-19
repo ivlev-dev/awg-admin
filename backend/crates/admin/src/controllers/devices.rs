@@ -97,14 +97,7 @@ pub(crate) fn page_view(
             .map_err(ApiError::from)?
             .into_iter()
             .filter(|owner| user_filter.is_none_or(|id| owner.id == id))
-            .map(|owner| {
-                let email = owner
-                    .email
-                    .clone()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| awg_identity::domain::email_from_login(&owner.login));
-                (owner.id, email)
-            })
+            .map(|owner| (owner.id, owner.email.clone()))
             .collect()
     } else {
         HashMap::new()

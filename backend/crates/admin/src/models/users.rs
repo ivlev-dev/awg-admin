@@ -6,6 +6,8 @@ use awg_identity::Role;
 #[derive(Debug, Deserialize)]
 pub struct CreateUserRequest {
     pub email: String,
+    #[serde(default)]
+    pub full_name: Option<String>,
     pub password: Option<String>,
     pub role: Role,
     pub tariff_id: Option<Uuid>,
@@ -16,6 +18,8 @@ pub struct CreateUserRequest {
 #[derive(Debug, Deserialize, Default)]
 pub struct UpdateUserRequest {
     pub email: Option<String>,
+    #[serde(default, with = "crate::models::double_option")]
+    pub full_name: Option<Option<String>>,
     pub role: Option<Role>,
     #[serde(default, with = "crate::models::double_option")]
     pub tariff_id: Option<Option<Uuid>>,
@@ -69,19 +73,34 @@ mod tests {
     }
 
     #[test]
-    fn create_request_requires_email_and_ignores_legacy_login() {
+    fn update_request_accepts_full_name_and_can_clear_it() {
+        let missing: UpdateUserRequest = serde_json::from_str("{}").unwrap();
+        assert!(missing.full_name.is_none());
+
+        let changed: UpdateUserRequest =
+            serde_json::from_str(r#"{"full_name":" Иван Петров "}"#).unwrap();
+        assert_eq!(changed.full_name, Some(Some(" Иван Петров ".to_string())));
+
+        let cleared: UpdateUserRequest = serde_json::from_str(r#"{"full_name":null}"#).unwrap();
+        assert_eq!(cleared.full_name, Some(None));
+    }
+
+    #[test]
+    fn create_request_requires_email_and_accepts_full_name() {
         let request: CreateUserRequest = serde_json::from_str(
-            r#"{"email":"Admin@Local","password":"password123","role":"admin"}"#,
+            r#"{"email":"Admin@Local","password":"password123","role":"admin","full_name":"Админ"}"#,
         )
         .unwrap();
         assert_eq!(request.email, "Admin@Local");
         assert_eq!(request.password.as_deref(), Some("password123"));
+        assert_eq!(request.full_name.as_deref(), Some("Админ"));
 
         let legacy: CreateUserRequest =
             serde_json::from_str(r#"{"email":"user@example.com","login":"legacy","role":"user"}"#)
                 .unwrap();
         assert_eq!(legacy.email, "user@example.com");
         assert!(legacy.password.is_none());
+        assert!(legacy.full_name.is_none());
         assert!(legacy.node_id.is_none());
 
         assert!(

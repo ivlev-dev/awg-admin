@@ -77,7 +77,7 @@ async fn active_user(harness: &Harness, email: &str) -> User {
         .service
         .register(RegisterInput {
             email: email.into(),
-            login: None,
+            full_name: None,
             password: "password123".into(),
         })
         .await
@@ -154,7 +154,7 @@ async fn pending_user_receives_no_reset_link() {
         .service
         .register(RegisterInput {
             email: "pending@example.com".into(),
-            login: None,
+            full_name: None,
             password: "password123".into(),
         })
         .await
@@ -196,7 +196,7 @@ async fn reset_changes_password_and_revokes_all_sessions() {
         .login("user@example.com", "password123", &metadata())
         .unwrap_err();
     assert!(
-        old.to_string().contains("invalid login or password"),
+        old.to_string().contains("invalid email or password"),
         "{old}"
     );
 
@@ -282,7 +282,7 @@ async fn verification_tokens_cannot_be_used_for_password_reset() {
         .service
         .register(RegisterInput {
             email: "user@example.com".into(),
-            login: None,
+            full_name: None,
             password: "password123".into(),
         })
         .await

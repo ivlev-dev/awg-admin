@@ -330,31 +330,33 @@ pub async fn run() -> Result<()> {
     }
 
     if let Some(admin) = identity
-        .seed_admin_with_email(
-            &config.admin_login,
-            &config.admin_email,
-            &config.admin_password,
-        )
+        .seed_admin(&config.admin_email, &config.admin_password)
         .context("failed to seed the initial administrator")?
     {
-        tracing::info!(login = %admin.login, email = %admin.email_or_login(), "seeded the initial administrator");
+        tracing::info!(email = %admin.email, "seeded the initial administrator");
     }
 
-    if let Some(admin) = identity
-        .find_by_login(&config.admin_login)
-        .context("failed to read the initial administrator")?
     {
         let desired = config.admin_email.trim();
-        let current_is_desired = admin
-            .email
-            .as_deref()
-            .is_some_and(|email| email.eq_ignore_ascii_case(desired));
-        if !current_is_desired {
+        let admins = identity
+            .list()
+            .context("failed to read the initial administrator")?
+            .into_iter()
+            .filter(|user| user.role.is_admin())
+            .collect::<Vec<_>>();
+        let existing = admins
+            .iter()
+            .find(|admin| admin.email.eq_ignore_ascii_case(desired))
+            .or_else(|| admins.first());
+        if let Some(admin) = existing
+            && !admin.email.eq_ignore_ascii_case(desired)
+        {
             identity
                 .update(
                     admin.id,
                     UserChanges {
                         email: Some(desired.to_string()),
+                        full_name: None,
                         role: None,
                         tariff_id: None,
                         group_id: None,
@@ -363,7 +365,7 @@ pub async fn run() -> Result<()> {
                     },
                 )
                 .context("failed to update the administrator email")?;
-            tracing::info!(login = %admin.login, email = %desired, "updated the administrator email");
+            tracing::info!(from = %admin.email, email = %desired, "updated the administrator email");
         }
     }
 

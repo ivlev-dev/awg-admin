@@ -44,7 +44,7 @@ Frontend доступен на `http://localhost:5173`, admin на `http://local
 
 - `AWG_MASTER_KEY` — 32 байта в base64 (`openssl rand -base64 32`), используется `Sealer` (ChaCha20-Poly1305) для шифрования приватных ключей устройств и интерфейсов в redb. В `production` старт завершается ошибкой, если ключ не задан, не base64 или длина не 32 байта. Потеря ключа делает сохранённые секреты нечитаемыми; менять ключ на данных production нельзя.
 - `AWG_JWT_SECRET` — не короче 32 байт в `production` (`openssl rand -base64 48`). Влияет на все JWT; смена секрета инвалидирует выданные токены.
-- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; если переменная не задана, применяется дефолт `admin12345`, и старт завершается ошибкой (`AWG_ADMIN_PASSWORD must be changed…`). Seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`, `AWG_ADMIN_LOGIN` (legacy) используется для поиска существующей записи.
+- `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; если переменная не задана, применяется дефолт `admin12345`, и старт завершается ошибкой (`AWG_ADMIN_PASSWORD must be changed…`). Seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`; переменная `AWG_ADMIN_LOGIN` удалена, вход только по email.
 - `AWG_TRUSTED_PROXIES` — список IP/CIDR через запятую. `X-Forwarded-For` и `X-Real-IP` принимаются только от перечисленных адресов; клиентский IP для rate limit/аудита — первый справа хоп XFF, не входящий в trusted-сети. Пусто (по умолчанию) — заголовки игнорируются. За Traefik укажите подсеть docker-сети (`docker network inspect`), локально достаточно `127.0.0.1/32`.
 - `AWG_DEV_MAIL_TOKEN` — токен для `GET/DELETE /api/v1/dev/mail` вне production. Без него маршрут требует обычный access token администратора. В `production` маршрут всегда отвечает `404`, а dev-mailbox и токены в письмах не логируются.
 - `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` по умолчанию `awg-admin`; пустые значения заменяются значением по умолчанию.
@@ -58,7 +58,7 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 
 ## 3. Backup и restore redb
 
-БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 12` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
+БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 13` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
 
 Методы `Store`:
 
@@ -164,7 +164,7 @@ docker compose logs --tail=50 admin              # нет ошибок мигр�
 
 Затем войти в панель и проверить пользователей, ноды, тарифы и последние аудит-события.
 
-Проверка версии: `restore` обновляет старые backup автоматически, если для всех шагов хватает данных и (при необходимости) `AWG_MASTER_KEY`; иначе он отклоняется, а БД остаётся прежней. Backup новее `CURRENT_SCHEMA_VERSION` не восстанавливается — используйте `awg-backup` из той же версии admin, что создала backup. Для отката на предыдущую версию admin берите `awg-backup` из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`; шаги `1 → 2` (`v2_billing`), `2 → 3` (`v3_rate_limits`), `3 → 4` (`v4_device_interfaces`), `4 → 5` (`v5_user_nodes`), `5 → 6` (`v6_user_emails`), `6 → 7` (`v7_idempotency`), `7 → 8` (`v8_peer_ids`), `8 → 9` (`v9_device_page_index`), `9 → 10` (`v10_user_page_index`), `10 → 11` (`v11_share_token_hash`, шифрует legacy-токены и требует master key), `11 → 12` (`v12_user_search_index`) не удаляют существующие записи; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
+Проверка версии: `restore` обновляет старые backup автоматически, если для всех шагов хватает данных и (при необходимости) `AWG_MASTER_KEY`; иначе он отклоняется, а БД остаётся прежней. Backup новее `CURRENT_SCHEMA_VERSION` не восстанавливается — используйте `awg-backup` из той же версии admin, что создала backup. Для отката на предыдущую версию admin берите `awg-backup` из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`; шаги `1 → 2` (`v2_billing`), `2 → 3` (`v3_rate_limits`), `3 → 4` (`v4_device_interfaces`), `4 → 5` (`v5_user_nodes`), `5 → 6` (`v6_user_emails`), `6 → 7` (`v7_idempotency`), `7 → 8` (`v8_peer_ids`), `8 → 9` (`v9_device_page_index`), `9 → 10` (`v10_user_page_index`), `10 → 11` (`v11_share_token_hash`, шифрует legacy-токены и требует master key), `11 → 12` (`v12_user_search_index`), `12 → 13` (`v13_user_identity`: удаляет `login`, заполняет пропущенные email из старого логина, нормализует email, добавляет `full_name: null`, перестраивает `user_page_index` и `user_search_index`) не удаляют пользовательские записи; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
 
 ## 4. Очистка устаревших данных
 
@@ -264,7 +264,7 @@ Retention: `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не ч
 ```bash
 TOKEN=$(curl -fsS -X POST http://127.0.0.1:8080/api/v1/auth/login \
   -H 'content-type: application/json' \
-  -d '{"login":"admin","password":"<пароль>"}' | jq -r .access_token)
+  -d '{"email":"admin@local","password":"<пароль>"}' | jq -r .access_token)
 curl -fsS -H "authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/quota
 curl -fsS -H "authorization: Bearer $TOKEN" \

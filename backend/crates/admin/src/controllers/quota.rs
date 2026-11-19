@@ -64,8 +64,8 @@ pub async fn users(
         items.push(user_quota(&state.tariffs, account, used).map_err(ApiError::from)?);
     }
     items.sort_by(|left, right| {
-        left.login
-            .cmp(&right.login)
+        left.email
+            .cmp(&right.email)
             .then_with(|| left.user_id.cmp(&right.user_id))
     });
     Ok(Json(items))
@@ -102,7 +102,7 @@ pub(crate) fn current_quota(
 
 fn user_quota(tariffs: &TariffService, account: &User, used: u64) -> CoreResult<QuotaUserView> {
     let state = quota_state(tariffs, account, used)?;
-    Ok(QuotaUserView::build(account.id, &account.login, state))
+    Ok(QuotaUserView::build(account.id, &account.email, state))
 }
 
 #[cfg(test)]
@@ -140,18 +140,18 @@ mod tests {
         (service, tariff_id)
     }
 
-    fn account(login: &str, tariff_id: Option<Uuid>) -> User {
+    fn account(email: &str, tariff_id: Option<Uuid>) -> User {
         let now = Utc::now();
         User {
             id: Uuid::new_v4(),
-            login: login.into(),
+            email: email.into(),
+            full_name: None,
             password_hash: String::new(),
             role: Role::User,
             tariff_id,
             group_id: None,
             node_id: None,
             disabled: false,
-            email: None,
             status: awg_identity::UserStatus::Active,
             totp_secret_sealed: None,
             totp_enabled: false,
@@ -178,7 +178,7 @@ mod tests {
     #[test]
     fn current_quota_assembles_state_and_period() {
         let (tariffs, tariff_id) = tariff_service(Some(1000));
-        let user = account("alice", tariff_id);
+        let user = account("alice@example.com", tariff_id);
         let view = current_quota(&tariffs, &user, 500, now()).unwrap();
 
         assert_eq!(view.used_bytes, 500);
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn current_quota_without_tariff_has_null_quota_fields() {
         let (tariffs, _) = tariff_service(None);
-        let user = account("bob", None);
+        let user = account("bob@example.com", None);
         let view = current_quota(&tariffs, &user, 1234, now()).unwrap();
         let json = serde_json::to_value(&view).unwrap();
 
@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn current_quota_over_usage_reports_exceeded() {
         let (tariffs, tariff_id) = tariff_service(Some(1000));
-        let user = account("carol", tariff_id);
+        let user = account("carol@example.com", tariff_id);
         let view = current_quota(&tariffs, &user, 2000, now()).unwrap();
 
         assert!(view.exceeded);
@@ -236,7 +236,7 @@ mod tests {
     #[test]
     fn user_quota_projects_required_fields() {
         let (tariffs, tariff_id) = tariff_service(Some(1000));
-        let user = account("dave", tariff_id);
+        let user = account("dave@example.com", tariff_id);
         let view = user_quota(&tariffs, &user, 250).unwrap();
         let json = serde_json::to_value(&view).unwrap();
 
@@ -244,7 +244,7 @@ mod tests {
             json,
             json!({
                 "user_id": user.id,
-                "login": "dave",
+                "email": "dave@example.com",
                 "used_bytes": 250,
                 "quota_bytes": 1000,
                 "exceeded": false,
@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn user_quota_without_tariff_has_null_quota() {
         let (tariffs, _) = tariff_service(None);
-        let user = account("erin", None);
+        let user = account("erin@example.com", None);
         let view = user_quota(&tariffs, &user, 10).unwrap();
 
         assert_eq!(view.quota_bytes, None);

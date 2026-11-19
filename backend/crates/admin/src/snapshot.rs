@@ -655,18 +655,18 @@ mod tests {
         }
     }
 
-    fn user(login: &str, tariff_id: Option<Uuid>) -> User {
+    fn user(email: &str, tariff_id: Option<Uuid>) -> User {
         let now = Utc::now();
         User {
             id: Uuid::new_v4(),
-            login: login.into(),
+            email: email.into(),
+            full_name: None,
             password_hash: String::new(),
             role: Role::User,
             tariff_id,
             group_id: None,
             node_id: None,
             disabled: false,
-            email: None,
             status: UserStatus::Active,
             totp_secret_sealed: None,
             totp_enabled: false,

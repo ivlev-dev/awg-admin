@@ -25,7 +25,10 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/auth/refresh", post(controllers::auth::refresh))
         .route("/auth/logout", post(controllers::auth::logout))
-        .route("/auth/me", get(controllers::auth::me))
+        .route(
+            "/auth/me",
+            get(controllers::auth::me).patch(controllers::auth::update_me),
+        )
         .route("/auth/password", post(controllers::auth::change_password))
         .route("/auth/sessions", get(controllers::auth::sessions))
         .route(

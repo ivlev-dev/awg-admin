@@ -60,10 +60,11 @@ fn metadata() -> SessionMetadata {
     }
 }
 
-fn create_user(service: &IdentityService, login: &str) -> awg_identity::User {
+fn create_user(service: &IdentityService, local: &str) -> awg_identity::User {
     service
         .create(NewUser {
-            email: format!("{login}@example.com"),
+            email: format!("{local}@example.com"),
+            full_name: None,
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -100,26 +101,25 @@ fn mint(claims: &AuthClaims) -> String {
 #[test]
 fn seeds_admin_once_and_logs_in() {
     let service = service();
-    let admin = service.seed_admin("admin", "password123").unwrap();
+    let admin = service.seed_admin("admin@local", "password123").unwrap();
     assert!(admin.is_some());
-    assert_eq!(
-        admin.as_ref().unwrap().email.as_deref(),
-        Some("admin@local")
-    );
-    assert_eq!(admin.as_ref().unwrap().login, "admin");
+    assert_eq!(admin.as_ref().unwrap().email, "admin@local");
+    assert!(admin.as_ref().unwrap().full_name.is_none());
     assert!(
         service
-            .seed_admin("other", "password123")
+            .seed_admin("other@local", "password123")
             .unwrap()
             .is_none()
     );
 
     assert!(
         service
-            .login("admin", "wrong-password", &metadata())
+            .login("admin@local", "wrong-password", &metadata())
             .is_err()
     );
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
     assert_eq!(session.user.role, Role::Admin);
 
     let principal = service.authenticate(&session.access_token).unwrap();
@@ -131,11 +131,10 @@ fn seeds_admin_once_and_logs_in() {
 fn seeds_admin_with_configured_email() {
     let service = service();
     let admin = service
-        .seed_admin_with_email("root", " Owner@Example.COM ", "password123")
+        .seed_admin(" Owner@Example.COM ", "password123")
         .unwrap()
         .unwrap();
-    assert_eq!(admin.email.as_deref(), Some("owner@example.com"));
-    assert_eq!(admin.login, "owner");
+    assert_eq!(admin.email, "owner@example.com");
     assert_eq!(admin.role, Role::Admin);
 
     assert!(
@@ -145,7 +144,7 @@ fn seeds_admin_with_configured_email() {
     );
     assert!(
         service
-            .seed_admin_with_email("other", "other@example.com", "password123")
+            .seed_admin("other@example.com", "password123")
             .unwrap()
             .is_none()
     );
@@ -154,8 +153,10 @@ fn seeds_admin_with_configured_email() {
 #[test]
 fn refresh_rotates_tokens_in_the_same_family() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
     let family = service.sessions(session.user.id).unwrap()[0].family_id;
 
     let refreshed = service
@@ -175,8 +176,10 @@ fn refresh_rotates_tokens_in_the_same_family() {
 #[test]
 fn reused_refresh_revokes_the_whole_family() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
     let rotated = service
         .refresh(&session.refresh_token, &metadata())
         .unwrap();
@@ -195,8 +198,10 @@ fn reused_refresh_revokes_the_whole_family() {
 #[test]
 fn access_and_refresh_kinds_are_not_interchangeable() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
 
     assert!(service.refresh(&session.access_token, &metadata()).is_err());
     assert!(service.authenticate(&session.refresh_token).is_err());
@@ -205,8 +210,10 @@ fn access_and_refresh_kinds_are_not_interchangeable() {
 #[test]
 fn rejects_tokens_with_wrong_issuer_or_audience() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
 
     let mut wrong_issuer = base_claims(session.user.id);
     wrong_issuer.iss = "another-issuer".into();
@@ -219,8 +226,10 @@ fn rejects_tokens_with_wrong_issuer_or_audience() {
 #[test]
 fn rejects_expired_and_not_yet_valid_tokens() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
     let now = Utc::now().timestamp();
 
     let mut expired = base_claims(session.user.id);
@@ -239,9 +248,14 @@ fn rejects_expired_and_not_yet_valid_tokens() {
 #[test]
 fn password_change_and_role_update() {
     let service = service();
-    let admin = service.seed_admin("admin", "password123").unwrap().unwrap();
+    let admin = service
+        .seed_admin("admin@local", "password123")
+        .unwrap()
+        .unwrap();
     let user = create_user(&service, "user");
-    let session = service.login("user", "password123", &metadata()).unwrap();
+    let session = service
+        .login("user@example.com", "password123", &metadata())
+        .unwrap();
 
     assert!(
         service
@@ -257,8 +271,16 @@ fn password_change_and_role_update() {
     service
         .change_password(user.id, "password123", None, "newpassword123")
         .unwrap();
-    assert!(service.login("user", "newpassword123", &metadata()).is_ok());
-    assert!(service.login("user", "password123", &metadata()).is_err());
+    assert!(
+        service
+            .login("user@example.com", "newpassword123", &metadata())
+            .is_ok()
+    );
+    assert!(
+        service
+            .login("user@example.com", "password123", &metadata())
+            .is_err()
+    );
     assert!(
         service
             .refresh(&session.refresh_token, &metadata())
@@ -269,6 +291,7 @@ fn password_change_and_role_update() {
         .update(
             user.id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: Some(Role::Admin),
                 tariff_id: None,
@@ -289,6 +312,7 @@ fn create_and_update_bind_users_to_a_node() {
     let user = service
         .create(NewUser {
             email: "node-user@example.com".into(),
+            full_name: None,
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -302,6 +326,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -317,6 +342,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -333,6 +359,7 @@ fn create_and_update_bind_users_to_a_node() {
         .update(
             user.id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -351,6 +378,7 @@ fn create_uses_email_as_primary_identifier() {
     let user = service
         .create(NewUser {
             email: " New.User@Example.COM ".into(),
+            full_name: None,
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -358,12 +386,12 @@ fn create_uses_email_as_primary_identifier() {
             node_id: None,
         })
         .unwrap();
-    assert_eq!(user.email.as_deref(), Some("new.user@example.com"));
-    assert_eq!(user.login, "new.user");
+    assert_eq!(user.email, "new.user@example.com");
 
     let duplicate = service
         .create(NewUser {
             email: "NEW.USER@example.com".into(),
+            full_name: None,
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -381,6 +409,7 @@ fn create_uses_email_as_primary_identifier() {
     let other = service
         .create(NewUser {
             email: "new.user@another.example".into(),
+            full_name: None,
             password: "password123".into(),
             role: Role::User,
             tariff_id: None,
@@ -388,7 +417,7 @@ fn create_uses_email_as_primary_identifier() {
             node_id: None,
         })
         .unwrap();
-    assert_eq!(other.login, "new.user-2");
+    assert_eq!(other.email, "new.user@another.example");
 
     let session = service
         .login("NEW.USER@EXAMPLE.COM", "password123", &metadata())
@@ -397,9 +426,58 @@ fn create_uses_email_as_primary_identifier() {
     assert!(
         service
             .login("new.user", "password123", &metadata())
-            .is_ok(),
-        "legacy login remains a valid fallback"
+            .is_err(),
+        "a bare login is no longer accepted"
     );
+}
+
+#[test]
+fn full_name_is_created_trimmed_and_updated() {
+    let service = service();
+    let user = service
+        .create(NewUser {
+            email: "named@example.com".into(),
+            full_name: Some("  Иван Петров  ".into()),
+            password: "password123".into(),
+            role: Role::User,
+            tariff_id: None,
+            group_id: None,
+            node_id: None,
+        })
+        .unwrap();
+    assert_eq!(user.full_name.as_deref(), Some("Иван Петров"));
+
+    let cleared = service
+        .update(
+            user.id,
+            UserChanges {
+                email: None,
+                full_name: Some(None),
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap();
+    assert!(cleared.full_name.is_none());
+
+    let invalid = service
+        .update(
+            user.id,
+            UserChanges {
+                email: None,
+                full_name: Some(Some("x".repeat(201))),
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap_err();
+    assert!(invalid.to_string().contains("full_name"), "{invalid}");
 }
 
 #[test]
@@ -412,6 +490,7 @@ fn update_changes_email_with_uniqueness() {
         .update(
             alice.id,
             UserChanges {
+                full_name: None,
                 email: Some(" Alice.New@Example.COM ".into()),
                 role: None,
                 tariff_id: None,
@@ -421,13 +500,13 @@ fn update_changes_email_with_uniqueness() {
             },
         )
         .unwrap();
-    assert_eq!(updated.email.as_deref(), Some("alice.new@example.com"));
-    assert_eq!(updated.login, "alice");
+    assert_eq!(updated.email, "alice.new@example.com");
 
     let conflict = service
         .update(
             bob.id,
             UserChanges {
+                full_name: None,
                 email: Some("ALICE.NEW@example.com".into()),
                 role: None,
                 tariff_id: None,
@@ -441,10 +520,7 @@ fn update_changes_email_with_uniqueness() {
         conflict.to_string().contains("email is already registered"),
         "{conflict}"
     );
-    assert_eq!(
-        service.find(bob.id).unwrap().email.as_deref(),
-        Some("bob@example.com")
-    );
+    assert_eq!(service.find(bob.id).unwrap().email, "bob@example.com");
 
     assert!(
         service
@@ -456,20 +532,26 @@ fn update_changes_email_with_uniqueness() {
             .login("alice@example.com", "password123", &metadata())
             .is_err()
     );
-    assert!(service.login("alice", "password123", &metadata()).is_ok());
+    assert!(
+        service.login("alice", "password123", &metadata()).is_err(),
+        "a bare login is no longer accepted"
+    );
 }
 
 #[test]
 fn disabled_user_cannot_log_in_and_loses_sessions() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
     let user = create_user(&service, "user");
-    let session = service.login("user", "password123", &metadata()).unwrap();
+    let session = service
+        .login("user@example.com", "password123", &metadata())
+        .unwrap();
 
     service
         .update(
             user.id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -479,7 +561,11 @@ fn disabled_user_cannot_log_in_and_loses_sessions() {
             },
         )
         .unwrap();
-    assert!(service.login("user", "password123", &metadata()).is_err());
+    assert!(
+        service
+            .login("user@example.com", "password123", &metadata())
+            .is_err()
+    );
     assert!(service.authenticate(&session.access_token).is_err());
     assert!(
         service
@@ -491,9 +577,11 @@ fn disabled_user_cannot_log_in_and_loses_sessions() {
 #[test]
 fn deleted_user_loses_access_and_sessions() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
     let user = create_user(&service, "user");
-    let session = service.login("user", "password123", &metadata()).unwrap();
+    let session = service
+        .login("user@example.com", "password123", &metadata())
+        .unwrap();
 
     service.delete(user.id).unwrap();
     assert!(service.authenticate(&session.access_token).is_err());
@@ -507,11 +595,13 @@ fn deleted_user_loses_access_and_sessions() {
 #[test]
 fn lists_and_revokes_sessions_per_user() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
     let user = create_user(&service, "user");
     let other = create_user(&service, "other");
 
-    let session = service.login("user", "password123", &metadata()).unwrap();
+    let session = service
+        .login("user@example.com", "password123", &metadata())
+        .unwrap();
 
     let sessions = service.sessions(user.id).unwrap();
     assert_eq!(sessions.len(), 1);
@@ -542,8 +632,10 @@ fn lists_and_revokes_sessions_per_user() {
 #[test]
 fn logout_all_revokes_every_refresh_token() {
     let service = service();
-    service.seed_admin("admin", "password123").unwrap();
-    let session = service.login("admin", "password123", &metadata()).unwrap();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
 
     let revoked = service.logout_all(session.user.id).unwrap();
     assert_eq!(revoked, 1);
@@ -561,14 +653,14 @@ fn prune_removes_expired_records() {
     let now = Utc::now();
     let user = awg_identity::User {
         id: uuid::Uuid::new_v4(),
-        login: "user".into(),
+        email: "user@example.com".into(),
+        full_name: None,
         password_hash: String::new(),
         role: Role::User,
         tariff_id: None,
         group_id: None,
         node_id: None,
         disabled: false,
-        email: None,
         status: awg_identity::UserStatus::Active,
         totp_secret_sealed: None,
         totp_enabled: false,

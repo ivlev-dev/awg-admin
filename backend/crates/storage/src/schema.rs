@@ -5,7 +5,7 @@ use awg_shared::crypto::{Sealer, sha256_hex};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 12;
+pub const CURRENT_SCHEMA_VERSION: u32 = 13;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -73,6 +73,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 11,
         to: 12,
         apply: v12_user_search_index,
+    },
+    MigrationStep {
+        from: 12,
+        to: 13,
+        apply: v13_user_identity,
     },
 ];
 
@@ -213,6 +218,75 @@ fn v10_user_page_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Resu
 }
 
 fn v12_user_search_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    crate::user_search::backfill(txn)
+}
+
+fn v13_user_identity(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let users = read_values(txn, Table::Users)?;
+    for (_, user) in &users {
+        if let Some(email) = user_email(user) {
+            used.insert(email.trim().to_lowercase());
+        }
+    }
+
+    let mut updated: Vec<(String, Value)> = Vec::new();
+    for (key, mut user) in users {
+        let id = user
+            .get("id")
+            .and_then(Value::as_str)
+            .unwrap_or(key.as_str())
+            .to_string();
+        let email = match user_email(&user).map(str::to_string) {
+            Some(email) => email.trim().to_lowercase(),
+            None => {
+                let login = user
+                    .get("login")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let local = sanitize_email_local(login);
+                let local = if local.is_empty() {
+                    "user".to_string()
+                } else {
+                    local
+                };
+                let mut candidate = format!("{local}@local");
+                let mut attempt = 0;
+                while used.contains(&candidate) {
+                    attempt += 1;
+                    let suffix = match attempt {
+                        1 => sanitize_email_local(&id),
+                        other => format!("{}-{other}", sanitize_email_local(&id)),
+                    };
+                    let suffix = if suffix.is_empty() {
+                        attempt.to_string()
+                    } else {
+                        suffix
+                    };
+                    candidate = format!("{local}+{suffix}@local");
+                }
+                candidate
+            }
+        };
+        used.insert(email.clone());
+        if let Some(object) = user.as_object_mut() {
+            object.remove("login");
+        }
+        user["email"] = json!(email);
+        if user.get("full_name").is_none() {
+            user["full_name"] = Value::Null;
+        }
+        updated.push((key, user));
+    }
+
+    if !updated.is_empty() {
+        let mut table = txn.open_table(Table::Users.definition())?;
+        for (key, value) in updated {
+            let bytes = serde_json::to_vec(&value)?;
+            table.insert(key.as_str(), bytes.as_slice())?;
+        }
+    }
+    crate::user_index::backfill(txn)?;
     crate::user_search::backfill(txn)
 }
 
@@ -431,7 +505,7 @@ fn v6_user_emails(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()
     let mut used: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (_, user) in read_values(txn, Table::Users)? {
         if let Some(email) = user_email(&user) {
-            used.insert(email.to_ascii_lowercase());
+            used.insert(email.trim().to_lowercase());
         }
     }
 
@@ -843,8 +917,9 @@ mod tests {
             let users = txn.open_table(Table::Users.definition()).unwrap();
             let raw = users.get("user-1").unwrap().unwrap();
             let value: Value = serde_json::from_slice(raw.value()).unwrap();
-            assert_eq!(value["login"], json!("alice"));
+            assert!(value.get("login").is_none());
             assert_eq!(value["email"], json!("alice@local"));
+            assert_eq!(value["full_name"], Value::Null);
         }
         {
             let plans = txn.open_table(Table::BillingPlans.definition()).unwrap();
@@ -1546,7 +1621,14 @@ mod tests {
                     "active",
                     false,
                 ),
-                (second, "bob", None, "admin", "pending_approval", true),
+                (
+                    second,
+                    "bob",
+                    Some("Bob@Example.COM"),
+                    "admin",
+                    "pending_approval",
+                    true,
+                ),
                 (
                     third,
                     "carol",
@@ -1591,12 +1673,12 @@ mod tests {
             keys,
             vec![
                 format!("alice@example.com|{first}"),
-                format!("bob|{second}"),
+                format!("bob@example.com|{second}"),
                 format!("carol@example.com|{third}"),
             ]
         );
         let raw = index
-            .get(format!("bob|{second}").as_str())
+            .get(format!("bob@example.com|{second}").as_str())
             .unwrap()
             .unwrap();
         let value: Value = serde_json::from_slice(raw.value()).unwrap();
@@ -1741,6 +1823,7 @@ mod tests {
                     json!({
                         "id": second,
                         "login": "bob",
+                        "email": "Bob@Example.COM",
                         "role": "admin",
                         "status": "active",
                         "disabled": false,
@@ -1760,8 +1843,8 @@ mod tests {
         let first_keys =
             crate::user_search::keys_for_entry(&crate::user_index::UserPageEntry::new(
                 first,
-                Some("Alice@Example.COM".into()),
-                "alice",
+                "Alice@Example.COM".into(),
+                None,
                 "user",
                 "active",
                 false,
@@ -1770,15 +1853,27 @@ mod tests {
         let second_keys =
             crate::user_search::keys_for_entry(&crate::user_index::UserPageEntry::new(
                 second,
+                "Bob@Example.COM".into(),
                 None,
-                "bob",
                 "admin",
                 "active",
                 false,
                 chrono::DateTime::UNIX_EPOCH,
             ));
         assert!(!first_keys.is_empty());
-        assert_eq!(second_keys, vec![format!("bob|{second}")]);
+        assert!(!second_keys.is_empty());
+        assert_eq!(
+            second_keys,
+            crate::user_search::keys_for_entry(&crate::user_index::UserPageEntry::new(
+                second,
+                "Bob@Example.COM".into(),
+                None,
+                "admin",
+                "active",
+                false,
+                chrono::DateTime::UNIX_EPOCH,
+            ))
+        );
 
         let expected: std::collections::BTreeSet<String> =
             first_keys.into_iter().chain(second_keys).collect();
@@ -1817,6 +1912,125 @@ mod tests {
         v12_user_search_index(&txn, None).unwrap();
         v12_user_search_index(&txn, None).unwrap();
         txn.commit().unwrap();
+    }
+
+    #[test]
+    fn migration_v13_drops_logins_and_rebuilds_indexes() {
+        let db = in_memory();
+        seed_legacy(&db, Some(12));
+        let admin = uuid::Uuid::new_v4();
+        let alice = uuid::Uuid::new_v4();
+        let carol = uuid::Uuid::new_v4();
+        let dave = uuid::Uuid::new_v4();
+        let eve = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            for (id, login, email, full_name) in [
+                (admin, "Admin", None::<&str>, None::<&str>),
+                (alice, "Alice", Some(" Alice@Example.COM "), Some("Алиса")),
+                (carol, "Bad Login!", Some(""), None),
+                (dave, "dave", None, None),
+                (eve, "---", None, None),
+            ] {
+                users
+                    .insert(
+                        id.to_string().as_str(),
+                        json!({
+                            "id": id,
+                            "login": login,
+                            "email": email,
+                            "full_name": full_name,
+                            "role": "user",
+                            "status": "active",
+                            "disabled": false,
+                            "created_at": "2026-01-01T00:00:00Z",
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            drop(users);
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 12, 13).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(13));
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let user_of = |id: uuid::Uuid| {
+            let raw = users.get(id.to_string().as_str()).unwrap().unwrap();
+            let value: Value = serde_json::from_slice(raw.value()).unwrap();
+            value
+        };
+        let admin_value = user_of(admin);
+        assert!(admin_value.get("login").is_none());
+        assert_eq!(admin_value["email"], json!("admin@local"));
+        assert_eq!(admin_value["full_name"], Value::Null);
+
+        let alice_value = user_of(alice);
+        assert!(alice_value.get("login").is_none());
+        assert_eq!(alice_value["email"], json!("alice@example.com"));
+        assert_eq!(alice_value["full_name"], json!("Алиса"));
+
+        let carol_value = user_of(carol);
+        assert_eq!(carol_value["email"], json!("bad-login@local"));
+
+        let dave_value = user_of(dave);
+        assert_eq!(dave_value["email"], json!("dave@local"));
+
+        let eve_value = user_of(eve);
+        assert_eq!(eve_value["email"], json!("user@local"));
+        drop(users);
+
+        let page = txn.open_table(Table::UserPageIndex.definition()).unwrap();
+        let page_keys: Vec<String> = page
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(
+            page_keys,
+            vec![
+                format!("admin@local|{admin}"),
+                format!("alice@example.com|{alice}"),
+                format!("bad-login@local|{carol}"),
+                format!("dave@local|{dave}"),
+                format!("user@local|{eve}"),
+            ]
+        );
+        drop(page);
+
+        let search = txn.open_table(Table::UserSearchIndex.definition()).unwrap();
+        let search_keys: std::collections::BTreeSet<String> = search
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert!(search_keys.contains(format!("ali|{alice}").as_str()));
+        assert!(search_keys.contains(format!("али|{alice}").as_str()));
+        drop(search);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v13_user_identity(&txn, None).unwrap();
+        v13_user_identity(&txn, None).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let users = txn.open_table(Table::Users.definition()).unwrap();
+        let raw = users.get(alice.to_string().as_str()).unwrap().unwrap();
+        let alice_after: Value = serde_json::from_slice(raw.value()).unwrap();
+        assert_eq!(alice_after["email"], json!("alice@example.com"));
+        drop(raw);
+        drop(users);
+        let page = txn.open_table(Table::UserPageIndex.definition()).unwrap();
+        assert_eq!(page.iter().unwrap().count(), 5);
+        drop(page);
+        let search = txn.open_table(Table::UserSearchIndex.definition()).unwrap();
+        assert_eq!(search.iter().unwrap().count(), search_keys.len());
     }
 
     fn sealer() -> Sealer {

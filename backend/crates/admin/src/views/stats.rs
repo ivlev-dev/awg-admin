@@ -90,7 +90,7 @@ impl QuotaView {
 #[derive(Debug, Serialize)]
 pub struct QuotaUserView {
     pub user_id: Uuid,
-    pub login: String,
+    pub email: String,
     pub used_bytes: u64,
     pub quota_bytes: Option<u64>,
     pub exceeded: bool,
@@ -98,10 +98,10 @@ pub struct QuotaUserView {
 }
 
 impl QuotaUserView {
-    pub fn build(user_id: Uuid, login: &str, state: QuotaState) -> Self {
+    pub fn build(user_id: Uuid, email: &str, state: QuotaState) -> Self {
         Self {
             user_id,
-            login: login.to_string(),
+            email: email.to_string(),
             used_bytes: state.used_bytes,
             quota_bytes: state.quota_bytes,
             exceeded: state.exceeded,

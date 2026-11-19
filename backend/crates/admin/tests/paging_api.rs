@@ -71,6 +71,7 @@ async fn admin_token(env: &AppEnv) -> String {
         .update(
             env.owner_id,
             UserChanges {
+                full_name: None,
                 email: None,
                 role: Some(Role::Admin),
                 tariff_id: None,
@@ -553,6 +554,7 @@ async fn users_page_filters_and_paginates() {
             .identity
             .create(awg_identity::NewUser {
                 email: format!("paged-{index}@example.com"),
+                full_name: None,
                 password: PASSWORD.into(),
                 role: Role::User,
                 tariff_id: None,
@@ -566,6 +568,7 @@ async fn users_page_filters_and_paginates() {
                 .update(
                     created.id,
                     UserChanges {
+                        full_name: None,
                         email: None,
                         role: None,
                         tariff_id: None,
@@ -711,14 +714,14 @@ fn save_users(env: &AppEnv, users: &[SeededUser]) {
             Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap() + Duration::seconds(index as i64);
         repo.save(&User {
             id: item.id,
-            login: format!("user-{index:03}"),
+            email: item.email.clone(),
+            full_name: None,
             password_hash: "hash".into(),
             role: item.role,
             tariff_id: None,
             group_id: None,
             node_id: None,
             disabled: item.disabled,
-            email: Some(item.email.clone()),
             status: item.status,
             totp_secret_sealed: None,
             totp_enabled: false,
@@ -1014,19 +1017,19 @@ async fn user_index_follows_rename_role_disable_approve_and_delete() {
     assert_eq!(body["total"], 233);
 }
 
-fn save_user_with_login(env: &AppEnv, id: Uuid, login: &str, email: Option<&str>) {
+fn save_user_with_full_name(env: &AppEnv, id: Uuid, email: &str, full_name: Option<&str>) {
     let repo = RedbUserRepository::new(env.store.clone());
     let created = Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
     repo.save(&User {
         id,
-        login: login.into(),
+        email: email.into(),
+        full_name: full_name.map(str::to_string),
         password_hash: "hash".into(),
         role: Role::User,
         tariff_id: None,
         group_id: None,
         node_id: None,
         disabled: false,
-        email: email.map(str::to_string),
         status: UserStatus::Active,
         totp_secret_sealed: None,
         totp_enabled: false,
@@ -1047,11 +1050,11 @@ async fn users_page_trigram_search_covers_lengths_case_and_middle_matches() {
     let users: Vec<SeededUser> = (0..250).map(seed_user).collect();
     save_users(&env, &users);
     let divergent_id = Uuid::from_u128(2_000_000);
-    save_user_with_login(
+    save_user_with_full_name(
         &env,
         divergent_id,
-        "special-account",
-        Some("divergent@example.com"),
+        "divergent@example.com",
+        Some("special-account"),
     );
 
     let active = |item: &SeededUser| item.status != UserStatus::PendingApproval;

@@ -42,7 +42,7 @@ pub async fn middleware(
     };
 
     let (actor_id, actor_login) = match resolve_actor(&state, authorization.as_deref()) {
-        Some((id, login)) => (Some(id), truncate_actor_login(&login)),
+        Some((id, email)) => (Some(id), truncate_actor_login(&email)),
         None => (None, "anonymous".to_string()),
     };
     let entry = AuditEntry::from_new(NewAuditEntry {
@@ -65,12 +65,12 @@ pub async fn middleware(
 pub fn record_login(
     state: &AppState,
     ip: Option<String>,
-    login: &str,
+    email: &str,
     actor_id: Option<Uuid>,
     status: u16,
     details: Option<String>,
 ) {
-    let actor_login = truncate_actor_login(login);
+    let actor_login = truncate_actor_login(email);
     let entry = AuditEntry::from_new(NewAuditEntry {
         actor_id,
         actor_login,
@@ -87,8 +87,8 @@ pub fn record_login(
     }
 }
 
-fn truncate_actor_login(login: &str) -> String {
-    let trimmed = login.trim();
+fn truncate_actor_login(email: &str) -> String {
+    let trimmed = email.trim();
     if trimmed.is_empty() {
         return "anonymous".to_string();
     }
@@ -99,7 +99,7 @@ fn resolve_actor(state: &AppState, authorization: Option<&str>) -> Option<(Uuid,
     let token = authorization?.strip_prefix("Bearer ")?;
     let principal = state.identity.authenticate(token).ok()?;
     let user = state.identity.find(principal.user_id).ok()?;
-    Some((user.id, user.email_or_login()))
+    Some((user.id, user.email))
 }
 
 /// Resolves the client address for rate limiting and audit records.
@@ -191,7 +191,7 @@ mod tests {
     #[test]
     fn actor_logins_are_truncated_and_default_to_anonymous() {
         assert_eq!(truncate_actor_login("   "), "anonymous");
-        assert_eq!(truncate_actor_login(" admin "), "admin");
+        assert_eq!(truncate_actor_login(" admin@local "), "admin@local");
         let long = "я".repeat(300);
         let truncated = truncate_actor_login(&long);
         assert_eq!(truncated.chars().count(), MAX_ACTOR_LOGIN_LEN);

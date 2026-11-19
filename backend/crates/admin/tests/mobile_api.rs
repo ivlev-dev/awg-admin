@@ -170,6 +170,7 @@ async fn disabled_account_cannot_log_in() {
         .update(
             env.other_id,
             awg_identity::UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -189,7 +190,7 @@ async fn disabled_account_cannot_log_in() {
                 .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 45_000))))
                 .body(Body::from(
                     serde_json::to_vec(&json!({
-                        "login": OTHER_EMAIL,
+                        "email": OTHER_EMAIL,
                         "password": PASSWORD,
                     }))
                     .unwrap(),
@@ -917,6 +918,7 @@ async fn bootstrap_interfaces_follow_tariff_pin_and_group_fallback() {
         .update(
             env.owner_id,
             awg_identity::UserChanges {
+                full_name: None,
                 email: None,
                 role: None,
                 tariff_id: None,
@@ -951,6 +953,7 @@ async fn admin_token(env: &AppEnv) -> String {
         .update(
             env.owner_id,
             awg_identity::UserChanges {
+                full_name: None,
                 email: None,
                 role: Some(awg_identity::Role::Admin),
                 tariff_id: None,

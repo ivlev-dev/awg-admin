@@ -70,7 +70,7 @@ async fn the_health_check_is_served_while_a_login_hash_runs() {
             "POST",
             "/api/v1/auth/login",
             None,
-            Some(json!({ "login": OWNER_EMAIL, "password": PASSWORD })),
+            Some(json!({ "email": OWNER_EMAIL, "password": PASSWORD })),
         )
         .await;
         login_finished.store(1, Ordering::SeqCst);
@@ -136,7 +136,7 @@ async fn registration_and_password_change_keep_their_contract() {
         "/api/v1/auth/login",
         None,
         Some(json!({
-            "login": "new-user@example.com",
+            "email": "new-user@example.com",
             "password": "password123",
         })),
     )
@@ -162,7 +162,7 @@ async fn registration_and_password_change_keep_their_contract() {
         "POST",
         "/api/v1/auth/login",
         None,
-        Some(json!({ "login": OWNER_EMAIL, "password": PASSWORD })),
+        Some(json!({ "email": OWNER_EMAIL, "password": PASSWORD })),
     )
     .await;
     assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
@@ -174,7 +174,7 @@ async fn registration_and_password_change_keep_their_contract() {
         "/api/v1/auth/login",
         None,
         Some(json!({
-            "login": OWNER_EMAIL,
+            "email": OWNER_EMAIL,
             "password": "new-password-123",
         })),
     )

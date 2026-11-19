@@ -506,7 +506,6 @@ fn app_config(
         jwt_audience: DEFAULT_JWT_AUDIENCE.into(),
         access_ttl_secs: 900,
         refresh_ttl_secs: 86_400,
-        admin_login: "admin".into(),
         admin_email: DEFAULT_ADMIN_EMAIL.into(),
         admin_password: if production {
             "production-password-123".into()
@@ -716,6 +715,7 @@ fn app_env_with(
     let owner = identity
         .create(NewUser {
             email: OWNER_EMAIL.into(),
+            full_name: None,
             password: PASSWORD.into(),
             role: Role::User,
             tariff_id: Some(tariff.id),
@@ -726,6 +726,7 @@ fn app_env_with(
     let other = identity
         .create(NewUser {
             email: OTHER_EMAIL.into(),
+            full_name: None,
             password: PASSWORD.into(),
             role: Role::User,
             tariff_id: None,

@@ -45,8 +45,8 @@ Traefik с портами 80/443 запускается отдельным пр�
 `docker compose --profile tls up -d`. Без него порты 80/443 не занимаются.
 Затем откройте `https://panel.localhost` (или `AWG_DOMAIN`). Первый вход:
 `AWG_ADMIN_EMAIL` / `AWG_ADMIN_PASSWORD` из `.env` (по умолчанию
-`admin@local` / `admin12345`); legacy-логин `AWG_ADMIN_LOGIN` (`admin`) тоже
-принимается — **смените пароль после входа**.
+`admin@local` / `admin12345`); вход выполняется только по email — **смените
+пароль после входа**.
 
 Проверка API: `curl --http2-prior-knowledge http://127.0.0.1:8080/api/v1/health`.
 

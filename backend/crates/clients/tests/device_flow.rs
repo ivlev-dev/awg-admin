@@ -181,14 +181,14 @@ fn user(group_id: Uuid, tariff_id: Uuid) -> User {
     let now = Utc::now();
     User {
         id: Uuid::new_v4(),
-        login: "user".into(),
+        email: "user@example.com".into(),
+        full_name: None,
         password_hash: String::new(),
         role: Role::User,
         tariff_id: Some(tariff_id),
         group_id: Some(group_id),
         node_id: None,
         disabled: false,
-        email: None,
         status: awg_identity::UserStatus::Active,
         totp_secret_sealed: None,
         totp_enabled: false,

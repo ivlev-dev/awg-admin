@@ -22,6 +22,7 @@ async fn admin_token(env: &AppEnv) -> String {
         .update(
             env.owner_id,
             awg_identity::UserChanges {
+                full_name: None,
                 email: None,
                 role: Some(awg_identity::Role::Admin),
                 tariff_id: None,
@@ -133,7 +134,7 @@ async fn same_key_replays_the_user_creation() {
         .list()
         .unwrap()
         .into_iter()
-        .filter(|user| user.email.as_deref() == Some("idempotent-user@example.com"))
+        .filter(|user| user.email == "idempotent-user@example.com")
         .count();
     assert_eq!(created, 1);
 }
@@ -182,8 +183,8 @@ async fn different_keys_create_separate_users() {
         .into_iter()
         .filter(|user| {
             matches!(
-                user.email.as_deref(),
-                Some("first@example.com") | Some("second@example.com")
+                user.email.as_str(),
+                "first@example.com" | "second@example.com"
             )
         })
         .count();
@@ -299,7 +300,7 @@ async fn invalid_key_is_rejected() {
         .list()
         .unwrap()
         .into_iter()
-        .any(|user| user.email.as_deref() == Some("rejected@example.com"));
+        .any(|user| user.email == "rejected@example.com");
     assert!(!created);
 }
 
@@ -315,7 +316,7 @@ async fn login_is_not_cached() {
             None,
             Some("login-attempt-0001"),
             Some(json!({
-                "login": OWNER_EMAIL,
+                "email": OWNER_EMAIL,
                 "password": PASSWORD,
             })),
         )
@@ -479,7 +480,7 @@ async fn concurrent_identical_posts_create_one_effect() {
         .list()
         .unwrap()
         .into_iter()
-        .filter(|user| user.email.as_deref() == Some("concurrent-idempotent@example.com"))
+        .filter(|user| user.email == "concurrent-idempotent@example.com")
         .count();
     assert_eq!(created, 1);
 }

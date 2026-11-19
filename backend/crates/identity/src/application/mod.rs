@@ -12,19 +12,19 @@ use crate::domain::{
     CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
     EmailVerificationRepository, IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role,
     SessionMetadata, TokenIssuer, User, UserPage, UserPageQuery, UserRepository, UserStatus,
-    VerificationKind, email_from_login, normalize_email, sanitize_login, validate_login,
-    validate_password,
+    VerificationKind, normalize_email, normalize_optional_full_name, validate_password,
 };
 const VERIFICATION_TTL_HOURS: i64 = 24;
 const PASSWORD_RESET_TTL_HOURS: i64 = 1;
 const RECOVERY_CODE_COUNT: usize = 8;
 const TOTP_ISSUER: &str = "awg-admin";
-const MAX_LOGIN_LEN: usize = 254;
+const MAX_EMAIL_LEN: usize = 254;
 const MAX_PASSWORD_LEN: usize = 1024;
 
 #[derive(Debug, Clone)]
 pub struct NewUser {
     pub email: String,
+    pub full_name: Option<String>,
     pub password: String,
     pub role: Role,
     pub tariff_id: Option<Uuid>,
@@ -35,7 +35,7 @@ pub struct NewUser {
 #[derive(Debug, Clone)]
 pub struct RegisterInput {
     pub email: String,
-    pub login: Option<String>,
+    pub full_name: Option<String>,
     pub password: String,
 }
 
@@ -49,6 +49,7 @@ pub struct TotpSetup {
 #[derive(Debug, Clone)]
 pub struct UserChanges {
     pub email: Option<String>,
+    pub full_name: Option<Option<String>>,
     pub role: Option<Role>,
     pub tariff_id: Option<Option<Uuid>>,
     pub group_id: Option<Option<Uuid>>,
@@ -126,23 +127,14 @@ impl IdentityService {
         self
     }
 
-    pub fn seed_admin(&self, login: &str, password: &str) -> CoreResult<Option<User>> {
-        self.seed_admin_with_email(login, &email_from_login(login), password)
-    }
-
-    pub fn seed_admin_with_email(
-        &self,
-        login: &str,
-        email: &str,
-        password: &str,
-    ) -> CoreResult<Option<User>> {
+    pub fn seed_admin(&self, email: &str, password: &str) -> CoreResult<Option<User>> {
         if self.users.count()? > 0 {
             return Ok(None);
         }
-        let email =
-            normalize_email(email).or_else(|_| normalize_email(&email_from_login(login)))?;
+        let email = normalize_email(email)?;
         let user = self.create(NewUser {
             email,
+            full_name: None,
             password: password.to_string(),
             role: Role::Admin,
             tariff_id: None,
@@ -154,32 +146,34 @@ impl IdentityService {
 
     pub fn login(
         &self,
-        login: &str,
+        email: &str,
         password: &str,
         metadata: &SessionMetadata,
     ) -> CoreResult<AuthSession> {
-        self.login_with_totp(login, password, None, metadata)
+        self.login_with_totp(email, password, None, metadata)
     }
 
     pub fn login_with_totp(
         &self,
-        login: &str,
+        email: &str,
         password: &str,
         totp_code: Option<&str>,
         metadata: &SessionMetadata,
     ) -> CoreResult<AuthSession> {
-        let login = login.trim();
-        if login.len() > MAX_LOGIN_LEN || password.len() > MAX_PASSWORD_LEN {
-            return Err(CoreError::Forbidden("invalid login or password".into()));
+        let email = email.trim();
+        if email.len() > MAX_EMAIL_LEN || password.len() > MAX_PASSWORD_LEN {
+            return Err(CoreError::Forbidden("invalid email or password".into()));
         }
-        let user = match self.users.find_by_email(login)? {
-            Some(user) => Some(user),
-            None => self.users.find_by_login(login)?,
-        }
-        .ok_or_else(|| CoreError::Forbidden("invalid login or password".into()))?;
+        let Ok(email) = normalize_email(email) else {
+            return Err(CoreError::Forbidden("invalid email or password".into()));
+        };
+        let user = self
+            .users
+            .find_by_email(&email)?
+            .ok_or_else(|| CoreError::Forbidden("invalid email or password".into()))?;
         user.ensure_active()?;
         if !self.hasher.verify(password, &user.password_hash)? {
-            return Err(CoreError::Forbidden("invalid login or password".into()));
+            return Err(CoreError::Forbidden("invalid email or password".into()));
         }
         let mut user = user;
         if user.totp_enabled {
@@ -254,8 +248,8 @@ impl IdentityService {
             .ok_or_else(|| CoreError::NotFound("user".into()))
     }
 
-    pub fn find_by_login(&self, login: &str) -> CoreResult<Option<User>> {
-        self.users.find_by_login(login)
+    pub fn find_by_email(&self, email: &str) -> CoreResult<Option<User>> {
+        self.users.find_by_email(email)
     }
 
     pub fn list(&self) -> CoreResult<Vec<User>> {
@@ -268,22 +262,22 @@ impl IdentityService {
 
     pub fn create(&self, input: NewUser) -> CoreResult<User> {
         let email = normalize_email(&input.email)?;
+        let full_name = normalize_optional_full_name(input.full_name)?;
         validate_password(&input.password)?;
         if self.users.find_by_email(&email)?.is_some() {
             return Err(CoreError::Conflict("email is already registered".into()));
         }
-        let login = self.derived_login(&email)?;
         let now = Utc::now();
         let user = User {
             id: Uuid::new_v4(),
-            login,
+            email,
+            full_name,
             password_hash: self.hasher.hash(&input.password)?,
             role: input.role,
             tariff_id: input.tariff_id,
             group_id: input.group_id,
             node_id: input.node_id,
             disabled: false,
-            email: Some(email),
             status: UserStatus::Active,
             totp_secret_sealed: None,
             totp_enabled: false,
@@ -497,7 +491,7 @@ impl IdentityService {
                 return Err(CoreError::Invalid("invalid totp code".into()));
             }
         }
-        let (setup, sealed, hashes) = self.generate_totp(&user.login)?;
+        let (setup, sealed, hashes) = self.generate_totp(&user.email)?;
         if enabled {
             user.totp_pending_secret_sealed = Some(sealed);
             user.totp_pending_recovery_codes = hashes;
@@ -520,7 +514,7 @@ impl IdentityService {
             .or_else(|| user.totp_secret_sealed.clone())
             .ok_or_else(|| CoreError::Invalid("totp is not configured".into()))?;
         let step = self
-            .verify_totp_step(&user.login, &sealed, code.trim())?
+            .verify_totp_step(&user.email, &sealed, code.trim())?
             .ok_or_else(|| CoreError::Invalid("invalid totp code".into()))?;
         if pending.is_none() && !totp_step_is_fresh(&user, step) {
             return Err(CoreError::Invalid("invalid totp code".into()));
@@ -558,10 +552,10 @@ impl IdentityService {
         Ok(())
     }
 
-    fn generate_totp(&self, login: &str) -> CoreResult<(TotpSetup, String, Vec<String>)> {
+    fn generate_totp(&self, email: &str) -> CoreResult<(TotpSetup, String, Vec<String>)> {
         let secret = Secret::generate();
         let encoded = secret.to_base32();
-        let totp = build_totp(login, secret)?;
+        let totp = build_totp(email, secret)?;
         let otpauth_url = totp
             .to_url()
             .map_err(|e| CoreError::Crypto(format!("otpauth url failed: {e}")))?;
@@ -626,16 +620,12 @@ impl IdentityService {
         }
     }
 
-    fn derived_login(&self, email: &str) -> CoreResult<String> {
-        allocate_login(self.users.as_ref(), email)
-    }
-
     fn consume_auth_code(&self, user: &mut User, code: &str) -> CoreResult<bool> {
         if code.is_empty() {
             return Ok(false);
         }
         if let Some(sealed) = user.totp_secret_sealed.as_deref()
-            && let Some(step) = self.verify_totp_step(&user.login, sealed, code)?
+            && let Some(step) = self.verify_totp_step(&user.email, sealed, code)?
         {
             if !totp_step_is_fresh(user, step) {
                 return Ok(false);
@@ -656,11 +646,11 @@ impl IdentityService {
         Ok(false)
     }
 
-    fn verify_totp_step(&self, login: &str, sealed: &str, code: &str) -> CoreResult<Option<u64>> {
+    fn verify_totp_step(&self, email: &str, sealed: &str, code: &str) -> CoreResult<Option<u64>> {
         let encoded = self.sealer.open_str(sealed)?;
         let secret = Secret::try_from_base32(&encoded)
             .map_err(|e| CoreError::Crypto(format!("bad totp secret: {e}")))?;
-        let totp = build_totp(login, secret)?;
+        let totp = build_totp(email, secret)?;
         Ok(totp.check_current(code))
     }
 
@@ -673,7 +663,10 @@ impl IdentityService {
             {
                 return Err(CoreError::Conflict("email is already registered".into()));
             }
-            user.email = Some(email);
+            user.email = email;
+        }
+        if let Some(full_name) = changes.full_name {
+            user.full_name = normalize_optional_full_name(full_name)?;
         }
         if let Some(role) = changes.role {
             user.role = role;
@@ -767,36 +760,22 @@ fn register_user(
     input: RegisterInput,
 ) -> CoreResult<(User, String)> {
     let email = normalize_email(&input.email)?;
+    let full_name = normalize_optional_full_name(input.full_name)?;
     validate_password(&input.password)?;
     if users.find_by_email(&email)?.is_some() {
         return Err(CoreError::Conflict("email is already registered".into()));
     }
-    let login = match input
-        .login
-        .as_deref()
-        .map(str::trim)
-        .filter(|login| !login.is_empty())
-    {
-        Some(login) => {
-            validate_login(login)?;
-            if users.find_by_login(login)?.is_some() {
-                return Err(CoreError::Conflict("login is already taken".into()));
-            }
-            login.to_string()
-        }
-        None => allocate_login(users.as_ref(), &email)?,
-    };
     let now = Utc::now();
     let user = User {
         id: Uuid::new_v4(),
-        login,
+        email: email.clone(),
+        full_name,
         password_hash: hasher.hash(&input.password)?,
         role: Role::User,
         tariff_id: None,
         group_id: None,
         node_id: None,
         disabled: false,
-        email: Some(email.clone()),
         status: UserStatus::PendingEmail,
         totp_secret_sealed: None,
         totp_enabled: false,
@@ -811,28 +790,6 @@ fn register_user(
     Ok((user, email))
 }
 
-fn allocate_login(users: &dyn UserRepository, email: &str) -> CoreResult<String> {
-    let local = email.split('@').next().unwrap_or("user");
-    let mut base = sanitize_login(local);
-    if base.len() < 3 {
-        base = format!("user{base}");
-    }
-    base.truncate(64);
-    if users.find_by_login(&base)?.is_none() {
-        return Ok(base);
-    }
-    for suffix in 2..10_000 {
-        let tail = format!("-{suffix}");
-        let mut candidate = base.clone();
-        candidate.truncate(64 - tail.len());
-        candidate.push_str(&tail);
-        if users.find_by_login(&candidate)?.is_none() {
-            return Ok(candidate);
-        }
-    }
-    Err(CoreError::Conflict("could not allocate a login".into()))
-}
-
 fn join_error(error: tokio::task::JoinError) -> CoreError {
     CoreError::Io(std::io::Error::other(format!(
         "blocking task failed: {error}"
@@ -843,14 +800,14 @@ fn totp_step_is_fresh(user: &User, step: u64) -> bool {
     user.last_totp_step.is_none_or(|last| step > last)
 }
 
-fn build_totp(login: &str, secret: Secret) -> CoreResult<Totp> {
+fn build_totp(account: &str, secret: Secret) -> CoreResult<Totp> {
     Builder::new()
         .with_secret(secret)
         .with_algorithm(Algorithm::SHA1)
         .with_digits(6)
         .with_skew(1)
         .with_step_duration(30)
-        .with_account_name(login)
+        .with_account_name(account)
         .with_issuer(Some(TOTP_ISSUER))
         .build()
         .map_err(|e| CoreError::Crypto(format!("totp setup failed: {e}")))

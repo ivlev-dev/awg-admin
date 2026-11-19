@@ -15,7 +15,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, ForgotPasswordRequest,
     LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest, ResendVerificationRequest,
-    ResetPasswordRequest, SetupTotpRequest, VerifyEmailRequest,
+    ResetPasswordRequest, SetupTotpRequest, UpdateMeRequest, VerifyEmailRequest,
 };
 use crate::state::AppState;
 use crate::views::{AuthView, SessionView, UserView};
@@ -27,14 +27,14 @@ pub async fn login(
     Json(request): Json<LoginRequest>,
 ) -> ApiResult<Json<AuthView>> {
     let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
-    let key = rate_key(ip.as_deref(), &request.login);
+    let key = rate_key(ip.as_deref(), &request.email);
     if let Err(retry_after) = state.login_limiter.check(&key) {
         crate::metrics::record_rate_limited("login");
         crate::metrics::record_login("rate_limited");
         record_login(
             &state,
             ip,
-            &request.login,
+            &request.email,
             None,
             429,
             Some("rate limited".into()),
@@ -46,12 +46,12 @@ pub async fn login(
     }
     let session = {
         let identity = state.identity.clone();
-        let login = request.login.clone();
+        let email = request.email.clone();
         let password = request.password.clone();
         let totp_code = request.totp_code.clone();
         let metadata = session_metadata(&headers, Some(peer), &state.config.trusted_proxies);
         match blocking::run_core(move || {
-            identity.login_with_totp(&login, &password, totp_code.as_deref(), &metadata)
+            identity.login_with_totp(&email, &password, totp_code.as_deref(), &metadata)
         })
         .await
         {
@@ -62,7 +62,7 @@ pub async fn login(
                 record_login(
                     &state,
                     ip,
-                    &request.login,
+                    &request.email,
                     None,
                     api_error.status_code().as_u16(),
                     Some("login failed".into()),
@@ -76,7 +76,7 @@ pub async fn login(
     record_login(
         &state,
         ip,
-        &session.user.email_or_login(),
+        &session.user.email,
         Some(session.user.id),
         200,
         Some("success".into()),
@@ -149,7 +149,7 @@ pub async fn register(
         .identity
         .register(RegisterInput {
             email: request.email,
-            login: request.login,
+            full_name: request.full_name,
             password: request.password,
         })
         .await
@@ -286,6 +286,33 @@ pub async fn me(State(state): State<Arc<AppState>>, user: AuthUser) -> ApiResult
     Ok(Json(UserView::from(&user)))
 }
 
+pub async fn update_me(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Json(request): Json<UpdateMeRequest>,
+) -> ApiResult<Json<UserView>> {
+    let identity = state.identity.clone();
+    let user_id = user.id();
+    let full_name = request.full_name;
+    let updated = blocking::run_core(move || {
+        identity.update(
+            user_id,
+            awg_identity::UserChanges {
+                email: None,
+                full_name,
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+    })
+    .await
+    .map_err(ApiError::from)?;
+    Ok(Json(UserView::from(&updated)))
+}
+
 pub async fn change_password(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
@@ -349,11 +376,11 @@ fn session_metadata(
     }
 }
 
-fn rate_key(ip: Option<&str>, login: &str) -> String {
+fn rate_key(ip: Option<&str>, email: &str) -> String {
     format!(
         "{}:{}",
         ip.unwrap_or("unknown"),
-        login.trim().to_ascii_lowercase()
+        email.trim().to_lowercase()
     )
 }
 
@@ -368,12 +395,15 @@ mod tests {
     use std::time::Duration;
 
     #[test]
-    fn login_rate_key_combines_ip_and_normalized_login() {
+    fn login_rate_key_combines_ip_and_normalized_email() {
         assert_eq!(
-            rate_key(Some("203.0.113.9"), "  Admin "),
-            "203.0.113.9:admin"
+            rate_key(Some("203.0.113.9"), "  Admin@Local "),
+            "203.0.113.9:admin@local"
         );
-        assert_eq!(rate_key(None, "user"), "unknown:user");
+        assert_eq!(
+            rate_key(None, "user@example.com"),
+            "unknown:user@example.com"
+        );
     }
 
     #[test]

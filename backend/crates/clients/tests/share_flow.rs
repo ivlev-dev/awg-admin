@@ -139,14 +139,14 @@ fn fixture() -> Fixture {
     let now = Utc::now();
     let owner = User {
         id: Uuid::new_v4(),
-        login: "owner".into(),
+        email: "owner@example.com".into(),
+        full_name: None,
         password_hash: String::new(),
         role: Role::User,
         tariff_id: Some(tariff.id),
         group_id: Some(group.id),
         node_id: None,
         disabled: false,
-        email: None,
         status: awg_identity::UserStatus::Active,
         totp_secret_sealed: None,
         totp_enabled: false,

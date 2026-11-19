@@ -2,14 +2,13 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use uuid::Uuid;
 
-use awg_identity::domain::email_from_login;
 use awg_identity::{Role, User, UserStatus};
 
 #[derive(Debug, Serialize)]
 pub struct UserView {
     pub id: Uuid,
-    pub login: String,
     pub email: String,
+    pub full_name: Option<String>,
     pub status: UserStatus,
     pub totp_enabled: bool,
     pub role: Role,
@@ -25,11 +24,8 @@ impl From<&User> for UserView {
     fn from(user: &User) -> Self {
         Self {
             id: user.id,
-            login: user.login.clone(),
-            email: user
-                .email
-                .clone()
-                .unwrap_or_else(|| email_from_login(&user.login)),
+            email: user.email.clone(),
+            full_name: user.full_name.clone(),
             status: user.status,
             totp_enabled: user.totp_enabled,
             role: user.role,
@@ -82,18 +78,18 @@ impl From<&awg_identity::RefreshSession> for SessionView {
 mod tests {
     use super::*;
 
-    fn user(login: &str, email: Option<&str>) -> User {
+    fn user(email: &str, full_name: Option<&str>) -> User {
         let now = Utc::now();
         User {
             id: Uuid::new_v4(),
-            login: login.into(),
+            email: email.into(),
+            full_name: full_name.map(str::to_string),
             password_hash: String::new(),
             role: Role::Admin,
             tariff_id: None,
             group_id: None,
             node_id: None,
             disabled: false,
-            email: email.map(str::to_string),
             status: UserStatus::Active,
             totp_secret_sealed: None,
             totp_enabled: false,
@@ -107,13 +103,15 @@ mod tests {
     }
 
     #[test]
-    fn user_view_always_exposes_email() {
-        let view = UserView::from(&user("admin", Some("admin@local")));
+    fn user_view_exposes_email_and_full_name_without_login() {
+        let view = UserView::from(&user("admin@local", Some("Админ")));
         assert_eq!(view.email, "admin@local");
-        assert_eq!(view.login, "admin");
+        assert_eq!(view.full_name.as_deref(), Some("Админ"));
 
-        let legacy = UserView::from(&user("Admin", None));
-        assert_eq!(legacy.email, "admin@local");
-        assert_eq!(legacy.login, "Admin");
+        let value = serde_json::to_value(&view).unwrap();
+        assert!(value.get("login").is_none());
+
+        let bare = UserView::from(&user("user@example.com", None));
+        assert!(bare.full_name.is_none());
     }
 }
