@@ -1,12 +1,12 @@
 import { ViewModel, computed, reactive, watch } from "@ivlev-dev/silent-core";
 
-import { Router } from "@/app/router";
-import { ToastStore } from "@/app/toast";
 import type { ImportService } from "@/application/import/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { UsersService } from "@/application/users/service";
-import { userMessage } from "@/application/errors";
+import { Router } from "@/app/router";
+import { ToastStore } from "@/app/toast";
+import type { InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import type {
   ClientsApplyResult,
   ClientsImportInput,
@@ -24,1324 +24,538 @@ import type {
   ImportServerPeerCounts,
   ImportServerPeerStatus,
 } from "@/domain/import/types";
-import {
-  extractClientAddress,
-  extractPeerPublicKey,
-  isServerConfig,
-  splitClientConfigs,
-  validateImportInput,
-  type ImportGroupIssue,
-  type ImportInterfaceIssue,
-  type ImportValidation,
+import type {
+  ImportGroupIssue,
+  ImportInterfaceIssue,
+  ImportValidation,
 } from "@/domain/import/validation";
-import type { InterfaceInfo, NodeInfo, PoolMode, User } from "@/domain/types";
 import { t } from "@/i18n";
-import { formatBytesI18n } from "@/i18n/format";
 
-export interface PoolDraft {
-  name: string;
-  cidr: string;
-  mode: PoolMode;
-  gateway: string;
-}
+import { ClientsFlow } from "./clients-flow";
+import type {
+  ClientsResultFailure,
+  ClientsStep,
+  ClientDraft,
+  ImportMode,
+  ImportResultFailure,
+  ImportStep,
+  InterfaceDraft,
+  PoolDraft,
+} from "./drafts";
+import { GroupFlow } from "./group-flow";
+import {
+  previewKey,
+  previewStatusClass,
+  previewStatusLabel,
+  serverPeerAddress,
+  serverPeerReason,
+  serverPeerStatusClass,
+  serverPeerStatusLabel,
+  shortKey,
+} from "./interface-issues";
+import { ImportLookups } from "./lookups";
 
-export interface ClientDraft {
-  name: string;
-  config: string;
-}
-
-export interface InterfaceDraft {
-  serverConfig: string;
-  name: string;
-  label: string;
-  endpointHost: string;
-  endpointPort: number;
-  listenPort: number;
-  mtu: number;
-  pools: PoolDraft[];
-  clientsText: string;
-  clients: ClientDraft[];
-}
-
-export type ImportStep = 1 | 2 | 3 | 4;
-export type ImportMode = "group" | "clients";
-export type ClientsStep = 1 | 2 | 3;
-
-export interface ImportResultFailure {
-  interfaceName: string;
-  clientName: string;
-  reason: string;
-}
-
-export interface ClientsResultFailure extends ImportResultFailure {
-  groupName: string;
-}
-
-const DEFAULT_BASE_CIDR = "10.8.0.0/24";
-const DEFAULT_PORT = 51820;
-const DEFAULT_MTU = 1280;
-const MAX_IMPORT_FILES = 50;
-const MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024;
-
-const DEFAULT_STEP: ImportStep = 1;
-
-const EMPTY_SERVER_PEER_COUNTS: ImportServerPeerCounts = {
-  create: 0,
-  duplicate: 0,
-  error: 0,
+export type {
+  ClientsResultFailure,
+  ClientsStep,
+  ClientDraft,
+  ImportMode,
+  ImportResultFailure,
+  ImportStep,
+  InterfaceDraft,
+  PoolDraft,
 };
-
-const SHORT_KEY_PREFIX = 8;
-const SHORT_KEY_SUFFIX = 4;
-const PRESHARED_KEY_MASK = "•••";
-
-function defaultPool(baseCidr: string): PoolDraft {
-  return {
-    name: "default",
-    cidr: baseCidr || DEFAULT_BASE_CIDR,
-    mode: "auto",
-    gateway: "",
-  };
-}
-
-function createInterface(name: string, baseCidr: string): InterfaceDraft {
-  return {
-    serverConfig: "",
-    name,
-    label: "",
-    endpointHost: "",
-    endpointPort: DEFAULT_PORT,
-    listenPort: DEFAULT_PORT,
-    mtu: DEFAULT_MTU,
-    pools: [defaultPool(baseCidr)],
-    clientsText: "",
-    clients: [],
-  };
-}
-
-function validateFiles(files: readonly File[]): string | null {
-  if (files.length > MAX_IMPORT_FILES) {
-    return t("import.error.tooManyFiles", { max: MAX_IMPORT_FILES });
-  }
-  const oversized = files.find((file) => file.size > MAX_IMPORT_FILE_BYTES);
-  if (oversized !== undefined) {
-    return t("import.error.fileTooLarge", {
-      name: oversized.name,
-      max: formatBytesI18n(MAX_IMPORT_FILE_BYTES, 0),
-    });
-  }
-  return null;
-}
-
-function readFileAsText(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => reject(reader.error ?? new Error(t("import.toast.readFileFailed")));
-    reader.readAsText(file);
-  });
-}
-
-function fileBaseName(name: string): string {
-  return name.replace(/\.[^.]+$/, "").trim();
-}
-
-function uniqueName(base: string, used: Set<string>): string {
-  const trimmed = base.trim();
-  const baseName = trimmed || "client";
-  if (!used.has(baseName)) {
-    used.add(baseName);
-    return baseName;
-  }
-  let index = 2;
-  while (used.has(`${baseName}-${index}`)) index += 1;
-  const candidate = `${baseName}-${index}`;
-  used.add(candidate);
-  return candidate;
-}
-
-function buildClientDrafts(text: string): ClientDraft[] {
-  const used = new Set<string>();
-  return splitClientConfigs(text).map((config, index) => ({
-    name: uniqueName(`client-${index + 1}`, used),
-    config,
-  }));
-}
-
-async function readClientFileDrafts(files: File[], used: Set<string>): Promise<ClientDraft[]> {
-  const loaded = await Promise.all(
-    files.map(async (file) => ({
-      name: fileBaseName(file.name),
-      config: (await readFileAsText(file)).trim(),
-    })),
-  );
-  return loaded
-    .filter((item) => item.config.length > 0)
-    .map((item, index) => ({
-      name: uniqueName(item.name || `client-${used.size + index + 1}`, used),
-      config: item.config,
-    }));
-}
-
-function isPoolIssue(issue: ImportInterfaceIssue, poolIndex: number): boolean {
-  switch (issue.code) {
-    case "pool.name.required":
-    case "pool.name.duplicate":
-    case "pool.cidr.invalid":
-    case "pool.cidr.outside_base":
-      return issue.poolIndex === poolIndex;
-    case "pool.overlap":
-      return issue.poolIndex === poolIndex || issue.relatedPoolIndex === poolIndex;
-    default:
-      return false;
-  }
-}
-
 export class ImportVM extends ViewModel {
   @reactive accessor mode: ImportMode = "group";
-  @reactive accessor step: ImportStep = DEFAULT_STEP;
-  @reactive accessor groupName = "";
-  @reactive accessor groupDescription = "";
-  @reactive accessor baseCidr = DEFAULT_BASE_CIDR;
-  @reactive accessor nodeId = "";
-  @reactive accessor ownerUserId = "";
-  @reactive accessor interfaces: InterfaceDraft[] = [createInterface("awg0", DEFAULT_BASE_CIDR)];
 
-  @reactive accessor clientsStep: ClientsStep = 1;
-  @reactive accessor clientOwnerUserId = "";
-  @reactive accessor clientInterfaceId = "";
-  @reactive accessor clientsImportText = "";
-  @reactive accessor clientsImport: ClientDraft[] = [];
-  @reactive accessor clientsPreviewing = false;
-  @reactive accessor clientsPreview: ClientsPreview | null = null;
-  @reactive accessor clientsPreviewError: string | null = null;
-  @reactive accessor clientsPlanInvalidated = false;
-  @reactive accessor clientsApplying = false;
-  @reactive accessor clientsApplied: ClientsApplyResult | null = null;
-  @reactive accessor clientsApplyError: string | null = null;
-  @reactive accessor expandedChanges: string[] = [];
-
-  @reactive accessor nodes: NodeInfo[] = [];
-  @reactive accessor nodesLoading = false;
-  @reactive accessor nodesError: string | null = null;
-  @reactive accessor owners: User[] = [];
-  @reactive accessor ownersLoading = false;
-  @reactive accessor ownersError: string | null = null;
-  @reactive accessor interfaceList: InterfaceInfo[] = [];
-  @reactive accessor interfacesLoading = false;
-  @reactive accessor interfacesError: string | null = null;
-
-  @reactive accessor previewing = false;
-  @reactive accessor preview: ImportPreview | null = null;
-  @reactive accessor previewError: string | null = null;
-  @reactive accessor planInvalidated = false;
-  @reactive accessor applying = false;
-  @reactive accessor applied: ImportApplyResult | null = null;
-  @reactive accessor applyError: string | null = null;
-
-  private previewSignature = "";
-  private clientsPreviewSignature = "";
+  private readonly lookups: ImportLookups;
+  private readonly group: GroupFlow;
+  private readonly clients: ClientsFlow;
 
   constructor(
-    private readonly importService: ImportService,
-    private readonly nodesService: NodesService,
-    private readonly usersService: UsersService,
-    private readonly interfacesService: InterfacesService,
+    importService: ImportService,
+    nodesService: NodesService,
+    usersService: UsersService,
+    interfacesService: InterfacesService,
     private readonly router: Router,
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.lookups = new ImportLookups(nodesService, usersService, interfacesService, toasts);
+    this.group = new GroupFlow(importService, router, toasts);
+    this.clients = new ClientsFlow(importService, router, toasts);
   }
 
   override async created(): Promise<void> {
-    await Promise.all([this.loadNodes(), this.loadOwners(), this.loadInterfaces()]);
-    if (!this.nodeId) {
-      this.nodeId = this.nodes.find((node) => node.online)?.id ?? this.nodes[0]?.id ?? "";
+    await Promise.all([
+      this.lookups.loadNodes(),
+      this.lookups.loadOwners(),
+      this.lookups.loadInterfaces(),
+    ]);
+    if (!this.group.nodeId) {
+      this.group.nodeId = this.lookups.defaultNodeId();
     }
   }
+
+  get nodes(): NodeInfo[] { return this.lookups.nodes; }
+
+  get nodesLoading(): boolean { return this.lookups.nodesLoading; }
+
+  get nodesError(): string | null { return this.lookups.nodesError; }
+
+  get owners(): User[] { return this.lookups.owners; }
+
+  get ownersLoading(): boolean { return this.lookups.ownersLoading; }
+
+  get ownersError(): string | null { return this.lookups.ownersError; }
+
+  get interfaceList(): InterfaceInfo[] { return this.lookups.interfaceList; }
+
+  get interfacesLoading(): boolean { return this.lookups.interfacesLoading; }
+
+  get interfacesError(): string | null { return this.lookups.interfacesError; }
 
   @computed
   get nodeName(): string {
-    return this.nodes.find((node) => node.id === this.nodeId)?.name ?? "";
+    return this.lookups.nodes.find((node) => node.id === this.group.nodeId)?.name ?? "";
   }
 
   @computed
-  get nodeOptions(): Array<{ value: string; label: string }> {
-    return this.nodes.map((node) => ({
-      value: node.id,
-      label: `${node.name} · ${node.online ? "online" : "offline"}`,
-    }));
-  }
+  get nodeOptions(): Array<{ value: string; label: string }> { return this.lookups.nodeOptions; }
 
   @computed
-  get ownerOptions(): Array<{ value: string; label: string }> {
-    const options = [{ value: "", label: t("import.owner.none") }];
-    for (const user of this.owners) {
-      options.push({
-        value: user.id,
-        label: user.email ?? user.login,
-      });
-    }
-    return options;
-  }
+  get ownerOptions(): Array<{ value: string; label: string }> { return this.lookups.ownerOptions; }
 
   @computed
-  get interfaceOptions(): Array<{ value: string; label: string }> {
-    const options = [{ value: "", label: t("import.clients.interfaceAuto") }];
-    for (const iface of this.interfaceList) {
-      options.push({
-        value: iface.id,
-        label: `${iface.name} · ${iface.group_name} · ${iface.node_name}`,
-      });
-    }
-    return options;
-  }
+  get interfaceOptions(): Array<{ value: string; label: string }> { return this.lookups.interfaceOptions; }
+
+  get step(): ImportStep { return this.group.step; }
+  set step(value: ImportStep) { this.group.step = value; }
+
+  get groupName(): string { return this.group.groupName; }
+  set groupName(value: string) { this.group.groupName = value; }
+
+  get groupDescription(): string { return this.group.groupDescription; }
+  set groupDescription(value: string) { this.group.groupDescription = value; }
+
+  get baseCidr(): string { return this.group.baseCidr; }
+  set baseCidr(value: string) { this.group.baseCidr = value; }
+
+  get nodeId(): string { return this.group.nodeId; }
+  set nodeId(value: string) { this.group.nodeId = value; }
+
+  get ownerUserId(): string { return this.group.ownerUserId; }
+  set ownerUserId(value: string) { this.group.ownerUserId = value; }
+
+  get interfaces(): InterfaceDraft[] { return this.group.interfaces; }
+  set interfaces(value: InterfaceDraft[]) { this.group.interfaces = value; }
+
+  get previewing(): boolean { return this.group.previewing; }
+  set previewing(value: boolean) { this.group.previewing = value; }
+
+  get preview(): ImportPreview | null { return this.group.preview; }
+  set preview(value: ImportPreview | null) { this.group.preview = value; }
+
+  get previewError(): string | null { return this.group.previewError; }
+  set previewError(value: string | null) { this.group.previewError = value; }
+
+  get planInvalidated(): boolean { return this.group.planInvalidated; }
+  set planInvalidated(value: boolean) { this.group.planInvalidated = value; }
+
+  get applying(): boolean { return this.group.applying; }
+  set applying(value: boolean) { this.group.applying = value; }
+
+  get applied(): ImportApplyResult | null { return this.group.applied; }
+  set applied(value: ImportApplyResult | null) { this.group.applied = value; }
+
+  get applyError(): string | null { return this.group.applyError; }
+  set applyError(value: string | null) { this.group.applyError = value; }
+
+  get clientsStep(): ClientsStep { return this.clients.clientsStep; }
+  set clientsStep(value: ClientsStep) { this.clients.clientsStep = value; }
+
+  get clientOwnerUserId(): string { return this.clients.clientOwnerUserId; }
+  set clientOwnerUserId(value: string) { this.clients.clientOwnerUserId = value; }
+
+  get clientInterfaceId(): string { return this.clients.clientInterfaceId; }
+  set clientInterfaceId(value: string) { this.clients.clientInterfaceId = value; }
+
+  get clientsImportText(): string { return this.clients.clientsImportText; }
+  set clientsImportText(value: string) { this.clients.clientsImportText = value; }
+
+  get clientsImport(): ClientDraft[] { return this.clients.clientsImport; }
+  set clientsImport(value: ClientDraft[]) { this.clients.clientsImport = value; }
+
+  get clientsPreviewing(): boolean { return this.clients.clientsPreviewing; }
+  set clientsPreviewing(value: boolean) { this.clients.clientsPreviewing = value; }
+
+  get clientsPreview(): ClientsPreview | null { return this.clients.clientsPreview; }
+  set clientsPreview(value: ClientsPreview | null) { this.clients.clientsPreview = value; }
+
+  get clientsPreviewError(): string | null { return this.clients.clientsPreviewError; }
+  set clientsPreviewError(value: string | null) { this.clients.clientsPreviewError = value; }
+
+  get clientsPlanInvalidated(): boolean { return this.clients.clientsPlanInvalidated; }
+  set clientsPlanInvalidated(value: boolean) { this.clients.clientsPlanInvalidated = value; }
+
+  get clientsApplying(): boolean { return this.clients.clientsApplying; }
+  set clientsApplying(value: boolean) { this.clients.clientsApplying = value; }
+
+  get clientsApplied(): ClientsApplyResult | null { return this.clients.clientsApplied; }
+  set clientsApplied(value: ClientsApplyResult | null) { this.clients.clientsApplied = value; }
+
+  get clientsApplyError(): string | null { return this.clients.clientsApplyError; }
+  set clientsApplyError(value: string | null) { this.clients.clientsApplyError = value; }
+
+  get expandedChanges(): string[] { return this.clients.expandedChanges; }
+  set expandedChanges(value: string[]) { this.clients.expandedChanges = value; }
 
   @computed
-  get clientsPayload(): ClientsImportInput {
-    return {
-      interface_id: this.clientInterfaceId || null,
-      owner_user_id: this.clientOwnerUserId || null,
-      clients: this.clientsImport.map((client) => ({
-        name: client.name.trim(),
-        config: client.config,
-      })),
-    };
-  }
+  get clientsPayload(): ClientsImportInput { return this.clients.clientsPayload; }
 
   @computed
-  get clientsValid(): boolean {
-    return (
-      this.clientsImport.length > 0 &&
-      this.clientsImport.every(
-        (client) => client.name.trim().length > 0 && client.config.trim().length > 0,
-      )
-    );
-  }
+  get clientsValid(): boolean { return this.clients.clientsValid; }
 
   @computed
-  get clientsTotal(): number {
-    return this.clientsImport.length;
-  }
+  get clientsTotal(): number { return this.clients.clientsTotal; }
 
   @computed
-  get canPreviewClients(): boolean {
-    return this.clientsValid && !this.clientsPreviewing;
-  }
+  get canPreviewClients(): boolean { return this.clients.canPreviewClients; }
 
   @computed
-  get canApplyClients(): boolean {
-    return this.clientsPreview !== null && !this.clientsApplying;
-  }
+  get canApplyClients(): boolean { return this.clients.canApplyClients; }
 
   @computed
-  get clientsFormSignature(): string {
-    return JSON.stringify({
-      payload: this.clientsPayload,
-      text: this.clientsImportText,
-    });
-  }
+  get clientsFormSignature(): string { return this.clients.clientsFormSignature; }
 
   @computed
   get clientsPreviewSummary(): ClientsPreview["summary"] | null {
-    return this.clientsPreview?.summary ?? null;
+    return this.clients.clientsPreviewSummary;
   }
 
   @computed
   get clientsPreviewInterfaces(): ClientsPreviewInterface[] {
-    return this.clientsPreview?.interfaces ?? [];
+    return this.clients.clientsPreviewInterfaces;
   }
 
   @computed
-  get clientsPreviewWarnings(): string[] {
-    return this.clientsPreview?.warnings ?? [];
-  }
+  get clientsPreviewWarnings(): string[] { return this.clients.clientsPreviewWarnings; }
 
   @computed
   get clientsResultInterfaces(): ClientsPreviewInterface[] {
-    return this.clientsApplied?.interfaces ?? [];
+    return this.clients.clientsResultInterfaces;
   }
 
   @computed
-  get clientsResultInterfaceCount(): number {
-    return this.clientsResultInterfaces.length;
-  }
+  get clientsResultInterfaceCount(): number { return this.clients.clientsResultInterfaceCount; }
 
   @computed
-  get clientsResultDeviceCount(): number {
-    return (this.clientsApplied?.created.interfaces ?? []).reduce(
-      (total, item) => total + item.device_ids.length,
-      0,
-    );
-  }
+  get clientsResultDeviceCount(): number { return this.clients.clientsResultDeviceCount; }
 
   @computed
-  get clientsResultCreatedCount(): number {
-    return this.clientsApplied?.summary.create ?? 0;
-  }
+  get clientsResultCreatedCount(): number { return this.clients.clientsResultCreatedCount; }
 
   @computed
-  get clientsResultUpdatedCount(): number {
-    return this.clientsApplied?.summary.update ?? 0;
-  }
+  get clientsResultUpdatedCount(): number { return this.clients.clientsResultUpdatedCount; }
 
   @computed
-  get clientsResultUnchangedCount(): number {
-    return this.clientsApplied?.summary.unchanged ?? 0;
-  }
+  get clientsResultUnchangedCount(): number { return this.clients.clientsResultUnchangedCount; }
 
   @computed
-  get clientsResultDuplicateCount(): number {
-    return this.clientsApplied?.summary.duplicate ?? 0;
-  }
+  get clientsResultDuplicateCount(): number { return this.clients.clientsResultDuplicateCount; }
 
   @computed
-  get clientsResultErrorCount(): number {
-    return this.clientsApplied?.summary.error ?? 0;
-  }
+  get clientsResultErrorCount(): number { return this.clients.clientsResultErrorCount; }
 
   @computed
-  get clientsResultGroupId(): string {
-    return this.clientsResultInterfaces[0]?.group_id ?? "";
-  }
+  get clientsResultGroupId(): string { return this.clients.clientsResultGroupId; }
 
   @computed
-  get clientsResultGroupPath(): string {
-    return this.clientsResultGroupId ? `/groups/${this.clientsResultGroupId}` : "/groups";
-  }
+  get clientsResultGroupPath(): string { return this.clients.clientsResultGroupPath; }
 
   @computed
-  get clientsResultFailures(): ClientsResultFailure[] {
-    const result = this.clientsApplied;
-    if (!result) return [];
-    const failures: ClientsResultFailure[] = [];
-    for (const iface of result.interfaces) {
-      for (const client of iface.clients) {
-        if (client.status === "error") {
-          failures.push({
-            interfaceName: iface.name,
-            groupName: iface.group_name,
-            clientName: client.name,
-            reason: client.reason ?? t("import.preview.none"),
-          });
-        }
-      }
-    }
-    return failures;
-  }
+  get clientsResultFailures(): ClientsResultFailure[] { return this.clients.clientsResultFailures; }
 
   @computed
-  get groupNameError(): string | null {
-    return this.groupName.trim() ? null : t("import.error.groupName");
-  }
+  get groupNameError(): string | null { return this.group.groupNameError; }
 
   @computed
-  get baseCidrError(): string | null {
-    return this.validation.group.some((issue) => issue.code === "base_cidr.invalid")
-      ? t("import.error.baseCidr")
-      : null;
-  }
+  get baseCidrError(): string | null { return this.group.baseCidrError; }
 
   @computed
-  get nodeError(): string | null {
-    return this.nodeId ? null : t("import.error.node");
-  }
+  get nodeError(): string | null { return this.group.nodeError; }
 
   @computed
-  get groupValid(): boolean {
-    return this.groupName.trim().length > 0 && this.baseCidrError === null && this.nodeId.length > 0;
-  }
+  get groupValid(): boolean { return this.group.groupValid; }
 
   @computed
-  get payload(): ImportInput {
-    return {
-      node_id: this.nodeId,
-      group_name: this.groupName.trim(),
-      group_description: this.groupDescription.trim(),
-      base_cidr: this.baseCidr.trim(),
-      owner_user_id: this.ownerUserId || null,
-      interfaces: this.interfaces.map((iface) => ({
-        server_config: iface.serverConfig,
-        name: iface.name.trim(),
-        label: iface.label.trim(),
-        endpoint_host: iface.endpointHost.trim(),
-        endpoint_port: iface.endpointPort,
-        listen_port: iface.listenPort,
-        mtu: iface.mtu,
-        pools: iface.pools.map((pool) => ({
-          name: pool.name.trim(),
-          cidr: pool.cidr.trim(),
-          mode: pool.mode,
-          gateway: pool.gateway.trim() || null,
-        })),
-        clients: iface.clients.map((client) => ({
-          name: client.name.trim(),
-          config: client.config,
-        })),
-      })),
-    };
-  }
+  get payload(): ImportInput { return this.group.payload; }
 
   @computed
-  get validation(): ImportValidation {
-    return validateImportInput(this.payload);
-  }
+  get validation(): ImportValidation { return this.group.validation; }
 
   @computed
-  get groupIssues(): ImportGroupIssue[] {
-    return this.validation.group;
-  }
+  get groupIssues(): ImportGroupIssue[] { return this.group.groupIssues; }
 
   @computed
-  get interfaceIssueCount(): number {
-    return this.validation.interfaces.reduce((total, issues) => total + issues.length, 0);
-  }
+  get interfaceIssueCount(): number { return this.group.interfaceIssueCount; }
 
   @computed
-  get valid(): boolean {
-    return this.validation.valid;
-  }
+  get valid(): boolean { return this.group.valid; }
 
   @computed
-  get canPreview(): boolean {
-    return this.valid && !this.previewing;
-  }
+  get canPreview(): boolean { return this.group.canPreview; }
 
   @computed
-  get canApply(): boolean {
-    return this.preview !== null && !this.applying;
-  }
+  get canApply(): boolean { return this.group.canApply; }
 
   @computed
-  get formSignature(): string {
-    return JSON.stringify({
-      payload: this.payload,
-      separateTexts: this.interfaces.map((iface) => iface.clientsText),
-    });
-  }
+  get formSignature(): string { return this.group.formSignature; }
 
   @computed
-  get totalClients(): number {
-    return this.interfaces.reduce((total, iface) => total + iface.clients.length, 0);
-  }
+  get totalClients(): number { return this.group.totalClients; }
 
   @computed
-  get totalPoolCount(): number {
-    return this.interfaces.reduce((total, iface) => total + iface.pools.length, 0);
-  }
+  get totalPoolCount(): number { return this.group.totalPoolCount; }
 
   @computed
-  get previewWarnings(): string[] {
-    return this.preview?.warnings ?? [];
-  }
+  get previewWarnings(): string[] { return this.group.previewWarnings; }
 
   @computed
-  get previewSummary(): ImportPreview["summary"] | null {
-    return this.preview?.summary ?? null;
-  }
+  get previewSummary(): ImportPreview["summary"] | null { return this.group.previewSummary; }
 
   @computed
-  get previewInterfaces(): ImportPreviewInterface[] {
-    return this.preview?.interfaces ?? [];
-  }
+  get previewInterfaces(): ImportPreviewInterface[] { return this.group.previewInterfaces; }
 
   @computed
-  get previewExternalCounts(): ImportServerPeerCounts {
-    return this.preview?.summary.external ?? EMPTY_SERVER_PEER_COUNTS;
-  }
+  get previewExternalCounts(): ImportServerPeerCounts { return this.group.previewExternalCounts; }
 
   @computed
-  get previewHasExternal(): boolean {
-    return this.previewInterfaces.some((iface) => iface.server_peers.length > 0);
-  }
+  get previewHasExternal(): boolean { return this.group.previewHasExternal; }
 
   @computed
-  get resultGroupId(): string {
-    return this.applied?.created.group_id ?? "";
-  }
+  get resultGroupId(): string { return this.group.resultGroupId; }
 
   @computed
-  get resultGroupPath(): string {
-    return this.resultGroupId ? `/groups/${this.resultGroupId}` : "/groups";
-  }
+  get resultGroupPath(): string { return this.group.resultGroupPath; }
 
   @computed
   get resultInterfaces(): ImportApplyResult["created"]["interfaces"] {
-    return this.applied?.created.interfaces ?? [];
+    return this.group.resultInterfaces;
   }
 
   @computed
-  get resultInterfaceCount(): number {
-    return this.resultInterfaces.length;
-  }
+  get resultInterfaceCount(): number { return this.group.resultInterfaceCount; }
 
   @computed
-  get resultDeviceCount(): number {
-    return this.resultInterfaces.reduce((total, item) => total + item.device_ids.length, 0);
-  }
+  get resultDeviceCount(): number { return this.group.resultDeviceCount; }
 
   @computed
-  get resultFailures(): ImportResultFailure[] {
-    const result = this.applied;
-    if (!result) return [];
-    const failures: ImportResultFailure[] = [];
-    for (const iface of result.interfaces) {
-      for (const client of iface.clients) {
-        if (client.status === "error") {
-          failures.push({
-            interfaceName: iface.name,
-            clientName: client.name,
-            reason: client.reason ?? t("import.preview.none"),
-          });
-        }
-      }
-    }
-    return failures;
-  }
+  get resultFailures(): ImportResultFailure[] { return this.group.resultFailures; }
 
   @computed
-  get resultDuplicateCount(): number {
-    return this.applied?.summary.duplicate ?? 0;
-  }
+  get resultDuplicateCount(): number { return this.group.resultDuplicateCount; }
 
   @computed
-  get resultCreatedCount(): number {
-    return this.applied?.summary.create ?? 0;
-  }
+  get resultCreatedCount(): number { return this.group.resultCreatedCount; }
 
   @computed
-  get resultErrorCount(): number {
-    return this.applied?.summary.error ?? 0;
-  }
+  get resultErrorCount(): number { return this.group.resultErrorCount; }
 
   @computed
-  get resultExternalCount(): number {
-    return this.applied?.summary.external.create ?? 0;
-  }
+  get resultExternalCount(): number { return this.group.resultExternalCount; }
 
-  isStepDone(step: ImportStep): boolean {
-    switch (step) {
-      case 1:
-        return this.groupValid;
-      case 2:
-        return this.valid;
-      case 3:
-        return this.preview !== null;
-      case 4:
-        return this.applied !== null;
-    }
-  }
+  isStepDone(step: ImportStep): boolean { return this.group.isStepDone(step); }
 
-  goToStep(step: ImportStep): void {
-    if (step === this.step) return;
-    if (step < this.step) {
-      this.step = step;
-      return;
-    }
-    if (step === 2 && this.groupValid) {
-      this.step = 2;
-      return;
-    }
-    if (step === 3 && this.preview) {
-      this.step = 3;
-      return;
-    }
-    if (step === 3 && this.canPreview) {
-      void this.previewNow();
-      return;
-    }
-    if (step === 4 && this.applied) {
-      this.step = 4;
-    }
-  }
+  goToStep(step: ImportStep): void { this.group.goToStep(step); }
 
-  next(): void {
-    switch (this.step) {
-      case 1:
-        if (this.groupValid) this.step = 2;
-        else this.toasts.error(t("import.toast.fillRequired"));
-        return;
-      case 2:
-        if (this.canPreview) void this.previewNow();
-        else this.toasts.error(t("import.toast.fillRequired"));
-        return;
-      case 3:
-        if (this.canApply) void this.applyNow();
-        return;
-      case 4:
-        return;
-    }
-  }
+  next(): void { this.group.next(); }
 
-  back(): void {
-    if (this.step === 1) return;
-    this.step = (this.step - 1) as ImportStep;
-  }
+  back(): void { this.group.back(); }
 
-  async loadNodes(): Promise<void> {
-    this.nodesLoading = true;
-    this.nodesError = null;
-    try {
-      this.nodes = await this.nodesService.listNodes();
-    } catch (error) {
-      this.nodesError = userMessage(error, t("import.error.nodesLoad"));
-      this.toasts.error(this.nodesError);
-    } finally {
-      this.nodesLoading = false;
-    }
-  }
+  loadNodes(): Promise<void> { return this.lookups.loadNodes(); }
 
-  async loadOwners(): Promise<void> {
-    this.ownersLoading = true;
-    this.ownersError = null;
-    try {
-      this.owners = await this.usersService.listUsers();
-    } catch (error) {
-      this.owners = [];
-      this.ownersError = userMessage(error, t("import.error.usersLoad"));
-      this.toasts.error(this.ownersError);
-    } finally {
-      this.ownersLoading = false;
-    }
-  }
+  loadOwners(): Promise<void> { return this.lookups.loadOwners(); }
 
-  async loadInterfaces(): Promise<void> {
-    this.interfacesLoading = true;
-    this.interfacesError = null;
-    try {
-      this.interfaceList = await this.interfacesService.listInterfaces();
-    } catch (error) {
-      this.interfaceList = [];
-      this.interfacesError = userMessage(error, t("import.clients.error.interfaces"));
-      this.toasts.error(this.interfacesError);
-    } finally {
-      this.interfacesLoading = false;
-    }
-  }
+  loadInterfaces(): Promise<void> { return this.lookups.loadInterfaces(); }
 
-  setGroupName(event: Event): void {
-    this.groupName = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setGroupName(event: Event): void { this.group.setGroupName(event); }
 
-  setGroupDescription(event: Event): void {
-    this.groupDescription = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setGroupDescription(event: Event): void { this.group.setGroupDescription(event); }
 
-  setBaseCidr(event: Event): void {
-    this.baseCidr = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setBaseCidr(event: Event): void { this.group.setBaseCidr(event); }
 
-  setNode(value: string): void {
-    this.nodeId = value;
-    this.touch();
-  }
+  setNode(value: string): void { this.group.setNode(value); }
 
-  setOwner(value: string): void {
-    this.ownerUserId = value;
-    this.touch();
-  }
+  setOwner(value: string): void { this.group.setOwner(value); }
 
-  addInterface(): void {
-    const name = this.nextInterfaceName();
-    this.interfaces.push(createInterface(name, this.baseCidr.trim() || DEFAULT_BASE_CIDR));
-    this.touch();
-  }
+  addInterface(): void { this.group.addInterface(); }
 
-  removeInterface(index: number): void {
-    if (this.interfaces.length <= 1) return;
-    this.interfaces.splice(index, 1);
-    this.touch();
-  }
+  removeInterface(index: number): void { this.group.removeInterface(index); }
 
   setInterfaceServerConfig(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.serverConfig = (event.target as HTMLTextAreaElement).value;
-    this.touch();
+    this.group.setInterfaceServerConfig(index, event);
   }
 
-  async setInterfaceServerFile(index: number, event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-    const fileError = validateFiles([file]);
-    if (fileError !== null) {
-      this.toasts.error(fileError);
-      input.value = "";
-      return;
-    }
-    try {
-      const config = await readFileAsText(file);
-      const draft = this.interfaces[index];
-      if (draft) {
-        draft.serverConfig = config;
-        this.touch();
-      }
-      this.toasts.success(t("import.toast.serverLoaded", { name: file.name }));
-    } catch (error) {
-      this.toasts.error(userMessage(error, t("import.toast.readFileFailed")));
-    } finally {
-      input.value = "";
-    }
+  setInterfaceServerFile(index: number, event: Event): Promise<void> {
+    return this.group.setInterfaceServerFile(index, event);
   }
 
-  setInterfaceName(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.name = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setInterfaceName(index: number, event: Event): void { this.group.setInterfaceName(index, event); }
 
-  setInterfaceLabel(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.label = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setInterfaceLabel(index: number, event: Event): void { this.group.setInterfaceLabel(index, event); }
 
-  setEndpointHost(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.endpointHost = (event.target as HTMLInputElement).value;
-    this.touch();
-  }
+  setEndpointHost(index: number, event: Event): void { this.group.setEndpointHost(index, event); }
 
-  setEndpointPort(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.endpointPort = this.toNumber((event.target as HTMLInputElement).value);
-    this.touch();
-  }
+  setEndpointPort(index: number, event: Event): void { this.group.setEndpointPort(index, event); }
 
-  setListenPort(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.listenPort = this.toNumber((event.target as HTMLInputElement).value);
-    this.touch();
-  }
+  setListenPort(index: number, event: Event): void { this.group.setListenPort(index, event); }
 
-  setMtu(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.mtu = this.toNumber((event.target as HTMLInputElement).value);
-    this.touch();
-  }
+  setMtu(index: number, event: Event): void { this.group.setMtu(index, event); }
 
-  addPool(interfaceIndex: number): void {
-    const draft = this.interfaces[interfaceIndex];
-    if (!draft) return;
-    draft.pools.push({
-      name: `pool-${draft.pools.length + 1}`,
-      cidr: this.baseCidr.trim() || DEFAULT_BASE_CIDR,
-      mode: "auto",
-      gateway: "",
-    });
-    this.touch();
-  }
+  addPool(interfaceIndex: number): void { this.group.addPool(interfaceIndex); }
 
   removePool(interfaceIndex: number, poolIndex: number): void {
-    const draft = this.interfaces[interfaceIndex];
-    if (!draft) return;
-    draft.pools.splice(poolIndex, 1);
-    this.touch();
+    this.group.removePool(interfaceIndex, poolIndex);
   }
 
   setPoolName(interfaceIndex: number, poolIndex: number, event: Event): void {
-    const pool = this.interfaces[interfaceIndex]?.pools[poolIndex];
-    if (!pool) return;
-    pool.name = (event.target as HTMLInputElement).value;
-    this.touch();
+    this.group.setPoolName(interfaceIndex, poolIndex, event);
   }
 
   setPoolCidr(interfaceIndex: number, poolIndex: number, event: Event): void {
-    const pool = this.interfaces[interfaceIndex]?.pools[poolIndex];
-    if (!pool) return;
-    pool.cidr = (event.target as HTMLInputElement).value;
-    this.touch();
+    this.group.setPoolCidr(interfaceIndex, poolIndex, event);
   }
 
   setPoolMode(interfaceIndex: number, poolIndex: number, value: string): void {
-    const pool = this.interfaces[interfaceIndex]?.pools[poolIndex];
-    if (!pool || (value !== "auto" && value !== "rf_only" && value !== "external_only")) return;
-    pool.mode = value;
-    this.touch();
+    this.group.setPoolMode(interfaceIndex, poolIndex, value);
   }
 
   setPoolGateway(interfaceIndex: number, poolIndex: number, event: Event): void {
-    const pool = this.interfaces[interfaceIndex]?.pools[poolIndex];
-    if (!pool) return;
-    pool.gateway = (event.target as HTMLInputElement).value;
-    this.touch();
+    this.group.setPoolGateway(interfaceIndex, poolIndex, event);
   }
 
   poolError(interfaceIndex: number, poolIndex: number): string | null {
-    const issue = this.interfaceIssues(interfaceIndex).find((item) => isPoolIssue(item, poolIndex));
-    return issue ? this.issueMessage(issue) : null;
+    return this.group.poolError(interfaceIndex, poolIndex);
   }
 
-  setClientsText(index: number, event: Event): void {
-    const draft = this.interfaces[index];
-    if (!draft) return;
-    draft.clientsText = (event.target as HTMLTextAreaElement).value;
-    this.applyClientText(draft);
-    this.touch();
-  }
+  setClientsText(index: number, event: Event): void { this.group.setClientsText(index, event); }
 
-  parseClients(index: number, notify = true): number {
-    const draft = this.interfaces[index];
-    if (!draft) return 0;
-    const hasText = draft.clientsText.trim().length > 0;
-    const count = this.applyClientText(draft);
-    if (notify) {
-      if (count > 0) {
-        this.toasts.success(t("import.toast.clientsParsed", { count }));
-      } else {
-        this.toasts.error(t(hasText ? "import.toast.clientsUnparsed" : "import.toast.clientsEmpty"));
-      }
-    }
-    this.touch();
-    return count;
-  }
+  parseClients(index: number, notify = true): number { return this.group.parseClients(index, notify); }
 
-  async setClientFiles(index: number, event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    if (files.length === 0) return;
-    const fileError = validateFiles(files);
-    if (fileError !== null) {
-      this.toasts.error(fileError);
-      input.value = "";
-      return;
-    }
-    try {
-      const draft = this.interfaces[index];
-      if (draft) {
-        const used = new Set(draft.clients.map((client) => client.name));
-        const additions = await readClientFileDrafts(files, used);
-        draft.clients = [...draft.clients, ...additions];
-        this.syncClientsText(draft);
-        this.toasts.success(t("import.toast.clientsUploaded", { count: additions.length }));
-        this.touch();
-      }
-    } catch (error) {
-      this.toasts.error(userMessage(error, t("import.toast.readFilesFailed")));
-    } finally {
-      input.value = "";
-    }
+  setClientFiles(index: number, event: Event): Promise<void> {
+    return this.group.setClientFiles(index, event);
   }
 
   setClientName(interfaceIndex: number, clientIndex: number, event: Event): void {
-    const client = this.interfaces[interfaceIndex]?.clients[clientIndex];
-    if (!client) return;
-    client.name = (event.target as HTMLInputElement).value;
-    this.touch();
+    this.group.setClientName(interfaceIndex, clientIndex, event);
   }
 
   removeClient(interfaceIndex: number, clientIndex: number): void {
-    const draft = this.interfaces[interfaceIndex];
-    if (!draft) return;
-    draft.clients.splice(clientIndex, 1);
-    this.syncClientsText(draft);
-    this.touch();
+    this.group.removeClient(interfaceIndex, clientIndex);
   }
 
   setMode(value: string): void {
     if (value === "group" || value === "clients") this.mode = value;
   }
 
-  setClientOwner(value: string): void {
-    this.clientOwnerUserId = value;
-    this.touchClients();
-  }
+  setClientOwner(value: string): void { this.clients.setClientOwner(value); }
 
-  setClientInterface(value: string): void {
-    this.clientInterfaceId = value;
-    this.touchClients();
-  }
+  setClientInterface(value: string): void { this.clients.setClientInterface(value); }
 
-  setClientsImportText(event: Event): void {
-    this.clientsImportText = (event.target as HTMLTextAreaElement).value;
-    this.clientsImport = buildClientDrafts(this.clientsImportText);
-    this.touchClients();
-  }
+  setClientsImportText(event: Event): void { this.clients.setClientsImportText(event); }
 
-  parseClientsImport(notify = true): number {
-    const hasText = this.clientsImportText.trim().length > 0;
-    this.clientsImport = buildClientDrafts(this.clientsImportText);
-    const count = this.clientsImport.length;
-    if (notify) {
-      if (count > 0) {
-        this.toasts.success(t("import.toast.clientsParsed", { count }));
-      } else {
-        this.toasts.error(t(hasText ? "import.toast.clientsUnparsed" : "import.toast.clientsEmpty"));
-      }
-    }
-    this.touchClients();
-    return count;
-  }
+  parseClientsImport(notify = true): number { return this.clients.parseClientsImport(notify); }
 
-  async setClientsImportFiles(event: Event): Promise<void> {
-    const input = event.target as HTMLInputElement;
-    const files = Array.from(input.files ?? []);
-    if (files.length === 0) return;
-    const fileError = validateFiles(files);
-    if (fileError !== null) {
-      this.toasts.error(fileError);
-      input.value = "";
-      return;
-    }
-    try {
-      const used = new Set(this.clientsImport.map((client) => client.name));
-      const additions = await readClientFileDrafts(files, used);
-      this.clientsImport = [...this.clientsImport, ...additions];
-      this.syncClientsImportText();
-      this.toasts.success(t("import.toast.clientsUploaded", { count: additions.length }));
-      this.touchClients();
-    } catch (error) {
-      this.toasts.error(userMessage(error, t("import.toast.readFilesFailed")));
-    } finally {
-      input.value = "";
-    }
+  setClientsImportFiles(event: Event): Promise<void> {
+    return this.clients.setClientsImportFiles(event);
   }
 
   setClientsImportName(index: number, event: Event): void {
-    const client = this.clientsImport[index];
-    if (!client) return;
-    client.name = (event.target as HTMLInputElement).value;
-    this.touchClients();
+    this.clients.setClientsImportName(index, event);
   }
 
-  removeClientsImport(index: number): void {
-    this.clientsImport.splice(index, 1);
-    this.syncClientsImportText();
-    this.touchClients();
-  }
+  removeClientsImport(index: number): void { this.clients.removeClientsImport(index); }
 
-  clientsBack(): void {
-    if (this.clientsStep === 1) return;
-    this.clientsStep = (this.clientsStep - 1) as ClientsStep;
-  }
+  clientsBack(): void { this.clients.clientsBack(); }
 
-  clientsNext(): void {
-    switch (this.clientsStep) {
-      case 1:
-        if (this.canPreviewClients) void this.previewClientsNow();
-        else this.toasts.error(t("import.clients.error.clients"));
-        return;
-      case 2:
-        if (this.canApplyClients) void this.applyClientsNow();
-        return;
-      case 3:
-        return;
-    }
-  }
+  clientsNext(): void { this.clients.clientsNext(); }
 
-  async previewClientsNow(): Promise<void> {
-    if (this.clientsPreviewing) return;
-    if (!this.clientsValid) {
-      this.toasts.error(t("import.clients.error.clients"));
-      return;
-    }
-    const signature = this.clientsFormSignature;
-    const payload = this.clientsPayload;
-    this.clientsPreviewing = true;
-    this.clientsPreviewError = null;
-    this.clientsApplyError = null;
-    this.clientsStep = 2;
-    try {
-      const preview = await this.importService.previewClients(payload);
-      if (signature !== this.clientsFormSignature) {
-        this.invalidateClientsPlan();
-        this.clientsStep = 1;
-        return;
-      }
-      this.clientsPreview = preview;
-      this.clientsPreviewSignature = signature;
-      this.clientsPlanInvalidated = false;
-      const changed = preview.summary.update > 0 || preview.summary.unchanged > 0;
-      this.toasts.success(
-        t(
-          changed ? "import.clients.toast.previewReadyUpdated" : "import.clients.toast.previewReady",
-          {
-            create: preview.summary.create,
-            updated: preview.summary.update,
-            unchanged: preview.summary.unchanged,
-            duplicate: preview.summary.duplicate,
-            error: preview.summary.error,
-          },
-        ),
-      );
-    } catch (error) {
-      this.clientsPreview = null;
-      this.clientsPreviewError = userMessage(error, t("import.clients.error.preview"));
-      this.toasts.error(this.clientsPreviewError);
-    } finally {
-      this.clientsPreviewing = false;
-    }
-  }
+  previewClientsNow(): Promise<void> { return this.clients.previewClientsNow(); }
 
-  async applyClientsNow(): Promise<void> {
-    if (this.clientsApplying) return;
-    if (!this.clientsPreview) {
-      this.toasts.error(t("import.clients.toast.previewRequired"));
-      return;
-    }
-    this.clientsApplying = true;
-    this.clientsApplyError = null;
-    try {
-      const result = await this.importService.applyClients(this.clientsPayload);
-      this.clientsApplied = result;
-      this.clientsStep = 3;
-      if (result.summary.error > 0) {
-        this.toasts.error(
-          t("import.clients.toast.appliedWithErrors", {
-            created: result.summary.create,
-            failed: result.summary.error,
-          }),
-        );
-      } else {
-        const updated = result.summary.update;
-        this.toasts.success(
-          t(updated > 0 ? "import.clients.toast.appliedUpdated" : "import.clients.toast.applied", {
-            count: result.summary.create,
-            created: result.summary.create,
-            updated,
-          }),
-        );
-      }
-    } catch (error) {
-      this.clientsApplyError = userMessage(error, t("import.clients.error.apply"));
-      this.toasts.error(this.clientsApplyError);
-    } finally {
-      this.clientsApplying = false;
-    }
-  }
+  applyClientsNow(): Promise<void> { return this.clients.applyClientsNow(); }
 
-  openClientsGroup(): void {
-    this.router.navigate(this.clientsResultGroupPath);
-  }
+  openClientsGroup(): void { this.clients.openClientsGroup(); }
 
-  resetClientsImport(): void {
-    this.clientsStep = 1;
-    this.clientOwnerUserId = "";
-    this.clientInterfaceId = "";
-    this.clientsImportText = "";
-    this.clientsImport = [];
-    this.clientsPreview = null;
-    this.clientsApplied = null;
-    this.clientsPreviewError = null;
-    this.clientsApplyError = null;
-    this.clientsPreviewSignature = "";
-    this.clientsPlanInvalidated = false;
-    this.expandedChanges = [];
-  }
+  resetClientsImport(): void { this.clients.resetClientsImport(); }
 
-  serverConfigValid(index: number): boolean {
-    const draft = this.interfaces[index];
-    return draft ? isServerConfig(draft.serverConfig) : false;
-  }
+  serverConfigValid(index: number): boolean { return this.group.serverConfigValid(index); }
 
-  serverConfigWarning(index: number): string | null {
-    const draft = this.interfaces[index];
-    if (!draft || !draft.serverConfig.trim() || this.serverConfigValid(index)) return null;
-    return t("import.error.serverConfig");
-  }
+  serverConfigWarning(index: number): string | null { return this.group.serverConfigWarning(index); }
 
-  interfaceIssues(index: number): ImportInterfaceIssue[] {
-    return this.validation.interfaces[index] ?? [];
-  }
+  interfaceIssues(index: number): ImportInterfaceIssue[] { return this.group.interfaceIssues(index); }
 
-  issueMessage(issue: ImportInterfaceIssue): string {
-    switch (issue.code) {
-      case "server_config.invalid":
-        return t("import.error.serverConfig");
-      case "interface.name.required":
-        return t("import.error.interfaceName");
-      case "interface.name.duplicate":
-        return t("import.error.interfaceNameDuplicate", {
-          name: this.interfaces[issue.interfaceIndex]?.name.trim() ?? "",
-        });
-      case "endpoint.host.required":
-        return t("import.error.endpointHost");
-      case "endpoint.port.invalid":
-      case "listen.port.invalid":
-        return t("import.error.port");
-      case "mtu.invalid":
-        return t("import.error.mtu");
-      case "pool.name.required":
-        return t("import.error.poolName");
-      case "pool.name.duplicate":
-        return t("import.error.poolNameDuplicate", {
-          name: this.poolName(issue.interfaceIndex, issue.poolIndex),
-        });
-      case "pool.cidr.invalid":
-        return t("import.error.poolCidr");
-      case "pool.cidr.outside_base":
-        return t("import.error.poolOutsideBase");
-      case "pool.overlap":
-        return t("import.error.poolOverlap", {
-          first: this.poolLabel(issue.interfaceIndex, issue.poolIndex),
-          second: this.poolLabel(issue.interfaceIndex, issue.relatedPoolIndex),
-        });
-      case "client.name.required":
-        return t("import.error.clientName");
-      case "client.config.required":
-        return t("import.error.clientConfig");
-    }
-  }
+  issueMessage(issue: ImportInterfaceIssue): string { return this.group.issueMessage(issue); }
 
-  groupIssueMessage(issue: ImportGroupIssue): string {
-    switch (issue.code) {
-      case "group.name.required":
-        return t("import.error.groupName");
-      case "base_cidr.invalid":
-        return t("import.error.baseCidr");
-      case "node.required":
-        return t("import.error.node");
-      case "interfaces.empty":
-        return t("import.interfaces.emptyText");
-    }
-  }
+  groupIssueMessage(issue: ImportGroupIssue): string { return this.group.groupIssueMessage(issue); }
 
-  clientAddress(config: string): string {
-    return extractClientAddress(config);
-  }
+  clientAddress(config: string): string { return this.group.clientAddress(config); }
 
-  clientPeerKey(config: string): string | null {
-    return extractPeerPublicKey(config);
-  }
+  clientPeerKey(config: string): string | null { return this.group.clientPeerKey(config); }
 
-  clientPreview(config: string): string {
-    return config.split("\n").slice(0, 8).join("\n");
-  }
+  clientPreview(config: string): string { return this.group.clientPreview(config); }
 
   clientKeysMismatch(interfaceIndex: number): boolean {
-    const draft = this.interfaces[interfaceIndex];
-    if (!draft) return false;
-    const keys = new Set<string>();
-    for (const client of draft.clients) {
-      const key = extractPeerPublicKey(client.config);
-      if (key) keys.add(key);
-    }
-    return keys.size > 1;
+    return this.group.clientKeysMismatch(interfaceIndex);
   }
 
   clientsWithoutKey(interfaceIndex: number): number {
-    const draft = this.interfaces[interfaceIndex];
-    if (!draft) return 0;
-    return draft.clients.filter((client) => extractPeerPublicKey(client.config) === null).length;
+    return this.group.clientsWithoutKey(interfaceIndex);
   }
 
   previewStatusLabel(status: ImportClientStatus): string {
-    switch (status) {
-      case "create":
-        return t("import.preview.status.create");
-      case "unchanged":
-        return t("import.preview.status.unchanged");
-      case "update":
-        return t("import.preview.status.update");
-      case "duplicate":
-        return t("import.preview.status.duplicate");
-      case "error":
-        return t("import.preview.status.error");
-    }
+    return previewStatusLabel(status);
   }
 
   previewStatusClass(status: ImportClientStatus): string {
-    switch (status) {
-      case "create":
-        return "badge badge--green";
-      case "unchanged":
-        return "badge badge--gray";
-      case "update":
-        return "badge badge--blue";
-      case "duplicate":
-        return "badge badge--amber";
-      case "error":
-        return "badge badge--red";
-    }
+    return previewStatusClass(status);
   }
 
   serverPeerStatusLabel(status: ImportServerPeerStatus): string {
-    switch (status) {
-      case "create":
-        return t("import.preview.status.create");
-      case "duplicate":
-        return t("import.preview.status.duplicate");
-      case "error":
-        return t("import.preview.status.error");
-    }
+    return serverPeerStatusLabel(status);
   }
 
   serverPeerStatusClass(status: ImportServerPeerStatus): string {
-    switch (status) {
-      case "create":
-        return "badge badge--green";
-      case "duplicate":
-        return "badge badge--amber";
-      case "error":
-        return "badge badge--red";
-    }
+    return serverPeerStatusClass(status);
   }
 
-  shortKey(key: string): string {
-    const trimmed = key.trim();
-    if (trimmed.length <= SHORT_KEY_PREFIX + SHORT_KEY_SUFFIX) return trimmed;
-    return `${trimmed.slice(0, SHORT_KEY_PREFIX)}…${trimmed.slice(-SHORT_KEY_SUFFIX)}`;
-  }
+  shortKey(key: string): string { return shortKey(key); }
 
   serverPeerAddress(peer: ImportPreviewServerPeer): string {
-    return peer.address ?? t("import.preview.none");
+    return serverPeerAddress(peer);
   }
 
   serverPeerReason(peer: ImportPreviewServerPeer): string {
-    return peer.reason ?? t("import.preview.none");
+    return serverPeerReason(peer);
   }
 
   changesKey(interfaceId: string, client: ImportPreviewClient): string {
-    return `${interfaceId}:${client.device_id ?? client.name}`;
+    return this.clients.changesKey(interfaceId, client);
   }
 
-  changesOpen(key: string): boolean {
-    return this.expandedChanges.includes(key);
-  }
+  changesOpen(key: string): boolean { return this.clients.changesOpen(key); }
 
-  toggleChanges(key: string): void {
-    this.expandedChanges = this.changesOpen(key)
-      ? this.expandedChanges.filter((item) => item !== key)
-      : [...this.expandedChanges, key];
-  }
+  toggleChanges(key: string): void { this.clients.toggleChanges(key); }
 
   clientChangeLabel(field: ImportClientChangeField): string {
-    switch (field) {
-      case "address":
-        return t("import.preview.change.address");
-      case "preshared_key":
-        return t("import.preview.change.preshared_key");
-      case "name":
-        return t("import.preview.change.name");
-    }
+    return this.clients.clientChangeLabel(field);
   }
 
   clientChangeText(change: ImportClientChange): string {
-    const from = this.changeValue(change.field, change.from);
-    const to = this.changeValue(change.field, change.to);
-    return `${from} → ${to}`;
+    return this.clients.clientChangeText(change);
   }
 
-  private changeValue(field: ImportClientChangeField, value: string | null): string {
-    if (field === "preshared_key") {
-      return value === null ? t("import.preview.none") : PRESHARED_KEY_MASK;
-    }
-    return value ?? t("import.preview.none");
-  }
-
-  previewKey(iface: ImportPreviewInterface): string {
-    return iface.public_key ?? t("import.preview.none");
-  }
+  previewKey(iface: ImportPreviewInterface): string { return previewKey(iface.public_key); }
 
   previewClientAddress(client: ImportPreviewClient): string {
     return client.address ?? t("import.preview.none");
@@ -1351,201 +565,31 @@ export class ImportVM extends ViewModel {
     return client.reason ?? t("import.preview.none");
   }
 
-  async previewNow(): Promise<void> {
-    if (this.previewing) return;
-    if (!this.valid) {
-      this.toasts.error(t("import.toast.fillRequired"));
-      return;
-    }
-    const signature = this.formSignature;
-    const payload = this.payload;
-    this.previewing = true;
-    this.previewError = null;
-    this.applyError = null;
-    this.step = 3;
-    try {
-      const preview = await this.importService.preview(payload);
-      if (signature !== this.formSignature) {
-        this.invalidatePlan();
-        this.step = 2;
-        return;
-      }
-      this.preview = preview;
-      this.previewSignature = signature;
-      this.planInvalidated = false;
-      const external = preview.summary.external.create;
-      this.toasts.success(
-        t(
-          external > 0 ? "import.toast.previewReadyExternal" : "import.toast.previewReady",
-          {
-            create: preview.summary.create,
-            duplicate: preview.summary.duplicate,
-            error: preview.summary.error,
-            external,
-          },
-        ),
-      );
-    } catch (error) {
-      this.preview = null;
-      this.previewError = userMessage(error, t("import.error.preview"));
-      this.toasts.error(this.previewError);
-    } finally {
-      this.previewing = false;
-    }
-  }
+  previewNow(): Promise<void> { return this.group.previewNow(); }
 
-  async applyNow(): Promise<void> {
-    if (this.applying) return;
-    if (!this.preview) {
-      this.toasts.error(t("import.toast.previewRequired"));
-      return;
-    }
-    this.applying = true;
-    this.applyError = null;
-    try {
-      const result = await this.importService.apply(this.payload);
-      this.applied = result;
-      this.step = 4;
-      if (result.summary.error > 0) {
-        this.toasts.error(
-          t("import.toast.appliedWithErrors", {
-            created: result.summary.create,
-            failed: result.summary.error,
-          }),
-        );
-      } else {
-        const external = result.summary.external.create;
-        this.toasts.success(
-          t(external > 0 ? "import.toast.appliedExternal" : "import.toast.applied", {
-            count: result.summary.create,
-            external,
-          }),
-        );
-      }
-    } catch (error) {
-      this.applyError = userMessage(error, t("import.error.apply"));
-      this.toasts.error(this.applyError);
-    } finally {
-      this.applying = false;
-    }
-  }
+  applyNow(): Promise<void> { return this.group.applyNow(); }
 
-  openGroup(): void {
-    this.router.navigate(this.resultGroupPath);
-  }
+  openGroup(): void { this.group.openGroup(); }
 
-  openInterfaces(): void {
-    this.router.navigate("/interfaces");
-  }
+  openInterfaces(): void { this.group.openInterfaces(); }
 
-  openNodes(): void {
-    this.router.navigate("/nodes");
-  }
+  openNodes(): void { this.group.openNodes(); }
 
-  reset(): void {
-    this.step = DEFAULT_STEP;
-    this.groupName = "";
-    this.groupDescription = "";
-    this.baseCidr = DEFAULT_BASE_CIDR;
-    this.ownerUserId = "";
-    this.interfaces = [createInterface("awg0", DEFAULT_BASE_CIDR)];
-    this.preview = null;
-    this.applied = null;
-    this.previewError = null;
-    this.applyError = null;
-    this.previewSignature = "";
-    this.planInvalidated = false;
-  }
+  reset(): void { this.group.reset(); }
 
   @watch((vm: ImportVM) => vm.formSignature)
   onFormChange(): void {
     if (this.preview === null && this.applied === null) return;
-    if (this.formSignature === this.previewSignature && this.applied === null) return;
-    this.invalidatePlan();
+    if (this.group.planMatches(this.formSignature) && this.applied === null) return;
+    this.group.invalidatePlan();
   }
 
   @watch((vm: ImportVM) => vm.clientsFormSignature)
   onClientsFormChange(): void {
     if (this.clientsPreview === null && this.clientsApplied === null) return;
-    if (this.clientsFormSignature === this.clientsPreviewSignature && this.clientsApplied === null) {
+    if (this.clients.planMatches(this.clientsFormSignature) && this.clientsApplied === null) {
       return;
     }
-    this.invalidateClientsPlan();
-  }
-
-  private invalidatePlan(): void {
-    const hadPlan = this.preview !== null || this.applied !== null || this.previewing;
-    this.preview = null;
-    this.applied = null;
-    this.previewError = null;
-    this.applyError = null;
-    this.previewSignature = "";
-    if (hadPlan) {
-      this.planInvalidated = true;
-      if (this.step > 2) this.step = 2;
-    }
-  }
-
-  private touch(): void {
-    this.invalidatePlan();
-  }
-
-  private invalidateClientsPlan(): void {
-    const hadPlan =
-      this.clientsPreview !== null ||
-      this.clientsApplied !== null ||
-      this.clientsPreviewing;
-    this.clientsPreview = null;
-    this.clientsApplied = null;
-    this.clientsPreviewError = null;
-    this.clientsApplyError = null;
-    this.clientsPreviewSignature = "";
-    this.expandedChanges = [];
-    if (hadPlan) {
-      this.clientsPlanInvalidated = true;
-      if (this.clientsStep > 1) this.clientsStep = 1;
-    }
-  }
-
-  private touchClients(): void {
-    this.invalidateClientsPlan();
-  }
-
-  private syncClientsImportText(): void {
-    this.clientsImportText = this.clientsImport.map((client) => client.config).join("\n---\n");
-  }
-
-  private applyClientText(draft: InterfaceDraft): number {
-    draft.clients = buildClientDrafts(draft.clientsText);
-    return draft.clients.length;
-  }
-
-  private syncClientsText(draft: InterfaceDraft): void {
-    draft.clientsText = draft.clients.map((client) => client.config).join("\n---\n");
-  }
-
-  private nextInterfaceName(): string {
-    const used = new Set(this.interfaces.map((iface) => iface.name.trim().toLowerCase()));
-    let index = this.interfaces.length;
-    let candidate = `awg${index}`;
-    while (used.has(candidate.toLowerCase())) {
-      index += 1;
-      candidate = `awg${index}`;
-    }
-    return candidate;
-  }
-
-  private poolName(interfaceIndex: number, poolIndex: number): string {
-    return this.interfaces[interfaceIndex]?.pools[poolIndex]?.name.trim() ?? "";
-  }
-
-  private poolLabel(interfaceIndex: number, poolIndex: number): string {
-    const name = this.poolName(interfaceIndex, poolIndex);
-    return name.length > 0 ? name : `#${poolIndex + 1}`;
-  }
-
-  private toNumber(value: string): number {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
+    this.clients.invalidateClientsPlan();
   }
 }
