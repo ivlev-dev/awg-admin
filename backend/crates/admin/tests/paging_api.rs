@@ -1013,3 +1013,144 @@ async fn user_index_follows_rename_role_disable_approve_and_delete() {
     assert_eq!(status, StatusCode::OK, "{body}");
     assert_eq!(body["total"], 233);
 }
+
+fn save_user_with_login(env: &AppEnv, id: Uuid, login: &str, email: Option<&str>) {
+    let repo = RedbUserRepository::new(env.store.clone());
+    let created = Utc.with_ymd_and_hms(2026, 6, 1, 0, 0, 0).unwrap();
+    repo.save(&User {
+        id,
+        login: login.into(),
+        password_hash: "hash".into(),
+        role: Role::User,
+        tariff_id: None,
+        group_id: None,
+        node_id: None,
+        disabled: false,
+        email: email.map(str::to_string),
+        status: UserStatus::Active,
+        totp_secret_sealed: None,
+        totp_enabled: false,
+        recovery_codes: Vec::new(),
+        totp_pending_secret_sealed: None,
+        totp_pending_recovery_codes: Vec::new(),
+        last_totp_step: None,
+        created_at: created,
+        updated_at: created,
+    })
+    .unwrap();
+}
+
+#[tokio::test]
+async fn users_page_trigram_search_covers_lengths_case_and_middle_matches() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let users: Vec<SeededUser> = (0..250).map(seed_user).collect();
+    save_users(&env, &users);
+    let divergent_id = Uuid::from_u128(2_000_000);
+    save_user_with_login(
+        &env,
+        divergent_id,
+        "special-account",
+        Some("divergent@example.com"),
+    );
+
+    let active = |item: &SeededUser| item.status != UserStatus::PendingApproval;
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/users/page?q=user",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let expected = expected_emails(&users, |item| active(item) && item.email.contains("user"));
+    assert_eq!(body["total"], expected.len());
+    assert_eq!(emails(&body), expected[..expected.len().min(50)]);
+
+    for q in [
+        "001",
+        "USER-01",
+        "user-01",
+        "user-0",
+        "4@ex",
+        "l-acc",
+        "DIVERGENT",
+    ] {
+        let (status, body) = call(
+            router(&env),
+            "GET",
+            &format!("/api/v1/users/page?q={q}&limit=200"),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{q}: {body}");
+        let needle = q.to_lowercase();
+        let mut expected =
+            expected_emails(&users, |item| active(item) && item.email.contains(&needle));
+        if "special-account".contains(&needle) {
+            expected.push("divergent@example.com".to_string());
+        }
+        if "divergent@example.com".contains(&needle) {
+            expected.push("divergent@example.com".to_string());
+        }
+        expected.sort();
+        assert_eq!(body["total"], expected.len(), "{q}");
+        assert_eq!(emails(&body), expected, "{q}");
+    }
+
+    let mut seen = Vec::new();
+    for page in 0..5 {
+        let (status, body) = call(
+            router(&env),
+            "GET",
+            &format!("/api/v1/users/page?q=user&limit=50&offset={}", page * 50),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(body["total"], 230);
+        seen.extend(emails(&body));
+    }
+    assert_eq!(seen.len(), 230);
+    let mut unique = seen.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 230, "pages must not repeat or skip users");
+
+    let (status, body) = call(
+        router(&env),
+        "GET",
+        "/api/v1/users/page?q=zzz",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["total"], 0);
+
+    let (status, body) = call(
+        router(&env),
+        "PATCH",
+        &format!("/api/v1/users/{divergent_id}"),
+        &token,
+        Some(json!({ "email": "changed-address@example.com" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    for (q, expected) in [("divergent", 0), ("changed-address", 1), ("special-acc", 1)] {
+        let (status, body) = call(
+            router(&env),
+            "GET",
+            &format!("/api/v1/users/page?q={q}"),
+            &token,
+            None,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{q}: {body}");
+        assert_eq!(body["total"], expected, "{q}");
+    }
+}

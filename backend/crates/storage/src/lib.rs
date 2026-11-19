@@ -14,6 +14,7 @@ mod backup;
 pub mod device_index;
 mod schema;
 pub mod user_index;
+pub mod user_search;
 
 pub use schema::{
     CURRENT_SCHEMA_VERSION, MIGRATIONS, MigrationFn, MigrationStep, SCHEMA_VERSION_KEY,
@@ -92,6 +93,7 @@ tables! {
     DevicePageIndex => "device_page_index",
     DeviceCreatedIndex => "device_created_index",
     UserPageIndex => "user_page_index",
+    UserSearchIndex => "user_search_index",
     PeerCounters => "peer_counters",
     TrafficBuckets => "traffic_buckets",
     ShareLinks => "share_links",
@@ -182,11 +184,32 @@ impl Store {
     }
 
     pub fn restore_from(&self, path: impl AsRef<Path>) -> Result<()> {
-        backup::restore_from(self, path.as_ref())
+        self.restore_from_with_sealer(path, None)
+    }
+
+    /// Restores a backup into the open store, migrating backups that were
+    /// created by an older schema version. The migration runs on a temporary
+    /// copy, so the backup file itself is never modified.
+    pub fn restore_from_with_sealer(
+        &self,
+        path: impl AsRef<Path>,
+        sealer: Option<Arc<Sealer>>,
+    ) -> Result<()> {
+        backup::restore_from(self, path.as_ref(), sealer)
     }
 
     pub fn replace_file_from(backup: impl AsRef<Path>, target: impl AsRef<Path>) -> Result<()> {
-        backup::replace_file_from(backup.as_ref(), target.as_ref())
+        Self::replace_file_from_with_sealer(backup, target, None)
+    }
+
+    /// Replaces the database file with a backup, migrating backups that were
+    /// created by an older schema version before the final atomic rename.
+    pub fn replace_file_from_with_sealer(
+        backup: impl AsRef<Path>,
+        target: impl AsRef<Path>,
+        sealer: Option<Arc<Sealer>>,
+    ) -> Result<()> {
+        backup::replace_file_from(backup.as_ref(), target.as_ref(), sealer)
     }
 
     pub fn get<T: DeserializeOwned>(&self, table: Table, key: &str) -> Result<Option<T>> {

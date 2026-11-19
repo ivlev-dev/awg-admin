@@ -2,8 +2,10 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use awg_shared::crypto::Sealer;
 use awg_storage::{CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, StorageError, Store, Table};
 use redb::{Database, ReadableDatabase, ReadableTableMetadata, TableHandle};
 
@@ -31,6 +33,17 @@ awg-backup — резервное копирование и восстановл
   --force        перезаписать существующий backup
   --offline      заменить файл БД целиком (временный файл + атомарный rename)
   -h, --help     показать эту справку
+
+Версии схемы:
+  backup с текущей версией схемы восстанавливается как есть.
+  backup со старой версией (>= 1) обновляется миграциями в исходной
+  CURRENT_SCHEMA_VERSION; миграция выполняется на временной копии, поэтому
+  файл backup не изменяется.
+  Если для миграции нужен master key (старые share-ссылки, шаг 10 -> 11),
+  задайте AWG_MASTER_KEY (тот же ключ, что у admin): без него restore
+  завершится ошибкой. При замене файла (--offline) ключ берётся из
+  окружения и не передаётся аргументами.
+  backup с версией новее CURRENT_SCHEMA_VERSION отклоняется.
 
 Перед backup и restore остановите awg-admin: redb открывает файл БД
 эксклюзивно, запущенный admin блокирует и backup, и restore.
@@ -266,35 +279,45 @@ fn restore(db: &Path, from: &Path, offline: bool) -> CliResult<()> {
         ));
     }
 
-    let version = check_backup(from)?;
+    let version = backup_version(from)?;
+    let sealer = master_key_sealer()?;
+    let schema = describe_restore_schema(version);
 
     if offline {
-        restore_file(db, from)?;
+        restore_file(db, from, sealer).map_err(|failure| restore_failure(failure, version))?;
         println!(
-            "база восстановлена: {} (схема {}, режим: замена файла)",
-            db.display(),
-            version
+            "база восстановлена: {} ({schema}, режим: замена файла)",
+            db.display()
         );
         return Ok(());
     }
 
     create_parent(db)?;
-    let store = Store::open(db).map_err(|err| map_store_open(db, err))?;
-    store.restore_from(from).map_err(|err| {
-        CliFailure::runtime(format!("не удалось восстановить {}: {err}", db.display()))
-    })?;
+    let store =
+        Store::open_with_sealer(db, sealer.clone()).map_err(|err| map_store_open(db, err))?;
+    store
+        .restore_from_with_sealer(from, sealer)
+        .map_err(|err| {
+            restore_failure(
+                CliFailure::runtime(format!(
+                    "не удалось восстановить {} из {}: {err}",
+                    db.display(),
+                    from.display()
+                )),
+                version,
+            )
+        })?;
     let restored = store
         .schema_version()
         .map_err(|err| CliFailure::runtime(format!("не удалось прочитать версию схемы: {err}")))?;
     println!(
-        "база восстановлена: {} (схема {}, режим: транзакция)",
-        db.display(),
-        restored
+        "база восстановлена: {} ({schema}, режим: транзакция, схема после restore {restored})",
+        db.display()
     );
     Ok(())
 }
 
-fn restore_file(db: &Path, from: &Path) -> CliResult<()> {
+fn restore_file(db: &Path, from: &Path, sealer: Option<Arc<Sealer>>) -> CliResult<()> {
     create_parent(db)?;
     let lock = if db.is_file() {
         open_for_replace(db)?
@@ -302,7 +325,7 @@ fn restore_file(db: &Path, from: &Path) -> CliResult<()> {
         None
     };
 
-    let result = Store::replace_file_from(from, db).map_err(|err| {
+    let result = Store::replace_file_from_with_sealer(from, db, sealer).map_err(|err| {
         CliFailure::runtime(format!(
             "не удалось заменить {} из {}: {err}",
             db.display(),
@@ -311,6 +334,41 @@ fn restore_file(db: &Path, from: &Path) -> CliResult<()> {
     });
     drop(lock);
     result
+}
+
+fn master_key_sealer() -> CliResult<Option<Arc<Sealer>>> {
+    let Some(key) = std::env::var("AWG_MASTER_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+    else {
+        return Ok(None);
+    };
+    Sealer::from_master_key(&key)
+        .map(|sealer| Some(Arc::new(sealer)))
+        .map_err(|err| {
+            CliFailure::runtime(format!(
+                "некорректный AWG_MASTER_KEY: {err} (ожидается 32 байта в base64)"
+            ))
+        })
+}
+
+fn describe_restore_schema(version: u32) -> String {
+    if version == CURRENT_SCHEMA_VERSION {
+        format!("схема {version}")
+    } else {
+        format!("схема {version} -> {CURRENT_SCHEMA_VERSION}")
+    }
+}
+
+fn restore_failure(failure: CliFailure, version: u32) -> CliFailure {
+    if version < CURRENT_SCHEMA_VERSION && failure.message.contains("requires the master key") {
+        return CliFailure::runtime(format!(
+            "{}; задайте AWG_MASTER_KEY (master key admin) и повторите: \
+             миграция схемы {version} -> {CURRENT_SCHEMA_VERSION} шифрует старые share-ссылки",
+            failure.message
+        ));
+    }
+    failure
 }
 
 fn open_for_replace(path: &Path) -> CliResult<Option<Database>> {
@@ -363,10 +421,17 @@ fn info(db: &Path) -> CliResult<()> {
         "Версия схемы: {} (поддерживается {CURRENT_SCHEMA_VERSION})",
         describe_version(version)
     );
-    if version != Some(CURRENT_SCHEMA_VERSION) {
-        println!("Совместимость: нет, restore будет отклонён");
-    } else {
-        println!("Совместимость: да");
+    match version {
+        Some(found) if found == CURRENT_SCHEMA_VERSION => println!("Совместимость: да"),
+        Some(found) if found < CURRENT_SCHEMA_VERSION => println!(
+            "Совместимость: да, restore обновит схему {found} -> {CURRENT_SCHEMA_VERSION}; \
+             для миграции старых share-ссылок нужен AWG_MASTER_KEY"
+        ),
+        Some(found) => println!(
+            "Совместимость: нет, backup новее поддерживаемой схемы {found} > \
+             {CURRENT_SCHEMA_VERSION}, restore будет отклонён"
+        ),
+        None => println!("Совместимость: нет, нет версии схемы, restore будет отклонён"),
     }
     println!("Таблицы ({}):", tables.len());
     for (name, len) in tables {
@@ -375,7 +440,7 @@ fn info(db: &Path) -> CliResult<()> {
     Ok(())
 }
 
-fn check_backup(path: &Path) -> CliResult<u32> {
+fn backup_version(path: &Path) -> CliResult<u32> {
     let database = open_read_only(path).map_err(|err| {
         CliFailure::runtime(format!(
             "не удалось открыть backup {}: {}",
@@ -389,11 +454,11 @@ fn check_backup(path: &Path) -> CliResult<u32> {
             "в backup {} нет ключа meta.{SCHEMA_VERSION_KEY}",
             path.display()
         ))),
-        Some(found) if found == CURRENT_SCHEMA_VERSION => Ok(found),
-        Some(found) => Err(CliFailure::runtime(format!(
-            "несовместимая версия схемы: backup {found}, поддерживается {CURRENT_SCHEMA_VERSION}; \
+        Some(found) if found > CURRENT_SCHEMA_VERSION => Err(CliFailure::runtime(format!(
+            "backup новее поддерживаемой схемы: {found}, поддерживается {CURRENT_SCHEMA_VERSION}; \
              используйте awg-backup от версии admin, создавшей backup"
         ))),
+        Some(found) => Ok(found),
     }
 }
 

@@ -38,6 +38,7 @@ impl Drop for TempDir {
 fn command() -> Command {
     let mut command = Command::new(BIN);
     command.env_remove("AWG_DB_PATH");
+    command.env_remove("AWG_MASTER_KEY");
     command
 }
 
@@ -243,7 +244,7 @@ fn restore_rejects_incompatible_schema_without_touching_db() {
         .output()
         .unwrap();
     assert_eq!(output.status.code(), Some(1));
-    assert!(stderr(&output).contains("несовместимая версия схемы"));
+    assert!(stderr(&output).contains("backup новее поддерживаемой схемы"));
     assert_eq!(
         read_theme(&db),
         Some(Record {
@@ -342,4 +343,206 @@ fn help_is_available() {
     let output = command().arg("--help").output().unwrap();
     assert_success(&output);
     assert!(String::from_utf8_lossy(&output.stdout).contains("Использование:"));
+}
+
+const MASTER_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const LEGACY_TOKEN: &str = "legacy-token";
+
+fn seed_legacy_backup(path: &Path, version: u32, legacy_share: Option<&str>) {
+    let database = Database::create(path).unwrap();
+    let txn = database.begin_write().unwrap();
+    {
+        let mut users = txn.open_table(Table::Users.definition()).unwrap();
+        let user = serde_json::json!({
+            "id": "11111111-1111-1111-1111-111111111111",
+            "login": "alice",
+            "email": "alice@example.com",
+            "role": "admin",
+            "status": "active",
+            "disabled": false,
+            "created_at": "2026-01-02T03:04:05.123456Z",
+        });
+        let bytes = serde_json::to_vec(&user).unwrap();
+        users.insert("alice", bytes.as_slice()).unwrap();
+    }
+    {
+        let mut settings = txn.open_table(Table::Settings.definition()).unwrap();
+        let bytes = serde_json::to_vec(&Record {
+            value: "dark".into(),
+        })
+        .unwrap();
+        settings.insert("theme", bytes.as_slice()).unwrap();
+    }
+    if let Some(token) = legacy_share {
+        let mut links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+        let link = serde_json::json!({
+            "id": "legacy-link",
+            "user_id": "11111111-1111-1111-1111-111111111111",
+            "token": token,
+        });
+        let bytes = serde_json::to_vec(&link).unwrap();
+        links.insert("legacy-link", bytes.as_slice()).unwrap();
+    }
+    {
+        let mut meta = txn.open_table(Table::Meta.definition()).unwrap();
+        let bytes = serde_json::to_vec(&version).unwrap();
+        meta.insert(SCHEMA_VERSION_KEY, bytes.as_slice()).unwrap();
+    }
+    txn.commit().unwrap();
+}
+
+fn restore(db: &Path, from: &Path, offline: bool) -> Output {
+    let mut command = command();
+    command
+        .arg("restore")
+        .arg("--db")
+        .arg(db)
+        .arg("--from")
+        .arg(from);
+    if offline {
+        command.arg("--offline");
+    }
+    command.output().unwrap()
+}
+
+#[test]
+fn restore_in_place_upgrades_legacy_schema() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    let backup_path = dir.join("v8.redb");
+    seed_legacy_backup(&backup_path, 8, None);
+    let before = fs::read(&backup_path).unwrap();
+    seed_db(&db, "light");
+
+    let output = restore(&db, &backup_path, false);
+    assert_success(&output);
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("схема 8 ->"),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+    assert_eq!(
+        read_theme(&db),
+        Some(Record {
+            value: "dark".into()
+        })
+    );
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert!(
+        store
+            .get::<serde_json::Value>(Table::Users, "alice")
+            .unwrap()
+            .is_some()
+    );
+    drop(store);
+    assert_eq!(fs::read(&backup_path).unwrap(), before);
+}
+
+#[test]
+fn restore_offline_requires_master_key_for_legacy_share() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    let backup_path = dir.join("v10.redb");
+    seed_legacy_backup(&backup_path, 10, Some(LEGACY_TOKEN));
+    let before = fs::read(&backup_path).unwrap();
+    seed_db(&db, "light");
+
+    let output = restore(&db, &backup_path, true);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("AWG_MASTER_KEY"),
+        "stderr: {}",
+        stderr(&output)
+    );
+    assert_eq!(
+        read_theme(&db),
+        Some(Record {
+            value: "light".into()
+        })
+    );
+    assert_eq!(fs::read(&backup_path).unwrap(), before);
+}
+
+#[test]
+fn restore_offline_upgrades_legacy_share_with_master_key() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    let backup_path = dir.join("v10.redb");
+    seed_legacy_backup(&backup_path, 10, Some(LEGACY_TOKEN));
+    let before = fs::read(&backup_path).unwrap();
+    seed_db(&db, "light");
+
+    let output = command()
+        .arg("restore")
+        .arg("--db")
+        .arg(&db)
+        .arg("--from")
+        .arg(&backup_path)
+        .arg("--offline")
+        .env("AWG_MASTER_KEY", MASTER_KEY)
+        .output()
+        .unwrap();
+    assert_success(&output);
+
+    let store = Store::open_with_sealer(
+        &db,
+        Some(std::sync::Arc::new(
+            awg_shared::crypto::Sealer::from_master_key(MASTER_KEY).unwrap(),
+        )),
+    )
+    .unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(Record {
+            value: "dark".into()
+        })
+    );
+    let hash = awg_shared::crypto::sha256_hex(LEGACY_TOKEN.as_bytes());
+    assert!(
+        store
+            .get::<serde_json::Value>(Table::ShareLinks, &hash)
+            .unwrap()
+            .is_some()
+    );
+    drop(store);
+    assert_eq!(fs::read(&backup_path).unwrap(), before);
+}
+
+#[test]
+fn restore_offline_missing_backup_file_is_reported() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    seed_db(&db, "light");
+
+    let output = restore(&db, &dir.join("absent.redb"), true);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(stderr(&output).contains("backup не найден"));
+    assert_eq!(
+        read_theme(&db),
+        Some(Record {
+            value: "light".into()
+        })
+    );
+}
+
+#[test]
+fn info_reports_upgradable_legacy_schema() {
+    let dir = TempDir::new();
+    let backup_path = dir.join("v10.redb");
+    seed_legacy_backup(&backup_path, 10, None);
+
+    let output = command()
+        .arg("info")
+        .arg("--db")
+        .arg(&backup_path)
+        .output()
+        .unwrap();
+    assert_success(&output);
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains(&format!(
+        "Совместимость: да, restore обновит схему 10 -> {CURRENT_SCHEMA_VERSION}"
+    )));
+    assert!(text.contains("AWG_MASTER_KEY"));
 }

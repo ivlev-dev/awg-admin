@@ -1,6 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use awg_shared::crypto::{Sealer, sha256_hex};
 use awg_storage::{CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, StorageError, Store, Table};
 use redb::Database;
 use serde::{Deserialize, Serialize};
@@ -190,4 +192,280 @@ fn missing_backup_is_reported() {
 
     let err = store.restore_from(dir.join("absent.redb")).unwrap_err();
     assert!(matches!(err, StorageError::BackupNotFound(_)));
+}
+
+const LEGACY_USER_ID: &str = "11111111-1111-1111-1111-111111111111";
+const MASTER_KEY: &str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+const LEGACY_TOKEN: &str = "legacy-token";
+
+fn seed_legacy_backup(path: &Path, version: u32, legacy_share: Option<&str>) {
+    let database = Database::create(path).unwrap();
+    let txn = database.begin_write().unwrap();
+    {
+        let mut users = txn.open_table(Table::Users.definition()).unwrap();
+        let user = serde_json::json!({
+            "id": LEGACY_USER_ID,
+            "login": "alice",
+            "email": "alice@example.com",
+            "role": "admin",
+            "status": "active",
+            "disabled": false,
+            "created_at": "2026-01-02T03:04:05.123456Z",
+        });
+        let bytes = serde_json::to_vec(&user).unwrap();
+        users.insert("alice", bytes.as_slice()).unwrap();
+    }
+    {
+        let mut settings = txn.open_table(Table::Settings.definition()).unwrap();
+        let bytes = serde_json::to_vec(&record("dark")).unwrap();
+        settings.insert("theme", bytes.as_slice()).unwrap();
+    }
+    if let Some(token) = legacy_share {
+        let mut links = txn.open_table(Table::ShareLinks.definition()).unwrap();
+        let link = serde_json::json!({
+            "id": "legacy-link",
+            "user_id": LEGACY_USER_ID,
+            "token": token,
+        });
+        let bytes = serde_json::to_vec(&link).unwrap();
+        links.insert("legacy-link", bytes.as_slice()).unwrap();
+    }
+    {
+        let mut meta = txn.open_table(Table::Meta.definition()).unwrap();
+        let bytes = serde_json::to_vec(&version).unwrap();
+        meta.insert(SCHEMA_VERSION_KEY, bytes.as_slice()).unwrap();
+    }
+    txn.commit().unwrap();
+    drop(database);
+}
+
+fn store_file_names(dir: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+        .collect();
+    names.sort();
+    names
+}
+
+fn assert_no_leftovers(dir: &Path, expected: &[&str]) {
+    let names = store_file_names(dir);
+    assert_eq!(
+        names,
+        expected
+            .iter()
+            .map(|name| name.to_string())
+            .collect::<Vec<_>>(),
+        "restore must not leave temporary files behind"
+    );
+}
+
+#[test]
+fn restore_upgrades_v8_backup_without_mutating_it() {
+    let dir = TempDir::new();
+    let backup = dir.join("v8.redb");
+    seed_legacy_backup(&backup, 8, None);
+    let before = fs::read(&backup).unwrap();
+
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    store
+        .put(Table::Settings, "theme", &record("light"))
+        .unwrap();
+
+    store.restore_from(&backup).unwrap();
+
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("dark"))
+    );
+    let user: serde_json::Value = store.get(Table::Users, "alice").unwrap().unwrap();
+    assert_eq!(user["id"], LEGACY_USER_ID);
+    assert_eq!(user["email"], "alice@example.com");
+    assert_eq!(user["role"], "admin");
+    assert_eq!(
+        fs::read(&backup).unwrap(),
+        before,
+        "backup must stay intact"
+    );
+    assert_no_leftovers(&dir.path, &["db.redb", "v8.redb"]);
+}
+
+#[test]
+fn repeated_restore_of_old_backup_is_idempotent() {
+    let dir = TempDir::new();
+    let backup = dir.join("v8.redb");
+    seed_legacy_backup(&backup, 8, None);
+    let before = fs::read(&backup).unwrap();
+
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    for _ in 0..3 {
+        store.restore_from(&backup).unwrap();
+        assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+        assert_eq!(
+            store.get::<Record>(Table::Settings, "theme").unwrap(),
+            Some(record("dark"))
+        );
+        assert_eq!(store.count(Table::Users).unwrap(), 1);
+        assert_eq!(fs::read(&backup).unwrap(), before);
+    }
+    assert_no_leftovers(&dir.path, &["db.redb", "v8.redb"]);
+}
+
+#[test]
+fn restore_of_v10_legacy_share_requires_master_key() {
+    let dir = TempDir::new();
+    let backup = dir.join("v10.redb");
+    seed_legacy_backup(&backup, 10, Some(LEGACY_TOKEN));
+    let before = fs::read(&backup).unwrap();
+
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    store
+        .put(Table::Settings, "theme", &record("light"))
+        .unwrap();
+
+    let err = store.restore_from(&backup).unwrap_err();
+    assert!(matches!(err, StorageError::Secret(_)), "got {err:?}");
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("light")),
+        "a failed restore must not touch the target store"
+    );
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    assert_no_leftovers(&dir.path, &["db.redb", "v10.redb"]);
+}
+
+#[test]
+fn restore_of_v10_legacy_share_seals_tokens_with_master_key() {
+    let dir = TempDir::new();
+    let backup = dir.join("v10.redb");
+    seed_legacy_backup(&backup, 10, Some(LEGACY_TOKEN));
+    let before = fs::read(&backup).unwrap();
+    let sealer = Arc::new(Sealer::from_master_key(MASTER_KEY).unwrap());
+
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    store
+        .restore_from_with_sealer(&backup, Some(sealer.clone()))
+        .unwrap();
+
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("dark"))
+    );
+
+    let hash = sha256_hex(LEGACY_TOKEN.as_bytes());
+    assert!(
+        store
+            .get_raw(Table::ShareLinks, "legacy-link")
+            .unwrap()
+            .is_none()
+    );
+    let raw = store.get_raw(Table::ShareLinks, &hash).unwrap().unwrap();
+    assert!(
+        !raw.windows(LEGACY_TOKEN.len())
+            .any(|window| window == LEGACY_TOKEN.as_bytes()),
+        "the plaintext token must not survive the restore"
+    );
+    let link: serde_json::Value = store.get(Table::ShareLinks, &hash).unwrap().unwrap();
+    assert!(link.get("token").is_none());
+    assert_eq!(link["token_hash"], hash);
+    assert_eq!(
+        sealer
+            .open_str(link["token_sealed"].as_str().unwrap())
+            .unwrap(),
+        LEGACY_TOKEN
+    );
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    assert_no_leftovers(&dir.path, &["db.redb", "v10.redb"]);
+}
+
+#[test]
+fn replace_file_upgrades_old_backup_only_with_master_key() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    let backup = dir.join("v10.redb");
+    seed_legacy_backup(&backup, 10, Some(LEGACY_TOKEN));
+    let before = fs::read(&backup).unwrap();
+
+    {
+        let store = Store::open(&db).unwrap();
+        store
+            .put(Table::Settings, "theme", &record("light"))
+            .unwrap();
+    }
+
+    let err = Store::replace_file_from(&backup, &db).unwrap_err();
+    assert!(matches!(err, StorageError::Secret(_)), "got {err:?}");
+    {
+        let store = Store::open(&db).unwrap();
+        assert_eq!(
+            store.get::<Record>(Table::Settings, "theme").unwrap(),
+            Some(record("light")),
+            "a failed offline restore must not touch the target database"
+        );
+    }
+    assert_eq!(fs::read(&backup).unwrap(), before);
+
+    let sealer = Arc::new(Sealer::from_master_key(MASTER_KEY).unwrap());
+    Store::replace_file_from_with_sealer(&backup, &db, Some(sealer)).unwrap();
+
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("dark"))
+    );
+    let hash = sha256_hex(LEGACY_TOKEN.as_bytes());
+    assert!(
+        store
+            .get::<serde_json::Value>(Table::ShareLinks, &hash)
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    assert_no_leftovers(&dir.path, &["db.redb", "v10.redb"]);
+}
+
+#[test]
+fn replace_file_upgrades_v8_backup_without_master_key() {
+    let dir = TempDir::new();
+    let db = dir.join("db.redb");
+    let backup = dir.join("v8.redb");
+    seed_legacy_backup(&backup, 8, None);
+    let before = fs::read(&backup).unwrap();
+    Store::open(&db).unwrap();
+
+    Store::replace_file_from(&backup, &db).unwrap();
+
+    let store = Store::open(&db).unwrap();
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("dark"))
+    );
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    assert_no_leftovers(&dir.path, &["db.redb", "v8.redb"]);
+}
+
+#[test]
+fn restore_into_in_memory_store_stages_outside_the_backup_directory() {
+    let dir = TempDir::new();
+    let backup = dir.join("v8.redb");
+    seed_legacy_backup(&backup, 8, None);
+    let before = fs::read(&backup).unwrap();
+
+    let store = Store::open_in_memory().unwrap();
+    store
+        .put(Table::Settings, "theme", &record("light"))
+        .unwrap();
+    store.restore_from(&backup).unwrap();
+
+    assert_eq!(store.schema_version().unwrap(), CURRENT_SCHEMA_VERSION);
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("dark"))
+    );
+    assert_eq!(fs::read(&backup).unwrap(), before);
+    assert_no_leftovers(&dir.path, &["v8.redb"]);
 }

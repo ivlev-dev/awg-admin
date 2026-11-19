@@ -5,7 +5,7 @@ use awg_shared::crypto::{Sealer, sha256_hex};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 11;
+pub const CURRENT_SCHEMA_VERSION: u32 = 12;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -68,6 +68,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 10,
         to: 11,
         apply: v11_share_token_hash,
+    },
+    MigrationStep {
+        from: 11,
+        to: 12,
+        apply: v12_user_search_index,
     },
 ];
 
@@ -205,6 +210,10 @@ fn v9_device_page_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Res
 
 fn v10_user_page_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
     crate::user_index::backfill(txn)
+}
+
+fn v12_user_search_index(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    crate::user_search::backfill(txn)
 }
 
 fn v11_share_token_hash(txn: &WriteTransaction, sealer: Option<&Sealer>) -> Result<()> {
@@ -1699,6 +1708,115 @@ mod tests {
         let err = migrate_with(&db, 10, 11, MIGRATIONS, None).unwrap_err();
         assert!(matches!(err, StorageError::Secret(_)));
         assert_eq!(read_version(&db).unwrap(), Some(10));
+    }
+
+    #[test]
+    fn migration_v12_backfills_the_user_search_index() {
+        let db = in_memory();
+        seed_legacy(&db, Some(11));
+        let first = uuid::Uuid::new_v4();
+        let second = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            let mut users = txn.open_table(Table::Users.definition()).unwrap();
+            users
+                .insert(
+                    first.to_string().as_str(),
+                    json!({
+                        "id": first,
+                        "login": "alice",
+                        "email": "Alice@Example.COM",
+                        "role": "user",
+                        "status": "active",
+                        "disabled": false,
+                        "created_at": "2026-01-01T00:00:00Z",
+                    })
+                    .to_string()
+                    .as_bytes(),
+                )
+                .unwrap();
+            users
+                .insert(
+                    second.to_string().as_str(),
+                    json!({
+                        "id": second,
+                        "login": "bob",
+                        "role": "admin",
+                        "status": "active",
+                        "disabled": false,
+                        "created_at": "2026-01-02T00:00:00Z",
+                    })
+                    .to_string()
+                    .as_bytes(),
+                )
+                .unwrap();
+            drop(users);
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 11, 12).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(12));
+        let first_keys =
+            crate::user_search::keys_for_entry(&crate::user_index::UserPageEntry::new(
+                first,
+                Some("Alice@Example.COM".into()),
+                "alice",
+                "user",
+                "active",
+                false,
+                chrono::DateTime::UNIX_EPOCH,
+            ));
+        let second_keys =
+            crate::user_search::keys_for_entry(&crate::user_index::UserPageEntry::new(
+                second,
+                None,
+                "bob",
+                "admin",
+                "active",
+                false,
+                chrono::DateTime::UNIX_EPOCH,
+            ));
+        assert!(!first_keys.is_empty());
+        assert_eq!(second_keys, vec![format!("bob|{second}")]);
+
+        let expected: std::collections::BTreeSet<String> =
+            first_keys.into_iter().chain(second_keys).collect();
+        let txn = db.begin_read().unwrap();
+        let index = txn.open_table(Table::UserSearchIndex.definition()).unwrap();
+        let keys: std::collections::BTreeSet<String> = index
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(keys, expected);
+        assert!(keys.contains(format!("ali|{first}").as_str()));
+        assert!(keys.contains(format!("com|{first}").as_str()));
+        drop(index);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v12_user_search_index(&txn, None).unwrap();
+        v12_user_search_index(&txn, None).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let index = txn.open_table(Table::UserSearchIndex.definition()).unwrap();
+        assert_eq!(index.iter().unwrap().count(), expected.len());
+    }
+
+    #[test]
+    fn migration_v12_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(11));
+        migrate(&db, 11, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 11, CURRENT_SCHEMA_VERSION).unwrap();
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
+
+        let txn = db.begin_write().unwrap();
+        v12_user_search_index(&txn, None).unwrap();
+        v12_user_search_index(&txn, None).unwrap();
+        txn.commit().unwrap();
     }
 
     fn sealer() -> Sealer {

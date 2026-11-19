@@ -58,7 +58,7 @@ docker compose logs admin | grep -i "ephemeral" && echo "ключ не зада�
 
 ## 3. Backup и restore redb
 
-БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 6` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
+БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 12` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
 
 Методы `Store`:
 
@@ -91,8 +91,9 @@ volumes:
 ```
 
 Снимок проверяется на целостность (как `Store::backup_to`) и пригоден для
-`awg-backup restore`. Планировщик не заменяет внешнюю ротацию: копируйте каталог
-на отдельный носитель.
+`awg-backup restore`, в том числе для старых версий схемы (они обновляются
+миграциями, см. раздел «CLI `awg-backup`»). Планировщик не заменяет внешнюю
+ротацию: копируйте каталог на отдельный носитель.
 
 ### CLI `awg-backup`
 
@@ -132,9 +133,25 @@ docker compose start admin
 
 `backup` удерживает эксклюзивную блокировку БД, копирует файл во временный `<out>.tmp-<pid>-<n>`, проверяет копию открытием redb с `check_integrity_on_open`, синхронизирует и заменяет `--out` атомарным `rename`. Существующий backup без `--force` не трогается, путь `--out`, совпадающий с БД, запрещён. `info` открывает БД read-only и не меняет её, но также требует остановленного admin.
 
-`restore` всегда сверяет `meta.schema_version` backup с `CURRENT_SCHEMA_VERSION` и при несовместимости или отсутствии версии завершается с кодом `1`, не меняя БД. Режимы: по умолчанию `Store::restore_from` (одна транзакция; файл backup должен быть доступен на запись), `--offline` — `Store::replace_file_from` (полная замена файла без открытия текущей БД; помогает, если файл БД повреждён или не открывается этим бинарником). Оба режима требуют остановленного admin и backup с текущей версией схемы.
+`restore` сверяет `meta.schema_version` backup с `CURRENT_SCHEMA_VERSION`. Backup с **текущей** версией восстанавливается как есть. Backup со **старой** версией (`1 … CURRENT-1`) сначала обновляется миграциями из `MIGRATIONS` до `CURRENT_SCHEMA_VERSION`, после чего данные переносятся в БД. Backup с **новой** версией (`> CURRENT`) и backup без версии отклоняются с кодом `1`, БД не меняется.
 
-Коды выхода: `0` — успех, `1` — ошибка операции (файл занят, файла нет, несовместимая схема, backup существует без `--force`), `2` — ошибка аргументов. `awg-backup --help` — справка.
+Режимы: по умолчанию `Store::restore_from_with_sealer` (одна транзакция в текущей БД), `--offline` — `Store::replace_file_from_with_sealer` (полная замена файла без открытия текущей БД; помогает, если файл БД повреждён или не открывается этим бинарником). Оба режима требуют остановленного admin.
+
+Миграция старых backup выполняется на временной копии (`<имя>.restore-<pid>-<n>` рядом с БД или в `/tmp`): исходный файл backup не открывается на запись и не изменяется. Временная копия удаляется после успеха или ошибки. `restore` идемпотентен: один и тот же старый backup можно восстанавливать повторно.
+
+Если для миграции нужен master key (шаг `10 → 11` шифрует старые plaintext-токены `share_links`), задайте `AWG_MASTER_KEY` — тот же ключ, что у admin:
+
+```bash
+# online: миграция копии backup выполняется в процессе restore
+AWG_MASTER_KEY='<base64 32 байта>' awg-backup restore --db /data/awg-admin.redb --from /backup/old.redb
+
+# offline: ключ берётся только из окружения и не попадает в argv/history
+AWG_MASTER_KEY='<base64 32 байта>' awg-backup restore --db /data/awg-admin.redb --from /backup/old.redb --offline
+```
+
+Без `AWG_MASTER_KEY` такой backup завершится ошибкой `StorageError::Secret` и подсказкой задать ключ; БД и backup остаются нетронутыми. Если старые share-ссылки уже были зашифрованы (например, backup снят после миграции `10 → 11`), ключ не требуется.
+
+Коды выхода: `0` — успех, `1` — ошибка операции (файл занят, файла нет, backup новее поддерживаемой схемы, нет версии схемы, не задан `AWG_MASTER_KEY` для старых share-ссылок, backup существует без `--force`), `2` — ошибка аргументов. `awg-backup --help` — справка.
 
 Проверка после restore:
 
@@ -147,7 +164,7 @@ docker compose logs --tail=50 admin              # нет ошибок мигр�
 
 Затем войти в панель и проверить пользователей, ноды, тарифы и последние аудит-события.
 
-Проверка версии: если backup создан другой версией admin, `restore` отклонит его; сначала обновите admin до версии, создавшей backup, или выполните миграции. Для отката на предыдущую версию используйте `awg-backup`, собранный из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`, шаги `1 → 2` (`v2_billing`, таблицы биллинга) и `2 → 3` (`v3_rate_limits`, таблица `rate_limits`) не меняют существующие данные; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
+Проверка версии: `restore` обновляет старые backup автоматически, если для всех шагов хватает данных и (при необходимости) `AWG_MASTER_KEY`; иначе он отклоняется, а БД остаётся прежней. Backup новее `CURRENT_SCHEMA_VERSION` не восстанавливается — используйте `awg-backup` из той же версии admin, что создала backup. Для отката на предыдущую версию admin берите `awg-backup` из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`; шаги `1 → 2` (`v2_billing`), `2 → 3` (`v3_rate_limits`), `3 → 4` (`v4_device_interfaces`), `4 → 5` (`v5_user_nodes`), `5 → 6` (`v6_user_emails`), `6 → 7` (`v7_idempotency`), `7 → 8` (`v8_peer_ids`), `8 → 9` (`v9_device_page_index`), `9 → 10` (`v10_user_page_index`), `10 → 11` (`v11_share_token_hash`, шифрует legacy-токены и требует master key), `11 → 12` (`v12_user_search_index`) не удаляют существующие записи; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
 
 ## 4. Очистка устаревших данных
 
@@ -503,7 +520,7 @@ openssl s_client -connect admin.internal:9090 -CAfile certs/grpc-ca.crt \
 4. Проверить health, логи, версию схемы.
 5. Запустить worker: `docker compose --profile worker up -d --build`.
 
-Откат: остановить admin, вернуть прежний образ/`.env`, восстановить БД из backup командой `awg-backup restore --offline` той же версии, что и возвращаемый admin (раздел 3), запустить. Не менять `AWG_MASTER_KEY` при откате.
+Откат: остановить admin, вернуть прежний образ/`.env`, восстановить БД из backup командой `awg-backup restore --offline` (backup не должен быть новее возвращаемого admin; более старый будет обновлён миграциями, раздел 3), запустить. Не менять `AWG_MASTER_KEY` при откате.
 
 ## 12. Полезные команды
 

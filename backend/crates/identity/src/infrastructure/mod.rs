@@ -84,19 +84,33 @@ impl UserRepository for RedbUserRepository {
             && query.tab == crate::domain::UserPageTab::All
             && query.q.is_none();
         let role = query.role.map(crate::domain::Role::as_str);
+        let disabled = query.disabled;
         let tab = query.tab;
         let (ids, total) = if unfiltered {
             user_index::scan_all(&self.store, query.offset, query.limit).map_err(map_err)?
         } else {
-            user_index::scan(&self.store, query.offset, query.limit, |entry| {
+            let keep = |entry: &UserPageEntry| {
                 role.is_none_or(|role| entry.role == role)
-                    && query
-                        .disabled
-                        .is_none_or(|disabled| entry.disabled == disabled)
+                    && disabled.is_none_or(|disabled| entry.disabled == disabled)
                     && tab.matches(status_from_str(&entry.status))
-                    && query.q.as_deref().is_none_or(|q| entry.matches_search(q))
-            })
-            .map_err(map_err)?
+            };
+            match query.q.as_deref() {
+                Some(q) => match awg_storage::user_search::search_page(
+                    &self.store,
+                    q,
+                    query.offset,
+                    query.limit,
+                    keep,
+                )
+                .map_err(map_err)?
+                {
+                    Some(result) => result,
+                    None => user_index::scan(&self.store, query.offset, query.limit, keep)
+                        .map_err(map_err)?,
+                },
+                None => user_index::scan(&self.store, query.offset, query.limit, keep)
+                    .map_err(map_err)?,
+            }
         };
         let keys: Vec<String> = ids.iter().map(ToString::to_string).collect();
         let items: Vec<User> = self.store.get_many(Table::Users, &keys).map_err(map_err)?;

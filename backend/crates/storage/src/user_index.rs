@@ -124,14 +124,20 @@ fn parse_uuid(raw: &str) -> Option<Uuid> {
 
 pub fn insert_entry(txn: &WriteTransaction, entry: &UserPageEntry) -> Result<()> {
     let bytes = entry.to_bytes()?;
-    let mut table = txn.open_table(Table::UserPageIndex.definition())?;
-    table.insert(entry.index_key().as_str(), bytes.as_slice())?;
+    {
+        let mut table = txn.open_table(Table::UserPageIndex.definition())?;
+        table.insert(entry.index_key().as_str(), bytes.as_slice())?;
+    }
+    crate::user_search::insert_entry(txn, entry)?;
     Ok(())
 }
 
 pub fn remove_entry(txn: &WriteTransaction, entry: &UserPageEntry) -> Result<()> {
-    let mut table = txn.open_table(Table::UserPageIndex.definition())?;
-    table.remove(entry.index_key().as_str())?;
+    {
+        let mut table = txn.open_table(Table::UserPageIndex.definition())?;
+        table.remove(entry.index_key().as_str())?;
+    }
+    crate::user_search::remove_entry(txn, entry)?;
     Ok(())
 }
 
