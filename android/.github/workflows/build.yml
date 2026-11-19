@@ -33,6 +33,14 @@ on:
         required: false
       KEYSTORE:
         required: false
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
   workflow_call:
     inputs:
       build_type:
@@ -56,6 +64,14 @@ on:
         required: false
       KEYSTORE:
         required: false
+      ANDROID_KEYSTORE_BASE64:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
 
 env:
   UPLOAD_DIR_ANDROID: android_artifacts
@@ -64,9 +80,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+      KEYSTORE_BASE64: ${{ secrets.KEYSTORE || secrets.ANDROID_KEYSTORE_BASE64 }}
+      SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+      SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+      SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD || secrets.ANDROID_KEYSTORE_PASSWORD }}
       KEY_STORE_FILE: 'android_keystore.jks'
       KEY_STORE_LOCATION: ${{ github.workspace }}/app/keystore/
     outputs:
@@ -89,13 +106,24 @@ jobs:
           cache: gradle
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
+      - name: Check signing secrets
+        if: ${{ inputs.build_type != 'debug' }}
+        run: |
+          missing=()
+          [[ -z "$KEYSTORE_BASE64" ]] && missing+=("KEYSTORE or ANDROID_KEYSTORE_BASE64")
+          [[ -z "$SIGNING_STORE_PASSWORD" ]] && missing+=("SIGNING_STORE_PASSWORD or ANDROID_KEYSTORE_PASSWORD")
+          [[ -z "$SIGNING_KEY_ALIAS" ]] && missing+=("SIGNING_KEY_ALIAS or ANDROID_KEY_ALIAS")
+          [[ -z "$SIGNING_KEY_PASSWORD" ]] && missing+=("SIGNING_KEY_PASSWORD or ANDROID_KEY_PASSWORD")
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing signing secrets for ${{ inputs.build_type }}: ${missing[*]}. See docs/ANDROID.md."
+            exit 1
+          fi
       - name: Decode Keystore
-        id: decode_keystore
-        uses: timheuer/base64-to-file@v2.0
-        with:
-          fileName: ${{ env.KEY_STORE_FILE }}
-          fileDir: ${{ env.KEY_STORE_LOCATION }}
-          encodedString: ${{ secrets.KEYSTORE }}
+        if: ${{ inputs.build_type != 'debug' }}
+        run: |
+          mkdir -p "$KEY_STORE_LOCATION"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEY_STORE_LOCATION$KEY_STORE_FILE"
+          chmod 600 "$KEY_STORE_LOCATION$KEY_STORE_FILE"
       - name: Create keystore path env var
         if: ${{ inputs.build_type != 'debug' }}
         run: |

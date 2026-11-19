@@ -23,6 +23,20 @@ licensee {
     }
 }
 
+val releaseSigning = AndroidSigning.resolve(project)
+val appVersionCode = libs.versions.versionCode.get().toInt()
+val appVersionName = libs.versions.versionName.get()
+val signedArtifactTasks = Regex("^(assemble|bundle|package).*(Release|Nightly)$")
+val signingRequested =
+    gradle.startParameter.taskNames.any { signedArtifactTasks.matches(it.substringAfterLast(':')) }
+
+if (!releaseSigning.isConfigured && signingRequested) {
+    logger.warn(
+        "Release signing is not configured (missing: ${releaseSigning.missing.joinToString(", ")}). " +
+            "The release build will fail with instructions.",
+    )
+}
+
 configure<ApplicationExtension> {
     namespace = Constants.APP_ID
     compileSdk = libs.versions.compileSdk.get().toInt()
@@ -84,14 +98,12 @@ configure<ApplicationExtension> {
 
     signingConfigs {
         create(Constants.RELEASE) {
-            storeFile = file(System.getenv("KEY_STORE_PATH") ?: "keystore/android_keystore.jks")
-            storePassword =
-                LocalProperties.get("SIGNING_STORE_PASSWORD")
-                    ?: System.getenv("SIGNING_STORE_PASSWORD")
-            keyAlias =
-                LocalProperties.get("SIGNING_KEY_ALIAS") ?: System.getenv("SIGNING_KEY_ALIAS")
-            keyPassword =
-                LocalProperties.get("SIGNING_KEY_PASSWORD") ?: System.getenv("SIGNING_KEY_PASSWORD")
+            releaseSigning.signing?.let { signing ->
+                storeFile = signing.storeFile
+                storePassword = signing.storePassword
+                keyAlias = signing.keyAlias
+                keyPassword = signing.keyPassword
+            }
         }
     }
 
@@ -104,7 +116,9 @@ configure<ApplicationExtension> {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            signingConfig = signingConfigs.getByName(Constants.RELEASE)
+            if (releaseSigning.isConfigured) {
+                signingConfig = signingConfigs.getByName(Constants.RELEASE)
+            }
             manifestPlaceholders["providerAuthority"] = "${Constants.APP_NAME}.provider"
             buildConfigField(
                 "String",
@@ -309,5 +323,38 @@ dependencies {
 tasks.configureEach {
     if (name.contains("ArtProfile")) {
         enabled = false
+    }
+}
+
+tasks.register("printVersion") {
+    group = "versioning"
+    description = "Prints versionCode and versionName from gradle/libs.versions.toml."
+    doLast {
+        println("versionCode=$appVersionCode")
+        println("versionName=$appVersionName")
+    }
+}
+
+tasks.register("verifyVersion") {
+    group = "versioning"
+    description = "Validates versionCode and versionName from gradle/libs.versions.toml."
+    doLast {
+        check(appVersionCode > 0) { "versionCode must be a positive integer, got $appVersionCode" }
+        check(Regex("""^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$""").matches(appVersionName)) {
+            "versionName must look like 1.2.3 (optionally with a suffix), got $appVersionName"
+        }
+    }
+}
+
+tasks.configureEach {
+    if (signedArtifactTasks.matches(name)) {
+        dependsOn("verifyVersion")
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val releaseRequested = allTasks.any { signedArtifactTasks.matches(it.name) }
+    if (releaseRequested && !releaseSigning.isConfigured) {
+        throw GradleException(releaseSigning.errorMessage())
     }
 }

@@ -1,0 +1,3 @@
+# Signing material must never be committed. Everything here is ignored except this file.
+*
+!.gitignore

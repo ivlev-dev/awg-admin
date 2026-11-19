@@ -3,6 +3,7 @@ name: Android
 on:
   push:
     branches: [main]
+    tags: ["v*"]
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
@@ -10,17 +11,31 @@ on:
     paths:
       - "android/**"
       - ".github/workflows/android.yml"
+  workflow_dispatch:
+    inputs:
+      flavor:
+        type: choice
+        description: "Product flavor"
+        required: true
+        default: fdroid
+        options:
+          - fdroid
+          - standalone
+          - google
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
   run:
     working-directory: android
+
+env:
+  ARTIFACTS_DIR: ${{ github.workspace }}/build-artifacts
 
 jobs:
   quality:
@@ -126,3 +141,249 @@ jobs:
             android/app/build/outputs/androidTest-results
           retention-days: 7
           if-no-files-found: ignore
+
+  verify_signing_secrets:
+    name: Verify signing secrets
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check required secrets
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          missing=()
+          [[ -z "$KEYSTORE_BASE64" ]] && missing+=("ANDROID_KEYSTORE_BASE64")
+          [[ -z "$KEYSTORE_PASSWORD" ]] && missing+=("ANDROID_KEYSTORE_PASSWORD")
+          [[ -z "$KEY_ALIAS" ]] && missing+=("ANDROID_KEY_ALIAS")
+          [[ -z "$KEY_PASSWORD" ]] && missing+=("ANDROID_KEY_PASSWORD")
+
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing signing secrets: ${missing[*]}. Add them in repository Settings -> Secrets and variables -> Actions. See docs/ANDROID.md."
+            exit 1
+          fi
+          echo "All required signing secrets are present."
+
+  release:
+    name: Build signed release
+    needs: verify_signing_secrets
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      FLAVOR: ${{ github.event.inputs.flavor || 'fdroid' }}
+      KEYSTORE_PATH: ${{ github.workspace }}/android/keystore/release.jks
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
+
+      - name: Decode keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "$KEYSTORE_PATH")"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE_PATH"
+          chmod 600 "$KEYSTORE_PATH"
+          test -s "$KEYSTORE_PATH"
+          echo "Keystore decoded to $KEYSTORE_PATH"
+
+      - name: Verify version
+        id: version
+        run: |
+          set -euo pipefail
+          OUTPUT=$(./gradlew -q :app:verifyVersion :app:printVersion)
+          VERSION_NAME=$(sed -n 's/^versionName=//p' <<< "$OUTPUT" | tail -1)
+          VERSION_CODE=$(sed -n 's/^versionCode=//p' <<< "$OUTPUT" | tail -1)
+
+          [[ -n "$VERSION_NAME" && -n "$VERSION_CODE" ]] || {
+            echo "::error::Could not read versionName/versionCode from gradle/libs.versions.toml"
+            exit 1
+          }
+
+          if [[ "${GITHUB_REF_TYPE:-}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME#v}"
+            if [[ "$TAG" != "$VERSION_NAME" ]]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match versionName $VERSION_NAME in gradle/libs.versions.toml"
+              exit 1
+            fi
+          fi
+
+          PREVIOUS_TAG=$(git -C "$GITHUB_WORKSPACE" describe --tags --abbrev=0 --match 'v*' "${GITHUB_SHA}^" 2>/dev/null || true)
+          if [[ -n "$PREVIOUS_TAG" ]]; then
+            PREVIOUS_CODE=$(git -C "$GITHUB_WORKSPACE" show "$PREVIOUS_TAG:android/gradle/libs.versions.toml" 2>/dev/null |
+              sed -nE 's/^versionCode[[:space:]]*=[[:space:]]*"([0-9]+)".*/\1/p' |
+              head -1 || true)
+            if [[ -n "$PREVIOUS_CODE" ]] && (( VERSION_CODE <= PREVIOUS_CODE )); then
+              echo "::error::versionCode $VERSION_CODE must be greater than $PREVIOUS_CODE from $PREVIOUS_TAG"
+              exit 1
+            fi
+            echo "Previous release $PREVIOUS_TAG used versionCode ${PREVIOUS_CODE:-unknown}"
+          fi
+
+          echo "versionName=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "versionCode=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Android release"
+            echo "- flavor: \`$FLAVOR\`"
+            echo "- versionName: \`$VERSION_NAME\`"
+            echo "- versionCode: \`$VERSION_CODE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Build signed APK and AAB
+        env:
+          KEY_STORE_PATH: ${{ github.workspace }}/android/keystore/release.jks
+          SIGNING_STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          flavor="$FLAVOR"
+          capitalized="$(tr '[:lower:]' '[:upper:]' <<< "${flavor:0:1}")${flavor:1}"
+          ./gradlew --stacktrace \
+            ":app:bundle${capitalized}Release" \
+            ":app:assemble${capitalized}Release" \
+            -PnoSplits=true
+
+      - name: Verify APK and AAB signatures
+        run: |
+          set -euo pipefail
+          flavor="$FLAVOR"
+          capitalized="$(tr '[:lower:]' '[:upper:]' <<< "${flavor:0:1}")${flavor:1}"
+          apk_dir="app/build/outputs/apk/${flavor}/release"
+          bundle="app/build/outputs/bundle/${flavor}Release"
+          mkdir -p "$ARTIFACTS_DIR/signatures"
+
+          mapfile -t apks < <(find "$apk_dir" -name '*.apk' -type f | sort)
+          (( ${#apks[@]} > 0 )) || {
+            echo "::error::No APK files found in $apk_dir"
+            exit 1
+          }
+
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -1)
+          [[ -x "$APKSIGNER" ]] || {
+            echo "::error::apksigner not found in $ANDROID_HOME/build-tools"
+            exit 1
+          }
+
+          : > "$ARTIFACTS_DIR/signatures/apksigner.txt"
+          for apk in "${apks[@]}"; do
+            "$APKSIGNER" verify --print-certs "$apk" | tee -a "$ARTIFACTS_DIR/signatures/apksigner.txt"
+            echo "Signature verified: $apk"
+          done
+          grep -q "Signer #1 certificate SHA-256 digest" "$ARTIFACTS_DIR/signatures/apksigner.txt" || {
+            echo "::error::APK is not signed by a certificate"
+            exit 1
+          }
+
+          mapfile -t aabs < <(find "$bundle" -name '*.aab' -type f | sort)
+          (( ${#aabs[@]} > 0 )) || {
+            echo "::error::No AAB files found in $bundle"
+            exit 1
+          }
+          : > "$ARTIFACTS_DIR/signatures/jarsigner.txt"
+          for aab in "${aabs[@]}"; do
+            jarsigner -verify -certs "$aab" | tee -a "$ARTIFACTS_DIR/signatures/jarsigner.txt"
+            echo "Signature verified: $aab"
+          done
+          grep -q "jar verified" "$ARTIFACTS_DIR/signatures/jarsigner.txt" || {
+            echo "::error::AAB is not signed"
+            exit 1
+          }
+
+      - name: Collect artifacts and checksums
+        run: |
+          set -euo pipefail
+          flavor="$FLAVOR"
+          capitalized="$(tr '[:lower:]' '[:upper:]' <<< "${flavor:0:1}")${flavor:1}"
+          rm -rf "$ARTIFACTS_DIR/apk" "$ARTIFACTS_DIR/aab"
+          mkdir -p "$ARTIFACTS_DIR/apk" "$ARTIFACTS_DIR/aab"
+          find "app/build/outputs/apk/${flavor}/release" -name '*.apk' -type f \
+            -exec cp {} "$ARTIFACTS_DIR/apk/" \;
+          cp "app/build/outputs/bundle/${flavor}Release/"*.aab "$ARTIFACTS_DIR/aab/"
+          (cd "$ARTIFACTS_DIR" && sha256sum apk/*.apk aab/*.aab > SHA256SUMS.txt && sha256sum -c SHA256SUMS.txt)
+          cat "$ARTIFACTS_DIR/SHA256SUMS.txt"
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-release-${{ env.FLAVOR }}
+          path: ${{ env.ARTIFACTS_DIR }}/
+          retention-days: 14
+          if-no-files-found: error
+
+      - name: Upload R8 mapping
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-mapping-${{ env.FLAVOR }}
+          path: |
+            android/app/build/outputs/mapping/*Release/mapping.txt
+            android/app/build/outputs/mapping/*Release/seeds.txt
+            android/app/build/outputs/mapping/*Release/configuration.txt
+            android/app/build/outputs/mapping/*Release/resources.txt
+          retention-days: 30
+          if-no-files-found: warn
+
+  github_release:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-release-${{ github.event.inputs.flavor || 'fdroid' }}
+          path: dist
+
+      - name: Show checksums
+        working-directory: ${{ github.workspace }}
+        run: cat dist/SHA256SUMS.txt
+
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ github.token }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          make_latest: true
+          body: |
+            Signed Android build of Umbra VPN.
+
+            APK and AAB checksums are in `SHA256SUMS.txt`. The signing certificate
+            fingerprints are in `signatures/apksigner.txt`.
+
+            Verify the APK signature locally:
+
+            ```sh
+            apksigner verify --print-certs path/to/app.apk
+            sha256sum -c SHA256SUMS.txt
+            ```
+          files: |
+            dist/apk/*.apk
+            dist/aab/*.aab
+            dist/SHA256SUMS.txt
+            dist/signatures/apksigner.txt

@@ -131,7 +131,8 @@ Job выполняет:
   значения из предыдущего тега; versionCode/versionName берутся из
   `android/gradle/libs.versions.toml` (задача `:app:printVersion`,
   валидация — `:app:verifyVersion`);
-- сборку `:app:bundleFdroidRelease` и `:app:assembleFdroidRelease`;
+- сборку `:app:bundleFdroidRelease` и `:app:assembleFdroidRelease`
+  (`-PnoSplits=true`, universal APK);
 - проверку подписи APK (`apksigner verify --print-certs`) и AAB
   (`jarsigner -verify`);
 - артефакты: `android-release-<flavor>` (APK, AAB, `SHA256SUMS.txt`,
@@ -157,9 +158,9 @@ git push origin v1.0.1
   заменить через Play Console. Ключ подписи приложения меняется только Play.
 - F-Droid и Zapstore собирают/подписывают сами либо принимают готовый APK;
   подпись должна совпадать между релизами одного канала.
-- В Google Play загружается AAB из `bundleGoogleRelease`
-  (`.github/workflows/build-aab.yml`); APK из GitHub Release — для
-  standalone-распространения.
+- В Google Play загружается AAB из `:app:bundleGoogleRelease`; в этом
+  репозитории Play-публикация не настроена (см. «Ограничения»), APK из
+  GitHub Release — для standalone-распространения.
 
 ## Запуск и проверка
 
