@@ -26,27 +26,6 @@
   padding: var(--sp-2) var(--sp-2) var(--sp-6);
 }
 
-.sidebar__logo {
-  width: 44px;
-  height: 44px;
-  border-radius: 13px;
-  background: linear-gradient(135deg, #1b3a63, #2a5a93 55%, #4f8fbe);
-  box-shadow: 0 8px 24px rgba(12, 34, 64, 0.45);
-  flex: none;
-  position: relative;
-}
-
-.sidebar__logo::after {
-  content: "";
-  position: absolute;
-  inset: 10px;
-  border-radius: 8px;
-  border: 2px solid rgba(255, 255, 255, 0.85);
-  border-bottom-color: transparent;
-  border-right-color: transparent;
-  transform: rotate(-25deg);
-}
-
 .sidebar__title { color: #fff; font-size: var(--t-lg); font-weight: 750; letter-spacing: -0.02em; line-height: 1.1; }
 .sidebar__subtitle { color: var(--sidebar-muted); font-size: var(--t-2xs); margin-top: 2px; }
 

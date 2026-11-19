@@ -115,7 +115,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   padding: 20px 14px;
 }
 .sidebar__brand { padding: 4px 8px 24px; gap: 12px; }
-.sidebar__logo { width: 40px; height: 40px; border-radius: var(--shape-md); }
+.sidebar__brand > svg { flex: 0 0 auto; border-radius: var(--shape-md); }
 .sidebar__title { font-size: var(--t-lg); font-weight: 700; }
 .sidebar__subtitle { font-size: 10px; letter-spacing: 0.04em; }
 .nav-group { margin-bottom: var(--sp-5); }
@@ -277,16 +277,6 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   padding: 16px 12px;
 }
 .sidebar__brand { padding: 4px 8px 20px; }
-.sidebar__logo {
-  background: var(--md-primary-container);
-  box-shadow: none;
-  border-radius: var(--shape-md);
-}
-.sidebar__logo::after {
-  border-color: var(--md-primary);
-  border-bottom-color: transparent;
-  border-right-color: transparent;
-}
 .sidebar__title { color: var(--md-on-surface); font-weight: 700; }
 .sidebar__subtitle { color: var(--md-on-surface-variant); }
 .nav-group { margin-bottom: 20px; }

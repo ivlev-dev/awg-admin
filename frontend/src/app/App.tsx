@@ -1,6 +1,8 @@
 import { For, Show } from "@ivlev-dev/silent-core";
 import { RouterView } from "@ivlev-dev/silent-router";
 
+import { BrandMark } from "@/components/BrandMark";
+
 import type { AppVM } from "./App.vm";
 import { type CommandItem } from "@/app/command";
 import { CommandPalette } from "@/components/CommandPalette";
@@ -56,7 +58,7 @@ function sidebar(vm: AppVM) {
   return (
     <>
       <div class="sidebar__brand">
-        <div class="sidebar__logo"></div>
+        <BrandMark size={40} />
         <div>
           <div class="sidebar__title">AWG Admin</div>
           <div class="sidebar__subtitle">{t("shell.subtitle")}</div>
@@ -276,7 +278,7 @@ export function App(this: { vm: AppVM }) {
 
       <Show when={this.vm.booting}>
         <div class="boot-screen">
-          <div class="sidebar__logo" style="width:56px;height:56px"></div>
+          <BrandMark size={56} />
           <div class="spinner"></div>
           <div class="small muted">{t("app.loading.panel")}</div>
         </div>
