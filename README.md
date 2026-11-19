@@ -15,6 +15,7 @@ silent-framework и Traefik с TLS/HTTP/3.
 - [`docs/FRAMEWORK-NOTES.md`](docs/FRAMEWORK-NOTES.md) — найденные баги silent и обходы.
 - [`docs/ANDROID.md`](docs/ANDROID.md) — Android-клиент Umbra VPN: сборка, аккаунт, синхронизация конфигов.
 - [`docs/BRAND.md`](docs/BRAND.md) — логотип, палитра Material You и правила использования.
+- [`docs/QUALITY.md`](docs/QUALITY.md) — гейты CI, бюджеты размера фронтенда и Android, backend performance smoke.
 
 ## Архитектура
 
