@@ -32,6 +32,10 @@ export interface DeviceStats {
   month: { rx: number; tx: number };
 }
 
+export interface DeviceStatsQueryOptions {
+  signal?: AbortSignal;
+}
+
 export interface CreateShareInput {
   interfaceId: string;
   format: ShareFormat;

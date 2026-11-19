@@ -4,6 +4,7 @@ import type {
   CreateShareInput,
   DeviceInput,
   DeviceStats,
+  DeviceStatsQueryOptions,
   DeviceUpdateInput,
   TunnelInput,
 } from "./types";
@@ -21,7 +22,7 @@ export interface DevicesRepository {
   addTunnel(id: string, input: TunnelInput): Promise<Device>;
   renameTunnel(id: string, peerId: string, label: string): Promise<Device>;
   deleteTunnel(id: string, peerId: string): Promise<void>;
-  deviceStats(id: string): Promise<DeviceStats>;
+  deviceStats(id: string, options?: DeviceStatsQueryOptions): Promise<DeviceStats>;
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;

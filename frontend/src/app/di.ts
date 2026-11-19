@@ -21,7 +21,7 @@ import { HttpAuditRepository } from "@/infrastructure/http/audit.repository";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { HttpClient } from "@/infrastructure/http/client";
 import { DefaultApiConfig, type ApiConfig } from "@/infrastructure/http/config";
-import type { ApiError } from "@/infrastructure/http/errors";
+import type { ApiError } from "@/domain/errors";
 import { HttpDevicesRepository } from "@/infrastructure/http/devices.repository";
 import { HttpGroupsRepository } from "@/infrastructure/http/groups.repository";
 import { HttpImportRepository } from "@/infrastructure/http/import.repository";

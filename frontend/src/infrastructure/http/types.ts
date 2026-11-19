@@ -7,6 +7,7 @@ export type RequestSource = "auth" | "api";
 export interface TransportOptions {
   headers?: Record<string, string>;
   source: RequestSource;
+  signal?: AbortSignal;
 }
 
 export interface RequestContext {
@@ -17,6 +18,7 @@ export interface RequestContext {
   auth: boolean;
   source: RequestSource;
   attempt: number;
+  signal?: AbortSignal;
 }
 
 export interface ResponseContext {

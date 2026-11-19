@@ -5,7 +5,7 @@ export class ValidationError extends Error {
   }
 }
 
-import { ApiError } from "@/infrastructure/http/errors";
+import { ApiError } from "@/domain/errors";
 
 export function userMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError && error.status !== 0) return fallback;

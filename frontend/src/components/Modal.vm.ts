@@ -58,9 +58,9 @@ export class ModalVM extends ViewModel<ModalProps> {
   private stopEffect: (() => void) | null = null;
   private background: BackgroundSnapshot[] = [];
   private focusRetries = 0;
+  private listening = false;
 
   override mounted(): void {
-    document.addEventListener("keydown", this.onKeydown);
     this.stopEffect = createRoot((dispose) => {
       createEffect(() => {
         this.syncOpen(this.props.open);
@@ -70,7 +70,7 @@ export class ModalVM extends ViewModel<ModalProps> {
   }
 
   override unmounted(): void {
-    document.removeEventListener("keydown", this.onKeydown);
+    this.detachKeydown();
     this.stopEffect?.();
     this.stopEffect = null;
     removeFromStack(this);
@@ -97,13 +97,27 @@ export class ModalVM extends ViewModel<ModalProps> {
       openModals.push(this);
       this.shouldFocus = true;
       this.focusRetries = 0;
+      this.attachKeydown();
       this.tryFocusInitial();
       this.suppressBackground();
       return;
     }
+    this.detachKeydown();
     removeFromStack(this);
     this.restoreBackground();
     this.restoreFocus();
+  }
+
+  private attachKeydown(): void {
+    if (this.listening) return;
+    this.listening = true;
+    document.addEventListener("keydown", this.onKeydown);
+  }
+
+  private detachKeydown(): void {
+    if (!this.listening) return;
+    this.listening = false;
+    document.removeEventListener("keydown", this.onKeydown);
   }
 
   private tryFocusInitial(): void {

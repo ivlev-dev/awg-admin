@@ -377,7 +377,7 @@
 .select-trigger:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .select2__value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.select2__value.is-placeholder { color: var(--muted-2); }
+.select2__value.is-placeholder { color: var(--muted-2-ink); }
 
 .select2__chevron {
   display: inline-flex;
@@ -646,8 +646,8 @@
   border-radius: var(--shape-sm); font-size: var(--t-2xs); font-weight: 700; letter-spacing: 0.04em; white-space: nowrap;
 }
 .status-chip__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
-.status-chip--ok { background: var(--md-success-container); color: var(--md-on-success-container); }
-.status-chip--warn { background: var(--md-warning-container); color: var(--md-on-warning-container); }
+.status-chip--ok { background: var(--md-success-container); color: var(--green-ink); }
+.status-chip--warn { background: var(--md-warning-container); color: var(--amber-ink); }
 .status-chip--error { background: var(--md-error-container); color: var(--md-on-error-container); }
 .status-chip--info { background: var(--md-info-container); color: var(--md-on-info-container); }
 .status-chip--neutral { background: var(--md-surface-high); color: var(--md-on-surface-variant); }

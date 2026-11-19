@@ -149,7 +149,7 @@
 .status-pill {
   display: inline-flex; align-items: center; gap: 6px;
   font-size: var(--t-2xs); font-weight: 800; letter-spacing: 0.08em;
-  color: var(--green); text-transform: uppercase;
+  color: var(--green-ink); text-transform: uppercase;
 }
 
 .content {
@@ -279,11 +279,11 @@
   font-weight: 650;
   backdrop-filter: blur(12px);
 }
-.connection-banner--offline { background: var(--amber-soft); color: var(--amber); }
-.connection-banner--restored { background: var(--green-soft); color: var(--green); }
+.connection-banner--offline { background: var(--amber-soft); color: var(--amber-ink); }
+.connection-banner--restored { background: var(--green-soft); color: var(--green-ink); }
 .connection-banner__hint { color: var(--muted); font-weight: 500; }
 
-.status-pill--offline { color: var(--red); }
+.status-pill--offline { color: var(--amber-ink); }
 
 .state-screen {
   display: flex;

@@ -184,7 +184,7 @@
   color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer;
 }
 .table thead th.is-sortable button:hover { color: var(--accent-ink); }
-.sort-indicator { color: var(--muted-2); font-size: 10px; }
+.sort-indicator { color: var(--muted-2-ink); font-size: 10px; }
 .sort-indicator.is-active { color: var(--accent-ink); }
 
 .list-toolbar {

@@ -20,6 +20,7 @@ import type { UsersRepository } from "@/domain/users/repository";
 import { LiveStats } from "@/infrastructure/stats";
 import { LocalTokenStore, type TokenStore } from "@/infrastructure/storage";
 import { setLocale } from "@/i18n";
+import { ApiError } from "@/domain/errors";
 import { StatsPage } from "@/features/stats/StatsPage";
 import { StatsVM } from "@/features/stats/StatsPage.vm";
 
@@ -982,5 +983,87 @@ describe("StatsVM: диапазон 90 дней и сравнение перио
 
     result.dispose();
     result.node.parentNode?.removeChild(result.node);
+  });
+});
+
+describe("StatsVM: пакетная статистика устройств", () => {
+  it("использует /stats/devices и не делает N+1", async () => {
+    const { vm, stats, devices } = setup("admin");
+    await vm.loadEntities();
+    stats.repository.deviceStats = vi.fn(async () => [
+      STATS_A,
+      { device_id: "d2", today: { rx: 1, tx: 2 }, month: { rx: 3, tx: 4 } },
+    ]);
+
+    await vm.loadDeviceStats(true);
+
+    expect(stats.repository.deviceStats).toHaveBeenCalledTimes(1);
+    expect(devices.deviceStats).not.toHaveBeenCalled();
+    expect(vm.deviceRows).toHaveLength(2);
+    expect(vm.deviceRows[0]).toMatchObject({ failed: false, today: { rx: 1024, tx: 2048 } });
+    expect(vm.deviceRows[1]).toMatchObject({ failed: false, month: { rx: 3, tx: 4 } });
+  });
+
+  it("откатывается на N+1, если endpoint вернул 404", async () => {
+    const { vm, stats, devices } = setup("admin");
+    await vm.loadEntities();
+    stats.repository.deviceStats = vi.fn(async () => {
+      throw new ApiError(404, "not_found", "Не найдено");
+    });
+
+    await vm.loadDeviceStats(true);
+
+    expect(devices.deviceStats).toHaveBeenCalledTimes(2);
+    expect(vm.deviceRows[0]).toMatchObject({ failed: false, today: { rx: 1024, tx: 2048 } });
+    expect(vm.deviceRows[1]).toMatchObject({ failed: true });
+  });
+
+  it("кэширует результат на короткий TTL", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.loadEntities();
+    const batch = vi.fn(async () => [
+      STATS_A,
+      { device_id: "d2", today: { rx: 0, tx: 0 }, month: { rx: 0, tx: 0 } },
+    ]);
+    stats.repository.deviceStats = batch;
+
+    await vm.loadDeviceStats(true);
+    await vm.loadDeviceStats();
+
+    expect(batch).toHaveBeenCalledTimes(1);
+  });
+
+  it("отменяет запрос при уходе со страницы", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.loadEntities();
+    let captured: AbortSignal | undefined;
+    stats.repository.deviceStats = vi.fn(async (options) => {
+      captured = options?.signal;
+      return await new Promise<never>(() => undefined);
+    });
+
+    void vm.loadDeviceStats(true);
+    expect(captured).toBeDefined();
+    expect(captured?.aborted).toBe(false);
+
+    vm.unmounted();
+
+    expect(captured?.aborted).toBe(true);
+    expect(vm.devicesLoading).toBe(false);
+  });
+
+  it("отменяет запрос при смене диапазона", async () => {
+    const { vm, stats } = setup("admin");
+    await vm.loadEntities();
+    let captured: AbortSignal | undefined;
+    stats.repository.deviceStats = vi.fn(async (options) => {
+      captured = options?.signal;
+      return await new Promise<never>(() => undefined);
+    });
+
+    void vm.loadDeviceStats(true);
+    vm.setRange("7d");
+
+    expect(captured?.aborted).toBe(true);
   });
 });

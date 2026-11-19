@@ -3,7 +3,7 @@ import { reactive } from "@ivlev-dev/silent-core";
 import type { AuthSessionState } from "@/application/auth/session-state";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { User } from "@/domain/types";
-import { ApiError } from "@/infrastructure/http/errors";
+import { ApiError } from "@/domain/errors";
 import type { TokenStore } from "@/infrastructure/storage";
 
 const LOGOUT_TIMEOUT_MS = 1500;

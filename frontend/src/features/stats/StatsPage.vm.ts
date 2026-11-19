@@ -9,6 +9,7 @@ import type { InterfacesService } from "@/application/interfaces/service";
 import { formatRateBps } from "@/application/stats/rate";
 import type { StatsService } from "@/application/stats/service";
 import type { UsersService } from "@/application/users/service";
+import type { DeviceStats } from "@/domain/devices/types";
 import type { Device, Group, InterfaceInfo, StatsPoint, TrafficTotals, User } from "@/domain/types";
 import { csvCell } from "@/domain/format";
 import type { LiveStats } from "@/infrastructure/stats";
@@ -47,6 +48,14 @@ interface DeviceRow {
   month: TrafficTotals;
   failed: boolean;
 }
+
+interface DeviceStatsCacheEntry {
+  stats: DeviceStats;
+  expires: number;
+}
+
+const DEVICE_STATS_CONCURRENCY = 4;
+const DEVICE_STATS_CACHE_TTL_MS = 15_000;
 
 export interface DeviceRowView {
   id: string;
@@ -89,6 +98,21 @@ function deltaLabel(deltaPercent: number | null): string {
   if (rounded === 0) return "=";
   const sign = deltaPercent > 0 ? "+" : "\u2212";
   return `${sign}${rounded}%`;
+}
+
+function failedRow(device: Device): DeviceRow {
+  return {
+    device,
+    today: { rx: 0, tx: 0 },
+    month: { rx: 0, tx: 0 },
+    failed: true,
+  };
+}
+
+function abortError(): Error {
+  const error = new Error("Запрос отменён");
+  error.name = "AbortError";
+  return error;
 }
 
 async function mapWithLimit<T, R>(
@@ -137,6 +161,9 @@ export class StatsVM extends ViewModel {
   private seriesRequest = 0;
   private statsRequest = 0;
   private previousRequest = 0;
+  private deviceStatsAbort: AbortController | null = null;
+  private readonly deviceStatsCache = new Map<string, DeviceStatsCacheEntry>();
+  private deviceStatsBatchUnavailable = false;
 
   constructor(
     private readonly statsService: StatsService,
@@ -169,9 +196,15 @@ export class StatsVM extends ViewModel {
   }
 
   override unmounted(): void {
+    this.cancelDeviceStats();
     if (!this.liveEnabled) return;
     this.liveStats.disconnect();
     this.liveStats.reset();
+  }
+
+  override dispose(): void {
+    this.cancelDeviceStats();
+    super.dispose();
   }
 
   @computed
@@ -402,6 +435,7 @@ export class StatsVM extends ViewModel {
   setRange(key: RangeKey): void {
     if (this.rangeKey === key) return;
     this.rangeKey = key;
+    this.cancelDeviceStats();
     void this.loadSeries();
   }
 
@@ -502,47 +536,121 @@ export class StatsVM extends ViewModel {
     await previousTask;
   }
 
-  async loadDeviceStats(): Promise<void> {
+  async loadDeviceStats(force = false): Promise<void> {
+    this.cancelDeviceStats();
+    const controller = new AbortController();
+    this.deviceStatsAbort = controller;
+    const signal = controller.signal;
     const request = ++this.statsRequest;
     if (this.devices.length === 0) {
       this.deviceRows = [];
+      this.deviceStatsCache.clear();
       this.devicesLoading = false;
+      this.deviceStatsAbort = null;
       return;
     }
     this.devicesLoading = true;
+    const now = Date.now();
+    if (!force) {
+      const cached = this.cachedRows(now);
+      if (cached !== null) {
+        this.deviceRows = cached;
+        this.devicesLoading = false;
+        this.deviceStatsAbort = null;
+        return;
+      }
+    }
     try {
-      const rows = await mapWithLimit(this.devices, 4, async (device) => {
-        try {
-          const stats = await this.devicesService.deviceStats(device.id);
-          return { device, today: stats.today, month: stats.month, failed: false };
-        } catch {
-          return {
-            device,
-            today: { rx: 0, tx: 0 },
-            month: { rx: 0, tx: 0 },
-            failed: true,
-          };
-        }
-      });
-      if (request !== this.statsRequest) return;
+      let rows = await this.loadDeviceStatsBatch(signal);
+      if (rows === null) rows = await this.loadDeviceStatsFallback(signal);
+      if (request !== this.statsRequest || signal.aborted) return;
       this.deviceRows = rows;
+      this.cacheRows(rows, now);
       if (rows.length > 0 && rows.every((row) => row.failed)) {
         this.toasts.error(t("stats.error.deviceStats"));
       }
     } catch (error) {
-      if (request === this.statsRequest) {
-        this.deviceRows = [];
-        this.toasts.error(
-          error instanceof Error ? error.message : t("stats.error.deviceStats"),
-        );
-      }
+      if (signal.aborted || request !== this.statsRequest) return;
+      this.deviceRows = [];
+      this.toasts.error(
+        error instanceof Error ? error.message : t("stats.error.deviceStats"),
+      );
     } finally {
-      if (request === this.statsRequest) this.devicesLoading = false;
+      if (request === this.statsRequest) {
+        this.devicesLoading = false;
+        if (this.deviceStatsAbort === controller) this.deviceStatsAbort = null;
+      }
     }
   }
 
+  private async loadDeviceStatsBatch(signal: AbortSignal): Promise<DeviceRow[] | null> {
+    if (this.deviceStatsBatchUnavailable) return null;
+    try {
+      if (this.statsService.deviceStats === undefined) {
+        this.deviceStatsBatchUnavailable = true;
+        return null;
+      }
+      const batch = await this.statsService.deviceStats({ signal });
+      if (batch === null) {
+        this.deviceStatsBatchUnavailable = true;
+        return null;
+      }
+      const byId = new Map(batch.map((stats) => [stats.device_id, stats]));
+      return this.devices.map((device) => {
+        const stats = byId.get(device.id);
+        return stats === undefined
+          ? failedRow(device)
+          : { device, today: stats.today, month: stats.month, failed: false };
+      });
+    } catch (error) {
+      if (signal.aborted) throw error;
+      return null;
+    }
+  }
+
+  private loadDeviceStatsFallback(signal: AbortSignal): Promise<DeviceRow[]> {
+    return mapWithLimit(this.devices, DEVICE_STATS_CONCURRENCY, async (device) => {
+      if (signal.aborted) throw abortError();
+      try {
+        const stats = await this.devicesService.deviceStats(device.id, { signal });
+        return { device, today: stats.today, month: stats.month, failed: false };
+      } catch (error) {
+        if (signal.aborted) throw abortError();
+        return failedRow(device);
+      }
+    });
+  }
+
+  private cachedRows(now: number): DeviceRow[] | null {
+    const rows: DeviceRow[] = [];
+    for (const device of this.devices) {
+      const entry = this.deviceStatsCache.get(device.id);
+      if (entry === undefined || entry.expires <= now) return null;
+      rows.push({ device, today: entry.stats.today, month: entry.stats.month, failed: false });
+    }
+    return rows;
+  }
+
+  private cacheRows(rows: readonly DeviceRow[], now: number): void {
+    for (const row of rows) {
+      if (row.failed) continue;
+      this.deviceStatsCache.set(row.device.id, {
+        stats: { device_id: row.device.id, today: row.today, month: row.month },
+        expires: now + DEVICE_STATS_CACHE_TTL_MS,
+      });
+    }
+  }
+
+  private cancelDeviceStats(): void {
+    const controller = this.deviceStatsAbort;
+    this.deviceStatsAbort = null;
+    this.statsRequest += 1;
+    this.devicesLoading = false;
+    controller?.abort();
+  }
+
   async refresh(): Promise<void> {
-    await Promise.all([this.loadSeries(), this.loadDeviceStats()]);
+    await Promise.all([this.loadSeries(), this.loadDeviceStats(true)]);
   }
 
   exportCsv(): void {

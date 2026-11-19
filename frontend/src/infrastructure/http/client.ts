@@ -18,6 +18,7 @@ export interface RequestOptions {
   auth?: boolean;
   source?: RequestSource;
   headers?: Record<string, string>;
+  signal?: AbortSignal;
 }
 
 export class HttpClient {
@@ -70,7 +71,11 @@ export class HttpClient {
         request.method,
         request.path,
         request.body,
-        { headers: request.headers, source: request.source },
+        {
+          headers: request.headers,
+          source: request.source,
+          ...(request.signal === undefined ? {} : { signal: request.signal }),
+        },
       );
       return {
         request,
@@ -123,5 +128,6 @@ function context(
     auth: options.auth ?? true,
     source: options.source ?? "api",
     attempt: 0,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   };
 }

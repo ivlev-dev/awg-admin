@@ -41,7 +41,7 @@ export class HttpTransport {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      signal: AbortSignal.timeout(this.config.timeoutMs),
+      signal: requestSignal(options.signal, this.config.timeoutMs),
     });
 
     if (!response.ok) {
@@ -68,6 +68,13 @@ export class HttpTransport {
 interface ErrorPayload {
   code: string | undefined;
   message: string | undefined;
+}
+
+function requestSignal(signal: AbortSignal | undefined, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (signal === undefined) return timeout;
+  if (typeof AbortSignal.any === "function") return AbortSignal.any([signal, timeout]);
+  return signal;
 }
 
 function readErrorPayload(payload: unknown): ErrorPayload {

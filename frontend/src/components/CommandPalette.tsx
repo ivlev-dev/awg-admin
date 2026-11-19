@@ -1,4 +1,4 @@
-import { For, Show, ViewModel, computed, createEffect, createRoot } from "@ivlev-dev/silent-core";
+import { For, Show, ViewModel, computed, createEffect, createRoot, onCleanup } from "@ivlev-dev/silent-core";
 
 import { CommandStore, filterCommands, type CommandItem } from "@/app/command";
 import { Icon } from "@/components/Icon";
@@ -85,6 +85,10 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     this.stopEffect?.();
     this.stopEffect = null;
     this.restoreBackground();
+    if (this.openState) {
+      this.openState = false;
+      this.restoreFocus();
+    }
     this.root = null;
     this.input = null;
   }
@@ -277,7 +281,46 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   };
 }
 
-export function CommandPalette(this: { vm: CommandPaletteVM }, props: CommandPaletteProps) {
+export function CommandPalette(props: CommandPaletteProps) {
+  return (
+    <Show when={props.open}>
+      <CommandPaletteSurface
+        open={props.open}
+        items={props.items}
+        onRun={props.onRun}
+        onClose={props.onClose}
+      />
+    </Show>
+  );
+}
+
+export function CommandPaletteSurface(props: CommandPaletteProps) {
+  const vm = new CommandPaletteVM();
+  vm.props = props;
+  let started = false;
+  let stopped = false;
+
+  const stop = (): void => {
+    if (stopped) return;
+    stopped = true;
+    vm.unmounted();
+    vm.dispose();
+  };
+
+  onCleanup(stop);
+
+  const attachRoot = (element: Element | null): void => {
+    vm.attachRoot(element);
+    if (element !== null && !started && !stopped) {
+      started = true;
+      vm.mounted();
+    }
+  };
+
+  const attachInput = (element: Element | null): void => {
+    vm.attachInput(element);
+  };
+
   return (
     <Show when={props.open}>
       <div
@@ -292,7 +335,7 @@ export function CommandPalette(this: { vm: CommandPaletteVM }, props: CommandPal
           aria-modal="true"
           aria-label={t("command.search")}
           tabindex={-1}
-          ref={(element: Element | null) => this.vm.attachRoot(element)}
+          ref={attachRoot}
         >
           <div class="command-palette__field">
             <span class="command-palette__search-icon" aria-hidden="true">
@@ -303,37 +346,37 @@ export function CommandPalette(this: { vm: CommandPaletteVM }, props: CommandPal
               type="text"
               role="combobox"
               aria-expanded={props.open ? "true" : "false"}
-              aria-controls={this.vm.listId}
+              aria-controls={vm.listId}
               aria-autocomplete="list"
-              aria-activedescendant={this.vm.activeOptionId}
+              aria-activedescendant={vm.activeOptionId}
               aria-label={t("command.search")}
               placeholder={t("command.placeholder")}
               autocomplete="off"
-              value={this.vm.store.query}
-              onInput={(event: Event) => this.vm.setQuery(event)}
-              ref={(element: Element | null) => this.vm.attachInput(element)}
+              value={vm.store.query}
+              onInput={(event: Event) => vm.setQuery(event)}
+              ref={attachInput}
             />
             <kbd class="command-palette__kbd">Esc</kbd>
           </div>
 
           <Show
-            when={this.vm.visible.length > 0}
+            when={vm.visible.length > 0}
             fallback={<div class="command-palette__empty" role="status">{t("command.empty")}</div>}
           >
-            <div class="command-palette__list" role="listbox" id={this.vm.listId} aria-label={t("command.search")}>
-              <For each={this.vm.visible}>
+            <div class="command-palette__list" role="listbox" id={vm.listId} aria-label={t("command.search")}>
+              <For each={vm.visible}>
                 {(item, index) => (
                   <button
-                    id={this.vm.optionId(index())}
-                    class={`command-palette__item ${index() === this.vm.selectedIndex ? "is-selected" : ""}`}
+                    id={vm.optionId(index())}
+                    class={`command-palette__item ${index() === vm.selectedIndex ? "is-selected" : ""}`}
                     type="button"
                     role="option"
                     tabindex={-1}
-                    aria-selected={index() === this.vm.selectedIndex}
+                    aria-selected={index() === vm.selectedIndex}
                     data-index={index()}
-                    onMouseEnter={() => this.vm.setSelected(index())}
+                    onMouseEnter={() => vm.setSelected(index())}
                     onMouseDown={(event: MouseEvent) => event.preventDefault()}
-                    onClick={() => this.vm.run(item)}
+                    onClick={() => vm.run(item)}
                   >
                     <span class="command-palette__icon" aria-hidden="true">
                       <Icon name={item.icon ?? "search"} size={18} class="" />
@@ -344,7 +387,7 @@ export function CommandPalette(this: { vm: CommandPaletteVM }, props: CommandPal
                         <span class="command-palette__hint">{item.hint}</span>
                       </Show>
                     </span>
-                    <Show when={index() === this.vm.selectedIndex}>
+                    <Show when={index() === vm.selectedIndex}>
                       <span class="command-palette__enter" aria-hidden="true">
                         <kbd class="command-palette__kbd">↵</kbd>
                       </span>

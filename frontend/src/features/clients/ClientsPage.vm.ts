@@ -81,8 +81,9 @@ export class ClientsPageVM extends ViewModel {
     this.interfaceFilter = stored.interfaceFilter;
     this.statusFilter = extra.status;
     this.restoreFromLocation();
-    if (typeof window !== "undefined") window.addEventListener("popstate", this.onPopState);
   }
+
+  private listeningPopstate = false;
 
   @reactive accessor devices: Device[] = [];
   @reactive accessor interfaces: InterfaceInfo[] = [];
@@ -123,9 +124,35 @@ export class ClientsPageVM extends ViewModel {
     void this.load();
   }
 
+  override mounted(): void {
+    this.attachPopstate();
+  }
+
   override beforeUnmount(): void {
     this.applyQuery.cancel();
-    if (typeof window !== "undefined") window.removeEventListener("popstate", this.onPopState);
+    this.detachPopstate();
+  }
+
+  override unmounted(): void {
+    this.detachPopstate();
+  }
+
+  override dispose(): void {
+    this.applyQuery.cancel();
+    this.detachPopstate();
+    super.dispose();
+  }
+
+  private attachPopstate(): void {
+    if (this.listeningPopstate || typeof window === "undefined") return;
+    this.listeningPopstate = true;
+    window.addEventListener("popstate", this.onPopState);
+  }
+
+  private detachPopstate(): void {
+    if (!this.listeningPopstate || typeof window === "undefined") return;
+    this.listeningPopstate = false;
+    window.removeEventListener("popstate", this.onPopState);
   }
 
   @computed

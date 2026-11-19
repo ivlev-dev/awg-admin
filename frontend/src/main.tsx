@@ -7,6 +7,9 @@ import { setPageLoader } from "./app/router-records";
 import { rootContainer } from "./app/root-container";
 import { installGlobalErrorHandler } from "./app/errors";
 import { ToastStore } from "./app/toast";
+import { loadLocale, locale } from "./i18n";
+
+await loadLocale(locale());
 
 setPageLoader((name) => {
   if (!isPageName(name)) return Promise.reject(new Error(`unknown page: ${name}`));

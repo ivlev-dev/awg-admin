@@ -78,11 +78,11 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
   background: var(--md-surface-high);
   color: var(--md-on-surface-variant);
 }
-.badge--green { background: var(--md-success-container); color: var(--md-on-success-container); }
+.badge--green { background: var(--md-success-container); color: var(--green-ink); }
 .badge--red { background: var(--md-error-container); color: var(--md-on-error-container); }
-.badge--amber { background: var(--md-warning-container); color: var(--md-on-warning-container); }
+.badge--amber { background: var(--md-warning-container); color: var(--amber-ink); }
 .badge--blue { background: var(--md-info-container); color: var(--md-on-info-container); }
-.badge--gray { background: var(--md-surface-high); color: var(--md-on-surface-variant); }
+.badge--gray { background: var(--md-surface-high); color: var(--muted-2-ink); }
 .badge--violet { background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
 .dot { width: 8px; height: 8px; background: var(--md-on-surface-variant); box-shadow: none; }
 .dot--green { background: var(--md-success); box-shadow: none; }
@@ -146,7 +146,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 .topbar .btn--icon { color: var(--md-on-surface-variant); }
 .status-pill {
   display: inline-flex; align-items: center; gap: 6px; min-height: 24px; padding: 0 8px;
-  border-radius: var(--shape-sm); background: var(--md-success-container); color: var(--md-on-success-container);
+  border-radius: var(--shape-sm); background: var(--md-success-container); color: var(--green-ink);
   font-size: 11px; font-weight: 700; letter-spacing: 0.03em; text-transform: none;
 }
 .status-pill--offline { background: var(--md-error-container); color: var(--md-on-error-container); }

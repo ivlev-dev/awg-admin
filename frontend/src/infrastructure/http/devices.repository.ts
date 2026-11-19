@@ -4,6 +4,7 @@ import type {
   CreateShareInput,
   DeviceInput,
   DeviceStats,
+  DeviceStatsQueryOptions,
   DeviceUpdateInput,
   TunnelInput,
 } from "@/domain/devices/types";
@@ -76,8 +77,11 @@ export class HttpDevicesRepository implements DevicesRepository {
     await this.client.delete(`/devices/${id}/tunnels/${encodeURIComponent(peerId)}`);
   }
 
-  deviceStats(id: string): Promise<DeviceStats> {
-    return this.client.get<DeviceStats>(`/devices/${id}/stats`);
+  deviceStats(id: string, options: DeviceStatsQueryOptions = {}): Promise<DeviceStats> {
+    return this.client.get<DeviceStats>(
+      `/devices/${id}/stats`,
+      options.signal === undefined ? {} : { signal: options.signal },
+    );
   }
 
   listShares(id: string): Promise<ShareLink[]> {

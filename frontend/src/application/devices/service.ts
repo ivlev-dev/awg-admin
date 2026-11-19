@@ -4,6 +4,7 @@ import type {
   CreateShareInput,
   DeviceInput,
   DeviceStats,
+  DeviceStatsQueryOptions,
   DeviceUpdateInput,
 } from "@/domain/devices/types";
 import type { Device, Profile, ShareLink } from "@/domain/types";
@@ -22,7 +23,7 @@ export interface DevicesService {
   addTunnel(id: string, interfaceId: string, label?: string): Promise<Device>;
   renameTunnel(id: string, peerId: string, label: string): Promise<Device>;
   deleteTunnel(id: string, peerId: string): Promise<void>;
-  deviceStats(id: string): Promise<DeviceStats>;
+  deviceStats(id: string, options?: DeviceStatsQueryOptions): Promise<DeviceStats>;
   listShares(id: string): Promise<ShareLink[]>;
   createShare(id: string, input: CreateShareInput): Promise<ShareLink>;
   revokeShare(token: string): Promise<void>;
@@ -116,8 +117,11 @@ export class DefaultDevicesService implements DevicesService {
     );
   }
 
-  async deviceStats(id: string): Promise<DeviceStats> {
-    return this.repository.deviceStats(requireId(id, "Устройство"));
+  async deviceStats(id: string, options: DeviceStatsQueryOptions = {}): Promise<DeviceStats> {
+    const normalized = requireId(id, "Устройство");
+    return options.signal === undefined
+      ? this.repository.deviceStats(normalized)
+      : this.repository.deviceStats(normalized, options);
   }
 
   async listShares(id: string): Promise<ShareLink[]> {
