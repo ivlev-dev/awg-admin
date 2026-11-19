@@ -6,6 +6,7 @@ interface BrandMarkProps {
 }
 
 export function BrandMark({ size = 40, class: className }: BrandMarkProps): JSX.Element {
+  const gradientId = `umbra-shield-${size}`;
   return (
     <svg
       class={className}
@@ -15,45 +16,67 @@ export function BrandMark({ size = 40, class: className }: BrandMarkProps): JSX.
       role="img"
       aria-label="Umbra VPN"
     >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#3a78bd" />
+          <stop offset=".45" stop-color="#15508f" />
+          <stop offset="1" stop-color="#082a55" />
+        </linearGradient>
+      </defs>
       <rect width="512" height="512" rx="116" fill="#f2f5f9" />
       <path
-        d="M262 126 392 175v116c0 75-57 131-130 154-73-23-130-79-130-154V175z"
-        fill="#dce7f8"
+        d="M268 110 410 164v142c0 82-66 140-142 164-76-24-142-82-142-164V164z"
+        fill="#cfe0f6"
       />
       <path
-        d="M250 108 382 157v120c0 76-58 132-132 156-74-24-132-80-132-156V157z"
-        fill="#0e4688"
+        d="M256 96 398 150v142c0 82-66 140-142 164-76-24-142-82-142-164V150z"
+        fill={`url(#${gradientId})`}
       />
       <path
-        d="M318 150a112 112 0 1 1-136 0"
+        d="M350 170a118 118 0 1 1-188 0"
         fill="none"
-        stroke="#cdddff"
-        stroke-opacity=".3"
+        stroke="#eaf3ff"
+        stroke-opacity=".38"
         stroke-width="4"
         stroke-linecap="round"
       />
       <path
-        d="M300 172a78 78 0 1 1-100 0"
+        d="M326 194a84 84 0 1 1-140 0"
         fill="none"
-        stroke="#cdddff"
-        stroke-opacity=".2"
+        stroke="#eaf3ff"
+        stroke-opacity=".24"
         stroke-width="3"
         stroke-linecap="round"
       />
       <path
-        d="M205 218v54a45 45 0 0 0 90 0v-54"
+        d="M304 216a54 54 0 1 1-96 0"
         fill="none"
-        stroke="#001738"
-        stroke-opacity=".22"
-        stroke-width="28"
+        stroke="#eaf3ff"
+        stroke-opacity=".14"
+        stroke-width="2"
         stroke-linecap="round"
-        transform="translate(6 6)"
       />
       <path
-        d="M205 218v54a45 45 0 0 0 90 0v-54"
+        d="M256 96 398 150v142c0 82-66 140-142 164-76-24-142-82-142-164V150z"
+        fill="none"
+        stroke="#9cc3f5"
+        stroke-opacity=".35"
+        stroke-width="2"
+      />
+      <path
+        d="M204 210v64a46 46 0 0 0 92 0v-64"
+        fill="none"
+        stroke="#02162f"
+        stroke-opacity=".32"
+        stroke-width="30"
+        stroke-linecap="round"
+        transform="translate(7 7)"
+      />
+      <path
+        d="M204 210v64a46 46 0 0 0 92 0v-64"
         fill="none"
         stroke="#fff"
-        stroke-width="28"
+        stroke-width="30"
         stroke-linecap="round"
       />
     </svg>

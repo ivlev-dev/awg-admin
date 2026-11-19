@@ -8,12 +8,12 @@
         android:scaleX="0.2109375"
         android:scaleY="0.2109375">
         <path
-            android:pathData="M250,108 L382,157 L382,277 C382,353 324,409 250,433 C176,409 118,353 118,277 L118,157 Z"
+            android:pathData="M256,96 L398,150 L398,292 C398,374 332,432 256,456 C180,432 114,374 114,292 L114,150 Z"
             android:fillColor="#000000" />
         <path
-            android:pathData="M205,218 L205,272 A45,45 0 0 0 295,272 L295,218"
+            android:pathData="M204,210 L204,274 A46,46 0 0 0 296,274 L296,210"
             android:strokeColor="#FFFFFF"
-            android:strokeWidth="28"
+            android:strokeWidth="30"
             android:strokeLineCap="round"
             android:fillColor="@android:color/transparent" />
     </group>
