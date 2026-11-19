@@ -1,13 +1,23 @@
 package space.ivlev.umbravpn.domain.repository
 
+import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 
 interface AccountRepository {
     suspend fun bootstrap(): AccountResult<AccountSnapshot>
+
+    suspend fun pageDevices(
+        limit: Int = DeviceQuery.DEFAULT_LIMIT,
+        offset: Int = 0,
+        query: String = "",
+        status: DeviceStatusFilter = DeviceStatusFilter.All,
+    ): AccountResult<Page<AccountDevice>>
 
     suspend fun createDevice(
         name: String,

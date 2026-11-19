@@ -64,3 +64,8 @@ internal const val CODE_REJECTED = "rejected"
 internal const val CODE_TARIFF_REQUIRED = "tariff_required"
 internal const val CODE_SUBSCRIPTION_INACTIVE = "subscription_inactive"
 internal const val IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
+
+private val UNSUPPORTED_ENDPOINT_STATUSES = setOf(404, 405, 501)
+
+internal fun AccountError.isUnsupportedEndpoint(): Boolean =
+    this is AccountError.Api && status in UNSUPPORTED_ENDPOINT_STATUSES

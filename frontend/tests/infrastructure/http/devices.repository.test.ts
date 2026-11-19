@@ -1,5 +1,6 @@
 import { HttpDevicesRepository } from "@/infrastructure/http/devices.repository";
 import type { HttpClient } from "@/infrastructure/http/client";
+import { ApiError } from "@/domain/errors";
 import type { Device, Profile } from "@/domain/types";
 
 const DEVICE: Device = {
@@ -55,6 +56,65 @@ function makeRepository(): {
   const client = { get, post, patch, delete: remove } as unknown as HttpClient;
   return { repository: new HttpDevicesRepository(client), get, post, patch, delete: remove };
 }
+
+describe("HttpDevicesRepository: серверная пагинация", () => {
+  it("кодирует параметры запроса страницы", async () => {
+    const { repository, get } = makeRepository();
+    get.mockResolvedValueOnce({ items: [DEVICE], total: 1, limit: 50, offset: 0 });
+    const signal = new AbortController().signal;
+
+    const page = await repository.pageDevices({
+      limit: 50,
+      offset: 0,
+      query: "my device & co",
+      status: "active",
+      interfaceId: "i 1",
+      userId: "u/1",
+      sort: "name",
+      order: "desc",
+      signal,
+    });
+
+    expect(get).toHaveBeenCalledWith(
+      "/devices/page?limit=50&offset=0&q=my+device+%26+co&status=active&interface_id=i+1&user_id=u%2F1&sort=name&order=desc",
+      { signal },
+    );
+    expect(page).toEqual({ items: [DEVICE], total: 1, limit: 50, offset: 0 });
+  });
+
+  it("не отправляет status=all и пустые фильтры", async () => {
+    const { repository, get } = makeRepository();
+    get.mockResolvedValueOnce({ items: [], total: 0, limit: 25, offset: 50 });
+
+    await repository.pageDevices({ limit: 25, offset: 50, status: "all", query: "  " });
+
+    expect(get).toHaveBeenCalledWith("/devices/page?limit=25&offset=50", {});
+  });
+
+  it("переходит на старый список при 404 и фильтрует локально", async () => {
+    const { repository, get } = makeRepository();
+    const phone: Device = { ...DEVICE, id: "d2", name: "phone", addresses: ["10.0.0.3"] };
+    get
+      .mockRejectedValueOnce(new ApiError(404, "not_found", "not found"))
+      .mockResolvedValueOnce([DEVICE, phone]);
+
+    const page = await repository.pageDevices({ limit: 1, offset: 1, query: "10.0.0" });
+
+    expect(get).toHaveBeenNthCalledWith(1, "/devices/page?limit=1&offset=1&q=10.0.0", {});
+    expect(get).toHaveBeenNthCalledWith(2, "/devices");
+    expect(page).toEqual({ items: [phone], total: 2, limit: 1, offset: 1 });
+  });
+
+  it("не скрывает ошибки, кроме 404/405/501", async () => {
+    const { repository, get } = makeRepository();
+    get.mockRejectedValueOnce(new ApiError(500, "http_error", "boom"));
+
+    await expect(repository.pageDevices({ limit: 25, offset: 0 })).rejects.toMatchObject({
+      status: 500,
+    });
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe("HttpDevicesRepository: туннели", () => {
   it("создаёт туннель с меткой и без неё", async () => {

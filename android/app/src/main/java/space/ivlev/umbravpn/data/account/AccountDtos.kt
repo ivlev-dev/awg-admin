@@ -77,6 +77,15 @@ internal data class BootstrapDto(
     val interfaces: List<InterfaceDto> = emptyList(),
     val subscription: SubscriptionDto? = null,
     val access: AccessDto? = null,
+    @SerialName("devices_total") val devicesTotal: Int? = null,
+)
+
+@Serializable
+internal data class PageDto<T>(
+    val items: List<T> = emptyList(),
+    val total: Int = 0,
+    val limit: Int = 0,
+    val offset: Int = 0,
 )
 
 @Serializable

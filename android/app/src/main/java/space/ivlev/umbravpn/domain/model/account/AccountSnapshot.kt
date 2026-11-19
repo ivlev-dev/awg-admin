@@ -17,7 +17,11 @@ data class AccountSnapshot(
     val interfaces: List<AccountInterface> = emptyList(),
     val subscription: AccountSubscription? = null,
     val access: AccountAccess = AccountAccess(),
-)
+    val devicesTotal: Int? = null,
+) {
+    val deviceCount: Int
+        get() = devicesTotal ?: devices.size
+}
 
 @Serializable
 @Immutable

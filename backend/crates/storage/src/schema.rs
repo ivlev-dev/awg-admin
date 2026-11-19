@@ -3,7 +3,7 @@ use serde_json::{Value, json};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 8;
+pub const CURRENT_SCHEMA_VERSION: u32 = 9;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -51,6 +51,11 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 7,
         to: 8,
         apply: v8_peer_ids,
+    },
+    MigrationStep {
+        from: 8,
+        to: 9,
+        apply: v9_device_page_index,
     },
 ];
 
@@ -180,6 +185,10 @@ fn v8_peer_ids(txn: &WriteTransaction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn v9_device_page_index(txn: &WriteTransaction) -> Result<()> {
+    crate::device_index::backfill(txn)
 }
 
 fn read_values(txn: &WriteTransaction, table: Table) -> Result<Vec<(String, Value)>> {
@@ -1335,6 +1344,104 @@ mod tests {
             .collect();
         assert_eq!(first, second);
         assert_eq!(read_version(&db).unwrap(), Some(8));
+    }
+
+    #[test]
+    fn migration_v9_backfills_device_page_index() {
+        let db = in_memory();
+        seed_legacy(&db, Some(8));
+        let user = uuid::Uuid::new_v4();
+        let group = uuid::Uuid::new_v4();
+        let interface = uuid::Uuid::new_v4();
+        let first = uuid::Uuid::new_v4();
+        let second = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            let mut devices = txn.open_table(Table::Devices.definition()).unwrap();
+            for (id, name, created) in [
+                (first, "Phone", "2026-01-01T00:00:00Z"),
+                (second, "Laptop", "2026-01-02T00:00:00Z"),
+            ] {
+                devices
+                    .insert(
+                        id.to_string().as_str(),
+                        json!({
+                            "id": id,
+                            "user_id": user,
+                            "group_id": group,
+                            "interface_id": interface,
+                            "name": name,
+                            "revoked": false,
+                            "created_at": created,
+                        })
+                        .to_string()
+                        .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            drop(devices);
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 8, 9).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(9));
+        let txn = db.begin_read().unwrap();
+        let names = txn.open_table(Table::DevicePageIndex.definition()).unwrap();
+        let keys: Vec<String> = names
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(
+            keys,
+            vec![format!("laptop|{second}"), format!("phone|{first}"),]
+        );
+        let created = txn
+            .open_table(Table::DeviceCreatedIndex.definition())
+            .unwrap();
+        let created_keys: Vec<String> = created
+            .iter()
+            .unwrap()
+            .map(|entry| entry.unwrap().0.value().to_string())
+            .collect();
+        assert_eq!(created_keys.len(), 2);
+        assert!(created_keys[0].ends_with(&first.to_string()));
+        assert!(created_keys[1].ends_with(&second.to_string()));
+        drop(created);
+        {
+            let devices = txn.open_table(Table::Devices.definition()).unwrap();
+            assert_eq!(devices.iter().unwrap().count(), 2);
+            let raw = devices.get(first.to_string().as_str()).unwrap().unwrap();
+            let value: Value = serde_json::from_slice(raw.value()).unwrap();
+            assert_eq!(value["name"], json!("Phone"));
+        }
+        drop(names);
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v9_device_page_index(&txn).unwrap();
+        v9_device_page_index(&txn).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let names = txn.open_table(Table::DevicePageIndex.definition()).unwrap();
+        assert_eq!(names.iter().unwrap().count(), 2);
+    }
+
+    #[test]
+    fn migration_v9_is_idempotent() {
+        let db = in_memory();
+        seed_legacy(&db, Some(8));
+        migrate(&db, 8, CURRENT_SCHEMA_VERSION).unwrap();
+        migrate(&db, 8, CURRENT_SCHEMA_VERSION).unwrap();
+
+        let txn = db.begin_write().unwrap();
+        v9_device_page_index(&txn).unwrap();
+        v9_device_page_index(&txn).unwrap();
+        txn.commit().unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
     }
 
     #[test]

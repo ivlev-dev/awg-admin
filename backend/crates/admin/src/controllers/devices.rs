@@ -3,12 +3,15 @@ use std::net::IpAddr;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use chrono::Utc;
 use ipnet::Ipv4Net;
 use uuid::Uuid;
 
-use awg_clients::{Device, DevicePeer, DeviceService, Forwarding, NewDevice};
+use awg_clients::{
+    DEFAULT_DEVICE_PAGE_LIMIT, Device, DevicePageOrder, DevicePageQuery, DevicePageSort,
+    DevicePageStatus, DevicePeer, DeviceService, Forwarding, MAX_DEVICE_PAGE_LIMIT, NewDevice,
+};
 use awg_network::{CidrPool, NetworkService};
 use awg_shared::cidr::address_with_prefix;
 use awg_tariffs::Tariff;
@@ -17,12 +20,12 @@ use crate::auth::AuthUser;
 use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
-    CreateDeviceRequest, CreateShareRequest, CreateTunnelRequest, UpdateDeviceRequest,
-    UpdateTunnelRequest,
+    CreateDeviceRequest, CreateShareRequest, CreateTunnelRequest, DevicePageParams,
+    UpdateDeviceRequest, UpdateTunnelRequest,
 };
 use crate::publish::publish_group;
 use crate::state::AppState;
-use crate::views::{DeviceView, ProfileView, ShareLinkView};
+use crate::views::{DeviceView, PageView, ProfileView, ShareLinkView};
 
 pub async fn list(
     State(state): State<Arc<AppState>>,
@@ -43,6 +46,83 @@ pub async fn list(
         .await?
     };
     Ok(Json(devices))
+}
+
+pub async fn page(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(params): Query<DevicePageParams>,
+) -> ApiResult<Json<PageView<DeviceView>>> {
+    let admin = user.is_admin();
+    let requester = user.id();
+    if !admin
+        && let Some(requested) = params.user_id
+        && requested != requester
+    {
+        return Err(ApiError::Forbidden(
+            "access to another user is denied".into(),
+        ));
+    }
+    let user_filter = if admin {
+        params.user_id
+    } else {
+        Some(requester)
+    };
+    let page = {
+        let state = state.clone();
+        blocking::run_api(move || page_view(&state, user_filter, params)).await?
+    };
+    Ok(Json(page))
+}
+
+pub(crate) fn page_view(
+    state: &AppState,
+    user_filter: Option<Uuid>,
+    params: DevicePageParams,
+) -> ApiResult<PageView<DeviceView>> {
+    let limit = params.limit.unwrap_or(DEFAULT_DEVICE_PAGE_LIMIT as u32);
+    if limit == 0 || limit as usize > MAX_DEVICE_PAGE_LIMIT {
+        return Err(ApiError::BadRequest(format!(
+            "limit must be between 1 and {MAX_DEVICE_PAGE_LIMIT}"
+        )));
+    }
+    let status = DevicePageStatus::parse(params.status.as_deref()).map_err(ApiError::from)?;
+    let sort = DevicePageSort::parse(params.sort.as_deref()).map_err(ApiError::from)?;
+    let order = DevicePageOrder::parse(params.order.as_deref()).map_err(ApiError::from)?;
+    let q = DevicePageQuery::normalize_q(params.q.as_deref());
+    let owner_emails = if q.is_some() {
+        state
+            .identity
+            .list()
+            .map_err(ApiError::from)?
+            .into_iter()
+            .filter(|owner| user_filter.is_none_or(|id| owner.id == id))
+            .map(|owner| {
+                let email = owner
+                    .email
+                    .clone()
+                    .filter(|value| !value.trim().is_empty())
+                    .unwrap_or_else(|| awg_identity::domain::email_from_login(&owner.login));
+                (owner.id, email)
+            })
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    let query = DevicePageQuery {
+        limit: limit as usize,
+        offset: params.offset.unwrap_or(0) as usize,
+        q,
+        status,
+        interface_id: params.interface_id,
+        user_id: user_filter,
+        sort,
+        order,
+        owner_emails,
+    };
+    let page = state.devices.page(&query).map_err(ApiError::from)?;
+    let views = build_views(&state.devices, &state.network, &page.items)?;
+    Ok(PageView::new(views, page.total, page.limit, page.offset))
 }
 
 pub async fn get(

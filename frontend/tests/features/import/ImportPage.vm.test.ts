@@ -16,6 +16,7 @@ import type {
 } from "@/domain/import/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
 import type { ImportResult, InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import { ImportVM } from "@/features/import/ImportPage.vm";
 
@@ -350,6 +351,9 @@ function usersHarness(users: User[]): {
     listUsers,
     repository: {
       listUsers,
+      pageUsers: vi.fn(async (params) =>
+        pageUsersFromList(users.map((user) => ({ ...user })), params),
+      ),
       listPending: vi.fn(async () => []),
       createUser: vi.fn(async () => {
         throw new Error("createUser is not used in this test");

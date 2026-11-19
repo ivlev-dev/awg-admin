@@ -8,14 +8,8 @@ import { Modal } from "@/components/Modal";
 import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
-import type { SortState } from "@/domain/table-sort";
 import type { User } from "@/domain/types";
 import { t } from "@/i18n";
-
-function ariaSort(sort: SortState | null, key: string): "ascending" | "descending" | "none" {
-  if (sort === null || sort.key !== key) return "none";
-  return sort.direction === "asc" ? "ascending" : "descending";
-}
 
 function statusChipClass(user: User): string {
   if (user.disabled && user.status === "active") return "status-chip status-chip--neutral";
@@ -64,7 +58,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
           aria-pressed={this.vm.tab === "active" ? "true" : "false"}
           onClick={() => this.vm.setTab("active")}
         >
-          {t("users.tab.active")} ({this.vm.activeUsers.length})
+          {t("users.tab.active")} ({this.vm.activeTotal})
         </button>
         <button
           class={`tab ${this.vm.tab === "pending" ? "is-active" : ""}`}
@@ -138,19 +132,6 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   ariaLabel={t("users.filter.status")}
                 />
               </div>
-              <div class="field">
-                <label for="users-node">{t("users.filter.node")}</label>
-                <Select
-                  id="users-node"
-                  value={this.vm.nodeFilter}
-                  options={[
-                    { value: "all", label: t("users.filter.allNodes") },
-                    ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name })),
-                  ]}
-                  onChange={(value) => this.vm.setNodeFilter(value)}
-                  ariaLabel={t("users.filter.node")}
-                />
-              </div>
               <Show when={this.vm.hasActiveFilters}>
                 <button class="btn btn--text btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                   <Icon name="close" size={14} class="" /> {t("filters.reset")}
@@ -187,19 +168,19 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 }
               >
                 <Show
-                  when={this.vm.filteredActiveUsers.length > 0}
+                  when={this.vm.users.length > 0}
                   fallback={
                     <div class="empty">
                       <div class="empty__icon"><Icon name="users" size={28} class="" /></div>
                       <div class="empty__title">
-                        {this.vm.activeUsers.length === 0 ? t("users.empty.title") : t("filters.emptyTitle")}
+                        {this.vm.hasActiveFilters ? t("filters.emptyTitle") : t("users.empty.title")}
                       </div>
                       <div class="empty__text">
-                        {this.vm.activeUsers.length === 0 ? t("users.empty.text") : t("filters.emptyText")}
+                        {this.vm.hasActiveFilters ? t("filters.emptyText") : t("users.empty.text")}
                       </div>
                       <div style="margin-top:14px">
                         <Show
-                          when={this.vm.activeUsers.length > 0}
+                          when={this.vm.hasActiveFilters}
                           fallback={
                             <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
                               <Icon name="plus" size={14} class="" /> {t("users.new")}
@@ -225,23 +206,11 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             onChange={() => this.vm.toggleSelectAll()}
                           />
                         </th>
-                        <th class="is-sortable col-user" aria-sort={ariaSort(this.vm.sort, "email")}>
-                          <button type="button" onClick={() => this.vm.sortBy("email")}>
-                            {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
-                          </button>
-                        </th>
-                        <th class="is-sortable col-role" aria-sort={ariaSort(this.vm.sort, "role")}>
-                          <button type="button" onClick={() => this.vm.sortBy("role")}>
-                            {t("users.column.role")} <span class="sort-indicator">{this.vm.sortMark("role")}</span>
-                          </button>
-                        </th>
+                        <th class="col-user">{t("users.column.email")}</th>
+                        <th class="col-role">{t("users.column.role")}</th>
                         <th class="col-tariff">{t("users.column.tariffNode")}</th>
                         <th class="col-quota">{t("users.column.quota")}</th>
-                        <th class="is-sortable col-status" aria-sort={ariaSort(this.vm.sort, "status")}>
-                          <button type="button" onClick={() => this.vm.sortBy("status")}>
-                            {t("users.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
-                          </button>
-                        </th>
+                        <th class="col-status">{t("users.column.status")}</th>
                         <th class="col-actions" aria-label={t("users.column.actions")}></th>
                       </tr>
                     </thead>
@@ -454,17 +423,21 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 }
               >
                 <Show
-                  when={this.vm.filteredPending.length > 0}
+                  when={this.vm.pending.length > 0}
                   fallback={
                     <div class="empty">
                       <div class="empty__icon"><Icon name="clock" size={28} class="" /></div>
                       <div class="empty__title">
-                        {this.vm.pending.length === 0 ? t("users.pending.emptyTitle") : t("filters.emptyTitle")}
+                        {this.vm.appliedQuery.trim().length > 0
+                          ? t("filters.emptyTitle")
+                          : t("users.pending.emptyTitle")}
                       </div>
                       <div class="empty__text">
-                        {this.vm.pending.length === 0 ? t("users.pending.emptyText") : t("filters.emptyText")}
+                        {this.vm.appliedQuery.trim().length > 0
+                          ? t("filters.emptyText")
+                          : t("users.pending.emptyText")}
                       </div>
-                      <Show when={this.vm.pending.length > 0}>
+                      <Show when={this.vm.appliedQuery.trim().length > 0}>
                         <div style="margin-top:14px">
                           <button class="btn btn--outlined btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                             <Icon name="close" size={14} class="" /> {t("filters.reset")}
@@ -477,17 +450,13 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   <table class="table table--cards table--users-pending table--desktop" aria-label={t("users.pending.title")}>
                     <thead>
                       <tr>
-                        <th class="is-sortable col-user" aria-sort={ariaSort(this.vm.sort, "email")}>
-                          <button type="button" onClick={() => this.vm.sortBy("email")}>
-                            {t("users.column.email")} <span class="sort-indicator">{this.vm.sortMark("email")}</span>
-                          </button>
-                        </th>
+                        <th class="col-user">{t("users.column.email")}</th>
                         <th class="col-created">{t("users.pending.createdAt")}</th>
                         <th class="col-actions" aria-label={t("users.column.actions")}></th>
                       </tr>
                     </thead>
                     <tbody>
-                      <For each={this.vm.filteredPending}>
+                      <For each={this.vm.pending}>
                         {(user) => (
                           <tr>
                             <td class="col-user" data-label={t("users.column.email")}>
@@ -516,6 +485,40 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                       </For>
                     </tbody>
                   </table>
+
+                  <div class="data-pagination">
+                    <span class="small muted" aria-live="polite">{this.vm.pendingPageSummary}</span>
+                    <div class="row" style="gap:8px;align-items:center">
+                      <span class="small muted">{t("users.pagination.size")}</span>
+                      <Select
+                        value={String(this.vm.pageSize)}
+                        options={this.vm.pageSizeOptions}
+                        onChange={(value) => this.vm.setPageSize(value)}
+                        ariaLabel={t("users.pagination.size")}
+                      />
+                      <button
+                        class="btn btn--sm btn--ghost btn--icon"
+                        type="button"
+                        aria-label={t("users.pagination.prev")}
+                        disabled={this.vm.pendingCurrentPage <= 1}
+                        onClick={() => this.vm.goToPendingPage(this.vm.pendingCurrentPage - 1)}
+                      >
+                        <Icon name="chevron" size={14} class="" />
+                      </button>
+                      <span class="small" aria-label={t("users.pagination.page", { page: this.vm.pendingCurrentPage, pages: this.vm.pendingPageCount })}>
+                        {this.vm.pendingCurrentPage} / {this.vm.pendingPageCount}
+                      </span>
+                      <button
+                        class="btn btn--sm btn--ghost btn--icon"
+                        type="button"
+                        aria-label={t("users.pagination.next")}
+                        disabled={this.vm.pendingCurrentPage >= this.vm.pendingPageCount}
+                        onClick={() => this.vm.goToPendingPage(this.vm.pendingCurrentPage + 1)}
+                      >
+                        <Icon name="chevron" size={14} class="" />
+                      </button>
+                    </div>
+                  </div>
                 </Show>
               </Show>
             </Show>

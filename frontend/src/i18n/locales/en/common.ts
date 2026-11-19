@@ -148,6 +148,7 @@ export const enCommon = {
   "filters.search": "Search",
   "filters.search.clients": "Device name or IP address",
   "filters.found": "Found {found} of {total}",
+  "filters.foundTotal": "Found: {total}",
   "filters.reset": "Reset filters",
   "filters.emptyTitle": "Nothing found",
   "filters.emptyText": "Change the search query or reset the filters.",

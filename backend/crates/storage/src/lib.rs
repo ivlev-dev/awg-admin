@@ -10,6 +10,7 @@ use serde::de::DeserializeOwned;
 use thiserror::Error;
 
 mod backup;
+pub mod device_index;
 mod schema;
 
 pub use schema::{
@@ -84,6 +85,8 @@ tables! {
     CidrPools => "cidr_pools",
     Devices => "devices",
     DevicePeers => "device_peers",
+    DevicePageIndex => "device_page_index",
+    DeviceCreatedIndex => "device_created_index",
     PeerCounters => "peer_counters",
     TrafficBuckets => "traffic_buckets",
     ShareLinks => "share_links",
@@ -349,6 +352,22 @@ impl Store {
         }
         txn.commit()?;
         Ok(removed)
+    }
+
+    pub fn get_many<T: DeserializeOwned>(&self, table: Table, keys: &[String]) -> Result<Vec<T>> {
+        if keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        let txn = self.db.begin_read()?;
+        let table = txn.open_table(table.definition())?;
+        let mut out = Vec::with_capacity(keys.len());
+        for key in keys {
+            let Some(bytes) = table.get(key.as_str())? else {
+                continue;
+            };
+            out.push(serde_json::from_slice(bytes.value())?);
+        }
+        Ok(out)
     }
 
     pub fn list<T: DeserializeOwned>(&self, table: Table) -> Result<Vec<T>> {

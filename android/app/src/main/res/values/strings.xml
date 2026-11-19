@@ -638,6 +638,10 @@
     <string name="account_devices_title">Devices</string>
     <string name="account_devices_subtitle">Up to %1$d devices on the tariff</string>
     <string name="account_device_count">%1$d of %2$d</string>
+    <string name="account_devices_filter_all">All</string>
+    <string name="account_devices_search">Search by name or address</string>
+    <string name="account_devices_load_more">Show more</string>
+    <string name="account_devices_end">All devices loaded</string>
     <string name="account_all_devices">All devices</string>
     <string name="account_no_devices">No devices yet. Add one to get a ready WireGuard config.</string>
     <string name="account_add_device">Add device</string>

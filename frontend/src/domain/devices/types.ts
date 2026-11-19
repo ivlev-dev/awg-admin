@@ -1,6 +1,20 @@
+import type { PageRequest } from "../page";
 import type { Forwarding, PeerInfo, ShareFormat } from "../types";
 
 export type DevicePeer = PeerInfo;
+export type DeviceStatusFilter = "all" | "active" | "revoked";
+export type DeviceSortField = "name" | "created";
+export type DeviceSortOrder = "asc" | "desc";
+
+export interface DevicePageParams extends PageRequest {
+  query?: string;
+  status?: DeviceStatusFilter;
+  interfaceId?: string;
+  userId?: string;
+  sort?: DeviceSortField;
+  order?: DeviceSortOrder;
+  signal?: AbortSignal;
+}
 
 export interface TunnelInput {
   interfaceId: string;

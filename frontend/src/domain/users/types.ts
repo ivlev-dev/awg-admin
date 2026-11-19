@@ -1,4 +1,16 @@
+import type { PageRequest } from "../page";
 import type { Role } from "../types";
+
+export type UserPageTab = "active" | "pending";
+export type UserPageStatus = "active" | "disabled";
+
+export interface UserPageParams extends PageRequest {
+  query?: string;
+  role?: Role;
+  status?: UserPageStatus;
+  tab?: UserPageTab;
+  signal?: AbortSignal;
+}
 
 export interface CreateUserInput {
   email: string;

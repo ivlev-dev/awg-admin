@@ -21,8 +21,8 @@ use awg_shared::{CoreError, CoreResult};
 use awg_tariffs::{LimitPolicy, Tariff, TariffService};
 
 use crate::domain::{
-    Device, DevicePeer, DevicePeerRepository, DeviceRepository, Forwarding, ForwardingPolicy,
-    validate_device_name, validate_peer_label,
+    Device, DevicePage, DevicePageQuery, DevicePeer, DevicePeerRepository, DeviceRepository,
+    Forwarding, ForwardingPolicy, MAX_DEVICE_PAGE_LIMIT, validate_device_name, validate_peer_label,
 };
 
 #[derive(Debug, Clone)]
@@ -112,6 +112,15 @@ impl DeviceService {
 
     pub fn list_for_user(&self, user_id: Uuid) -> CoreResult<Vec<Device>> {
         self.devices.by_user(user_id)
+    }
+
+    pub fn page(&self, query: &DevicePageQuery) -> CoreResult<DevicePage> {
+        if query.limit == 0 || query.limit > MAX_DEVICE_PAGE_LIMIT {
+            return Err(CoreError::Invalid(format!(
+                "limit must be between 1 and {MAX_DEVICE_PAGE_LIMIT}"
+            )));
+        }
+        self.devices.page(query)
     }
 
     pub fn get(&self, id: Uuid) -> CoreResult<Device> {

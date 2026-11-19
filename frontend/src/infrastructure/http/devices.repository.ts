@@ -1,22 +1,39 @@
 import type { BulkRequest, BulkResult } from "@/domain/bulk";
 import type { DevicesBulkAction, DevicesRepository } from "@/domain/devices/repository";
+import { pageDevicesFromList } from "@/domain/devices/query";
 import type {
   CreateShareInput,
   DeviceInput,
+  DevicePageParams,
   DeviceStats,
   DeviceStatsQueryOptions,
   DeviceUpdateInput,
   TunnelInput,
 } from "@/domain/devices/types";
+import type { Page } from "@/domain/page";
 import type { Device, Profile, ShareLink } from "@/domain/types";
 import type { HttpClient } from "./client";
-import { readDevice, readDevices, readShareLink, readShareLinks } from "./response";
+import { isUnsupportedEndpoint } from "./fallback";
+import { buildQueryString, signalOptions } from "./query";
+import { readDevice, readDevicePage, readDevices, readShareLink, readShareLinks } from "./response";
 
 export class HttpDevicesRepository implements DevicesRepository {
   constructor(private readonly client: HttpClient) {}
 
   listDevices(): Promise<Device[]> {
     return this.client.get<unknown>("/devices").then(readDevices);
+  }
+
+  async pageDevices(params: DevicePageParams): Promise<Page<Device>> {
+    try {
+      const page = await this.client
+        .get<unknown>(devicesPagePath(params), signalOptions(params.signal))
+        .then(readDevicePage);
+      return page;
+    } catch (error) {
+      if (!isUnsupportedEndpoint(error)) throw error;
+      return pageDevicesFromList(await this.listDevices(), params);
+    }
   }
 
   getDevice(id: string): Promise<Device> {
@@ -113,4 +130,18 @@ export class HttpDevicesRepository implements DevicesRepository {
     const body: BulkRequest<DevicesBulkAction> = { action, ids };
     return this.client.post<BulkResult>("/devices/bulk", body);
   }
+}
+
+function devicesPagePath(params: DevicePageParams): string {
+  const query = buildQueryString({
+    limit: params.limit,
+    offset: params.offset,
+    q: params.query?.trim(),
+    status: params.status === undefined || params.status === "all" ? undefined : params.status,
+    interface_id: params.interfaceId,
+    user_id: params.userId,
+    sort: params.sort,
+    order: params.order,
+  });
+  return `/devices/page${query}`;
 }

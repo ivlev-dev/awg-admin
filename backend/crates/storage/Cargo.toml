@@ -10,6 +10,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 redb.workspace = true
 uuid.workspace = true
+chrono.workspace = true
 
 [dev-dependencies]
 uuid.workspace = true

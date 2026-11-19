@@ -3,6 +3,7 @@ package space.ivlev.umbravpn.data.account
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.header
+import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
@@ -20,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
+import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountError
 import space.ivlev.umbravpn.domain.model.account.AccountResult
@@ -28,8 +30,11 @@ import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.StoredSession
+import space.ivlev.umbravpn.domain.model.account.pageDevices
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 
 class AccountApi(
@@ -189,6 +194,42 @@ class AccountApi(
         if (result is AccountResult.Failure) applyAuthFailure(result.error)
         return result
     }
+
+    suspend fun pageDevices(
+        limit: Int = DeviceQuery.DEFAULT_LIMIT,
+        offset: Int = 0,
+        query: String = "",
+        status: DeviceStatusFilter = DeviceStatusFilter.All,
+    ): AccountResult<Page<AccountDevice>> {
+        val request =
+            DeviceQuery(limit = limit, offset = offset, query = query, status = status).normalized
+        val result =
+            execute(
+                authenticated = true,
+                method = HttpMethod.Get,
+                path = "app/devices/page",
+                configure = {
+                    parameter("limit", request.limit)
+                    parameter("offset", request.offset)
+                    parameter("q", request.query)
+                    parameter("status", request.status.apiValue)
+                },
+                decode = { body -> json.decodeFromString<PageDto<DeviceDto>>(body).toDomain() },
+            )
+        if (result is AccountResult.Failure && result.error.isUnsupportedEndpoint()) {
+            return pageDevicesFallback(request)
+        }
+        return result
+    }
+
+    private suspend fun pageDevicesFallback(
+        request: DeviceQuery,
+    ): AccountResult<Page<AccountDevice>> =
+        when (val snapshot = bootstrap()) {
+            is AccountResult.Success ->
+                AccountResult.Success(snapshot.value.devices.pageDevices(request))
+            is AccountResult.Failure -> AccountResult.Failure(snapshot.error)
+        }
 
     suspend fun createDevice(
         name: String,

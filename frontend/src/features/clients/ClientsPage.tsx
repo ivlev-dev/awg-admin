@@ -134,21 +134,21 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
               }
             >
             <Show
-              when={this.vm.filteredDevices.length > 0}
+              when={this.vm.devices.length > 0}
               fallback={
                 <div class="empty">
                   <div class="empty__icon"><Icon name="clients" size={28} class="" /></div>
                   <div class="empty__title">
-                    {this.vm.devices.length === 0 ? t("clients.empty.title") : t("filters.emptyTitle")}
+                    {this.vm.hasActiveFilters ? t("filters.emptyTitle") : t("clients.empty.title")}
                   </div>
                   <div class="empty__text">
-                    {this.vm.devices.length === 0
-                      ? t("clients.empty.text")
-                      : t("filters.emptyText")}
+                    {this.vm.hasActiveFilters
+                      ? t("filters.emptyText")
+                      : t("clients.empty.text")}
                   </div>
                   <div style="margin-top:14px">
                     <Show
-                      when={this.vm.devices.length > 0}
+                      when={this.vm.hasActiveFilters}
                       fallback={
                         <button class="btn btn--primary btn--sm" type="button" onClick={() => this.vm.openCreate()}>
                           <Icon name="plus" size={14} class="" /> {t("clients.empty.action")}
@@ -185,11 +185,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                     <th class="col-interface">{t("clients.column.interface")}</th>
                     <th class="col-address">{t("clients.column.addresses")}</th>
                     <th class="col-limits">{t("clients.column.limits")}</th>
-                    <th class="is-sortable">
-                      <button type="button" onClick={() => this.vm.sortBy("status")}>
-                        {t("clients.column.status")} <span class="sort-indicator">{this.vm.sortMark("status")}</span>
-                      </button>
-                    </th>
+                    <th class="col-status">{t("clients.column.status")}</th>
                     <th class="col-actions"></th>
                   </tr>
                 </thead>

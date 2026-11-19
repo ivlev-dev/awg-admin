@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -15,20 +15,21 @@ use awg_statistics::StatsScope;
 use awg_tariffs::Tariff;
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::controllers::devices::{
-    authorize_placement, build_view, build_views, forwarding_default, unlimited_tariff,
+    authorize_placement, build_view, build_views, forwarding_default, page_view, unlimited_tariff,
 };
 use crate::controllers::quota::current_quota;
 use crate::error::{ApiError, ApiResult};
 use crate::idempotency::{
     BeginOutcome, IDEMPOTENCY_HEADER, IdempotentResponse, body_fingerprint, user_key, valid_key,
 };
-use crate::models::{AppDeviceRequest, CreateTunnelRequest, UpdateTunnelRequest};
+use crate::models::{AppDeviceRequest, CreateTunnelRequest, DevicePageParams, UpdateTunnelRequest};
 use crate::publish::publish_group;
 use crate::state::AppState;
 use crate::views::{
     AppAccessView, AppBootstrapView, AppDeviceView, AppInterfaceView, AppSubscriptionView,
-    AppTariffView, DeviceConfigView, DeviceView, UserView,
+    AppTariffView, DeviceConfigView, DeviceView, PageView, UserView,
 };
 
 pub async fn bootstrap(
@@ -53,6 +54,7 @@ pub async fn bootstrap(
         .devices
         .list_for_user(account.id)
         .map_err(ApiError::from)?;
+    let devices_total = devices.len();
     let interfaces = available_interfaces(&state, &account, tariff.as_ref())?;
     Ok(Json(AppBootstrapView {
         user: UserView::from(&account),
@@ -61,8 +63,27 @@ pub async fn bootstrap(
         subscription,
         access,
         devices: build_views(&state.devices, &state.network, &devices)?,
+        devices_total,
         interfaces,
     }))
+}
+
+pub async fn devices_page(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(params): Query<DevicePageParams>,
+) -> ApiResult<Json<PageView<DeviceView>>> {
+    let mut params = params;
+    params.user_id = None;
+    if params.limit.is_none() {
+        params.limit = Some(20);
+    }
+    let owner = user.id();
+    let page = {
+        let state = state.clone();
+        blocking::run_api(move || page_view(&state, Some(owner), params)).await?
+    };
+    Ok(Json(page))
 }
 
 fn app_subscription(state: &AppState, user_id: Uuid) -> ApiResult<Option<AppSubscriptionView>> {

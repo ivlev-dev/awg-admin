@@ -148,6 +148,7 @@ export const ruCommon = {
   "filters.search": "Поиск",
   "filters.search.clients": "Имя устройства или IP-адрес",
   "filters.found": "Найдено {found} из {total}",
+  "filters.foundTotal": "Найдено: {total}",
   "filters.reset": "Сбросить фильтры",
   "filters.emptyTitle": "Ничего не найдено",
   "filters.emptyText": "Измените поисковый запрос или сбросьте фильтры.",

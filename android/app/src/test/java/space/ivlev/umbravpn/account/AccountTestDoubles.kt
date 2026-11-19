@@ -1,8 +1,18 @@
 package space.ivlev.umbravpn.account
 
 import java.time.Instant
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnectPort
+import space.ivlev.umbravpn.core.orchestration.ManagedTunnelAutoConnector
+import space.ivlev.umbravpn.data.account.AccountSnapshotCache
+import space.ivlev.umbravpn.domain.account.AccountActions
+import space.ivlev.umbravpn.domain.account.AuthActions
+import space.ivlev.umbravpn.domain.account.LogoutCoordinator
+import space.ivlev.umbravpn.domain.account.PendingSignupCache
+import space.ivlev.umbravpn.domain.model.Page
+import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountError
 import space.ivlev.umbravpn.domain.model.account.AccountQuota
@@ -13,11 +23,21 @@ import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
 import space.ivlev.umbravpn.domain.model.account.DevicePeer
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
+import space.ivlev.umbravpn.domain.model.account.pageDevices
 import space.ivlev.umbravpn.domain.repository.AccountRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
+import space.ivlev.umbravpn.domain.sync.ManagedTunnelCleanup
+import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.sync.SyncEvent
+import space.ivlev.umbravpn.domain.sync.SyncResult
+import space.ivlev.umbravpn.sync.FakeManagedTunnelRepository
+import space.ivlev.umbravpn.sync.InMemoryTunnelRepository
+import space.ivlev.umbravpn.viewmodel.AccountViewModel
 
 internal fun testUser(
     email: String = "alice@example.com",
@@ -214,10 +234,34 @@ internal class FakeAccountRepository : AccountRepository {
     var renameTunnelResult: AccountResult<AccountDevice> =
         AccountResult.Success(testDevice(name = "Renamed"))
     val renamedTunnels = mutableListOf<Triple<String, String, String>>()
+    val pageQueries = mutableListOf<DeviceQuery>()
+    var pageResult: AccountResult<Page<AccountDevice>>? = null
+    var pageHandler: ((DeviceQuery) -> AccountResult<Page<AccountDevice>>)? = null
 
     override suspend fun bootstrap(): AccountResult<AccountSnapshot> {
         bootstrapCalls++
         return bootstrapResult
+    }
+
+    override suspend fun pageDevices(
+        limit: Int,
+        offset: Int,
+        query: String,
+        status: DeviceStatusFilter,
+    ): AccountResult<Page<AccountDevice>> {
+        val request = DeviceQuery(limit = limit, offset = offset, query = query, status = status)
+        pageQueries += request
+        pageHandler?.let {
+            return it(request)
+        }
+        pageResult?.let {
+            return it
+        }
+        return when (val bootstrap = bootstrapResult) {
+            is AccountResult.Success ->
+                AccountResult.Success(bootstrap.value.devices.pageDevices(request))
+            is AccountResult.Failure -> AccountResult.Failure(bootstrap.error)
+        }
     }
 
     override suspend fun createDevice(
@@ -278,5 +322,59 @@ internal class FakeAccountRepository : AccountRepository {
     override suspend fun deleteDevice(id: String): AccountResult<Unit> {
         deleted += id
         return deleteResult
+    }
+}
+
+internal class AccountViewModelHarness(
+    val repository: FakeAccountRepository = FakeAccountRepository(),
+) {
+    var syncCalls = 0
+        private set
+
+    fun build(): AccountViewModel {
+        val syncService =
+            object : ManagedTunnelSyncService {
+                override val events = MutableSharedFlow<SyncEvent>()
+
+                override suspend fun sync(): SyncResult {
+                    syncCalls++
+                    return SyncResult.Success()
+                }
+            }
+        val cleaner =
+            object : ManagedTunnelCleanup {
+                override suspend fun clear() = Unit
+            }
+        val port =
+            object : ManagedTunnelAutoConnectPort {
+                override val activeTunnelIds: Set<Int> = emptySet()
+
+                override fun hasVpnPermission(): Boolean = false
+
+                override suspend fun startTunnel(tunnel: TunnelConfig): Boolean = false
+            }
+        val autoConnector =
+            ManagedTunnelAutoConnector(
+                session = MutableStateFlow<SessionState>(SessionState.LoggedOut),
+                managedTunnelRepository = FakeManagedTunnelRepository(),
+                tunnelRepository = InMemoryTunnelRepository(),
+                port = port,
+            )
+        return AccountViewModel(
+            authRepository = FakeAuthRepository(),
+            settingsRepository = FakeAccountSettingsRepository(),
+            accountActions = AccountActions(repository),
+            syncService = syncService,
+            logoutCoordinator =
+                LogoutCoordinator(
+                    stopTunnels = {},
+                    tunnelCleanup = cleaner,
+                    resetAutoConnect = {},
+                    settingsRepository = FakeAccountSettingsRepository(),
+                    authActions = AuthActions(FakeAuthRepository(), PendingSignupCache()),
+                ),
+            autoConnector = autoConnector,
+            snapshotCache = AccountSnapshotCache(FakeAccountSettingsRepository()),
+        )
     }
 }

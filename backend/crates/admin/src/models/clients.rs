@@ -49,6 +49,18 @@ pub struct UpdateDeviceRequest {
     pub revoked: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct DevicePageParams {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub q: Option<String>,
+    pub status: Option<String>,
+    pub interface_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateTunnelRequest {
     pub interface_id: Uuid,

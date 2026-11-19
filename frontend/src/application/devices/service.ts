@@ -3,16 +3,21 @@ import type { DevicesBulkAction, DevicesRepository } from "@/domain/devices/repo
 import type {
   CreateShareInput,
   DeviceInput,
+  DevicePageParams,
+  DeviceStatusFilter,
   DeviceStats,
   DeviceStatsQueryOptions,
   DeviceUpdateInput,
 } from "@/domain/devices/types";
+import type { Page } from "@/domain/page";
+import { normalizePageRequest } from "@/domain/page";
 import type { Device, Profile, ShareLink } from "@/domain/types";
 import { ValidationError } from "../errors";
 import { PEER_LABEL_MAX, requireId, requirePeerLabel, requireRate, requireText } from "../guards";
 
 export interface DevicesService {
   listDevices(): Promise<Device[]>;
+  pageDevices(params: DevicePageParams): Promise<Page<Device>>;
   getDevice(id: string): Promise<Device>;
   createDevice(input: DeviceInput): Promise<Device>;
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device>;
@@ -36,6 +41,10 @@ export class DefaultDevicesService implements DevicesService {
 
   listDevices(): Promise<Device[]> {
     return this.repository.listDevices();
+  }
+
+  pageDevices(params: DevicePageParams): Promise<Page<Device>> {
+    return this.repository.pageDevices(normalizeDevicePageParams(params));
   }
 
   async getDevice(id: string): Promise<Device> {
@@ -174,4 +183,30 @@ function normalizeInterfaceIds(input: DeviceInput): string[] {
   if (input.interface_id) ids.push(input.interface_id.trim());
   for (const id of input.interface_ids ?? []) ids.push(id.trim());
   return Array.from(new Set(ids.filter((id) => id.length > 0)));
+}
+
+function normalizeDevicePageParams(params: DevicePageParams): DevicePageParams {
+  const { limit, offset } = normalizePageRequest(params);
+  const query = params.query?.trim() ?? "";
+  const interfaceId = params.interfaceId?.trim() ?? "";
+  const userId = params.userId?.trim() ?? "";
+  const status = normalizeStatus(params.status);
+  const sort = params.sort === "name" || params.sort === "created" ? params.sort : undefined;
+  const order = params.order === "asc" || params.order === "desc" ? params.order : undefined;
+  return {
+    limit,
+    offset,
+    ...(query.length > 0 ? { query } : {}),
+    ...(status === undefined ? {} : { status }),
+    ...(interfaceId.length > 0 ? { interfaceId } : {}),
+    ...(userId.length > 0 ? { userId } : {}),
+    ...(sort === undefined ? {} : { sort }),
+    ...(order === undefined ? {} : { order }),
+    ...(params.signal === undefined ? {} : { signal: params.signal }),
+  };
+}
+
+function normalizeStatus(value: DeviceStatusFilter | undefined): DeviceStatusFilter | undefined {
+  if (value === "active" || value === "revoked") return value;
+  return undefined;
 }

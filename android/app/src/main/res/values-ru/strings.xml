@@ -518,6 +518,10 @@
     <string name="account_devices_title">Устройства</string>
     <string name="account_devices_subtitle">До %1$d устройств по тарифу</string>
     <string name="account_device_count">%1$d из %2$d</string>
+    <string name="account_devices_filter_all">Все</string>
+    <string name="account_devices_search">Поиск по имени или адресу</string>
+    <string name="account_devices_load_more">Показать ещё</string>
+    <string name="account_devices_end">Все устройства загружены</string>
     <string name="account_all_devices">Все устройства</string>
     <string name="account_no_devices">Пока нет устройств. Добавьте устройство, чтобы получить готовый конфиг WireGuard.</string>
     <string name="account_add_device">Добавить устройство</string>

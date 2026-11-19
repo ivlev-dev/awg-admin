@@ -84,6 +84,162 @@ pub fn validate_peer_label(label: &str) -> CoreResult<()> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DevicePageStatus {
+    #[default]
+    All,
+    Active,
+    Revoked,
+}
+
+impl DevicePageStatus {
+    pub fn parse(raw: Option<&str>) -> CoreResult<Self> {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            None => Ok(Self::All),
+            Some(value) if value.eq_ignore_ascii_case("all") => Ok(Self::All),
+            Some(value) if value.eq_ignore_ascii_case("active") => Ok(Self::Active),
+            Some(value) if value.eq_ignore_ascii_case("revoked") => Ok(Self::Revoked),
+            Some(value) => Err(CoreError::Invalid(format!(
+                "status must be one of all, active, revoked (got {value})"
+            ))),
+        }
+    }
+
+    pub fn matches(self, revoked: bool) -> bool {
+        match self {
+            Self::All => true,
+            Self::Active => !revoked,
+            Self::Revoked => revoked,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DevicePageSort {
+    #[default]
+    Name,
+    Created,
+}
+
+impl DevicePageSort {
+    pub fn parse(raw: Option<&str>) -> CoreResult<Self> {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            None => Ok(Self::Name),
+            Some(value) if value.eq_ignore_ascii_case("name") => Ok(Self::Name),
+            Some(value) if value.eq_ignore_ascii_case("created") => Ok(Self::Created),
+            Some(value) => Err(CoreError::Invalid(format!(
+                "sort must be one of name, created (got {value})"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DevicePageOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
+impl DevicePageOrder {
+    pub fn parse(raw: Option<&str>) -> CoreResult<Self> {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            None => Ok(Self::Asc),
+            Some(value) if value.eq_ignore_ascii_case("asc") => Ok(Self::Asc),
+            Some(value) if value.eq_ignore_ascii_case("desc") => Ok(Self::Desc),
+            Some(value) => Err(CoreError::Invalid(format!(
+                "order must be one of asc, desc (got {value})"
+            ))),
+        }
+    }
+}
+
+pub const DEFAULT_DEVICE_PAGE_LIMIT: usize = 50;
+pub const MAX_DEVICE_PAGE_LIMIT: usize = 200;
+
+#[derive(Debug, Clone)]
+pub struct DevicePageQuery {
+    pub limit: usize,
+    pub offset: usize,
+    pub q: Option<String>,
+    pub status: DevicePageStatus,
+    pub interface_id: Option<Uuid>,
+    pub user_id: Option<Uuid>,
+    pub sort: DevicePageSort,
+    pub order: DevicePageOrder,
+    pub owner_emails: HashMap<Uuid, String>,
+}
+
+impl DevicePageQuery {
+    pub fn with_owner_emails(mut self, owner_emails: HashMap<Uuid, String>) -> Self {
+        self.owner_emails = owner_emails;
+        self
+    }
+
+    pub fn normalize_q(q: Option<&str>) -> Option<String> {
+        q.map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_lowercase)
+    }
+
+    pub fn q_matches(&self, name: &str, user_id: Uuid) -> bool {
+        let Some(q) = self.q.as_deref() else {
+            return true;
+        };
+        if name.to_lowercase().contains(q) {
+            return true;
+        }
+        self.owner_emails
+            .get(&user_id)
+            .is_some_and(|email| email.to_lowercase().contains(q))
+    }
+
+    pub fn matches(&self, device: &Device) -> bool {
+        if let Some(user_id) = self.user_id
+            && device.user_id != user_id
+        {
+            return false;
+        }
+        if let Some(interface_id) = self.interface_id
+            && device.interface_id != interface_id
+        {
+            return false;
+        }
+        if !self.status.matches(device.revoked) {
+            return false;
+        }
+        self.q_matches(&device.name, device.user_id)
+    }
+
+    pub fn sort_devices(&self, devices: &mut [Device]) {
+        match self.sort {
+            DevicePageSort::Name => devices.sort_by(|left, right| {
+                left.name
+                    .to_lowercase()
+                    .cmp(&right.name.to_lowercase())
+                    .then_with(|| left.id.cmp(&right.id))
+            }),
+            DevicePageSort::Created => devices.sort_by(|left, right| {
+                left.created_at
+                    .timestamp_micros()
+                    .cmp(&right.created_at.timestamp_micros())
+                    .then_with(|| left.id.cmp(&right.id))
+            }),
+        }
+        if self.order == DevicePageOrder::Desc {
+            devices.reverse();
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DevicePage {
+    pub items: Vec<Device>,
+    pub total: usize,
+    pub limit: usize,
+    pub offset: usize,
+}
+
 pub trait DeviceRepository: Send + Sync {
     fn find(&self, id: Uuid) -> CoreResult<Option<Device>>;
     fn list(&self) -> CoreResult<Vec<Device>>;
@@ -91,6 +247,27 @@ pub trait DeviceRepository: Send + Sync {
     fn by_group(&self, group_id: Uuid) -> CoreResult<Vec<Device>>;
     fn save(&self, device: &Device) -> CoreResult<()>;
     fn delete(&self, id: Uuid) -> CoreResult<()>;
+
+    fn page(&self, query: &DevicePageQuery) -> CoreResult<DevicePage> {
+        let mut matched: Vec<Device> = self
+            .list()?
+            .into_iter()
+            .filter(|device| query.matches(device))
+            .collect();
+        let total = matched.len();
+        query.sort_devices(&mut matched);
+        let items = matched
+            .into_iter()
+            .skip(query.offset)
+            .take(query.limit)
+            .collect();
+        Ok(DevicePage {
+            items,
+            total,
+            limit: query.limit,
+            offset: query.offset,
+        })
+    }
 }
 
 pub trait DevicePeerRepository: Send + Sync {

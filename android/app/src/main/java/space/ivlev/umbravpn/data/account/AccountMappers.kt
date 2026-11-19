@@ -1,6 +1,7 @@
 package space.ivlev.umbravpn.data.account
 
 import java.time.Instant
+import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountAccess
 import space.ivlev.umbravpn.domain.model.account.AccountAccessReason
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
@@ -119,6 +120,15 @@ internal fun BootstrapDto.toDomain(): AccountSnapshot =
         interfaces = interfaces.map(InterfaceDto::toDomain),
         subscription = subscription?.toDomain(),
         access = access?.toDomain() ?: AccountAccess(),
+        devicesTotal = devicesTotal,
+    )
+
+internal fun PageDto<DeviceDto>.toDomain(): Page<AccountDevice> =
+    Page(
+        items = items.map(DeviceDto::toDomain),
+        total = total,
+        limit = limit,
+        offset = offset,
     )
 
 internal fun InterfaceDto.toDomain(): AccountInterface =

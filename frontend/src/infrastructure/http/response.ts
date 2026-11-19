@@ -1,3 +1,4 @@
+import type { Page } from "@/domain/page";
 import type { Device, InterfaceInfo, ShareLink, User } from "@/domain/types";
 import { ApiError } from "./errors";
 
@@ -40,6 +41,10 @@ export function readDevices(value: unknown): Device[] {
   return expectArray(value, "devices").map(readDevice);
 }
 
+export function readDevicePage(value: unknown): Page<Device> {
+  return readPage(value, readDevice, "devices");
+}
+
 export function readUser(value: unknown): User {
   const record = expectRecord(value, "user");
   expectString(record, "id", "user");
@@ -58,6 +63,10 @@ export function readUser(value: unknown): User {
 
 export function readUsers(value: unknown): User[] {
   return expectArray(value, "users").map(readUser);
+}
+
+export function readUserPage(value: unknown): Page<User> {
+  return readPage(value, readUser, "users");
 }
 
 export function readInterfaceInfo(value: unknown): InterfaceInfo {
@@ -109,6 +118,20 @@ export function readShareLink(value: unknown): ShareLink {
 
 export function readShareLinks(value: unknown): ShareLink[] {
   return expectArray(value, "shares").map(readShareLink);
+}
+
+function readPage<T>(
+  value: unknown,
+  readItem: (item: unknown) => T,
+  what: string,
+): Page<T> {
+  const record = expectRecord(value, what);
+  return {
+    items: expectArray(record["items"], `${what}.items`).map(readItem),
+    total: expectNumber(record, "total", what),
+    limit: expectNumber(record, "limit", what),
+    offset: expectNumber(record, "offset", what),
+  };
 }
 
 function expectRecord(value: unknown, what: string): RecordValue {

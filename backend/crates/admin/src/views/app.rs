@@ -78,6 +78,7 @@ pub struct AppBootstrapView {
     pub subscription: Option<AppSubscriptionView>,
     pub access: AppAccessView,
     pub devices: Vec<DeviceView>,
+    pub devices_total: usize,
     pub interfaces: Vec<AppInterfaceView>,
 }
 

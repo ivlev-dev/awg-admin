@@ -11,12 +11,14 @@ import { DefaultStatsService } from "@/application/stats/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
+import { pageDevicesFromList } from "@/domain/devices/query";
 import type { DeviceStats } from "@/domain/devices/types";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { Device, Group, InterfaceInfo, Role, StatsPoint, User } from "@/domain/types";
 import type { UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
 import { LiveStats } from "@/infrastructure/stats";
 import { LocalTokenStore, type TokenStore } from "@/infrastructure/storage";
 import { setLocale } from "@/i18n";
@@ -255,6 +257,9 @@ function devicesHarness(): {
     deviceStats,
     repository: {
       listDevices: vi.fn(async () => [{ ...DEVICE_A }, { ...DEVICE_B }]),
+      pageDevices: vi.fn(async (params) =>
+        pageDevicesFromList([{ ...DEVICE_A }, { ...DEVICE_B }], params),
+      ),
       getDevice: vi.fn(async () => {
         throw new Error("getDevice is not used in this test");
       }),
@@ -325,6 +330,9 @@ function interfacesHarness(): InterfacesRepository {
 function usersHarness(): UsersRepository {
   return {
     listUsers: vi.fn(async () => [{ ...ADMIN }, { ...OWNER }]),
+    pageUsers: vi.fn(async (params) =>
+      pageUsersFromList([{ ...ADMIN }, { ...OWNER }], params),
+    ),
     createUser: vi.fn(async () => OWNER),
     updateUser: vi.fn(async () => OWNER),
     deleteUser: vi.fn(async () => undefined),

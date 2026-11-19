@@ -11,6 +11,7 @@ import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
+import { pageDevicesFromList } from "@/domain/devices/query";
 import type { GroupsRepository } from "@/domain/groups/repository";
 import type { ImportRepository } from "@/domain/import/repository";
 import type {
@@ -29,6 +30,7 @@ import type { SettingsRepository } from "@/domain/settings/repository";
 import type { StatsRepository } from "@/domain/stats/repository";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
 import type {
   AuthSession,
   CidrPool,
@@ -366,6 +368,7 @@ describe("UsersService", () => {
   function makeUsers(): UsersRepository {
     return {
       listUsers: vi.fn(async () => [USER]),
+      pageUsers: vi.fn(async (params) => pageUsersFromList([USER], params)),
       listPending: vi.fn(async () => [USER]),
       createUser: vi.fn(async () => USER),
       updateUser: vi.fn(async () => USER),
@@ -689,6 +692,7 @@ describe("DevicesService", () => {
   function makeDevices(): DevicesRepository {
     return {
       listDevices: vi.fn(async () => [DEVICE]),
+      pageDevices: vi.fn(async (params) => pageDevicesFromList([DEVICE], params)),
       getDevice: vi.fn(async () => DEVICE),
       createDevice: vi.fn(async () => DEVICE),
       updateDevice: vi.fn(async () => DEVICE),

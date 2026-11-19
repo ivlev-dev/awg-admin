@@ -1,14 +1,21 @@
 package space.ivlev.umbravpn.domain.account
 
+import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountResult
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
 import space.ivlev.umbravpn.domain.repository.AccountRepository
 
 class AccountActions(private val accountRepository: AccountRepository) {
     suspend fun bootstrap(): ActionResult<AccountSnapshot> =
         accountRepository.bootstrap().toResult(AccountActionKind.Generic)
+
+    suspend fun pageDevices(query: DeviceQuery): ActionResult<Page<AccountDevice>> =
+        accountRepository
+            .pageDevices(query.limit, query.offset, query.query, query.status)
+            .toResult(AccountActionKind.Device)
 
     suspend fun createDevice(
         name: String,

@@ -14,6 +14,7 @@ import type { QuotaRepository } from "@/domain/quota/repository";
 import type { TariffsRepository } from "@/domain/tariffs/repository";
 import type { AuthSession, NodeInfo, Tariff, User } from "@/domain/types";
 import type { UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
 import { UsersPage } from "@/features/users/UsersPage";
 import { UsersPageVM } from "@/features/users/UsersPage.vm";
 import { setLocale } from "@/i18n";
@@ -111,10 +112,15 @@ interface HarnessOptions {
 }
 
 function usersRepository(options: HarnessOptions): UsersRepository {
+  const list = options.users ?? [ADMIN];
   return {
     listUsers: vi.fn(async () => {
       if (options.failUsers === true) throw new Error("Сеть недоступна");
-      return options.users ?? [ADMIN];
+      return list;
+    }),
+    pageUsers: vi.fn(async (params) => {
+      if (options.failUsers === true) throw new Error("Сеть недоступна");
+      return pageUsersFromList(list, params);
     }),
     listPending: vi.fn(async () => []),
     approveUser: vi.fn(async () => ADMIN),
@@ -245,8 +251,44 @@ describe("UsersPage разметка и локализация", () => {
     next?.click();
     flushSync();
 
-    expect(document.querySelectorAll("tbody tr")).toHaveLength(5);
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll("tbody tr")).toHaveLength(5);
+    });
     expect(document.body.textContent).toContain("26–30 из 30");
+    result.dispose();
+  });
+
+  it("показывает общий счётчик и блокирует кнопки на границах", async () => {
+    const users = Array.from({ length: 30 }, (_value, index) => ({
+      ...ADMIN,
+      id: `u${index + 1}`,
+      login: `user${index + 1}`,
+      email: `user${index + 1}@example.com`,
+    }));
+    const result = await render({ users });
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll("tbody tr")).toHaveLength(25);
+    });
+
+    expect(document.body.textContent).toContain("Найдено: 30");
+
+    const prev = document.querySelector<HTMLButtonElement>('button[aria-label="Предыдущая страница"]');
+    const next = document.querySelector<HTMLButtonElement>('button[aria-label="Следующая страница"]');
+    expect(prev?.disabled).toBe(true);
+    expect(next?.disabled).toBe(false);
+
+    next?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll("tbody tr")).toHaveLength(5);
+    });
+
+    const prevAfter = document.querySelector<HTMLButtonElement>('button[aria-label="Предыдущая страница"]');
+    const nextAfter = document.querySelector<HTMLButtonElement>('button[aria-label="Следующая страница"]');
+    expect(prevAfter?.disabled).toBe(false);
+    expect(nextAfter?.disabled).toBe(true);
     result.dispose();
   });
 

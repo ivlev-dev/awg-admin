@@ -6,14 +6,15 @@ import type { UsersService } from "@/application/users/service";
 import { userMessage } from "@/application/errors";
 import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
-import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
+import { nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
-import { PAGE_SIZES, currentPage, pageCount, pageSlice, pageWindow } from "@/app/table-pagination";
+import { PAGE_SIZES, currentPage, pageCount, pageWindow } from "@/app/table-pagination";
 import { ToastStore } from "@/app/toast";
 import type { DevicesBulkAction } from "@/domain/devices/repository";
+import type { DeviceSortField, DeviceStatusFilter } from "@/domain/devices/types";
 import type { Device, InterfaceInfo, User } from "@/domain/types";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
@@ -21,6 +22,7 @@ import { pluralI18n } from "@/i18n/format";
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
 const FILTER_ID_LIMIT = 100;
+const DEFAULT_PAGE_SIZE = 25;
 
 export interface ClientsFilters {
   query: string;
@@ -28,7 +30,7 @@ export interface ClientsFilters {
 }
 
 export interface ClientsExtraFilters {
-  status: "all" | "active" | "revoked";
+  status: DeviceStatusFilter;
 }
 
 export interface InterfaceOption {
@@ -86,8 +88,12 @@ export class ClientsPageVM extends ViewModel {
   }
 
   private listeningPopstate = false;
+  private hasLoaded = false;
+  private requestSeq = 0;
+  private controller: AbortController | null = null;
 
   @reactive accessor devices: Device[] = [];
+  @reactive accessor total = 0;
   @reactive accessor interfaces: InterfaceInfo[] = [];
   @reactive accessor users: User[] = [];
   @reactive accessor loading = true;
@@ -96,17 +102,16 @@ export class ClientsPageVM extends ViewModel {
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
   @reactive accessor interfaceFilter = "";
-  @reactive accessor statusFilter: "all" | "active" | "revoked" = "all";
+  @reactive accessor statusFilter: DeviceStatusFilter = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
   @reactive accessor page = 1;
-  @reactive accessor pageSize = 25;
-  @reactive accessor sort: SortState<"name" | "status"> | null = { key: "name", direction: "asc" };
-
-  private hasLoaded = false;
+  @reactive accessor pageSize = DEFAULT_PAGE_SIZE;
+  @reactive accessor sort: SortState<DeviceSortField> | null = { key: "name", direction: "asc" };
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
+    void this.reload();
   }, SEARCH_DEBOUNCE_MS);
 
   @reactive accessor createOpen = false;
@@ -142,6 +147,8 @@ export class ClientsPageVM extends ViewModel {
   override dispose(): void {
     this.applyQuery.cancel();
     this.detachPopstate();
+    this.controller?.abort();
+    this.controller = null;
     super.dispose();
   }
 
@@ -218,39 +225,25 @@ export class ClientsPageVM extends ViewModel {
     return t("clients.form.tunnelsWillCreate", { count });
   }
 
-  @computed
-  get filteredDevices(): Device[] {
-    const query = this.appliedQuery.trim().toLowerCase();
-    const interfaceId = this.interfaceFilter;
-    const filtered = this.devices.filter((device) => {
-      if (interfaceId && !hasInterface(device, interfaceId)) return false;
-      if (this.statusFilter === "active" && device.revoked) return false;
-      if (this.statusFilter === "revoked" && !device.revoked) return false;
-      if (!query) return true;
-      return [device.name, ...device.addresses].some((value) => value.toLowerCase().includes(query));
-    });
-    const sort = this.sort;
-    if (sort === null) return filtered;
-    const direction = sort.direction;
-    return [...filtered].sort((left, right) => {
-      if (sort.key === "name") return compareText(left.name, right.name, direction);
-      return compareBoolean(left.revoked, right.revoked, direction);
-    });
-  }
-
-  sortBy(key: "name" | "status"): void {
+  sortBy(key: DeviceSortField): void {
     this.sort = nextSort(this.sort, key);
+    this.page = 1;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
   }
 
-  sortMark(key: "name" | "status"): string {
+  sortMark(key: DeviceSortField): string {
     return sortIndicator(this.sort, key);
   }
 
   @computed
   get hasActiveFilters(): boolean {
-    return this.appliedQuery.trim().length > 0
-      || this.interfaceFilter.length > 0
-      || this.statusFilter !== "all";
+    return (
+      this.appliedQuery.trim().length > 0 ||
+      this.interfaceFilter.length > 0 ||
+      this.statusFilter !== "all"
+    );
   }
 
   @computed
@@ -269,11 +262,11 @@ export class ClientsPageVM extends ViewModel {
   }
 
   get allFilteredSelected(): boolean {
-    return this.filteredDevices.length > 0 && this.selectedIds.length === this.filteredDevices.length;
+    return this.devices.length > 0 && this.devices.every((device) => this.isSelected(device.id));
   }
 
   toggleSelectAll(): void {
-    this.selectedIds = this.allFilteredSelected ? [] : this.filteredDevices.map((device) => device.id);
+    this.selectedIds = this.allFilteredSelected ? [] : this.devices.map((device) => device.id);
   }
 
   clearSelection(): void {
@@ -324,24 +317,23 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get pageCount(): number {
-    return pageCount(this.filteredDevices.length, this.pageSize);
+    return pageCount(this.total, this.pageSize);
   }
 
   @computed
   get currentPage(): number {
-    return currentPage(this.page, this.filteredDevices.length, this.pageSize);
+    return currentPage(this.page, this.total, this.pageSize);
   }
 
   @computed
   get pagedDevices(): Device[] {
-    return pageSlice(this.filteredDevices, this.currentPage, this.pageSize);
+    return this.devices;
   }
 
   @computed
   get pageSummary(): string {
-    const total = this.filteredDevices.length;
-    const window = pageWindow(total, this.page, this.pageSize);
-    return t("users.pagination.summary", { from: window.from, to: window.to, total });
+    const window = pageWindow(this.total, this.currentPage, this.pageSize);
+    return t("users.pagination.summary", { from: window.from, to: window.to, total: this.total });
   }
 
   @computed
@@ -350,26 +342,27 @@ export class ClientsPageVM extends ViewModel {
   }
 
   goToPage(page: number): void {
-    this.page = Math.min(Math.max(1, Math.round(page)), this.pageCount);
+    const next = Math.min(Math.max(1, Math.round(page)), this.pageCount);
+    if (next === this.page) return;
+    this.page = next;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
   }
 
   setPageSize(value: string): void {
     const size = Number(value);
-    if (!Number.isFinite(size) || size <= 0) return;
-    this.pageSize = size;
+    if (!Number.isFinite(size) || size <= 0 || size === this.pageSize) return;
+    this.pageSize = Math.trunc(size);
     this.page = 1;
-  }
-
-  private clampPage(): void {
-    if (this.page > this.pageCount) this.page = this.pageCount;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
   }
 
   @computed
   get countLabel(): string {
-    return t("filters.found", {
-      found: this.filteredDevices.length,
-      total: this.devices.length,
-    });
+    return t("filters.foundTotal", { total: this.total });
   }
 
   @computed
@@ -438,32 +431,75 @@ export class ClientsPageVM extends ViewModel {
   }
 
   async load(): Promise<void> {
-    this.loading = !this.hasLoaded;
-    this.refreshing = this.hasLoaded;
+    this.controller?.abort();
+    const controller = new AbortController();
+    this.controller = controller;
+    const seq = ++this.requestSeq;
+    const firstLoad = !this.hasLoaded;
+    this.loading = firstLoad;
+    this.refreshing = !firstLoad;
     this.error = null;
     try {
       const interfacesPromise: Promise<InterfaceInfo[]> = this.isAdmin
         ? this.interfacesService.listInterfaces()
         : this.interfacesService.listInterfaces().catch(() => []);
       const usersPromise = this.isAdmin ? this.usersService.listUsers() : Promise.resolve<User[]>([]);
-      const [devices, interfaces, users] = await Promise.all([
-        this.devicesService.listDevices(),
+      const [page, interfaces, users] = await Promise.all([
+        this.devicesService.pageDevices(this.pageParams(controller.signal)),
         interfacesPromise,
         usersPromise,
       ]);
-      this.devices = devices;
+      if (seq !== this.requestSeq) return;
+      this.devices = page.items;
+      this.total = page.total;
       this.interfaces = interfaces;
       this.users = users;
+      this.clampPage();
     } catch (error) {
+      if (seq !== this.requestSeq || controller.signal.aborted) return;
       const message = userMessage(error, t("clients.error.load"));
       this.error = message;
       this.toasts.error(message);
     } finally {
-      this.loading = false;
-      this.refreshing = false;
-      this.hasLoaded = true;
-      this.clampPage();
+      if (seq === this.requestSeq) {
+        this.loading = false;
+        this.refreshing = false;
+        this.hasLoaded = true;
+      }
     }
+  }
+
+  private reload(): Promise<void> {
+    return this.load();
+  }
+
+  private pageParams(signal: AbortSignal): {
+    limit: number;
+    offset: number;
+    query?: string;
+    status?: DeviceStatusFilter;
+    interfaceId?: string;
+    sort?: DeviceSortField;
+    order?: "asc" | "desc";
+    signal: AbortSignal;
+  } {
+    return {
+      limit: this.pageSize,
+      offset: (this.page - 1) * this.pageSize,
+      ...(this.appliedQuery.trim().length > 0 ? { query: this.appliedQuery.trim() } : {}),
+      ...(this.statusFilter !== "all" ? { status: this.statusFilter } : {}),
+      ...(this.interfaceFilter.length > 0 ? { interfaceId: this.interfaceFilter } : {}),
+      ...(this.sort === null ? {} : { sort: this.sort.key, order: this.sort.direction }),
+      signal,
+    };
+  }
+
+  private clampPage(): void {
+    const max = pageCount(this.total, this.pageSize);
+    if (this.page <= max) return;
+    this.page = max;
+    this.syncLocation();
+    void this.reload();
   }
 
   setQuery(event: Event): void {
@@ -477,15 +513,17 @@ export class ClientsPageVM extends ViewModel {
   setInterfaceFilter(value: string): void {
     this.interfaceFilter = value;
     this.page = 1;
-    this.selectedIds = [];
+    this.clearSelection();
     this.persistFilters();
+    void this.reload();
   }
 
   setStatusFilter(value: string): void {
     this.statusFilter = value === "active" || value === "revoked" ? value : "all";
     this.page = 1;
-    this.selectedIds = [];
+    this.clearSelection();
     this.persistFilters();
+    void this.reload();
   }
 
   resetFilters(): void {
@@ -495,10 +533,11 @@ export class ClientsPageVM extends ViewModel {
     this.interfaceFilter = "";
     this.statusFilter = "all";
     this.page = 1;
-    this.selectedIds = [];
+    this.clearSelection();
     clientsFiltersStorage.clear();
     clientsExtraFiltersStorage.clear();
     this.syncLocation();
+    void this.reload();
   }
 
   setFormName(event: Event): void {
@@ -671,7 +710,9 @@ export class ClientsPageVM extends ViewModel {
 
   private syncLocation(): void {
     syncFilterQuery("/clients", [
-      ["query", this.query.trim().length > 0 ? this.query : null],
+      ["page", this.page > 1 ? String(this.page) : null],
+      ["limit", this.pageSize !== DEFAULT_PAGE_SIZE ? String(this.pageSize) : null],
+      ["q", this.query.trim().length > 0 ? this.query : null],
       ["interface", this.interfaceFilter.length > 0 ? this.interfaceFilter : null],
       ["status", this.statusFilter !== "all" ? this.statusFilter : null],
     ]);
@@ -680,8 +721,8 @@ export class ClientsPageVM extends ViewModel {
   private restoreFromLocation(): void {
     const params = readFilterQuery("/clients");
     if (params === null) return;
-    if (params.has("query")) {
-      const query = params.get("query") ?? "";
+    if (params.has("q") || params.has("query")) {
+      const query = params.get("q") ?? params.get("query") ?? "";
       this.query = query;
       this.appliedQuery = query;
     }
@@ -689,10 +730,17 @@ export class ClientsPageVM extends ViewModel {
     if (iface !== null && iface.length > 0) this.interfaceFilter = iface;
     const status = params.get("status");
     if (status === "active" || status === "revoked") this.statusFilter = status;
+    const page = Number(params.get("page"));
+    if (Number.isInteger(page) && page > 0) this.page = page;
+    const limit = Number(params.get("limit"));
+    if (PAGE_SIZES.includes(limit)) this.pageSize = limit;
   }
 
   private readonly onPopState = (): void => {
+    if (readFilterQuery("/clients") === null) return;
     this.restoreFromLocation();
+    this.clearSelection();
+    void this.reload();
   };
 }
 
@@ -702,11 +750,6 @@ function interfaceLabel(item: InterfaceInfo): string {
 
 function isInterfaceOnNode(item: InterfaceInfo, nodeId: string): boolean {
   return nodeId.length === 0 || item.node_id === nodeId;
-}
-
-function hasInterface(device: Device, interfaceId: string): boolean {
-  if (device.interface_id === interfaceId) return true;
-  return device.peers.some((peer) => peer.interface_id === interfaceId);
 }
 
 function validateClientsExtraFilters(value: unknown): ClientsExtraFilters | null {

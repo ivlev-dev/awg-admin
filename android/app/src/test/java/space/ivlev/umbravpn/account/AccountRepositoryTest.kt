@@ -12,6 +12,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import space.ivlev.umbravpn.domain.model.account.AccountError
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.SubscriptionStatus
 
@@ -651,6 +652,216 @@ class AccountRepositoryTest {
         env.accountRepository.deleteDevice("device-1").requireSuccess()
 
         assertEquals(HttpMethod.Delete, env.requests.single().method)
+    }
+
+    @Test
+    fun devicePageSendsQueryParametersAndParsesPage() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices/page" ->
+                        jsonResponse(
+                            HttpStatusCode.OK,
+                            devicePageJson(
+                                devices =
+                                    listOf(
+                                        deviceJson("device-1", "Pixel"),
+                                        deviceJson("device-2", "Laptop"),
+                                    ),
+                                total = 42,
+                                limit = 10,
+                                offset = 20,
+                            ),
+                        )
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        val page =
+            env.accountRepository
+                .pageDevices(
+                    limit = 10,
+                    offset = 20,
+                    query = "  pix  ",
+                    status = DeviceStatusFilter.Active,
+                )
+                .requireSuccess()
+
+        assertEquals(listOf("device-1", "device-2"), page.items.map { it.id })
+        assertEquals(42, page.total)
+        assertEquals(10, page.limit)
+        assertEquals(20, page.offset)
+        val request = env.requests.single()
+        assertEquals(HttpMethod.Get, request.method)
+        assertEquals("10", request.url.parameters["limit"])
+        assertEquals("20", request.url.parameters["offset"])
+        assertEquals("pix", request.url.parameters["q"])
+        assertEquals("active", request.url.parameters["status"])
+        assertNull(request.headers["Idempotency-Key"])
+    }
+
+    @Test
+    fun devicePageSendsDefaultStatusAndEmptyQuery() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    devicePageJson(devices = listOf(deviceJson("device-1", "Pixel"))),
+                )
+            }
+
+        env.accountRepository.pageDevices().requireSuccess()
+
+        val request = env.requests.single()
+        assertEquals("20", request.url.parameters["limit"])
+        assertEquals("0", request.url.parameters["offset"])
+        assertEquals("", request.url.parameters["q"])
+        assertEquals("all", request.url.parameters["status"])
+    }
+
+    @Test
+    fun bootstrapParsesDevicesTotal() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    bootstrapJsonWithDevices(
+                        devices = listOf(deviceJson("device-1", "Pixel")),
+                        devicesTotal = 17,
+                    ),
+                )
+            }
+
+        val snapshot = env.accountRepository.bootstrap().requireSuccess()
+
+        assertEquals(17, snapshot.devicesTotal)
+        assertEquals(17, snapshot.deviceCount)
+        assertEquals(1, snapshot.devices.size)
+    }
+
+    @Test
+    fun bootstrapWithoutDevicesTotalFallsBackToDeviceCount() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) {
+                jsonResponse(
+                    HttpStatusCode.OK,
+                    bootstrapJsonWithDevices(
+                        devices =
+                            listOf(
+                                deviceJson("device-1", "Pixel"),
+                                deviceJson("device-2", "Laptop"),
+                            ),
+                    ),
+                )
+            }
+
+        val snapshot = env.accountRepository.bootstrap().requireSuccess()
+
+        assertNull(snapshot.devicesTotal)
+        assertEquals(2, snapshot.deviceCount)
+    }
+
+    @Test
+    fun devicePageFallsBackToBootstrapOn404() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices/page" ->
+                        jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "no route"))
+                    "/api/v1/app/bootstrap" ->
+                        jsonResponse(
+                            HttpStatusCode.OK,
+                            bootstrapJsonWithDevices(
+                                devices =
+                                    listOf(
+                                        deviceJson("device-1", "Pixel"),
+                                        deviceJson("device-2", "Laptop"),
+                                        deviceJson("device-3", "Old", revoked = true),
+                                    ),
+                            ),
+                        )
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        val page = env.accountRepository.pageDevices(limit = 2, offset = 0).requireSuccess()
+
+        assertEquals(listOf("device-1", "device-2"), page.items.map { it.id })
+        assertEquals(3, page.total)
+        assertEquals(2, page.limit)
+        assertEquals(
+            listOf("/api/v1/app/devices/page", "/api/v1/app/bootstrap"),
+            env.requests.map { it.url.encodedPath },
+        )
+    }
+
+    @Test
+    fun devicePageFallbackAppliesQueryStatusAndOffset() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices/page" ->
+                        jsonResponse(
+                            HttpStatusCode.MethodNotAllowed,
+                            errorBody("method_not_allowed", "unsupported"),
+                        )
+                    "/api/v1/app/bootstrap" ->
+                        jsonResponse(
+                            HttpStatusCode.OK,
+                            bootstrapJsonWithDevices(
+                                devices =
+                                    listOf(
+                                        deviceJson(
+                                            "device-1",
+                                            "Pixel",
+                                            addresses = listOf("10.8.0.2/32"),
+                                        ),
+                                        deviceJson(
+                                            "device-2",
+                                            "Laptop",
+                                            addresses = listOf("10.9.0.2/32"),
+                                        ),
+                                        deviceJson("device-3", "Old", revoked = true),
+                                    ),
+                            ),
+                        )
+                    else -> jsonResponse(HttpStatusCode.NotFound, errorBody("not_found", "unknown"))
+                }
+            }
+
+        val byName =
+            env.accountRepository
+                .pageDevices(query = "lap", status = DeviceStatusFilter.Active)
+                .requireSuccess()
+        assertEquals(listOf("device-2"), byName.items.map { it.id })
+        assertEquals(1, byName.total)
+
+        val revoked =
+            env.accountRepository
+                .pageDevices(limit = 1, offset = 0, status = DeviceStatusFilter.Revoked)
+                .requireSuccess()
+        assertEquals(listOf("device-3"), revoked.items.map { it.id })
+        assertEquals(1, revoked.total)
+    }
+
+    @Test
+    fun devicePageServerErrorDoesNotFallBack() = runTest {
+        val env =
+            createEnvironment(initialSession = storedSession()) { request ->
+                when (request.url.encodedPath) {
+                    "/api/v1/app/devices/page" ->
+                        jsonResponse(
+                            HttpStatusCode.InternalServerError,
+                            errorBody("internal", "boom"),
+                        )
+                    else -> jsonResponse(HttpStatusCode.OK, bootstrapJson())
+                }
+            }
+
+        val error = env.accountRepository.pageDevices().requireFailure()
+
+        assertEquals(AccountError.Api(500, "internal", "boom"), error)
+        assertEquals(1, env.requests.size)
     }
 
     @Test

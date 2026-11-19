@@ -27,8 +27,10 @@ import type {
   Tariff,
   User,
 } from "@/domain/types";
-import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type { ApproveUserInput, CreateUserInput, UpdateUserInput, UserPageParams } from "@/domain/users/types";
 import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
+import type { Page } from "@/domain/page";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPageVM, usersAdvancedFiltersStorage, usersFiltersStorage } from "@/features/users/UsersPage.vm";
 
@@ -131,6 +133,11 @@ class MemoryUsersRepository {
   async listUsers(): Promise<User[]> {
     this.failIfNeeded();
     return [...this.users];
+  }
+
+  async pageUsers(params: UserPageParams): Promise<Page<User>> {
+    this.failIfNeeded();
+    return pageUsersFromList(this.users, params);
   }
 
   async listPending(): Promise<User[]> {
@@ -838,64 +845,66 @@ describe("UsersPageVM", () => {
     expect(localStorage.getItem(usersFiltersStorage.key)).toBeNull();
   });
 
-  it("фильтрует активных пользователей и заявки после debounce", async () => {
+  it("передаёт поиск на сервер после debounce", async () => {
     vi.useFakeTimers();
     try {
-      const { vm } = setup([ADMIN, ALICE, PENDING]);
+      const { vm, usersRepo } = setup([ADMIN, ALICE, PENDING]);
       await vm.load();
+      const page = vi.spyOn(usersRepo, "pageUsers");
+      page.mockClear();
 
       vm.setQuery({ target: { value: "alice" } } as unknown as Event);
 
       expect(vm.query).toBe("alice");
-      expect(vm.filteredActiveUsers).toHaveLength(2);
+      expect(page).not.toHaveBeenCalled();
 
-      vi.advanceTimersByTime(250);
+      vi.advanceTimersByTime(249);
+      expect(page).not.toHaveBeenCalled();
 
-      expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
-      expect(vm.filteredPending).toEqual([]);
-      expect(vm.activeCountLabel).toBe("Найдено 1 из 2");
-      expect(vm.hasActiveFilters).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(vm.appliedQuery).toBe("alice");
+      expect(page).toHaveBeenCalledWith(
+        expect.objectContaining({ tab: "active", query: "alice", offset: 0, limit: 25 }),
+      );
+
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect(vm.users.map((user) => user.id)).toEqual([ALICE.id]);
+        expect(vm.pending).toEqual([]);
+      });
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("фильтрует заявки по email", async () => {
-    const { vm } = setup([ADMIN, ALICE, PENDING]);
+  it("передаёт вкладку, роль и статус на сервер", async () => {
+    const { vm, usersRepo } = setup([ADMIN, ALICE, PENDING]);
     await vm.load();
+    const page = vi.spyOn(usersRepo, "pageUsers");
+    page.mockClear();
 
-    vm.query = "newbie@example.com";
-    vm.appliedQuery = "newbie@example.com";
+    vm.setRoleFilter("admin");
+    await vi.waitFor(() => {
+      expect(page).toHaveBeenCalledWith(
+        expect.objectContaining({ tab: "active", role: "admin", offset: 0 }),
+      );
+    });
 
-    expect(vm.filteredPending.map((user) => user.id)).toEqual([PENDING.id]);
-    expect(vm.filteredActiveUsers).toEqual([]);
-    expect(vm.pendingCountLabel).toBe("Найдено 1 из 1");
-  });
+    page.mockClear();
+    vm.setStatusFilter("disabled");
+    await vi.waitFor(() => {
+      expect(page).toHaveBeenCalledWith(
+        expect.objectContaining({ tab: "active", status: "disabled", offset: 0 }),
+      );
+    });
 
-  it("ищет пользователей по email", async () => {
-    const { vm } = setup([ADMIN, ALICE, PENDING]);
-    await vm.load();
-
-    vm.query = "alice@example.com";
-    vm.appliedQuery = "alice@example.com";
-
-    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
-    expect(vm.filteredPending).toEqual([]);
-  });
-
-  it("сортирует по email с tie-break по id", async () => {
-    const SAME_A: User = { ...ALICE, id: "u10", email: "same@example.com" };
-    const SAME_B: User = { ...ALICE, id: "u2", email: "same@example.com" };
-    const FIRST: User = { ...ALICE, id: "u20", email: "aaa@example.com" };
-    const { vm } = setup([SAME_A, SAME_B, FIRST]);
-    await vm.load();
-
-    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual(["u20", "u10", "u2"]);
-
-    vm.sortBy("email");
-
-    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual(["u2", "u10", "u20"]);
-    expect(vm.sortMark("email")).not.toBe("");
+    page.mockClear();
+    vm.setTab("pending");
+    await vi.waitFor(() => {
+      expect(page).toHaveBeenCalledWith(
+        expect.objectContaining({ tab: "pending", offset: 0 }),
+      );
+    });
   });
 
   it("не отправляет форму с некорректным email", async () => {
@@ -921,35 +930,6 @@ describe("UsersPageVM", () => {
     expect(vm.resetTargetEmail()).toBe("alice@example.com");
   });
 
-  it("фильтрует активных пользователей по ноде", async () => {
-    const { vm } = setup([ADMIN, ALICE, PENDING]);
-    await vm.load();
-
-    vm.nodeFilter = NODE.id;
-
-    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
-    expect(vm.hasActiveFilters).toBe(true);
-
-    vm.resetFilters();
-
-    expect(vm.nodeFilter).toBe("all");
-    expect(vm.filteredActiveUsers).toHaveLength(2);
-  });
-
-  it("сортирует список с фильтром по ноде без ошибок", async () => {
-    const { vm } = setup([ADMIN, ALICE]);
-    await vm.load();
-    vm.nodeFilter = NODE.id;
-
-    vm.sortBy("email");
-    vm.sortBy("role");
-    vm.sortBy("status");
-
-    expect(vm.filteredActiveUsers.map((user) => user.id)).toEqual([ALICE.id]);
-    expect(vm.sortMark("status")).not.toBe("");
-    expect(vm.nodeName("missing")).toBe("—");
-  });
-
   it("сбрасывает поиск и очищает storage", async () => {
     const { vm } = setup();
     await vm.load();
@@ -962,10 +942,12 @@ describe("UsersPageVM", () => {
     expect(vm.query).toBe("");
     expect(vm.appliedQuery).toBe("");
     expect(vm.hasActiveFilters).toBe(false);
-    expect(vm.filteredActiveUsers).toHaveLength(2);
     expect(JSON.parse(localStorage.getItem(usersFiltersStorage.key) ?? "{}")).toEqual({
       tab: "active",
       query: "",
+    });
+    await vi.waitFor(() => {
+      expect(vm.users).toHaveLength(2);
     });
   });
 
@@ -1090,7 +1072,7 @@ describe("UsersPageVM", () => {
 
     it("отключает выбранных одним bulk-запросом, исключая себя и уже отключённых", async () => {
       const { vm, usersRepo, toasts } = setup([ADMIN, ALICE, CAROL]);
-      const listUsers = vi.spyOn(usersRepo, "listUsers");
+      const pageUsers = vi.spyOn(usersRepo, "pageUsers");
       await vm.load();
       const bulk = vi.spyOn(usersRepo, "bulk");
       vm.selectedIds = [ADMIN.id, ALICE.id, CAROL.id];
@@ -1101,7 +1083,7 @@ describe("UsersPageVM", () => {
       expect(bulk).toHaveBeenCalledWith("disable", [ALICE.id]);
       expect(usersRepo.users.find((user) => user.id === ALICE.id)?.disabled).toBe(true);
       expect(usersRepo.users.find((user) => user.id === CAROL.id)?.disabled).toBe(true);
-      expect(listUsers).toHaveBeenCalledTimes(2);
+      expect(pageUsers).toHaveBeenCalledTimes(6);
       expect(vm.selectedIds).toEqual([]);
       expect(vm.bulkBusy).toBe(false);
       expect(toasts.items.at(-1)).toMatchObject({
@@ -1207,18 +1189,23 @@ describe("UsersPageVM UX-состояния", () => {
     const { vm } = setup(users);
     await vm.load();
 
-    expect(vm.pagedActiveUsers).toHaveLength(25);
+    expect(vm.users).toHaveLength(25);
+    expect(vm.activeTotal).toBe(30);
     expect(vm.pageCount).toBe(2);
     expect(vm.pageSummary).toBe("Показано 1–25 из 30");
 
     vm.goToPage(2);
-    expect(vm.pagedActiveUsers).toHaveLength(5);
+    await vi.waitFor(() => {
+      expect(vm.users).toHaveLength(5);
+    });
     expect(vm.pageSummary).toBe("Показано 26–30 из 30");
 
     vm.setPageSize("10");
+    await vi.waitFor(() => {
+      expect(vm.users).toHaveLength(10);
+    });
     expect(vm.pageSize).toBe(10);
     expect(vm.currentPage).toBe(1);
-    expect(vm.pagedActiveUsers).toHaveLength(10);
   });
 
   it("сбрасывает выделение при смене вкладки и фильтра", async () => {
@@ -1242,12 +1229,10 @@ describe("UsersPageVM UX-состояния", () => {
 
     vm.setRoleFilter("admin");
     vm.setStatusFilter("disabled");
-    vm.setNodeFilter(NODE.id);
 
     expect(JSON.parse(localStorage.getItem(usersAdvancedFiltersStorage.key) ?? "{}")).toEqual({
       role: "admin",
       status: "disabled",
-      node: NODE.id,
     });
 
     vm.resetFilters();
@@ -1255,7 +1240,6 @@ describe("UsersPageVM UX-состояния", () => {
     expect(JSON.parse(localStorage.getItem(usersAdvancedFiltersStorage.key) ?? "{}")).toEqual({
       role: "all",
       status: "all",
-      node: "all",
     });
   });
 
@@ -1337,6 +1321,28 @@ describe("UsersPageVM квоты, фильтры в URL", () => {
     expect(vm.quotaCellLabel(ALICE.id)).toBe("нет данных");
   });
 
+  it("восстанавливает вкладку, поиск и страницу из URL", () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/users?tab=pending&q=new&page=2&limit=10&role=admin&status=disabled",
+    );
+    try {
+      const { vm } = setup();
+
+      expect(vm.tab).toBe("pending");
+      expect(vm.query).toBe("new");
+      expect(vm.appliedQuery).toBe("new");
+      expect(vm.roleFilter).toBe("admin");
+      expect(vm.statusFilter).toBe("disabled");
+      expect(vm.page).toBe(2);
+      expect(vm.pendingPage).toBe(2);
+      expect(vm.pageSize).toBe(10);
+    } finally {
+      window.history.replaceState({}, "", "/");
+    }
+  });
+
   it("синхронизирует фильтры с query-параметрами", () => {
     window.history.replaceState({}, "", "/users");
     try {
@@ -1344,12 +1350,10 @@ describe("UsersPageVM квоты, фильтры в URL", () => {
 
       vm.setRoleFilter("admin");
       vm.setStatusFilter("disabled");
-      vm.setNodeFilter(NODE.id);
 
       const params = new URLSearchParams(window.location.search);
       expect(params.get("role")).toBe("admin");
       expect(params.get("status")).toBe("disabled");
-      expect(params.get("node")).toBe(NODE.id);
 
       vm.resetFilters();
       expect(window.location.search).toBe("");

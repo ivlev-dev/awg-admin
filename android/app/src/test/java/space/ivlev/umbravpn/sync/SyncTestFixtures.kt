@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import space.ivlev.umbravpn.account.FakeAccountSettingsRepository
 import space.ivlev.umbravpn.data.sync.RemoteManagedTunnelSyncService
+import space.ivlev.umbravpn.domain.model.Page
 import space.ivlev.umbravpn.domain.model.TunnelConfig
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountError
@@ -21,10 +22,13 @@ import space.ivlev.umbravpn.domain.model.account.AuthUser
 import space.ivlev.umbravpn.domain.model.account.CreatedDevice
 import space.ivlev.umbravpn.domain.model.account.DeviceConfig
 import space.ivlev.umbravpn.domain.model.account.DevicePeer
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 import space.ivlev.umbravpn.domain.model.account.ManagedTunnel
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.domain.model.account.UserRole
 import space.ivlev.umbravpn.domain.model.account.UserStatus
+import space.ivlev.umbravpn.domain.model.account.pageDevices
 import space.ivlev.umbravpn.domain.repository.AccountRepository
 import space.ivlev.umbravpn.domain.repository.ManagedTunnelRepository
 import space.ivlev.umbravpn.domain.repository.TunnelRepository
@@ -156,6 +160,22 @@ internal class FakeAccountRepository(
         bootstrapCalls++
         return bootstrapResult
     }
+
+    override suspend fun pageDevices(
+        limit: Int,
+        offset: Int,
+        query: String,
+        status: DeviceStatusFilter,
+    ): AccountResult<Page<AccountDevice>> =
+        when (val bootstrap = bootstrapResult) {
+            is AccountResult.Success ->
+                AccountResult.Success(
+                    bootstrap.value.devices.pageDevices(
+                        DeviceQuery(limit = limit, offset = offset, query = query, status = status),
+                    ),
+                )
+            is AccountResult.Failure -> AccountResult.Failure(bootstrap.error)
+        }
 
     override suspend fun createDevice(
         name: String,

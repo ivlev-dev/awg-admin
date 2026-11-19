@@ -1,12 +1,20 @@
 import type { BulkResult } from "@/domain/bulk";
+import type { Page } from "@/domain/page";
+import { normalizePageRequest } from "@/domain/page";
 import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
-import type { ApproveUserInput, CreateUserInput, UpdateUserInput } from "@/domain/users/types";
+import type {
+  ApproveUserInput,
+  CreateUserInput,
+  UpdateUserInput,
+  UserPageParams,
+} from "@/domain/users/types";
 import type { User } from "@/domain/types";
 import { ValidationError } from "../errors";
 import { requireId, validateEmail, validatePassword } from "../guards";
 
 export interface UsersService {
   listUsers(): Promise<User[]>;
+  pageUsers(params: UserPageParams): Promise<Page<User>>;
   listPending(): Promise<User[]>;
   createUser(input: CreateUserInput): Promise<User>;
   updateUser(id: string, input: UpdateUserInput): Promise<User>;
@@ -22,6 +30,10 @@ export class DefaultUsersService implements UsersService {
 
   listUsers(): Promise<User[]> {
     return this.repository.listUsers();
+  }
+
+  pageUsers(params: UserPageParams): Promise<Page<User>> {
+    return this.repository.pageUsers(normalizeUserPageParams(params));
   }
 
   listPending(): Promise<User[]> {
@@ -77,4 +89,22 @@ export class DefaultUsersService implements UsersService {
     const normalized = ids.map((id) => requireId(id, "error.label.user"));
     return this.repository.bulk(action, normalized);
   }
+}
+
+function normalizeUserPageParams(params: UserPageParams): UserPageParams {
+  const { limit, offset } = normalizePageRequest(params);
+  const query = params.query?.trim() ?? "";
+  const role = params.role === "admin" || params.role === "user" ? params.role : undefined;
+  const status =
+    params.status === "active" || params.status === "disabled" ? params.status : undefined;
+  const tab = params.tab === "active" || params.tab === "pending" ? params.tab : undefined;
+  return {
+    limit,
+    offset,
+    ...(query.length > 0 ? { query } : {}),
+    ...(role === undefined ? {} : { role }),
+    ...(status === undefined ? {} : { status }),
+    ...(tab === undefined ? {} : { tab }),
+    ...(params.signal === undefined ? {} : { signal: params.signal }),
+  };
 }

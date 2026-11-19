@@ -351,11 +351,11 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
                     if (maxDevices != null) {
                         stringResource(
                             R.string.account_device_count,
-                            snapshot.devices.size,
+                            state.deviceTotal,
                             maxDevices,
                         )
                     } else {
-                        snapshot.devices.size.toString()
+                        state.deviceTotal.toString()
                     }
                 Text(
                     text = count,
@@ -369,7 +369,7 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
             }
         }
 
-        if (snapshot.devices.isEmpty()) {
+        if (state.previewDevices.isEmpty()) {
             AccountCard {
                 Text(
                     text = stringResource(R.string.account_no_devices),
@@ -378,7 +378,7 @@ private fun ProfileContent(state: AccountUiState, viewModel: AccountViewModel) {
                 )
             }
         } else {
-            snapshot.devices.take(PREVIEW_DEVICE_LIMIT).forEach { device ->
+            state.previewDevices.forEach { device ->
                 AccountDeviceRow(
                     device = device,
                     onRename = { viewModel.showRenameDevice(device.id, device.name) },
@@ -499,5 +499,3 @@ private fun roleRes(role: UserRole): Int =
         UserRole.User -> R.string.account_role_user
         UserRole.Unknown -> R.string.account_unknown
     }
-
-private const val PREVIEW_DEVICE_LIMIT = 3

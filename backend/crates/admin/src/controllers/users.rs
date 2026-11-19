@@ -2,22 +2,85 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use base64::Engine;
 use uuid::Uuid;
 
-use awg_identity::{NewUser, UserChanges};
+use awg_identity::{NewUser, Role, UserChanges, UserStatus};
 use awg_shared::crypto::random_bytes;
 
 use crate::auth::AuthUser;
 use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
-    ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest,
+    ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest, UserPageParams,
 };
 use crate::publish::{publish_group, publish_user_groups};
 use crate::state::AppState;
-use crate::views::UserView;
+use crate::views::{PageView, UserView};
+
+const DEFAULT_PAGE_LIMIT: usize = 50;
+const MAX_PAGE_LIMIT: usize = 200;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UserTab {
+    Active,
+    Pending,
+}
+
+impl UserTab {
+    fn parse(raw: Option<&str>) -> ApiResult<Self> {
+        match raw.map(str::trim).filter(|value| !value.is_empty()) {
+            None => Ok(Self::Active),
+            Some(value) if value.eq_ignore_ascii_case("active") => Ok(Self::Active),
+            Some(value) if value.eq_ignore_ascii_case("pending") => Ok(Self::Pending),
+            Some(value) => Err(ApiError::BadRequest(format!(
+                "tab must be one of active, pending (got {value})"
+            ))),
+        }
+    }
+
+    fn matches(self, status: UserStatus) -> bool {
+        match self {
+            Self::Active => status != UserStatus::PendingApproval,
+            Self::Pending => status == UserStatus::PendingApproval,
+        }
+    }
+}
+
+fn parse_role(raw: Option<&str>) -> ApiResult<Option<Role>> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("all") => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("admin") => Ok(Some(Role::Admin)),
+        Some(value) if value.eq_ignore_ascii_case("user") => Ok(Some(Role::User)),
+        Some(value) => Err(ApiError::BadRequest(format!(
+            "role must be one of all, admin, user (got {value})"
+        ))),
+    }
+}
+
+fn parse_status(raw: Option<&str>) -> ApiResult<Option<bool>> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        None => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("all") => Ok(None),
+        Some(value) if value.eq_ignore_ascii_case("active") => Ok(Some(false)),
+        Some(value) if value.eq_ignore_ascii_case("disabled") => Ok(Some(true)),
+        Some(value) => Err(ApiError::BadRequest(format!(
+            "status must be one of all, active, disabled (got {value})"
+        ))),
+    }
+}
+
+fn parse_limit(raw: Option<u32>) -> ApiResult<usize> {
+    let limit = raw.unwrap_or(DEFAULT_PAGE_LIMIT as u32);
+    if limit == 0 || limit as usize > MAX_PAGE_LIMIT {
+        return Err(ApiError::BadRequest(format!(
+            "limit must be between 1 and {MAX_PAGE_LIMIT}"
+        )));
+    }
+    Ok(limit as usize)
+}
 
 fn ensure_node(state: &AppState, node_id: Option<Uuid>) -> ApiResult<()> {
     if let Some(node_id) = node_id {
@@ -38,6 +101,72 @@ pub async fn list(
             .map_err(ApiError::from)?
     };
     Ok(Json(users.iter().map(UserView::from).collect()))
+}
+
+pub async fn page(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    Query(params): Query<UserPageParams>,
+) -> ApiResult<Json<PageView<UserView>>> {
+    user.require_admin()?;
+    let limit = parse_limit(params.limit)?;
+    let offset = params.offset.unwrap_or(0) as usize;
+    let role = parse_role(params.role.as_deref())?;
+    let disabled = parse_status(params.status.as_deref())?;
+    let tab = UserTab::parse(params.tab.as_deref())?;
+    let q = params
+        .q
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_lowercase);
+    let page = {
+        let identity = state.identity.clone();
+        blocking::run_api(move || {
+            let mut users = identity.list().map_err(ApiError::from)?;
+            users.retain(|account| {
+                if let Some(role) = role
+                    && account.role != role
+                {
+                    return false;
+                }
+                if let Some(disabled) = disabled
+                    && account.disabled != disabled
+                {
+                    return false;
+                }
+                if !tab.matches(account.status) {
+                    return false;
+                }
+                if let Some(q) = q.as_deref() {
+                    let email = account
+                        .email
+                        .as_deref()
+                        .unwrap_or(account.login.as_str())
+                        .to_lowercase();
+                    if !email.contains(q) && !account.login.to_lowercase().contains(q) {
+                        return false;
+                    }
+                }
+                true
+            });
+            users.sort_by(|left, right| {
+                left.created_at
+                    .cmp(&right.created_at)
+                    .then_with(|| left.id.cmp(&right.id))
+            });
+            let total = users.len();
+            let items: Vec<UserView> = users
+                .iter()
+                .skip(offset)
+                .take(limit)
+                .map(UserView::from)
+                .collect();
+            Ok(PageView::new(items, total, limit, offset))
+        })
+        .await?
+    };
+    Ok(Json(page))
 }
 
 pub async fn create(

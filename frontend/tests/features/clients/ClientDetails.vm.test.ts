@@ -9,6 +9,7 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
+import { pageDevicesFromList } from "@/domain/devices/query";
 import type { CreateShareInput, DeviceStats, TunnelInput } from "@/domain/devices/types";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { QuotaRepository } from "@/domain/quota/repository";
@@ -353,6 +354,12 @@ function devicesHarness(profiles: Profile[] = [PROFILE_1, PROFILE_2]): {
 
   const repository: DevicesRepository = {
     listDevices: vi.fn(async () => state.devices.map((device) => ({ ...device }))),
+    pageDevices: vi.fn(async (params) =>
+      pageDevicesFromList(
+        state.devices.map((device) => ({ ...device })),
+        params,
+      ),
+    ),
     getDevice: vi.fn(async (id: string) => {
       const device = state.devices.find((item) => item.id === id);
       if (!device) throw new Error(`404: устройство ${id} не найдено`);

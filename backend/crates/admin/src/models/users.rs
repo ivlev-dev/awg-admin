@@ -26,6 +26,16 @@ pub struct UpdateUserRequest {
     pub disabled: Option<bool>,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct UserPageParams {
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub q: Option<String>,
+    pub role: Option<String>,
+    pub status: Option<String>,
+    pub tab: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

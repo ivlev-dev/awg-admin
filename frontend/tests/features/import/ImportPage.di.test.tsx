@@ -17,6 +17,7 @@ import type {
 } from "@/domain/import/types";
 import type { NodesRepository } from "@/domain/nodes/repository";
 import type { UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
 import type { InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import { ImportVM } from "@/features/import/ImportPage.vm";
 import { ImportPage } from "@/features/import/ImportPage";
@@ -205,6 +206,7 @@ function nodesRepository(): NodesRepository {
 function usersRepository(): UsersRepository {
   return {
     listUsers: vi.fn(async () => [{ ...OWNER }]),
+    pageUsers: vi.fn(async (params) => pageUsersFromList([{ ...OWNER }], params)),
     listPending: vi.fn(async () => []),
     createUser: vi.fn(async () => {
       throw new Error("createUser is not used in this test");

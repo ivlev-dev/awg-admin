@@ -54,10 +54,31 @@ data class AccountUiState(
     val endpointError: AccountMessage? = null,
     val pendingCreateKey: String? = null,
     val pendingTunnelKey: String? = null,
+    val deviceList: AccountDevicesState = AccountDevicesState(),
 ) {
     val isActive: Boolean
         get() = session is SessionState.Active
 
     val devices: List<AccountDevice>
-        get() = snapshot?.devices.orEmpty()
+        get() {
+            val fromSnapshot = snapshot?.devices.orEmpty()
+            if (deviceList.items.isEmpty()) return fromSnapshot
+            if (fromSnapshot.isEmpty()) return deviceList.items
+            val merged =
+                LinkedHashMap<String, AccountDevice>(fromSnapshot.size + deviceList.items.size)
+            fromSnapshot.forEach { merged[it.id] = it }
+            deviceList.items.forEach { merged[it.id] = it }
+            return merged.values.toList()
+        }
+
+    val deviceTotal: Int
+        get() = if (deviceList.isLoaded) deviceList.total else snapshot?.deviceCount ?: 0
+
+    val previewDevices: List<AccountDevice>
+        get() =
+            (if (deviceList.isLoaded) deviceList.items else snapshot?.devices.orEmpty()).take(
+                DEVICE_PREVIEW_LIMIT,
+            )
 }
+
+const val DEVICE_PREVIEW_LIMIT = 5

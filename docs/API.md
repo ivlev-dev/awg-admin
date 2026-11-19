@@ -35,6 +35,7 @@
 | GET | `/auth/sessions` | user | — | `SessionView[]` |
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
 | GET | `/users` | admin | — | `UserView[]` |
+| GET | `/users/page` | admin | query `limit,offset,q,role,status,tab` (см. «Серверная пагинация») | `{items: UserView[], total, limit, offset}` |
 | GET | `/users/pending` | admin | — | `UserView[]` (pending approval) |
 | POST | `/users/{id}/approve` | admin | `{tariff_id,node_id?,group_id?}` | `UserView` |
 | POST | `/users/{id}/reject` | admin | — | `UserView` |
@@ -70,6 +71,7 @@
 | POST | `/interfaces/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/interfaces/{id}/rotate` | admin | — | `{ok:true}` |
 | GET | `/devices` | user | — | `DeviceView[]` (admin видит все, user — свои) |
+| GET | `/devices/page` | user | query `limit,offset,q,status,interface_id,user_id,sort,order` (см. «Серверная пагинация») | `{items: DeviceView[], total, limit, offset}` |
 | POST | `/devices` | user | `CreateDeviceRequest` | `DeviceView` |
 | GET | `/devices/{id}` | self/admin | — | `DeviceView` |
 | PATCH | `/devices/{id}` | self/admin | `UpdateDeviceRequest` | `DeviceView` |
@@ -101,7 +103,8 @@
 | POST | `/import/clients/preview` | admin | `ClientsImportRequest` | `ClientsImportPreviewView` (без записи в БД) |
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
 | GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
-| GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, доступные интерфейсы) |
+| GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, `devices_total`, доступные интерфейсы) |
+| GET | `/app/devices/page` | user | query `limit,offset,q,status` (см. «Серверная пагинация») | `{items: DeviceView[], total, limit, offset}` (только свои устройства) |
 | POST | `/app/devices` | user | `{name, interface_ids?}`, заголовок `Idempotency-Key` (опционально) | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
 | GET | `/app/devices/{id}/config` | self/admin | — | `AppConfigView` (primary-интерфейс) |
 | GET | `/app/devices/{id}/configs` | self/admin | — | `AppConfigView[]` (все пиры) |
@@ -285,13 +288,74 @@
   устройства запрещено (`409`), иначе пир удаляется и группа публикуется на
   ноды.
 
+## Серверная пагинация
+
+Большие списки отдаются постранично. Контракт одинаков для всех ручек:
+`{items: T[], total: number, limit: number, offset: number}`, где `total` —
+число записей, подходящих под фильтры (не размер страницы), а `items`
+содержит только запрошенное окно. Старые ручки (`GET /devices`, `GET /users`)
+не меняются и по-прежнему возвращают полный список.
+
+Общие правила:
+
+- `limit` — 1..200, по умолчанию 50 (`/app/devices/page` — 20); `0`,
+  отрицательное или больше 200 → `400 bad_request`.
+- `offset` — ≥ 0, по умолчанию 0; смещение за пределами выборки возвращает
+  пустой `items` и корректный `total`.
+- `q` — подстрока без учёта регистра. Для устройств ищется по имени
+  устройства и email владельца; для пользователей — по email и логину.
+  Пустой `q` игнорируется.
+- Порядок детерминирован: при равенстве ключа сортировки используется
+  `id` записи, поэтому страницы не пересекаются и не теряют элементы.
+
+### `GET /devices/page`
+
+Параметры:
+
+- `status` — `all` (по умолчанию), `active` (`revoked=false`), `revoked`.
+- `interface_id` — UUID интерфейса; фильтр по primary-интерфейсу устройства.
+- `user_id` — только для администратора: ограничивает выборку владельцем.
+  Не-администратор видит только свои устройства; `user_id` другого
+  пользователя → `403 forbidden`, свой `user_id` допускается. Без параметра
+  администратор видит все устройства.
+- `sort` — `name` (по умолчанию, регистронезависимо) или `created`.
+- `order` — `asc` (по умолчанию) или `desc`.
+
+Неизвестные значения `status`, `sort`, `order` → `400 bad_request`.
+`DeviceView` собирается только для элементов страницы; `total` считается по
+индексу с учётом всех фильтров.
+
+### `GET /users/page`
+
+Только администратор (иначе `403 forbidden`). Параметры:
+
+- `role` — `all` (по умолчанию), `admin`, `user`.
+- `status` — `all` (по умолчанию), `active` (`disabled=false`), `disabled`.
+- `tab` — `active` (по умолчанию; все, кроме ожидающих одобрения) или
+  `pending` (только `status=pending_approval`).
+- `q` — подстрока в email или логине без учёта регистра.
+
+Сортировка — по `created_at`, затем по `id`.
+
+### `GET /app/devices/page`
+
+Всегда возвращает только устройства текущего пользователя: `user_id` не
+принимается (переданное значение игнорируется). Параметры `q` и `status`
+работают так же, как у `/devices/page`; `limit` по умолчанию 20, максимум 200.
+Предназначен для мобильного клиента, которому не нужен полный список из
+`/app/bootstrap`.
+
 ## Мобильное приложение (Android)
 
 Ручки `/api/v1/app/*` требуют `Authorization: Bearer …` и работают только с
 данными текущего пользователя (`self/admin`), админских возможностей не
 добавляют.
 
-- `GET /app/bootstrap` → `{user: UserView, tariff: null|{id,name,description,max_devices,device_down_kbps,device_up_kbps,traffic_quota_bytes}, quota: QuotaView, subscription: null|AppSubscriptionView, access: AppAccessView, devices: DeviceView[], interfaces: AppInterfaceView[]}`.
+- `GET /app/bootstrap` → `{user: UserView, tariff: null|{id,name,description,max_devices,device_down_kbps,device_up_kbps,traffic_quota_bytes}, quota: QuotaView, subscription: null|AppSubscriptionView, access: AppAccessView, devices: DeviceView[], devices_total: number, interfaces: AppInterfaceView[]}`.
+  `devices` по-прежнему содержит все устройства пользователя (нужны для
+  синхронизации конфигов), а `devices_total` — их количество, чтобы клиент
+  мог показать счётчик без отдельного запроса. Для постраничного списка
+  используйте `GET /app/devices/page`.
   `tariff` — `null`, если тариф не назначен; `quota` считается по месяцу, как
   `GET /quota`. `interfaces` — доступные пользователю включённые интерфейсы
   `{id,name,node_id,node_name}`, отсортированные по `(name,id)`: если тариф

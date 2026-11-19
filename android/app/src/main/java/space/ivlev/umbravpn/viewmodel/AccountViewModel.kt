@@ -1,8 +1,12 @@
 package space.ivlev.umbravpn.viewmodel
 
 import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
 import java.util.UUID
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.launch
 import org.orbitmvi.orbit.OrbitContainerHost
 import org.orbitmvi.orbit.syntax.Syntax
 import org.orbitmvi.orbit.viewmodel.orbitContainer
@@ -16,10 +20,14 @@ import space.ivlev.umbravpn.domain.account.ActionResult
 import space.ivlev.umbravpn.domain.account.LogoutCoordinator
 import space.ivlev.umbravpn.domain.model.account.AccountDevice
 import space.ivlev.umbravpn.domain.model.account.AccountSnapshot
+import space.ivlev.umbravpn.domain.model.account.DeviceQuery
+import space.ivlev.umbravpn.domain.model.account.DeviceStatusFilter
 import space.ivlev.umbravpn.domain.model.account.SessionState
+import space.ivlev.umbravpn.domain.model.account.pageDevices
 import space.ivlev.umbravpn.domain.repository.AccountSettingsRepository
 import space.ivlev.umbravpn.domain.repository.AuthRepository
 import space.ivlev.umbravpn.domain.sync.ManagedTunnelSyncService
+import space.ivlev.umbravpn.ui.state.AccountDevicesState
 import space.ivlev.umbravpn.ui.state.AccountDialog
 import space.ivlev.umbravpn.ui.state.AccountSideEffect
 import space.ivlev.umbravpn.ui.state.AccountUiState
@@ -36,6 +44,9 @@ class AccountViewModel(
     private val snapshotCache: AccountSnapshotCache,
 ) : OrbitContainerHost<AccountUiState, AccountUiState, AccountSideEffect>, ViewModel() {
 
+    private var devicesSearchJob: Job? = null
+    private var devicesRequestSeq = 0
+
     override val container =
         orbitContainer<AccountUiState, AccountSideEffect>(AccountUiState()) {
             intent {
@@ -47,6 +58,7 @@ class AccountViewModel(
                         val sessionAllowsProfile =
                             session is SessionState.Active || session is SessionState.Unknown
                         if (!sessionAllowsProfile) {
+                            devicesSearchJob?.cancel()
                             reduce {
                                 state.copy(
                                     snapshot = null,
@@ -55,6 +67,7 @@ class AccountViewModel(
                                     dialog = null,
                                     pendingCreateKey = null,
                                     pendingTunnelKey = null,
+                                    deviceList = AccountDevicesState(),
                                 )
                             }
                         }
@@ -71,6 +84,33 @@ class AccountViewModel(
         if (state.isLoading || state.isRefreshing) return@intent
         syncTunnels()
         loadNow(silent = state.snapshot != null)
+    }
+
+    fun refreshDevices() = intent { loadDevicesPage(reset = true) }
+
+    fun loadMoreDevices() = intent { loadDevicesPage(reset = false) }
+
+    fun setDevicesQuery(query: String) = intent {
+        if (state.deviceList.query == query) return@intent
+        reduce {
+            state.copy(deviceList = state.deviceList.copy(query = query, offset = 0, error = null))
+        }
+        devicesSearchJob?.cancel()
+        devicesSearchJob = viewModelScope.launch {
+            delay(DEVICES_SEARCH_DEBOUNCE_MS)
+            intent { loadDevicesPage(reset = true) }
+        }
+    }
+
+    fun setDevicesStatus(status: DeviceStatusFilter) = intent {
+        if (state.deviceList.status == status) return@intent
+        devicesSearchJob?.cancel()
+        reduce {
+            state.copy(
+                deviceList = state.deviceList.copy(status = status, offset = 0, error = null),
+            )
+        }
+        loadDevicesPage(reset = true)
     }
 
     fun retry() = intent {
@@ -183,17 +223,16 @@ class AccountViewModel(
 
         when (val outcome = accountActions.createDevice(name, interfaceIds, createKey)) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        pendingCreateKey = null,
-                        pendingTunnelKey = null,
-                        snapshot =
-                            snapshot?.copy(devices = snapshot.devices + outcome.value.device),
-                    )
+                    state
+                        .replaceDevice(outcome.value.device)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                            pendingCreateKey = null,
+                            pendingTunnelKey = null,
+                        )
                 }
                 syncTunnels()
                 autoConnector.ensureConnected()
@@ -210,14 +249,14 @@ class AccountViewModel(
 
         when (val outcome = accountActions.renameDevice(id, name)) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        snapshot = snapshot?.replaceDevice(outcome.value),
-                    )
+                    state
+                        .replaceDevice(outcome.value)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                        )
                 }
                 syncTunnels()
                 postSideEffect(AccountSideEffect.Notice(AccountMessage.DeviceRenamed))
@@ -233,17 +272,14 @@ class AccountViewModel(
 
         when (val outcome = accountActions.deleteDevice(id)) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        snapshot =
-                            snapshot?.copy(
-                                devices = snapshot.devices.filterNot { it.id == id },
-                            ),
-                    )
+                    state
+                        .removeDevice(id)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                        )
                 }
                 syncTunnels()
                 postSideEffect(AccountSideEffect.Notice(AccountMessage.DeviceDeleted))
@@ -274,15 +310,15 @@ class AccountViewModel(
                 )
         ) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        pendingTunnelKey = null,
-                        snapshot = snapshot?.replaceDevice(outcome.value.device),
-                    )
+                    state
+                        .replaceDevice(outcome.value.device)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                            pendingTunnelKey = null,
+                        )
                 }
                 syncTunnels()
                 autoConnector.ensureConnected()
@@ -299,14 +335,14 @@ class AccountViewModel(
 
         when (val outcome = accountActions.removeDeviceTunnel(deviceId, peerId)) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        snapshot = snapshot?.removeDevicePeer(deviceId, peerId),
-                    )
+                    state
+                        .removeDevicePeer(deviceId, peerId)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                        )
                 }
                 syncTunnels()
                 autoConnector.ensureConnected()
@@ -323,14 +359,14 @@ class AccountViewModel(
 
         when (val outcome = accountActions.renameDeviceTunnel(deviceId, peerId, label)) {
             is ActionResult.Success -> {
-                val snapshot = state.snapshot
                 reduce {
-                    state.copy(
-                        isActionInProgress = false,
-                        dialog = null,
-                        dialogError = null,
-                        snapshot = snapshot?.replaceDevice(outcome.value),
-                    )
+                    state
+                        .replaceDevice(outcome.value)
+                        .copy(
+                            isActionInProgress = false,
+                            dialog = null,
+                            dialogError = null,
+                        )
                 }
                 syncTunnels()
                 postSideEffect(AccountSideEffect.Notice(AccountMessage.TunnelRenamed))
@@ -346,6 +382,7 @@ class AccountViewModel(
 
     fun logout() = intent {
         if (state.isActionInProgress) return@intent
+        devicesSearchJob?.cancel()
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
         logoutCoordinator.logout()
         snapshotCache.clear()
@@ -357,6 +394,7 @@ class AccountViewModel(
                 pendingTunnelKey = null,
                 snapshot = null,
                 error = null,
+                deviceList = AccountDevicesState(),
             )
         }
         postSideEffect(AccountSideEffect.SignedOut)
@@ -372,6 +410,7 @@ class AccountViewModel(
         }
         validation as ServerUrlValidation.Valid
 
+        devicesSearchJob?.cancel()
         reduce { state.copy(isActionInProgress = true, dialogError = null) }
         logoutCoordinator.logout()
         snapshotCache.clear()
@@ -385,6 +424,7 @@ class AccountViewModel(
                 snapshot = null,
                 error = null,
                 serverUrl = validation.url,
+                deviceList = AccountDevicesState(),
             )
         }
         postSideEffect(AccountSideEffect.SignedOut)
@@ -434,6 +474,7 @@ class AccountViewModel(
                         error = null,
                     )
                 }
+                loadDevicesPage(reset = true)
             }
             is ActionResult.Failure -> {
                 val cached =
@@ -450,12 +491,167 @@ class AccountViewModel(
                         error = outcome.message,
                     )
                 }
+                seedDevicesFromSnapshot(outcome.message)
             }
         }
     }
 
-    private fun AccountSnapshot.replaceDevice(device: AccountDevice): AccountSnapshot =
-        copy(devices = devices.map { if (it.id == device.id) device else it })
+    private suspend fun Syntax<AccountUiState, AccountSideEffect>.loadDevicesPage(reset: Boolean) {
+        val current = state.deviceList
+        if (!reset && (current.isLoading || current.isLoadingMore || !current.canLoadMore)) return
+
+        val request =
+            DeviceQuery(
+                    limit = current.limit,
+                    offset = if (reset) 0 else current.items.size,
+                    query = current.query,
+                    status = current.status,
+                )
+                .normalized
+        val requestSeq = ++devicesRequestSeq
+
+        reduce {
+            state.copy(
+                deviceList =
+                    state.deviceList.copy(
+                        isLoading = reset,
+                        isLoadingMore = !reset,
+                        error = null,
+                    ),
+            )
+        }
+
+        when (val outcome = accountActions.pageDevices(request)) {
+            is ActionResult.Success ->
+                reduce {
+                    if (requestSeq != devicesRequestSeq || !state.deviceList.matches(request)) {
+                        state
+                    } else {
+                        val page = outcome.value
+                        val items =
+                            if (reset) page.items.distinctBy { it.id }
+                            else mergeDevices(state.deviceList.items, page.items)
+                        val total =
+                            if (!reset && page.items.isEmpty()) items.size
+                            else maxOf(page.total, items.size)
+                        state.copy(
+                            deviceList =
+                                state.deviceList.copy(
+                                    items = items,
+                                    total = total,
+                                    offset = items.size,
+                                    isLoading = false,
+                                    isLoadingMore = false,
+                                    error = null,
+                                    isLoaded = true,
+                                ),
+                        )
+                    }
+                }
+            is ActionResult.Failure ->
+                reduce {
+                    if (requestSeq != devicesRequestSeq || !state.deviceList.matches(request)) {
+                        state
+                    } else {
+                        val local = state.snapshot
+                        val seed =
+                            if (state.deviceList.items.isEmpty() && local != null) {
+                                local.devices.pageDevices(request)
+                            } else {
+                                null
+                            }
+                        state.copy(
+                            deviceList =
+                                state.deviceList.copy(
+                                    items = seed?.items ?: state.deviceList.items,
+                                    total =
+                                        if (seed != null && local != null) {
+                                            maxOf(local.deviceCount, seed.total)
+                                        } else {
+                                            state.deviceList.total
+                                        },
+                                    offset = seed?.items?.size ?: state.deviceList.offset,
+                                    isLoading = false,
+                                    isLoadingMore = false,
+                                    error = outcome.message,
+                                    isLoaded =
+                                        seed != null ||
+                                            state.deviceList.isLoaded ||
+                                            state.deviceList.items.isNotEmpty(),
+                                ),
+                        )
+                    }
+                }
+        }
+    }
+
+    private suspend fun Syntax<AccountUiState, AccountSideEffect>.seedDevicesFromSnapshot(
+        message: AccountMessage?,
+    ) {
+        val snapshot = state.snapshot ?: return
+        if (state.deviceList.isLoaded || state.deviceList.items.isNotEmpty()) return
+        val request =
+            DeviceQuery(
+                    limit = state.deviceList.limit,
+                    offset = 0,
+                    query = state.deviceList.query,
+                    status = state.deviceList.status,
+                )
+                .normalized
+        val page = snapshot.devices.pageDevices(request)
+        reduce {
+            state.copy(
+                deviceList =
+                    state.deviceList.copy(
+                        items = page.items,
+                        total = maxOf(snapshot.deviceCount, page.total),
+                        offset = page.items.size,
+                        isLoading = false,
+                        isLoadingMore = false,
+                        error = message,
+                        isLoaded = page.items.isNotEmpty(),
+                    ),
+            )
+        }
+    }
+
+    private fun AccountUiState.replaceDevice(device: AccountDevice): AccountUiState =
+        copy(
+            snapshot = snapshot?.replaceDevice(device),
+            deviceList = deviceList.replaceItem(device),
+        )
+
+    private fun AccountUiState.removeDevice(id: String): AccountUiState =
+        copy(
+            snapshot =
+                snapshot?.let { current ->
+                    if (current.devices.none { it.id == id }) {
+                        current
+                    } else {
+                        current.copy(
+                            devices = current.devices.filterNot { it.id == id },
+                            devicesTotal = current.devicesTotal?.minus(1),
+                        )
+                    }
+                },
+            deviceList = deviceList.removeItem(id),
+        )
+
+    private fun AccountUiState.removeDevicePeer(
+        deviceId: String,
+        peerId: String,
+    ): AccountUiState =
+        copy(
+            snapshot = snapshot?.removeDevicePeer(deviceId, peerId),
+            deviceList = deviceList.removePeer(deviceId, peerId),
+        )
+
+    private fun AccountSnapshot.replaceDevice(device: AccountDevice): AccountSnapshot {
+        if (devices.none { it.id == device.id }) {
+            return copy(devices = devices + device, devicesTotal = devicesTotal?.plus(1))
+        }
+        return copy(devices = devices.map { if (it.id == device.id) device else it })
+    }
 
     private fun AccountSnapshot.removeDevicePeer(
         deviceId: String,
@@ -471,4 +667,55 @@ class AccountViewModel(
                     }
                 },
         )
+
+    private fun mergeDevices(
+        existing: List<AccountDevice>,
+        incoming: List<AccountDevice>,
+    ): List<AccountDevice> {
+        if (incoming.isEmpty()) return existing
+        val seen = existing.mapTo(HashSet(existing.size)) { it.id }
+        val merged = existing.toMutableList()
+        incoming.forEach { device -> if (seen.add(device.id)) merged += device }
+        return merged
+    }
+}
+
+private const val DEVICES_SEARCH_DEBOUNCE_MS = 300L
+
+private fun AccountDevicesState.matches(request: DeviceQuery): Boolean =
+    query.trim() == request.query && status == request.status
+
+private fun AccountDevicesState.replaceItem(device: AccountDevice): AccountDevicesState {
+    if (!isLoaded) return this
+    val index = items.indexOfFirst { it.id == device.id }
+    if (index >= 0) {
+        return copy(items = items.toMutableList().also { it[index] = device })
+    }
+    val accepted = DeviceQuery(limit = limit, query = query, status = status).matches(device)
+    if (!accepted) return this
+    val next = listOf(device) + items
+    return copy(items = next, total = total + 1, offset = next.size)
+}
+
+private fun AccountDevicesState.removeItem(id: String): AccountDevicesState {
+    if (!isLoaded || items.none { it.id == id }) return this
+    val next = items.filterNot { it.id == id }
+    return copy(items = next, total = (total - 1).coerceAtLeast(0), offset = next.size)
+}
+
+private fun AccountDevicesState.removePeer(
+    deviceId: String,
+    peerId: String,
+): AccountDevicesState {
+    if (items.none { it.id == deviceId }) return this
+    return copy(
+        items =
+            items.map { device ->
+                if (device.id != deviceId) {
+                    device
+                } else {
+                    device.copy(peers = device.peers.filterNot { it.peerId == peerId })
+                }
+            },
+    )
 }

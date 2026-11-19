@@ -4,15 +4,28 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
+use awg_storage::device_index::DevicePageEntry;
 use awg_storage::{StorageError, Store, Table};
 
 use crate::domain::{
-    Device, DevicePeer, DevicePeerRepository, DeviceRepository, ShareConsume, ShareLink,
-    ShareLinkRepository, ShareLinkState,
+    Device, DevicePage, DevicePageQuery, DevicePeer, DevicePeerRepository, DeviceRepository,
+    ShareConsume, ShareLink, ShareLinkRepository, ShareLinkState,
 };
 
 fn map_err(e: StorageError) -> CoreError {
     CoreError::Io(std::io::Error::other(e.to_string()))
+}
+
+fn index_entry(device: &Device) -> DevicePageEntry {
+    DevicePageEntry::new(
+        device.id,
+        device.user_id,
+        device.group_id,
+        device.interface_id,
+        &device.name,
+        device.revoked,
+        device.created_at.timestamp_micros(),
+    )
 }
 
 pub struct RedbDeviceRepository {
@@ -53,15 +66,68 @@ impl DeviceRepository for RedbDeviceRepository {
     }
 
     fn save(&self, device: &Device) -> CoreResult<()> {
-        self.store
-            .put(Table::Devices, &device.id.to_string(), device)
-            .map_err(map_err)
+        let entry = index_entry(device);
+        awg_storage::device_index::upsert_device(
+            &self.store,
+            &device.id.to_string(),
+            device,
+            &entry,
+        )
+        .map_err(map_err)
     }
 
     fn delete(&self, id: Uuid) -> CoreResult<()> {
-        self.store
-            .delete(Table::Devices, &id.to_string())
-            .map_err(map_err)
+        awg_storage::device_index::delete_device(&self.store, &id.to_string()).map_err(map_err)
+    }
+
+    fn page(&self, query: &DevicePageQuery) -> CoreResult<DevicePage> {
+        let sort = match query.sort {
+            crate::domain::DevicePageSort::Name => awg_storage::device_index::DeviceIndexSort::Name,
+            crate::domain::DevicePageSort::Created => {
+                awg_storage::device_index::DeviceIndexSort::Created
+            }
+        };
+        let descending = query.order == crate::domain::DevicePageOrder::Desc;
+        let unfiltered = query.status == crate::domain::DevicePageStatus::All
+            && query.interface_id.is_none()
+            && query.user_id.is_none()
+            && query.q.is_none();
+        let (ids, total) = if unfiltered {
+            awg_storage::device_index::scan_all(
+                &self.store,
+                sort,
+                descending,
+                query.offset,
+                query.limit,
+            )
+            .map_err(map_err)?
+        } else {
+            awg_storage::device_index::scan(
+                &self.store,
+                sort,
+                descending,
+                query.offset,
+                query.limit,
+                |entry| {
+                    query.status.matches(entry.revoked)
+                        && query.interface_id.is_none_or(|id| entry.interface_id == id)
+                        && query.user_id.is_none_or(|id| entry.user_id == id)
+                        && query.q_matches(&entry.name, entry.user_id)
+                },
+            )
+            .map_err(map_err)?
+        };
+        let keys: Vec<String> = ids.iter().map(ToString::to_string).collect();
+        let items: Vec<Device> = self
+            .store
+            .get_many(Table::Devices, &keys)
+            .map_err(map_err)?;
+        Ok(DevicePage {
+            items,
+            total,
+            limit: query.limit,
+            offset: query.offset,
+        })
     }
 }
 
@@ -152,6 +218,20 @@ impl DevicePeerRepository for RedbDevicePeerRepository {
             .into_iter()
             .filter(|p| p.device_id == device_id)
             .collect())
+    }
+
+    fn by_devices(&self, device_ids: &[Uuid]) -> CoreResult<Vec<DevicePeer>> {
+        let mut out = Vec::new();
+        for device_id in device_ids {
+            out.extend(
+                self.store
+                    .list_prefix::<DevicePeer>(Table::DevicePeers, &format!("{device_id}:"))
+                    .map_err(map_err)?
+                    .into_iter()
+                    .map(|(_, peer)| peer),
+            );
+        }
+        Ok(out)
     }
 
     fn by_interface(&self, interface_id: Uuid) -> CoreResult<Vec<DevicePeer>> {

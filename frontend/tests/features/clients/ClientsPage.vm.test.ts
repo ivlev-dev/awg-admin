@@ -9,6 +9,8 @@ import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { DevicesRepository } from "@/domain/devices/repository";
+import { pageDevicesFromList } from "@/domain/devices/query";
+import { pageUsersFromList } from "@/domain/users/query";
 import type { InterfacesRepository } from "@/domain/interfaces/repository";
 import type { UsersRepository } from "@/domain/users/repository";
 import type { Device, Group, InterfaceInfo, Role, User } from "@/domain/types";
@@ -222,6 +224,7 @@ function devicesHarness(initial: Device[]): {
   const devices = initial.map((device) => ({ ...device }));
   const repository: DevicesRepository = {
     listDevices: vi.fn(async () => [...devices]),
+    pageDevices: vi.fn(async (params) => pageDevicesFromList(devices, params)),
     getDevice: vi.fn(async (id: string) => {
       const device = devices.find((item) => item.id === id);
       if (!device) throw new Error(`404: устройство ${id} не найдено`);
@@ -316,6 +319,7 @@ function interfacesHarness(items: InterfaceInfo[]): InterfacesRepository {
 function usersHarness(users: User[]): UsersRepository {
   return {
     listUsers: vi.fn(async () => [...users]),
+    pageUsers: vi.fn(async (params) => pageUsersFromList(users, params)),
     createUser: vi.fn(async () => OWNER),
     updateUser: vi.fn(async () => OWNER),
     deleteUser: vi.fn(async () => undefined),
@@ -352,13 +356,14 @@ function setup(
   seed: Device[] = [DEVICE],
   items: InterfaceInfo[] = [INTERFACE, INTERFACE_2],
   accounts: User[] = [ADMIN, OWNER],
+  path = "/clients",
 ) {
   const user = role === "admin" ? ADMIN : OWNER;
   const devices = devicesHarness(seed);
   const interfaces = interfacesHarness(items);
   const users = usersHarness(accounts);
   const session = makeSession(user);
-  window.history.replaceState(null, "", "/clients");
+  window.history.replaceState(null, "", path);
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new ClientsPageVM(
@@ -390,7 +395,7 @@ describe("ClientsPageVM", () => {
 
     await vm.load();
 
-    expect(devices.repository.listDevices).toHaveBeenCalledTimes(1);
+    expect(devices.repository.pageDevices).toHaveBeenCalledTimes(1);
     expect(interfaces.listInterfaces).toHaveBeenCalledTimes(1);
     expect(users.listUsers).toHaveBeenCalledTimes(1);
     expect(vm.devices).toHaveLength(1);
@@ -401,7 +406,7 @@ describe("ClientsPageVM", () => {
     ]);
     expect(vm.users).toHaveLength(2);
     expect(vm.loading).toBe(false);
-    expect(vm.countLabel).toBe("Найдено 1 из 1");
+    expect(vm.countLabel).toBe("Найдено: 1");
   });
 
   it("не запрашивает пользователей, но загружает интерфейсы для обычного пользователя", async () => {
@@ -419,7 +424,7 @@ describe("ClientsPageVM", () => {
 
   it("показывает ошибку загрузки и сбрасывает состояние загрузки", async () => {
     const { vm, devices, toasts } = setup("admin");
-    vi.mocked(devices.repository.listDevices).mockRejectedValueOnce(new Error("Сервис недоступен"));
+    vi.mocked(devices.repository.pageDevices).mockRejectedValueOnce(new Error("Сервис недоступен"));
 
     await vm.load();
 
@@ -433,7 +438,7 @@ describe("ClientsPageVM", () => {
 
   it("подставляет сообщение по умолчанию для неизвестной ошибки", async () => {
     const { vm, devices, toasts } = setup("admin");
-    vi.mocked(devices.repository.listDevices).mockRejectedValueOnce("boom");
+    vi.mocked(devices.repository.pageDevices).mockRejectedValueOnce("boom");
 
     await vm.load();
 
@@ -467,7 +472,7 @@ describe("ClientsPageVM", () => {
       up_kbps: 750,
       forwarding: { to_own_devices: true, allowed_devices: [] },
     });
-    expect(devices.repository.listDevices).toHaveBeenCalledTimes(2);
+    expect(devices.repository.pageDevices).toHaveBeenCalledTimes(2);
     expect(vm.devices).toHaveLength(2);
     expect(vm.createOpen).toBe(false);
     expect(vm.submitting).toBe(false);
@@ -815,33 +820,104 @@ describe("ClientsPageVM", () => {
     expect(vm.formDirty).toBe(false);
   });
 
-  it("фильтрует устройства по запросу и интерфейсу, учитывая пиры", async () => {
-    const { vm } = setup("admin", [DEVICE, PHONE]);
+  it("отправляет фильтры, сортировку и пагинацию на сервер", async () => {
+    const { vm, devices } = setup("admin", [DEVICE, PHONE]);
     await vm.load();
+    const page = vi.mocked(devices.repository.pageDevices);
 
-    vm.interfaceFilter = "i1";
-    vm.query = "10.0.1.2";
-    vm.appliedQuery = "10.0.1.2";
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+    expect(page).toHaveBeenLastCalledWith(
+      expect.objectContaining({ limit: 25, offset: 0, sort: "name", order: "asc" }),
+    );
+
+    vm.sortBy("created");
+    await vi.waitFor(() => {
+      expect(page).toHaveBeenLastCalledWith(
+        expect.objectContaining({ sort: "created", order: "asc", offset: 0 }),
+      );
+    });
+
+    vm.setInterfaceFilter("i1");
+    await vi.waitFor(() => {
+      expect(vm.devices.map((device) => device.id)).toEqual(["d1"]);
+    });
+    expect(page).toHaveBeenLastCalledWith(
+      expect.objectContaining({ interfaceId: "i1", offset: 0 }),
+    );
+
+    vm.setStatusFilter("active");
+    await vi.waitFor(() => {
+      expect(vm.devices).toHaveLength(1);
+    });
+    expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ status: "active" }));
     expect(vm.hasActiveFilters).toBe(true);
+  });
 
-    vm.query = "";
-    vm.appliedQuery = "";
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+  it("сбрасывает offset при изменении фильтра и выделение при смене страницы", async () => {
+    const many = Array.from({ length: 30 }, (_value, index) => ({
+      ...DEVICE,
+      id: `d${index + 10}`,
+      name: `device-${index + 10}`,
+    }));
+    const { vm, devices } = setup("admin", many);
+    await vm.load();
+    const page = vi.mocked(devices.repository.pageDevices);
 
-    vm.setInterfaceFilter("i2");
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1", "d2"]);
+    expect(vm.devices).toHaveLength(25);
+    expect(vm.total).toBe(30);
+    expect(vm.pageCount).toBe(2);
 
-    vm.query = "10.0.1.2";
-    vm.appliedQuery = "10.0.1.2";
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+    vm.selectedIds = [vm.devices[0]?.id ?? ""];
+    vm.goToPage(2);
+    expect(vm.loading).toBe(false);
+    expect(vm.selectedIds).toEqual([]);
 
-    vm.setInterfaceFilter("");
-    expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d1"]);
+    await vi.waitFor(() => {
+      expect(vm.devices).toHaveLength(5);
+    });
+    expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 25, limit: 25 }));
+    expect(vm.pageSummary).toBe("Показано 26–30 из 30");
 
-    vm.query = "missing";
-    vm.appliedQuery = "missing";
-    expect(vm.filteredDevices).toEqual([]);
+    vm.setInterfaceFilter("i1");
+    await vi.waitFor(() => {
+      expect(vm.page).toBe(1);
+    });
+    expect(page).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }));
+  });
+
+  it("отменяет предыдущий запрос при новом фильтре", async () => {
+    const { vm, devices } = setup("admin", [DEVICE, PHONE]);
+    await vm.load();
+    const page = vi.mocked(devices.repository.pageDevices);
+
+    vm.setInterfaceFilter("i1");
+    const first = page.mock.calls.at(-1)?.[0];
+    vm.setStatusFilter("active");
+    const second = page.mock.calls.at(-1)?.[0];
+
+    expect(first?.signal?.aborted).toBe(true);
+    expect(second?.signal?.aborted).toBe(false);
+  });
+
+  it("восстанавливает поиск, интерфейс, страницу и размер из storage и URL", () => {
+    localStorage.setItem(
+      clientsFiltersStorage.key,
+      JSON.stringify({ query: "phone", interfaceFilter: "i2" }),
+    );
+
+    const { vm } = setup(
+      "admin",
+      [DEVICE, PHONE],
+      [INTERFACE, INTERFACE_2],
+      [ADMIN, OWNER],
+      "/clients?q=node&page=2&limit=10&status=active",
+    );
+
+    expect(vm.query).toBe("node");
+    expect(vm.appliedQuery).toBe("node");
+    expect(vm.interfaceFilter).toBe("i2");
+    expect(vm.statusFilter).toBe("active");
+    expect(vm.page).toBe(2);
+    expect(vm.pageSize).toBe(10);
   });
 
   it("восстанавливает поиск и интерфейс из storage", () => {
@@ -857,6 +933,21 @@ describe("ClientsPageVM", () => {
     expect(vm.interfaceFilter).toBe("i2");
   });
 
+  it("синхронизирует фильтры и пагинацию с URL", async () => {
+    const { vm } = setup("admin", [DEVICE, PHONE]);
+    await vm.load();
+
+    vm.setInterfaceFilter("i2");
+    vm.setStatusFilter("active");
+    vm.setPageSize("50");
+
+    const params = new URLSearchParams(window.location.search);
+    expect(params.get("interface")).toBe("i2");
+    expect(params.get("status")).toBe("active");
+    expect(params.get("limit")).toBe("50");
+    expect(params.has("page")).toBe(false);
+  });
+
   it("не применяет сохранённый интерфейс, если он не выбран", async () => {
     localStorage.setItem(
       clientsFiltersStorage.key,
@@ -867,28 +958,36 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     expect(vm.interfaceFilter).toBe("");
-    expect(vm.filteredDevices).toHaveLength(2);
+    expect(vm.devices).toHaveLength(2);
   });
 
   it("применяет поиск после debounce и сохраняет запрос сразу", async () => {
     vi.useFakeTimers();
     try {
-      const { vm } = setup("admin", [DEVICE, PHONE]);
+      const { vm, devices } = setup("admin", [DEVICE, PHONE]);
       await vm.load();
+      const page = vi.mocked(devices.repository.pageDevices);
+      page.mockClear();
 
       vm.setQuery({ target: { value: "phone" } } as unknown as Event);
 
       expect(vm.query).toBe("phone");
-      expect(vm.filteredDevices).toHaveLength(2);
+      expect(page).not.toHaveBeenCalled();
       expect(localStorage.getItem(clientsFiltersStorage.key)).toBe(
         JSON.stringify({ query: "phone", interfaceFilter: "" }),
       );
 
       vi.advanceTimersByTime(249);
-      expect(vm.filteredDevices).toHaveLength(2);
+      expect(page).not.toHaveBeenCalled();
 
       vi.advanceTimersByTime(1);
-      expect(vm.filteredDevices.map((device) => device.id)).toEqual(["d2"]);
+      expect(vm.appliedQuery).toBe("phone");
+      expect(page).toHaveBeenCalledWith(expect.objectContaining({ query: "phone", offset: 0 }));
+
+      vi.useRealTimers();
+      await vi.waitFor(() => {
+        expect(vm.devices.map((device) => device.id)).toEqual(["d2"]);
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -907,9 +1006,13 @@ describe("ClientsPageVM", () => {
     expect(vm.query).toBe("");
     expect(vm.appliedQuery).toBe("");
     expect(vm.interfaceFilter).toBe("");
+    expect(vm.statusFilter).toBe("all");
     expect(vm.hasActiveFilters).toBe(false);
     expect(localStorage.getItem(clientsFiltersStorage.key)).toBeNull();
-    expect(vm.filteredDevices).toHaveLength(2);
+
+    await vi.waitFor(() => {
+      expect(vm.devices).toHaveLength(2);
+    });
   });
 
   it("подставляет логин, интерфейс, ноду и пиров", async () => {
@@ -1033,6 +1136,49 @@ describe("ClientsPageVM", () => {
     result.dispose();
   });
 
+  it("показывает серверный счётчик и блокирует кнопки на границах", async () => {
+    const many = Array.from({ length: 30 }, (_value, index) => ({
+      ...DEVICE,
+      id: `d${index + 1}`,
+      name: `device-${index + 1}`,
+    }));
+    const devices = devicesHarness(many);
+    const container = createAppContainer();
+    container.bind(DefaultDevicesService, () => new DefaultDevicesService(devices.repository));
+    container.bind(DefaultInterfacesService, () => new DefaultInterfacesService(interfacesHarness([INTERFACE])));
+    container.bind(DefaultUsersService, () => new DefaultUsersService(usersHarness([ADMIN, OWNER])));
+    container.bind(Session, () => makeSession(ADMIN));
+    container.bind(Router, () => new Router());
+    container.bind(ToastStore, () => new ToastStore());
+
+    const vm = await container.resolve<ClientsPageVM>(ClientsPageVM);
+    const result = createComponent(ClientsPage, {}, { container });
+    await result.ready;
+    const root = result.node as ParentNode;
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll("tbody tr[tabindex]")).toHaveLength(25);
+    });
+    expect(root.textContent).toContain("Найдено: 30");
+
+    const prev = root.querySelector<HTMLButtonElement>('button[aria-label="Предыдущая страница"]');
+    const next = root.querySelector<HTMLButtonElement>('button[aria-label="Следующая страница"]');
+    expect(prev?.disabled).toBe(true);
+    expect(next?.disabled).toBe(false);
+
+    vm.goToPage(2);
+
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll("tbody tr[tabindex]")).toHaveLength(5);
+    });
+    const prevAfter = root.querySelector<HTMLButtonElement>('button[aria-label="Предыдущая страница"]');
+    const nextAfter = root.querySelector<HTMLButtonElement>('button[aria-label="Следующая страница"]');
+    expect(prevAfter?.disabled).toBe(false);
+    expect(nextAfter?.disabled).toBe(true);
+    result.dispose();
+    document.body.replaceChildren();
+  });
+
   it("навигирует по строкам таблицы с клавиатуры", async () => {
     const devices = devicesHarness([DEVICE, PHONE]);
     const container = createAppContainer();
@@ -1151,7 +1297,7 @@ describe("ClientsPageVM", () => {
       });
       expect(devices.repository.bulk).toHaveBeenCalledTimes(1);
       expect(devices.repository.bulk).toHaveBeenCalledWith("delete", [DEVICE.id, PHONE.id]);
-      expect(devices.repository.listDevices).toHaveBeenCalledTimes(2);
+      expect(devices.repository.pageDevices).toHaveBeenCalledTimes(2);
       expect(vm.devices).toEqual([]);
       expect(vm.selectedIds).toEqual([]);
       expect(vm.bulkBusy).toBe(false);
@@ -1234,7 +1380,7 @@ describe("ClientsPageVM UX-состояния", () => {
     await vm.load();
     expect(vm.devices).toHaveLength(2);
 
-    vi.mocked(devices.repository.listDevices).mockRejectedValueOnce(new Error("Сеть недоступна"));
+    vi.mocked(devices.repository.pageDevices).mockRejectedValueOnce(new Error("Сеть недоступна"));
     await vm.load();
 
     expect(vm.error).toBe("Сеть недоступна");
@@ -1255,7 +1401,9 @@ describe("ClientsPageVM UX-состояния", () => {
     expect(vm.pageCount).toBe(2);
 
     vm.goToPage(2);
-    expect(vm.pagedDevices).toHaveLength(5);
+    await vi.waitFor(() => {
+      expect(vm.pagedDevices).toHaveLength(5);
+    });
   });
 
   it("спрашивает подтверждение перед массовым отзывом ссылок", async () => {

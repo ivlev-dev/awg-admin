@@ -1,8 +1,10 @@
 import type { BulkResult } from "../bulk";
+import type { Page } from "../page";
 import type { Device, Profile, ShareLink } from "../types";
 import type {
   CreateShareInput,
   DeviceInput,
+  DevicePageParams,
   DeviceStats,
   DeviceStatsQueryOptions,
   DeviceUpdateInput,
@@ -12,6 +14,7 @@ export type DevicesBulkAction = "revoke_shares" | "delete";
 
 export interface DevicesRepository {
   listDevices(): Promise<Device[]>;
+  pageDevices(params: DevicePageParams): Promise<Page<Device>>;
   getDevice(id: string): Promise<Device>;
   createDevice(input: DeviceInput): Promise<Device>;
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device>;

@@ -10,6 +10,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/app/bootstrap", get(controllers::app::bootstrap))
         .route("/app/devices", post(controllers::app::create_device))
+        .route("/app/devices/page", get(controllers::app::devices_page))
         .route(
             "/app/devices/{id}",
             patch(controllers::app::update_device).delete(controllers::app::delete_device),

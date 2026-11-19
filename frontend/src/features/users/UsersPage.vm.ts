@@ -2,11 +2,10 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { debounce } from "@/app/debounce";
-import { compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
 import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
-import { PAGE_SIZES, currentPage, pageCount, pageSlice, pageWindow } from "@/app/table-pagination";
+import { PAGE_SIZES, currentPage, pageCount, pageWindow } from "@/app/table-pagination";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
 import { validateEmail, validatePassword } from "@/application/guards";
@@ -16,11 +15,13 @@ import type { TariffsService } from "@/application/tariffs/service";
 import type { UsersService } from "@/application/users/service";
 import { formatPercent } from "@/domain/format";
 import type { NodeInfo, Role, Tariff, User } from "@/domain/types";
+import { isPendingUser } from "@/domain/users/query";
 import type { UsersBulkAction } from "@/domain/users/repository";
+import type { UserPageParams, UserPageStatus, UserPageTab } from "@/domain/users/types";
 import { t } from "@/i18n";
 import { formatBytesI18n, formatDateI18n } from "@/i18n/format";
 
-export type UsersTab = "active" | "pending";
+export type UsersTab = UserPageTab;
 
 export interface UsersFilters {
   tab: UsersTab;
@@ -29,16 +30,16 @@ export interface UsersFilters {
 
 export interface UsersAdvancedFilters {
   role: "all" | Role;
-  status: "all" | "active" | "disabled";
-  node: string;
+  status: "all" | UserPageStatus;
 }
 
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
-const FILTER_ID_LIMIT = 100;
+const DEFAULT_PAGE_SIZE = 25;
+const ADMIN_ROSTER_LIMIT = 200;
 
 const EMPTY_FILTERS: UsersFilters = { tab: "active", query: "" };
-const EMPTY_ADVANCED_FILTERS: UsersAdvancedFilters = { role: "all", status: "all", node: "all" };
+const EMPTY_ADVANCED_FILTERS: UsersAdvancedFilters = { role: "all", status: "all" };
 
 export const usersFiltersStorage = persistedSignal<UsersFilters>(
   "awg.ui.users.filters",
@@ -54,7 +55,10 @@ export const usersAdvancedFiltersStorage = persistedSignal<UsersAdvancedFilters>
 
 export class UsersPageVM extends ViewModel {
   @reactive accessor users: User[] = [];
+  @reactive accessor activeTotal = 0;
   @reactive accessor pending: User[] = [];
+  @reactive accessor pendingTotal = 0;
+  @reactive accessor adminRoster: User[] = [];
   @reactive accessor tariffs: Tariff[] = [];
   @reactive accessor nodes: NodeInfo[] = [];
   @reactive accessor quotas: UserQuotaSnapshot[] = [];
@@ -68,18 +72,20 @@ export class UsersPageVM extends ViewModel {
   @reactive accessor query = "";
   @reactive accessor appliedQuery = "";
   @reactive accessor roleFilter: "all" | Role = "all";
-  @reactive accessor statusFilter: "all" | "active" | "disabled" = "all";
-  @reactive accessor nodeFilter = "all";
+  @reactive accessor statusFilter: "all" | UserPageStatus = "all";
   @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
   @reactive accessor page = 1;
-  @reactive accessor pageSize = 25;
-  @reactive accessor sort: SortState<"email" | "role" | "status"> | null = { key: "email", direction: "asc" };
+  @reactive accessor pendingPage = 1;
+  @reactive accessor pageSize = DEFAULT_PAGE_SIZE;
 
   private hasLoaded = false;
+  private requestSeq = 0;
+  private controller: AbortController | null = null;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
+    void this.reload();
   }, SEARCH_DEBOUNCE_MS);
 
   @reactive accessor modalOpen = false;
@@ -127,7 +133,6 @@ export class UsersPageVM extends ViewModel {
     this.appliedQuery = stored.query;
     this.roleFilter = advanced.role;
     this.statusFilter = advanced.status;
-    this.nodeFilter = advanced.node;
     this.restoreFromLocation();
   }
 
@@ -153,6 +158,8 @@ export class UsersPageVM extends ViewModel {
   override dispose(): void {
     this.applyQuery.cancel();
     this.detachPopstate();
+    this.controller?.abort();
+    this.controller = null;
     super.dispose();
   }
 
@@ -169,6 +176,10 @@ export class UsersPageVM extends ViewModel {
   }
 
   async load(): Promise<void> {
+    this.controller?.abort();
+    const controller = new AbortController();
+    this.controller = controller;
+    const seq = ++this.requestSeq;
     const firstLoad = !this.hasLoaded;
     this.loading = firstLoad;
     this.refreshing = !firstLoad;
@@ -176,28 +187,42 @@ export class UsersPageVM extends ViewModel {
     this.error = null;
     this.pendingError = null;
     this.quotaError = null;
-    const [usersResult, pendingResult, tariffsResult, nodesResult, quotaResult] = await Promise.allSettled([
-      this.usersService.listUsers(),
-      this.usersService.listPending(),
-      this.tariffsService.listTariffs(),
-      this.nodesService.listNodes(),
-      this.quotaService.users(),
-    ]);
+    const [usersResult, pendingResult, rosterResult, tariffsResult, nodesResult, quotaResult] =
+      await Promise.allSettled([
+        this.usersService.pageUsers(this.activeParams(controller.signal)),
+        this.usersService.pageUsers(this.pendingParams(controller.signal)),
+        this.usersService.pageUsers({
+          limit: ADMIN_ROSTER_LIMIT,
+          offset: 0,
+          role: "admin",
+          tab: "active",
+          signal: controller.signal,
+        }),
+        this.tariffsService.listTariffs(),
+        this.nodesService.listNodes(),
+        this.quotaService.users(),
+      ]);
+    if (seq !== this.requestSeq || controller.signal.aborted) return;
     this.quotas = quotaResult.status === "fulfilled" ? quotaResult.value : [];
     if (quotaResult.status === "rejected") {
       this.quotaError = userMessage(quotaResult.reason, t("quota.error.load"));
     }
     if (pendingResult.status === "fulfilled") {
-      this.pending = pendingResult.value;
+      this.pending = pendingResult.value.items;
+      this.pendingTotal = pendingResult.value.total;
     } else {
       this.pendingError = userMessage(pendingResult.reason, t("users.pending.error.load"));
+    }
+    if (rosterResult.status === "fulfilled") {
+      this.adminRoster = rosterResult.value.items;
     }
     this.pendingLoading = false;
     try {
       if (usersResult.status === "rejected") throw usersResult.reason;
       if (tariffsResult.status === "rejected") throw tariffsResult.reason;
       if (nodesResult.status === "rejected") throw nodesResult.reason;
-      this.users = usersResult.value;
+      this.users = usersResult.value.items;
+      this.activeTotal = usersResult.value.total;
       this.tariffs = tariffsResult.value;
       this.nodes = nodesResult.value;
     } catch (error) {
@@ -206,8 +231,46 @@ export class UsersPageVM extends ViewModel {
       this.loading = false;
       this.refreshing = false;
       this.hasLoaded = true;
-      this.clampPage();
+      this.clampPages();
     }
+  }
+
+  private reload(): Promise<void> {
+    return this.load();
+  }
+
+  private activeParams(signal: AbortSignal): UserPageParams {
+    return {
+      tab: "active",
+      limit: this.pageSize,
+      offset: (this.page - 1) * this.pageSize,
+      ...(this.appliedQuery.trim().length > 0 ? { query: this.appliedQuery.trim() } : {}),
+      ...(this.roleFilter === "all" ? {} : { role: this.roleFilter }),
+      ...(this.statusFilter === "all" ? {} : { status: this.statusFilter }),
+      signal,
+    };
+  }
+
+  private pendingParams(signal: AbortSignal): UserPageParams {
+    return {
+      tab: "pending",
+      limit: this.pageSize,
+      offset: (this.pendingPage - 1) * this.pageSize,
+      ...(this.appliedQuery.trim().length > 0 ? { query: this.appliedQuery.trim() } : {}),
+      signal,
+    };
+  }
+
+  private clampPages(): void {
+    const maxActive = pageCount(this.activeTotal, this.pageSize);
+    const maxPending = pageCount(this.pendingTotal, this.pageSize);
+    const activeChanged = this.page > maxActive;
+    const pendingChanged = this.pendingPage > maxPending;
+    if (!activeChanged && !pendingChanged) return;
+    if (activeChanged) this.page = maxActive;
+    if (pendingChanged) this.pendingPage = maxPending;
+    this.syncLocation();
+    void this.reload();
   }
 
   @computed
@@ -232,19 +295,20 @@ export class UsersPageVM extends ViewModel {
 
   @computed
   get activeUsers(): User[] {
-    return this.users.filter(
-      (user) => user.status !== "pending_email" && user.status !== "pending_approval",
-    );
+    return this.users;
   }
 
   @computed
   get pendingCount(): number {
-    return this.pending.length;
+    return this.pendingTotal;
   }
 
   @computed
   get adminCount(): number {
-    return this.activeUsers.filter((user) => user.role === "admin" && !user.disabled).length;
+    const roster = this.adminRoster.length > 0 ? this.adminRoster : this.users;
+    return roster.filter(
+      (user) => user.role === "admin" && !user.disabled && !isPendingUser(user),
+    ).length;
   }
 
   private isLastAdmin(user: User): boolean {
@@ -252,48 +316,48 @@ export class UsersPageVM extends ViewModel {
   }
 
   @computed
-  get filteredActiveUsers(): User[] {
-    const users = this.activeUsers.filter((user) => {
-      if (!matchesQuery(user, this.appliedQuery)) return false;
-      if (this.roleFilter !== "all" && user.role !== this.roleFilter) return false;
-      if (this.statusFilter === "active" && user.disabled) return false;
-      if (this.statusFilter === "disabled" && !user.disabled) return false;
-      if (this.nodeFilter !== "all" && (user.node_id ?? null) !== this.nodeFilter) return false;
-      return true;
-    });
-    const sort = this.sort;
-    if (sort === null) return users;
-    const direction = sort.direction;
-    return [...users].sort((left, right) => {
-      if (sort.key === "email") {
-        const byEmail = compareText(this.userEmail(left), this.userEmail(right), direction);
-        return byEmail !== 0 ? byEmail : compareText(left.id, right.id, direction);
-      }
-      if (sort.key === "role") return compareText(left.role, right.role, direction);
-      return compareText(this.statusLabel(left), this.statusLabel(right), direction);
-    });
-  }
-
-  @computed
   get pageCount(): number {
-    return pageCount(this.filteredActiveUsers.length, this.pageSize);
+    return pageCount(this.activeTotal, this.pageSize);
   }
 
   @computed
   get currentPage(): number {
-    return currentPage(this.page, this.filteredActiveUsers.length, this.pageSize);
+    return currentPage(this.page, this.activeTotal, this.pageSize);
   }
 
   @computed
   get pagedActiveUsers(): User[] {
-    return pageSlice(this.filteredActiveUsers, this.currentPage, this.pageSize);
+    return this.users;
   }
 
   @computed
   get pageSummary(): string {
-    const total = this.filteredActiveUsers.length;
-    const window = pageWindow(total, this.page, this.pageSize);
-    return t("users.pagination.summary", { from: window.from, to: window.to, total });
+    const window = pageWindow(this.activeTotal, this.currentPage, this.pageSize);
+    return t("users.pagination.summary", {
+      from: window.from,
+      to: window.to,
+      total: this.activeTotal,
+    });
+  }
+
+  @computed
+  get pendingPageCount(): number {
+    return pageCount(this.pendingTotal, this.pageSize);
+  }
+
+  @computed
+  get pendingCurrentPage(): number {
+    return currentPage(this.pendingPage, this.pendingTotal, this.pageSize);
+  }
+
+  @computed
+  get pendingPageSummary(): string {
+    const window = pageWindow(this.pendingTotal, this.pendingCurrentPage, this.pageSize);
+    return t("users.pagination.summary", {
+      from: window.from,
+      to: window.to,
+      total: this.pendingTotal,
+    });
   }
 
   @computed
@@ -302,26 +366,32 @@ export class UsersPageVM extends ViewModel {
   }
 
   goToPage(page: number): void {
-    this.page = Math.min(Math.max(1, Math.round(page)), this.pageCount);
+    const next = Math.min(Math.max(1, Math.round(page)), this.pageCount);
+    if (next === this.page) return;
+    this.page = next;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
+  }
+
+  goToPendingPage(page: number): void {
+    const next = Math.min(Math.max(1, Math.round(page)), this.pendingPageCount);
+    if (next === this.pendingPage) return;
+    this.pendingPage = next;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
   }
 
   setPageSize(value: string): void {
     const size = Number(value);
-    if (!Number.isFinite(size) || size <= 0) return;
-    this.pageSize = size;
+    if (!Number.isFinite(size) || size <= 0 || size === this.pageSize) return;
+    this.pageSize = Math.trunc(size);
     this.page = 1;
-  }
-
-  private clampPage(): void {
-    if (this.page > this.pageCount) this.page = this.pageCount;
-  }
-
-  sortBy(key: "email" | "role" | "status"): void {
-    this.sort = nextSort(this.sort, key);
-  }
-
-  sortMark(key: "email" | "role" | "status"): string {
-    return sortIndicator(this.sort, key);
+    this.pendingPage = 1;
+    this.clearSelection();
+    this.syncLocation();
+    void this.reload();
   }
 
   @computed
@@ -340,7 +410,7 @@ export class UsersPageVM extends ViewModel {
   }
 
   selectAllFiltered(): void {
-    this.selectedIds = this.filteredActiveUsers.map((user) => user.id);
+    this.selectedIds = this.users.map((user) => user.id);
   }
 
   clearSelection(): void {
@@ -348,8 +418,7 @@ export class UsersPageVM extends ViewModel {
   }
 
   get allFilteredSelected(): boolean {
-    return this.filteredActiveUsers.length > 0
-      && this.filteredActiveUsers.every((user) => this.selectedIds.includes(user.id));
+    return this.users.length > 0 && this.users.every((user) => this.selectedIds.includes(user.id));
   }
 
   toggleSelectAll(): void {
@@ -360,19 +429,19 @@ export class UsersPageVM extends ViewModel {
   async bulkSetDisabled(disabled: boolean): Promise<void> {
     const skippedLastAdmin = this.activeUsers.some(
       (user) =>
-        this.selectedIds.includes(user.id)
-        && user.id !== this.selfId
-        && user.disabled !== disabled
-        && disabled
-        && this.isLastAdmin(user),
+        this.selectedIds.includes(user.id) &&
+        user.id !== this.selfId &&
+        user.disabled !== disabled &&
+        disabled &&
+        this.isLastAdmin(user),
     );
     const ids = this.activeUsers
       .filter(
         (user) =>
-          this.selectedIds.includes(user.id)
-          && user.id !== this.selfId
-          && user.disabled !== disabled
-          && !(disabled && this.isLastAdmin(user)),
+          this.selectedIds.includes(user.id) &&
+          user.id !== this.selfId &&
+          user.disabled !== disabled &&
+          !(disabled && this.isLastAdmin(user)),
       )
       .map((user) => user.id);
     if (ids.length === 0) {
@@ -398,7 +467,9 @@ export class UsersPageVM extends ViewModel {
     const details = [
       t("users.bulk.deleteDetails"),
       selfSkipped ? t("users.bulk.skipSelf") : "",
-    ].filter((line) => line.length > 0).join(" ");
+    ]
+      .filter((line) => line.length > 0)
+      .join(" ");
     const confirmed = await askConfirm({
       title: t("users.bulk.delete.title"),
       message: t("bulk.confirm.delete", { count: ids.length }),
@@ -428,44 +499,37 @@ export class UsersPageVM extends ViewModel {
   }
 
   @computed
-  get filteredPending(): User[] {
-    return this.pending.filter((user) => matchesQuery(user, this.appliedQuery));
-  }
-
-  @computed
   get hasActiveFilters(): boolean {
-    return this.appliedQuery.trim().length > 0
-      || this.roleFilter !== "all"
-      || this.statusFilter !== "all"
-      || this.nodeFilter !== "all";
+    return (
+      this.appliedQuery.trim().length > 0 ||
+      this.roleFilter !== "all" ||
+      this.statusFilter !== "all"
+    );
   }
 
   @computed
   get activeCountLabel(): string {
-    return t("filters.found", {
-      found: this.filteredActiveUsers.length,
-      total: this.activeUsers.length,
-    });
+    return t("filters.foundTotal", { total: this.activeTotal });
   }
 
   @computed
   get pendingCountLabel(): string {
-    return t("filters.found", {
-      found: this.filteredPending.length,
-      total: this.pending.length,
-    });
+    return t("filters.foundTotal", { total: this.pendingTotal });
   }
 
   setTab(value: string): void {
     this.tab = value === "pending" ? "pending" : "active";
     this.page = 1;
+    this.pendingPage = 1;
     this.clearSelection();
     this.persistFilters();
+    void this.reload();
   }
 
   setQuery(event: Event): void {
     this.query = (event.target as HTMLInputElement).value;
     this.page = 1;
+    this.pendingPage = 1;
     this.clearSelection();
     this.applyQuery();
     this.persistFilters();
@@ -476,6 +540,7 @@ export class UsersPageVM extends ViewModel {
     this.page = 1;
     this.clearSelection();
     this.persistFilters();
+    void this.reload();
   }
 
   setStatusFilter(value: string): void {
@@ -483,13 +548,7 @@ export class UsersPageVM extends ViewModel {
     this.page = 1;
     this.clearSelection();
     this.persistFilters();
-  }
-
-  setNodeFilter(value: string): void {
-    this.nodeFilter = value.length > 0 ? value : "all";
-    this.page = 1;
-    this.clearSelection();
-    this.persistFilters();
+    void this.reload();
   }
 
   resetFilters(): void {
@@ -498,10 +557,11 @@ export class UsersPageVM extends ViewModel {
     this.appliedQuery = "";
     this.roleFilter = "all";
     this.statusFilter = "all";
-    this.nodeFilter = "all";
     this.page = 1;
+    this.pendingPage = 1;
     this.clearSelection();
     this.persistFilters();
+    void this.reload();
   }
 
   userEmail(user: User): string {
@@ -588,7 +648,8 @@ export class UsersPageVM extends ViewModel {
   quotaTitle(userId: string): string {
     const quota = this.quotaFor(userId);
     if (!quota) return t("users.quota.none");
-    const limit = quota.quotaBytes === null ? t("common.unlimited") : formatBytesI18n(quota.quotaBytes);
+    const limit =
+      quota.quotaBytes === null ? t("common.unlimited") : formatBytesI18n(quota.quotaBytes);
     return t("users.quota.usedOf", { used: formatBytesI18n(quota.usedBytes), limit });
   }
 
@@ -918,18 +979,19 @@ export class UsersPageVM extends ViewModel {
     usersAdvancedFiltersStorage.write({
       role: this.roleFilter,
       status: this.statusFilter,
-      node: this.nodeFilter,
     });
     this.syncLocation();
   }
 
   private syncLocation(): void {
+    const visiblePage = this.tab === "pending" ? this.pendingPage : this.page;
     syncFilterQuery("/users", [
       ["tab", this.tab !== "active" ? this.tab : null],
-      ["query", this.query.trim().length > 0 ? this.query : null],
+      ["page", visiblePage > 1 ? String(visiblePage) : null],
+      ["limit", this.pageSize !== DEFAULT_PAGE_SIZE ? String(this.pageSize) : null],
+      ["q", this.query.trim().length > 0 ? this.query : null],
       ["role", this.roleFilter !== "all" ? this.roleFilter : null],
       ["status", this.statusFilter !== "all" ? this.statusFilter : null],
-      ["node", this.nodeFilter !== "all" ? this.nodeFilter : null],
     ]);
   }
 
@@ -940,8 +1002,8 @@ export class UsersPageVM extends ViewModel {
       const tab = params.get("tab");
       if (tab === "active" || tab === "pending") this.tab = tab;
     }
-    if (params.has("query")) {
-      const query = params.get("query") ?? "";
+    if (params.has("q") || params.has("query")) {
+      const query = params.get("q") ?? params.get("query") ?? "";
       this.query = query;
       this.appliedQuery = query;
     }
@@ -949,19 +1011,21 @@ export class UsersPageVM extends ViewModel {
     if (role === "admin" || role === "user") this.roleFilter = role;
     const status = params.get("status");
     if (status === "active" || status === "disabled") this.statusFilter = status;
-    const node = params.get("node");
-    if (node !== null && node.length > 0) this.nodeFilter = node;
+    const page = Number(params.get("page"));
+    if (Number.isInteger(page) && page > 0) {
+      this.page = page;
+      this.pendingPage = page;
+    }
+    const limit = Number(params.get("limit"));
+    if (PAGE_SIZES.includes(limit)) this.pageSize = limit;
   }
 
   private readonly onPopState = (): void => {
+    if (readFilterQuery("/users") === null) return;
     this.restoreFromLocation();
+    this.clearSelection();
+    void this.reload();
   };
-}
-
-function matchesQuery(user: User, query: string): boolean {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return true;
-  return (user.email ?? user.login).toLowerCase().includes(normalized);
 }
 
 function validateUsersFilters(value: unknown): UsersFilters | null {
@@ -977,9 +1041,7 @@ function validateAdvancedFilters(value: unknown): UsersAdvancedFilters | null {
   if (!isRecord(value)) return null;
   const role = value["role"];
   const status = value["status"];
-  const node = stringField(value, "node", FILTER_ID_LIMIT);
-  if (node === null) return null;
   if (role !== "all" && role !== "admin" && role !== "user") return null;
   if (status !== "all" && status !== "active" && status !== "disabled") return null;
-  return { role, status, node };
+  return { role, status };
 }

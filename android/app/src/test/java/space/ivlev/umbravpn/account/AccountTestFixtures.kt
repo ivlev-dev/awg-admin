@@ -459,3 +459,72 @@ internal fun appDeviceJson(deviceName: String = "Pixel"): String =
     }
     """
         .trimIndent()
+
+internal fun deviceJson(
+    id: String = "device-1",
+    name: String = "Pixel",
+    revoked: Boolean = false,
+    addresses: List<String> = listOf("10.8.0.2/32"),
+): String =
+    """
+    {
+      "id": "$id",
+      "user_id": "user-1",
+      "group_id": "group-1",
+      "interface_id": "iface-1",
+      "interface_name": "awg0",
+      "node_id": "node-1",
+      "node_name": "Frankfurt",
+      "name": "$name",
+      "down_kbps": 0,
+      "up_kbps": 0,
+      "revoked": $revoked,
+      "external": false,
+      "created_at": "2026-01-03T09:00:00Z",
+      "peers": [],
+      "addresses": [${addresses.joinToString(",") { "\"$it\"" }}]
+    }
+    """
+        .trimIndent()
+
+internal fun devicePageJson(
+    devices: List<String>,
+    total: Int = devices.size,
+    limit: Int = 20,
+    offset: Int = 0,
+): String =
+    """
+    {
+      "items": [${devices.joinToString(",")}],
+      "total": $total,
+      "limit": $limit,
+      "offset": $offset
+    }
+    """
+        .trimIndent()
+
+internal fun bootstrapJsonWithDevices(
+    devices: List<String>,
+    devicesTotal: Int? = null,
+): String {
+    val totalLine = devicesTotal?.let { "\"devices_total\": $it," } ?: ""
+    return """
+    {
+      "user": {
+        "id": "user-1",
+        "login": "alice",
+        "email": "alice@example.com",
+        "status": "active",
+        "totp_enabled": false,
+        "role": "user",
+        "disabled": false
+      },
+      "tariff": null,
+      "quota": null,
+      $totalLine
+      "devices": [${devices.joinToString(",")}],
+      "interfaces": []
+    }
+    """
+        .trimIndent()
+}

@@ -32,6 +32,9 @@ import type {
   User,
 } from "@/domain/types";
 import type { UsersBulkAction, UsersRepository } from "@/domain/users/repository";
+import { pageUsersFromList } from "@/domain/users/query";
+import type { UserPageParams } from "@/domain/users/types";
+import type { Page } from "@/domain/page";
 import type { CreateUserInput, UpdateUserInput, ApproveUserInput } from "@/domain/users/types";
 import type { TokenStore } from "@/infrastructure/storage";
 import { UsersPage } from "@/features/users/UsersPage";
@@ -90,6 +93,10 @@ const QUOTA: UserQuota = {
 class StubUsersRepository {
   async listUsers(): Promise<User[]> {
     return [ADMIN];
+  }
+
+  async pageUsers(params: UserPageParams): Promise<Page<User>> {
+    return pageUsersFromList([ADMIN], params);
   }
 
   async listPending(): Promise<User[]> {
@@ -289,6 +296,9 @@ function stubApi(): void {
     vi.fn(async (input: string | URL | Request) => {
       const url = String(input);
       if (url.endsWith("/quota/users")) return jsonResponse([QUOTA]);
+      if (url.includes("/users/page")) {
+        return jsonResponse({ items: [ADMIN], total: 1, limit: 25, offset: 0 });
+      }
       if (url.endsWith("/users")) return jsonResponse([ADMIN]);
       if (url.endsWith("/tariffs")) return jsonResponse([TARIFF]);
       if (url.endsWith("/nodes")) return jsonResponse([NODE]);
@@ -381,7 +391,9 @@ describe("UsersPageVM constructor DI", () => {
 
     const nodeCell = root.querySelector("td[data-label='Тариф/нода']");
     expect(nodeCell?.textContent).toContain("Node 1");
-    expect(root.querySelector("#users-node")).not.toBeNull();
+    expect(root.querySelector("#users-role")).not.toBeNull();
+    expect(root.querySelector("#users-status")).not.toBeNull();
+    expect(root.querySelector("#users-node")).toBeNull();
 
     const cardMeta = root.querySelector(".entity-list");
     expect(cardMeta).toBeNull();
