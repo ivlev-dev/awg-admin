@@ -11,6 +11,7 @@ use awg_network::{Group, Interface, NetworkService, NewInterface, Node};
 use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{CreateInterfaceRequest, UpdateInterfaceRequest};
+use crate::publish::publish_node;
 use crate::state::AppState;
 use crate::views::InterfaceView;
 
@@ -114,7 +115,7 @@ pub async fn create(
             &settings.obfuscation,
         )
         .map_err(ApiError::from)?;
-    let _ = state.orchestration.publish(interface.node_id);
+    publish_node(&state, interface.node_id).await;
     let group_name = state
         .network
         .get_group(interface.group_id)
@@ -154,7 +155,7 @@ pub async fn update(
             },
         )
         .map_err(ApiError::from)?;
-    let _ = state.orchestration.publish(interface.node_id);
+    publish_node(&state, interface.node_id).await;
     let group_name = state
         .network
         .get_group(interface.group_id)
@@ -189,7 +190,7 @@ pub async fn rotate(
         .network
         .rotate_interface(id, &settings.obfuscation)
         .map_err(ApiError::from)?;
-    let _ = state.orchestration.publish(interface.node_id);
+    publish_node(&state, interface.node_id).await;
     let group_name = state
         .network
         .get_group(interface.group_id)
@@ -221,7 +222,7 @@ pub async fn delete(
     user.require_admin()?;
     let interface = state.network.get_interface(id).map_err(ApiError::from)?;
     state.network.delete_interface(id).map_err(ApiError::from)?;
-    let _ = state.orchestration.publish(interface.node_id);
+    publish_node(&state, interface.node_id).await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

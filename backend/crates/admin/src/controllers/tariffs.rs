@@ -97,7 +97,7 @@ pub async fn update(
             .into_iter()
             .filter(|user| user.tariff_id == Some(tariff.id))
         {
-            publish_user_groups(&state, user.id);
+            publish_user_groups(&state, user.id).await;
         }
     }
     Ok(Json(TariffView::build(

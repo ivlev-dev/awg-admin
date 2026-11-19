@@ -169,7 +169,7 @@ pub async fn webhook(
         .handle_webhook(&provider, &headers, body.as_ref(), Utc::now())
         .map_err(webhook_error)?;
     if let Some(user_id) = outcome.affected_user() {
-        publish_user_groups(&state, user_id);
+        publish_user_groups(&state, user_id).await;
     }
     Ok(Json(WebhookView {
         status: outcome.status().to_string(),

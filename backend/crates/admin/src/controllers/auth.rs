@@ -10,6 +10,7 @@ use awg_identity::{RegisterInput, SessionMetadata};
 
 use crate::audit::{client_ip, record_login};
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, ForgotPasswordRequest,
@@ -43,25 +44,31 @@ pub async fn login(
             retry_after,
         });
     }
-    let session = match state.identity.login_with_totp(
-        &request.login,
-        &request.password,
-        request.totp_code.as_deref(),
-        &session_metadata(&headers, Some(peer), &state.config.trusted_proxies),
-    ) {
-        Ok(session) => session,
-        Err(error) => {
-            let api_error = ApiError::from(error);
-            crate::metrics::record_login("failure");
-            record_login(
-                &state,
-                ip,
-                &request.login,
-                None,
-                api_error.status_code().as_u16(),
-                Some("login failed".into()),
-            );
-            return Err(api_error);
+    let session = {
+        let identity = state.identity.clone();
+        let login = request.login.clone();
+        let password = request.password.clone();
+        let totp_code = request.totp_code.clone();
+        let metadata = session_metadata(&headers, Some(peer), &state.config.trusted_proxies);
+        match blocking::run_core(move || {
+            identity.login_with_totp(&login, &password, totp_code.as_deref(), &metadata)
+        })
+        .await
+        {
+            Ok(session) => session,
+            Err(error) => {
+                let api_error = ApiError::from(error);
+                crate::metrics::record_login("failure");
+                record_login(
+                    &state,
+                    ip,
+                    &request.login,
+                    None,
+                    api_error.status_code().as_u16(),
+                    Some("login failed".into()),
+                );
+                return Err(api_error);
+            }
         }
     };
     state.login_limiter.reset(&key);
@@ -216,9 +223,11 @@ pub async fn reset_password(
     State(state): State<Arc<AppState>>,
     Json(request): Json<ResetPasswordRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    state
-        .identity
-        .reset_password(&request.token, &request.password)
+    let identity = state.identity.clone();
+    let token = request.token.clone();
+    let password = request.password.clone();
+    blocking::run_core(move || identity.reset_password(&token, &password))
+        .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "status": "reset" })))
 }
@@ -229,14 +238,15 @@ pub async fn totp_setup(
     request: Option<Json<SetupTotpRequest>>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let request = request.map(|Json(request)| request).unwrap_or_default();
-    let setup = state
-        .identity
-        .setup_totp(
-            user.id(),
-            request.password.as_deref(),
-            request.code.as_deref(),
-        )
-        .map_err(ApiError::from)?;
+    let identity = state.identity.clone();
+    let user_id = user.id();
+    let password = request.password.clone();
+    let code = request.code.clone();
+    let setup = blocking::run_core(move || {
+        identity.setup_totp(user_id, password.as_deref(), code.as_deref())
+    })
+    .await
+    .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({
         "secret": setup.secret,
         "otpauth_url": setup.otpauth_url,
@@ -261,9 +271,12 @@ pub async fn totp_disable(
     user: AuthUser,
     Json(request): Json<DisableTotpRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    state
-        .identity
-        .disable_totp(user.id(), &request.password, &request.code)
+    let identity = state.identity.clone();
+    let user_id = user.id();
+    let password = request.password.clone();
+    let code = request.code.clone();
+    blocking::run_core(move || identity.disable_totp(user_id, &password, &code))
+        .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "enabled": false })))
 }
@@ -278,15 +291,16 @@ pub async fn change_password(
     user: AuthUser,
     Json(request): Json<ChangePasswordRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    state
-        .identity
-        .change_password(
-            user.id(),
-            &request.current_password,
-            request.totp_code.as_deref(),
-            &request.new_password,
-        )
-        .map_err(ApiError::from)?;
+    let identity = state.identity.clone();
+    let user_id = user.id();
+    let current = request.current_password.clone();
+    let totp_code = request.totp_code.clone();
+    let new_password = request.new_password.clone();
+    blocking::run_core(move || {
+        identity.change_password(user_id, &current, totp_code.as_deref(), &new_password)
+    })
+    .await
+    .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

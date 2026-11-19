@@ -9,6 +9,7 @@ use uuid::Uuid;
 use awg_statistics::{AggregateBucket, StatsScope};
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use crate::views::{
@@ -53,14 +54,7 @@ pub async fn overview(
     let (month_rx, month_tx) = state.stats.month(scope).map_err(ApiError::from)?;
     let rate = state.stats.current_rate(&scope).unwrap_or_default();
 
-    let devices = if user.is_admin() {
-        state.devices.list_all().map_err(ApiError::from)?
-    } else {
-        state
-            .devices
-            .list_for_user(user.id())
-            .map_err(ApiError::from)?
-    };
+    let devices = visible_devices(&state, &user).await?;
     let devices_total = devices.len();
     let today_by_device = state.stats.today_device_totals().map_err(ApiError::from)?;
     let top = top_devices(&devices, &today_by_device, TOP_DEVICES);
@@ -112,6 +106,24 @@ pub async fn overview(
     }))
 }
 
+async fn visible_devices(
+    state: &Arc<AppState>,
+    user: &AuthUser,
+) -> ApiResult<Vec<awg_clients::Device>> {
+    let devices = state.devices.clone();
+    let admin = user.is_admin();
+    let user_id = user.id();
+    blocking::run_core(move || {
+        if admin {
+            devices.list_all()
+        } else {
+            devices.list_for_user(user_id)
+        }
+    })
+    .await
+    .map_err(ApiError::from)
+}
+
 fn top_devices(
     devices: &[awg_clients::Device],
     totals: &std::collections::HashMap<Uuid, (u64, u64)>,
@@ -146,14 +158,7 @@ pub async fn devices(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Vec<DeviceStatsView>>> {
-    let devices = if user.is_admin() {
-        state.devices.list_all().map_err(ApiError::from)?
-    } else {
-        state
-            .devices
-            .list_for_user(user.id())
-            .map_err(ApiError::from)?
-    };
+    let devices = visible_devices(&state, &user).await?;
     let scopes: Vec<StatsScope> = devices
         .iter()
         .filter(|device| !device.revoked)

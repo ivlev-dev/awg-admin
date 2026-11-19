@@ -21,6 +21,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::models::{
     BatchImportRequest, ClientsImportRequest, ImportClient, ImportInterfaceRequest, ImportRequest,
 };
+use crate::publish::{publish_node, publish_nodes};
 use crate::state::AppState;
 use crate::views::{
     ClientsImportApplyView, ClientsImportCreatedInterfaceView, ClientsImportCreatedView,
@@ -50,7 +51,7 @@ pub async fn run(
     Json(request): Json<ImportRequest>,
 ) -> ApiResult<Json<ImportReport>> {
     user.require_admin()?;
-    let _import_guard = state.import_lock.lock().await;
+    let import_guard = state.import_lock.lock().await;
 
     let server = parse_server_conf(&request.server_config).map_err(ApiError::from)?;
     let server_public = public_from_private(&server.private_key).map_err(ApiError::from)?;
@@ -129,7 +130,8 @@ pub async fn run(
         }
     }
 
-    let _ = state.orchestration.publish(request.node_id);
+    drop(import_guard);
+    publish_node(&state, request.node_id).await;
 
     Ok(Json(ImportReport {
         group_id: group.id,
@@ -158,7 +160,7 @@ pub async fn apply(
     user.require_admin()?;
     let owner_id = resolve_owner(&state, &user, request.owner_user_id)?;
     let (plan, created) = apply_import(&state.network, &state.devices, &request, owner_id)?;
-    let _ = state.orchestration.publish(request.node_id);
+    publish_node(&state, request.node_id).await;
     Ok(Json(ImportApplyView {
         preview: plan.view(),
         created: created.view(),
@@ -188,7 +190,7 @@ pub async fn clients_apply(
     Json(request): Json<ClientsImportRequest>,
 ) -> ApiResult<Json<ClientsImportApplyView>> {
     user.require_admin()?;
-    let _import_guard = state.import_lock.lock().await;
+    let import_guard = state.import_lock.lock().await;
     let owner_id = resolve_owner(&state, &user, request.owner_user_id)?;
     let (plan, created) = apply_clients_import(&state.network, &state.devices, &request, owner_id)?;
     let mut nodes: HashSet<Uuid> = HashSet::new();
@@ -197,9 +199,8 @@ pub async fn clients_apply(
             nodes.insert(interface.node_id);
         }
     }
-    for node_id in nodes {
-        let _ = state.orchestration.publish(node_id);
-    }
+    drop(import_guard);
+    publish_nodes(&state, nodes.into_iter().collect()).await;
     Ok(Json(ClientsImportApplyView {
         preview: plan.view(),
         created: created.view(),

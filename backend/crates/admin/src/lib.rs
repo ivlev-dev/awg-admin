@@ -13,6 +13,7 @@ pub mod views;
 mod audit;
 mod auth;
 mod backup;
+mod blocking;
 mod directory;
 mod grpc;
 pub mod idempotency;
@@ -446,8 +447,7 @@ pub async fn run() -> Result<()> {
                     _ = wait_for_shutdown(&mut shutdown) => break,
                 }
                 let state = state.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || state.orchestration.publish_dirty()).await;
+                let _ = crate::publish::publish_dirty(&state).await;
             }
         }));
     }
@@ -465,8 +465,7 @@ pub async fn run() -> Result<()> {
                     _ = wait_for_shutdown(&mut shutdown) => break,
                 }
                 let state = state.clone();
-                let _ =
-                    tokio::task::spawn_blocking(move || state.orchestration.publish_all()).await;
+                crate::publish::publish_all(&state).await;
             }
         }));
     }

@@ -10,6 +10,7 @@ use awg_identity::{NewUser, UserChanges};
 use awg_shared::crypto::random_bytes;
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ApproveUserRequest, ChangePasswordRequest, CreateUserRequest, UpdateUserRequest,
@@ -30,7 +31,12 @@ pub async fn list(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<UserView>>> {
     user.require_admin()?;
-    let users = state.identity.list().map_err(ApiError::from)?;
+    let users = {
+        let identity = state.identity.clone();
+        blocking::run_core(move || identity.list())
+            .await
+            .map_err(ApiError::from)?
+    };
     Ok(Json(users.iter().map(UserView::from).collect()))
 }
 
@@ -45,18 +51,21 @@ pub async fn create(
         .password
         .filter(|password| !password.trim().is_empty())
         .unwrap_or_else(generated_password);
-    let created = state
-        .identity
-        .create(NewUser {
+    let created = {
+        let identity = state.identity.clone();
+        let input = NewUser {
             email: request.email,
             password,
             role: request.role,
             tariff_id: request.tariff_id,
             group_id: request.group_id,
             node_id: request.node_id,
-        })
-        .map_err(ApiError::from)?;
-    publish_user_groups(&state, created.id);
+        };
+        blocking::run_core(move || identity.create(input))
+            .await
+            .map_err(ApiError::from)?
+    };
+    publish_user_groups(&state, created.id).await;
     Ok(Json(UserView::from(&created)))
 }
 
@@ -97,7 +106,7 @@ pub async fn update(
             },
         )
         .map_err(ApiError::from)?;
-    publish_user_groups(&state, updated.id);
+    publish_user_groups(&state, updated.id).await;
     Ok(Json(UserView::from(&updated)))
 }
 
@@ -127,7 +136,7 @@ pub async fn delete(
     state.share.revoke_created_by(id).map_err(ApiError::from)?;
     state.identity.delete(id).map_err(ApiError::from)?;
     for group in groups {
-        publish_group(&state, group);
+        publish_group(&state, group).await;
     }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -139,9 +148,11 @@ pub async fn reset_password(
     Json(request): Json<ChangePasswordRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     user.require_admin()?;
-    state
-        .identity
-        .reset_password_for_user(id, &request.new_password)
+    let identity = state.identity.clone();
+    let user_id = id;
+    let new_password = request.new_password.clone();
+    blocking::run_core(move || identity.reset_password_for_user(user_id, &new_password))
+        .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -151,7 +162,12 @@ pub async fn pending(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<UserView>>> {
     user.require_admin()?;
-    let users = state.identity.pending_users().map_err(ApiError::from)?;
+    let users = {
+        let identity = state.identity.clone();
+        blocking::run_core(move || identity.pending_users())
+            .await
+            .map_err(ApiError::from)?
+    };
     Ok(Json(users.iter().map(UserView::from).collect()))
 }
 
@@ -183,7 +199,7 @@ pub async fn approve(
             )
             .map_err(ApiError::from)?;
     }
-    publish_user_groups(&state, approved.id);
+    publish_user_groups(&state, approved.id).await;
     Ok(Json(UserView::from(&approved)))
 }
 
@@ -194,7 +210,7 @@ pub async fn reject(
 ) -> ApiResult<Json<UserView>> {
     user.require_admin()?;
     let rejected = state.identity.reject_user(id).map_err(ApiError::from)?;
-    publish_user_groups(&state, rejected.id);
+    publish_user_groups(&state, rejected.id).await;
     Ok(Json(UserView::from(&rejected)))
 }
 

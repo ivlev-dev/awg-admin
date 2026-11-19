@@ -164,7 +164,7 @@ fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<String>> {
 }
 
 async fn create_device_view(
-    state: &AppState,
+    state: &Arc<AppState>,
     user: &AuthUser,
     request: &AppDeviceRequest,
 ) -> ApiResult<AppDeviceView> {
@@ -224,7 +224,7 @@ async fn create_device_view(
         )
         .await
         .map_err(ApiError::from)?;
-    publish_group(state, device.group_id);
+    publish_group(state, device.group_id).await;
     let configs = device_configs_for(state, device.id)?;
     let config = primary_config(&configs, device.interface_id)
         .ok_or_else(|| ApiError::NotFound("device peer".into()))?;
@@ -283,7 +283,7 @@ pub async fn create_tunnel(
         )
         .await
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     let configs = device_configs_for(&state, id)?;
     let config = primary_config(&configs, device.interface_id)
         .ok_or_else(|| ApiError::NotFound("device peer".into()))?;
@@ -313,7 +313,7 @@ pub async fn update_tunnel(
         .devices
         .rename_peer(peer_id, request.label)
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     let configs = device_configs_for(&state, id)?;
     let config = primary_config(&configs, device.interface_id)
         .ok_or_else(|| ApiError::NotFound("device peer".into()))?;
@@ -336,7 +336,7 @@ pub async fn delete_tunnel(
         return Err(ApiError::NotFound("device peer".into()));
     }
     state.devices.remove_peer(peer_id).map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -386,7 +386,7 @@ pub async fn update_device(
         .devices
         .update(id, &tariff, Some(name), None, None, None)
         .map_err(ApiError::from)?;
-    publish_group(&state, updated.group_id);
+    publish_group(&state, updated.group_id).await;
     Ok(Json(build_view(&state, &updated)?))
 }
 
@@ -402,7 +402,7 @@ pub async fn delete_device(
         .revoke_all_for_device(id)
         .map_err(ApiError::from)?;
     state.devices.delete(id).map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(StatusCode::NO_CONTENT)
 }
 

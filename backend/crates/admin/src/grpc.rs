@@ -9,6 +9,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status, Streaming};
 use uuid::Uuid;
 
+use crate::blocking;
 use crate::state::AppState;
 
 pub struct WorkerGrpc {
@@ -93,7 +94,11 @@ async fn run_session(
             .online(node_id, true, Some(hello.version).filter(|v| !v.is_empty()));
     tracing::info!(%node_id, "worker connected");
 
-    if let Ok(desired) = state.orchestration.snapshot(node_id) {
+    let desired = {
+        let state = state.clone();
+        blocking::run_core(move || state.orchestration.snapshot(node_id)).await
+    };
+    if let Ok(desired) = desired {
         let _ = out_tx
             .send(Ok(ServerMessage {
                 payload: Some(server_message::Payload::State(
@@ -170,7 +175,7 @@ async fn send_ack(
 }
 
 async fn handle_message(
-    state: &AppState,
+    state: &Arc<AppState>,
     node_id: Uuid,
     session: awg_orchestration::SessionId,
     message: WorkerMessage,
@@ -179,7 +184,10 @@ async fn handle_message(
         Some(worker_message::Payload::Stats(snapshot)) => {
             state.registry.touch(node_id, session);
             let stats = awg_orchestration::infrastructure::from_proto_stats(snapshot);
-            if let Err(error) = state.orchestration.record_stats(node_id, stats) {
+            let state = state.clone();
+            if let Err(error) =
+                blocking::run_core(move || state.orchestration.record_stats(node_id, stats)).await
+            {
                 tracing::warn!(%node_id, %error, "failed to record worker stats");
             }
         }

@@ -295,48 +295,12 @@ impl IdentityService {
     }
 
     pub async fn register(&self, input: RegisterInput) -> CoreResult<User> {
-        let email = normalize_email(&input.email)?;
-        validate_password(&input.password)?;
-        if self.users.find_by_email(&email)?.is_some() {
-            return Err(CoreError::Conflict("email is already registered".into()));
-        }
-        let login = match input
-            .login
-            .as_deref()
-            .map(str::trim)
-            .filter(|l| !l.is_empty())
-        {
-            Some(login) => {
-                validate_login(login)?;
-                if self.users.find_by_login(login)?.is_some() {
-                    return Err(CoreError::Conflict("login is already taken".into()));
-                }
-                login.to_string()
-            }
-            None => self.derived_login(&email)?,
-        };
-        let now = Utc::now();
-        let user = User {
-            id: Uuid::new_v4(),
-            login,
-            password_hash: self.hasher.hash(&input.password)?,
-            role: Role::User,
-            tariff_id: None,
-            group_id: None,
-            node_id: None,
-            disabled: false,
-            email: Some(email.clone()),
-            status: UserStatus::PendingEmail,
-            totp_secret_sealed: None,
-            totp_enabled: false,
-            recovery_codes: Vec::new(),
-            totp_pending_secret_sealed: None,
-            totp_pending_recovery_codes: Vec::new(),
-            last_totp_step: None,
-            created_at: now,
-            updated_at: now,
-        };
-        self.users.save(&user)?;
+        let users = self.users.clone();
+        let hasher = self.hasher.clone();
+        let (user, email) =
+            tokio::task::spawn_blocking(move || register_user(users, hasher, input))
+                .await
+                .map_err(join_error)??;
         self.issue_verification(&user, &email).await;
         Ok(user)
     }
@@ -659,25 +623,7 @@ impl IdentityService {
     }
 
     fn derived_login(&self, email: &str) -> CoreResult<String> {
-        let local = email.split('@').next().unwrap_or("user");
-        let mut base = sanitize_login(local);
-        if base.len() < 3 {
-            base = format!("user{base}");
-        }
-        base.truncate(64);
-        if self.users.find_by_login(&base)?.is_none() {
-            return Ok(base);
-        }
-        for suffix in 2..10_000 {
-            let tail = format!("-{suffix}");
-            let mut candidate = base.clone();
-            candidate.truncate(64 - tail.len());
-            candidate.push_str(&tail);
-            if self.users.find_by_login(&candidate)?.is_none() {
-                return Ok(candidate);
-            }
-        }
-        Err(CoreError::Conflict("could not allocate a login".into()))
+        allocate_login(self.users.as_ref(), email)
     }
 
     fn consume_auth_code(&self, user: &mut User, code: &str) -> CoreResult<bool> {
@@ -809,6 +755,84 @@ impl IdentityService {
             expires_in: access_expires_in,
         })
     }
+}
+
+fn register_user(
+    users: Arc<dyn UserRepository>,
+    hasher: Arc<dyn PasswordHasher>,
+    input: RegisterInput,
+) -> CoreResult<(User, String)> {
+    let email = normalize_email(&input.email)?;
+    validate_password(&input.password)?;
+    if users.find_by_email(&email)?.is_some() {
+        return Err(CoreError::Conflict("email is already registered".into()));
+    }
+    let login = match input
+        .login
+        .as_deref()
+        .map(str::trim)
+        .filter(|login| !login.is_empty())
+    {
+        Some(login) => {
+            validate_login(login)?;
+            if users.find_by_login(login)?.is_some() {
+                return Err(CoreError::Conflict("login is already taken".into()));
+            }
+            login.to_string()
+        }
+        None => allocate_login(users.as_ref(), &email)?,
+    };
+    let now = Utc::now();
+    let user = User {
+        id: Uuid::new_v4(),
+        login,
+        password_hash: hasher.hash(&input.password)?,
+        role: Role::User,
+        tariff_id: None,
+        group_id: None,
+        node_id: None,
+        disabled: false,
+        email: Some(email.clone()),
+        status: UserStatus::PendingEmail,
+        totp_secret_sealed: None,
+        totp_enabled: false,
+        recovery_codes: Vec::new(),
+        totp_pending_secret_sealed: None,
+        totp_pending_recovery_codes: Vec::new(),
+        last_totp_step: None,
+        created_at: now,
+        updated_at: now,
+    };
+    users.save(&user)?;
+    Ok((user, email))
+}
+
+fn allocate_login(users: &dyn UserRepository, email: &str) -> CoreResult<String> {
+    let local = email.split('@').next().unwrap_or("user");
+    let mut base = sanitize_login(local);
+    if base.len() < 3 {
+        base = format!("user{base}");
+    }
+    base.truncate(64);
+    if users.find_by_login(&base)?.is_none() {
+        return Ok(base);
+    }
+    for suffix in 2..10_000 {
+        let tail = format!("-{suffix}");
+        let mut candidate = base.clone();
+        candidate.truncate(64 - tail.len());
+        candidate.push_str(&tail);
+        if users.find_by_login(&candidate)?.is_none() {
+            return Ok(candidate);
+        }
+    }
+    Err(CoreError::Conflict("could not allocate a login".into()))
+}
+
+fn join_error(error: tokio::task::JoinError) -> CoreError {
+    CoreError::Io(std::io::Error::other(format!(
+        "blocking task failed: {error}"
+    )))
 }
 
 fn totp_step_is_fresh(user: &User, step: u64) -> bool {

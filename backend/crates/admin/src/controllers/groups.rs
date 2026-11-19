@@ -9,6 +9,7 @@ use awg_clients::{Device, DeviceService};
 use awg_network::{Interface, NetworkService, NewPool};
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{CreateGroupRequest, CreatePoolRequest, UpdateGroupRequest, UpdatePoolRequest};
 use crate::publish::{node_ids_for_group, publish_group, publish_nodes};
@@ -19,7 +20,9 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     _user: AuthUser,
 ) -> ApiResult<Json<Vec<GroupView>>> {
-    Ok(Json(load_views(&state.network, &state.devices)?))
+    let state = state.clone();
+    let views = blocking::run_api(move || load_views(&state.network, &state.devices)).await?;
+    Ok(Json(views))
 }
 
 fn load_views(network: &NetworkService, devices: &DeviceService) -> ApiResult<Vec<GroupView>> {
@@ -67,7 +70,7 @@ pub async fn create(
             request.forwarding_default,
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, group.id);
+    publish_group(&state, group.id).await;
     Ok(Json(GroupView {
         group,
         interfaces: 0,
@@ -104,7 +107,7 @@ pub async fn update(
         .iter()
         .filter(|d| d.group_id == id)
         .count();
-    publish_group(&state, id);
+    publish_group(&state, id).await;
     Ok(Json(GroupView {
         group,
         interfaces,
@@ -120,7 +123,7 @@ pub async fn delete(
     user.require_admin()?;
     let nodes = node_ids_for_group(&state, id);
     state.network.delete_group(id).map_err(ApiError::from)?;
-    publish_nodes(&state, nodes);
+    publish_nodes(&state, nodes).await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -152,7 +155,7 @@ pub async fn create_pool(
             },
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, group_id);
+    publish_group(&state, group_id).await;
     Ok(Json(PoolView::from(&pool)))
 }
 
@@ -173,7 +176,7 @@ pub async fn update_pool(
             request.enabled,
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, pool.group_id);
+    publish_group(&state, pool.group_id).await;
     Ok(Json(PoolView::from(&pool)))
 }
 
@@ -185,7 +188,7 @@ pub async fn delete_pool(
     user.require_admin()?;
     let pool = state.network.get_pool(id).map_err(ApiError::from)?;
     state.network.delete_pool(id).map_err(ApiError::from)?;
-    publish_group(&state, pool.group_id);
+    publish_group(&state, pool.group_id).await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

@@ -11,6 +11,7 @@ use awg_statistics::StatsScope;
 use awg_tariffs::{QuotaState, TariffService};
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::state::AppState;
 use crate::views::{QuotaUserView, QuotaView};
@@ -34,16 +35,23 @@ pub async fn users(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<QuotaUserView>>> {
     authorize_user_quotas(&user)?;
-    let accounts = state.identity.list().map_err(ApiError::from)?;
+    let accounts = {
+        let identity = state.identity.clone();
+        blocking::run_core(move || identity.list())
+            .await
+            .map_err(ApiError::from)?
+    };
     let scopes: Vec<StatsScope> = accounts
         .iter()
         .filter(|account| account.tariff_id.is_some())
         .map(|account| StatsScope::User(account.id))
         .collect();
-    let used = state
-        .stats
-        .used_bytes_many(&scopes)
-        .map_err(ApiError::from)?;
+    let used = {
+        let stats = state.stats.clone();
+        blocking::run_core(move || stats.used_bytes_many(&scopes))
+            .await
+            .map_err(ApiError::from)?
+    };
     let mut items = Vec::new();
     for account in accounts
         .iter()

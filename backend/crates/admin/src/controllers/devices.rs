@@ -14,6 +14,7 @@ use awg_shared::cidr::address_with_prefix;
 use awg_tariffs::Tariff;
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
     CreateDeviceRequest, CreateShareRequest, CreateTunnelRequest, UpdateDeviceRequest,
@@ -27,15 +28,21 @@ pub async fn list(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Vec<DeviceView>>> {
-    let devices = if user.is_admin() {
-        state.devices.list_all().map_err(ApiError::from)?
-    } else {
-        state
-            .devices
-            .list_for_user(user.id())
-            .map_err(ApiError::from)?
+    let admin = user.is_admin();
+    let user_id = user.id();
+    let devices = {
+        let state = state.clone();
+        blocking::run_api(move || {
+            let devices = if admin {
+                state.devices.list_all()?
+            } else {
+                state.devices.list_for_user(user_id)?
+            };
+            build_views(&state.devices, &state.network, &devices)
+        })
+        .await?
     };
-    Ok(Json(build_views(&state.devices, &state.network, &devices)?))
+    Ok(Json(devices))
 }
 
 pub async fn get(
@@ -112,7 +119,7 @@ pub async fn create(
         )
         .await
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(Json(build_view(&state, &device)?))
 }
 
@@ -150,7 +157,7 @@ pub async fn update(
             request.forwarding,
         )
         .map_err(ApiError::from)?;
-    publish_group(&state, updated.group_id);
+    publish_group(&state, updated.group_id).await;
     Ok(Json(build_view(&state, &updated)?))
 }
 
@@ -166,7 +173,7 @@ pub async fn delete(
         .revoke_all_for_device(id)
         .map_err(ApiError::from)?;
     state.devices.delete(id).map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -249,7 +256,7 @@ pub async fn create_tunnel(
         )
         .await
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(Json(build_view(&state, &device)?))
 }
 
@@ -269,7 +276,7 @@ pub async fn update_tunnel(
         .devices
         .rename_peer(peer_id, request.label)
         .map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(Json(build_view(&state, &device)?))
 }
 
@@ -285,7 +292,7 @@ pub async fn delete_tunnel(
         return Err(ApiError::NotFound("device peer".into()));
     }
     state.devices.remove_peer(peer_id).map_err(ApiError::from)?;
-    publish_group(&state, device.group_id);
+    publish_group(&state, device.group_id).await;
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
