@@ -7,7 +7,6 @@
     </linearGradient>
   </defs>
   <rect width="512" height="512" rx="116" fill="#f2f5f9"/>
-  <path d="M268 110 410 164v142c0 82-66 140-142 164-76-24-142-82-142-164V164z" fill="#cfe0f6"/>
   <path d="M256 96 398 150v142c0 82-66 140-142 164-76-24-142-82-142-164V150z" fill="url(#g)"/>
   <path d="M350 170a118 118 0 1 1-188 0" fill="none" stroke="#eaf3ff" stroke-opacity=".38" stroke-width="4" stroke-linecap="round"/>
   <path d="M326 194a84 84 0 1 1-140 0" fill="none" stroke="#eaf3ff" stroke-opacity=".24" stroke-width="3" stroke-linecap="round"/>

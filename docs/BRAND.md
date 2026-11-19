@@ -2,8 +2,8 @@
 
 ## Логотип
 
-Основа: щит (безопасность) + тоннельные кольца (VPN) + тень-полумесяц (umbra).
-Светлый фон, палитра Material You.
+Основа: щит (безопасность) + тоннельные кольца (VPN) + тень у монограммы U (umbra).
+Светлый фон, палитра Material You. Тень есть только у буквы U.
 
 - Основной знак: `frontend/public/brand.svg`
 - Android adaptive foreground: `android/app/src/main/res/drawable/ic_launcher_foreground.xml`
@@ -16,7 +16,7 @@
 |---|---|---|
 | Primary | `#0E4688` | щит, акценты |
 | On primary | `#FFFFFF` | монограмма U |
-| Primary container | `#CDDDFF` | кольца, тень щита |
+| Primary container | `#CDDDFF` | кольца |
 | On primary container | `#001738` | тень U |
 | Surface | `#FBF9FB` | фон иконки |
 | Surface variant | `#E9EEF6` | градиент фона |

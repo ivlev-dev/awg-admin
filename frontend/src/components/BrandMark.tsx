@@ -25,10 +25,6 @@ export function BrandMark({ size = 40, class: className }: BrandMarkProps): JSX.
       </defs>
       <rect width="512" height="512" rx="116" fill="#f2f5f9" />
       <path
-        d="M268 110 410 164v142c0 82-66 140-142 164-76-24-142-82-142-164V164z"
-        fill="#cfe0f6"
-      />
-      <path
         d="M256 96 398 150v142c0 82-66 140-142 164-76-24-142-82-142-164V150z"
         fill={`url(#${gradientId})`}
       />

@@ -8,9 +8,6 @@
     <group
         android:scaleX="0.2109375"
         android:scaleY="0.2109375">
-        <path
-            android:pathData="M268,110 L410,164 L410,306 C410,388 344,446 268,470 C192,446 126,388 126,306 L126,164 Z"
-            android:fillColor="#CFE0F6" />
         <path android:pathData="M256,96 L398,150 L398,292 C398,374 332,432 256,456 C180,432 114,374 114,292 L114,150 Z">
             <aapt:attr name="android:fillColor">
                 <gradient
