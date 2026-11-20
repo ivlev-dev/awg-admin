@@ -18,6 +18,7 @@ import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
 import androidx.navigation3.ui.NavDisplay
 import org.koin.androidx.compose.koinViewModel
 import org.koin.core.parameter.parametersOf
+import space.ivlev.umbravpn.domain.admin.isAdminSession
 import space.ivlev.umbravpn.domain.model.account.BlockReason
 import space.ivlev.umbravpn.domain.model.account.SessionState
 import space.ivlev.umbravpn.ui.screens.account.AccessBlockedScreen
@@ -31,6 +32,24 @@ import space.ivlev.umbravpn.ui.screens.account.RegisterScreen
 import space.ivlev.umbravpn.ui.screens.account.ResetPasswordScreen
 import space.ivlev.umbravpn.ui.screens.account.SessionExpiredScreen
 import space.ivlev.umbravpn.ui.screens.account.VerifyPendingScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminAccessDeniedScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminAuditScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminGroupFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminGroupsScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminHubScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminInterfaceFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminInterfacesScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminNodeFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminNodesScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminPlaceholderScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminPoolFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminPoolsScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminSettingsScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminStatsScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminTariffFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminTariffsScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminUserFormScreen
+import space.ivlev.umbravpn.ui.screens.admin.AdminUsersScreen
 import space.ivlev.umbravpn.ui.screens.pin.PinLockScreen
 import space.ivlev.umbravpn.ui.screens.settings.SettingsScreen
 import space.ivlev.umbravpn.ui.screens.settings.advanced.AdvancedScreen
@@ -54,6 +73,13 @@ import space.ivlev.umbravpn.ui.screens.tunnels.settings.config.ConfigScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.entry.EntryTunnelScreen
 import space.ivlev.umbravpn.ui.screens.tunnels.settings.ipv6.IPv6Screen
 import space.ivlev.umbravpn.ui.screens.tunnels.splittunnel.SplitTunnelScreen
+import space.ivlev.umbravpn.viewmodel.AdminGroupFormViewModel
+import space.ivlev.umbravpn.viewmodel.AdminInterfaceFormViewModel
+import space.ivlev.umbravpn.viewmodel.AdminNodeFormViewModel
+import space.ivlev.umbravpn.viewmodel.AdminPoolFormViewModel
+import space.ivlev.umbravpn.viewmodel.AdminPoolsViewModel
+import space.ivlev.umbravpn.viewmodel.AdminTariffFormViewModel
+import space.ivlev.umbravpn.viewmodel.AdminUserFormViewModel
 import space.ivlev.umbravpn.viewmodel.SplitTunnelViewModel
 import space.ivlev.umbravpn.viewmodel.TunnelViewModel
 
@@ -184,4 +210,70 @@ internal fun appEntryProvider(
     entry<Route.Monitoring> { MonitoringScreen() }
     entry<Route.TunnelRecovery> { MonitoringScreen() }
     entry<Route.MonitoringAndRecovery> { MonitoringScreen() }
+    entry<Route.AdminHub> {
+        if (session.isAdminSession()) AdminHubScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminUsers> {
+        if (session.isAdminSession()) AdminUsersScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminTariffs> {
+        if (session.isAdminSession()) AdminTariffsScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminUserForm> { key ->
+        val viewModel: AdminUserFormViewModel = koinViewModel(parameters = { parametersOf(key.id) })
+        if (session.isAdminSession()) AdminUserFormScreen(viewModel) else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminTariffForm> { key ->
+        val viewModel: AdminTariffFormViewModel =
+            koinViewModel(parameters = { parametersOf(key.id) })
+        if (session.isAdminSession()) AdminTariffFormScreen(viewModel)
+        else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminNodes> {
+        if (session.isAdminSession()) AdminNodesScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminNodeForm> {
+        val viewModel: AdminNodeFormViewModel = koinViewModel()
+        if (session.isAdminSession()) AdminNodeFormScreen(viewModel) else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminInterfaces> {
+        if (session.isAdminSession()) AdminInterfacesScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminInterfaceForm> { key ->
+        val viewModel: AdminInterfaceFormViewModel =
+            koinViewModel(parameters = { parametersOf(key.id) })
+        if (session.isAdminSession()) AdminInterfaceFormScreen(viewModel)
+        else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminGroups> {
+        if (session.isAdminSession()) AdminGroupsScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminGroupForm> { key ->
+        val viewModel: AdminGroupFormViewModel =
+            koinViewModel(parameters = { parametersOf(key.id) })
+        if (session.isAdminSession()) AdminGroupFormScreen(viewModel) else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminPools> { key ->
+        val viewModel: AdminPoolsViewModel =
+            koinViewModel(parameters = { parametersOf(key.groupId) })
+        if (session.isAdminSession()) AdminPoolsScreen(viewModel) else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminPoolForm> { key ->
+        val viewModel: AdminPoolFormViewModel =
+            koinViewModel(parameters = { parametersOf(key.groupId, key.id) })
+        if (session.isAdminSession()) AdminPoolFormScreen(viewModel) else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminAudit> {
+        if (session.isAdminSession()) AdminAuditScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminStats> {
+        if (session.isAdminSession()) AdminStatsScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminSettings> {
+        if (session.isAdminSession()) AdminSettingsScreen() else AdminAccessDeniedScreen()
+    }
+    entry<Route.AdminPlaceholder> { key ->
+        if (session.isAdminSession()) AdminPlaceholderScreen(key.section)
+        else AdminAccessDeniedScreen()
+    }
 }

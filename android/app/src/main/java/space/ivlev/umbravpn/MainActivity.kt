@@ -77,6 +77,7 @@ import space.ivlev.umbravpn.data.backup.BackupWriteResult
 import space.ivlev.umbravpn.data.backup.DatabaseBackup
 import space.ivlev.umbravpn.data.backup.RestoreResult
 import space.ivlev.umbravpn.domain.account.LogoutCoordinator
+import space.ivlev.umbravpn.domain.admin.isAdminSession
 import space.ivlev.umbravpn.domain.enums.StrictSplitNotice
 import space.ivlev.umbravpn.domain.enums.TunnelMode
 import space.ivlev.umbravpn.domain.model.TunnelConfig
@@ -108,7 +109,9 @@ import space.ivlev.umbravpn.ui.navigation.components.BottomNavbar
 import space.ivlev.umbravpn.ui.navigation.components.DynamicTopAppBar
 import space.ivlev.umbravpn.ui.navigation.components.currentRouteAsNavbarState
 import space.ivlev.umbravpn.ui.navigation.functions.rememberNavController
+import space.ivlev.umbravpn.ui.navigation.isAdminRoute
 import space.ivlev.umbravpn.ui.navigation.resolveStartRedirect
+import space.ivlev.umbravpn.ui.navigation.visibleTabs
 import space.ivlev.umbravpn.ui.screens.pin.LocalAppLocked
 import space.ivlev.umbravpn.ui.screens.pin.PinLockOverlay
 import space.ivlev.umbravpn.ui.theme.AlertRed
@@ -340,6 +343,14 @@ class MainActivity : AppCompatActivity() {
                             navController.resetTo(Route.SessionExpired)
                         }
                     else -> Unit
+                }
+            }
+
+            LaunchedEffect(uiState.isAppLoaded, session, backStack.lastOrNull()) {
+                if (!uiState.isAppLoaded) return@LaunchedEffect
+                val current = backStack.lastOrNull()
+                if (current is Route && current.isAdminRoute() && !session.isAdminSession()) {
+                    navController.resetTo(Route.Tunnels)
                 }
             }
 
@@ -689,6 +700,7 @@ class MainActivity : AppCompatActivity() {
                             val currentTab by remember {
                                 derivedStateOf { Tab.fromRoute(currentRoute ?: Route.Tunnels) }
                             }
+                            val isAdmin = session.isAdminSession()
                             val screenDirty by viewModel.screenDirty.collectAsStateWithLifecycle()
                             val navState by
                                 currentRouteAsNavbarState(
@@ -715,6 +727,7 @@ class MainActivity : AppCompatActivity() {
                                         if (navState.showBottomItems) {
                                             BottomNavbar(
                                                 currentTab,
+                                                tabs = visibleTabs(isAdmin),
                                                 onTabSelected = { tab ->
                                                     navController.popUpTo(tab.startRoute)
                                                 },

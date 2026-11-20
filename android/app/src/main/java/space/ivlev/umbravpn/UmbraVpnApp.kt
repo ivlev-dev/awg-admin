@@ -38,6 +38,7 @@ import space.ivlev.umbravpn.core.worker.UpdateCheckWorker
 import space.ivlev.umbravpn.di.Dispatcher
 import space.ivlev.umbravpn.di.Scope
 import space.ivlev.umbravpn.di.accountModule
+import space.ivlev.umbravpn.di.adminModule
 import space.ivlev.umbravpn.di.appModule
 import space.ivlev.umbravpn.di.coordinatorModule
 import space.ivlev.umbravpn.di.databaseModule
@@ -116,6 +117,7 @@ class UmbraVpnApp : Application(), KoinComponent, Configuration.Provider {
                 coordinatorModule,
                 networkModule,
                 accountModule,
+                adminModule,
             )
             options(viewModelScopeFactory())
         }

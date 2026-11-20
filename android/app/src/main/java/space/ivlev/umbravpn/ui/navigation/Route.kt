@@ -2,10 +2,12 @@ package space.ivlev.umbravpn.ui.navigation
 
 import androidx.annotation.Keep
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QuestionMark
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.AdminPanelSettings
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
 import androidx.compose.material.icons.outlined.QuestionMark
@@ -160,6 +162,53 @@ sealed class Route : NavKey {
     @Keep @Serializable data object TunnelRecovery : Route()
 
     @Keep @Serializable data object MonitoringAndRecovery : Route()
+
+    @Keep @Serializable data object AdminHub : Route()
+
+    @Keep @Serializable data object AdminUsers : Route()
+
+    @Keep @Serializable data object AdminTariffs : Route()
+
+    @Keep @Serializable data class AdminUserForm(val id: String? = null) : Route()
+
+    @Keep @Serializable data class AdminTariffForm(val id: String? = null) : Route()
+
+    @Keep @Serializable data object AdminNodes : Route()
+
+    @Keep @Serializable data object AdminNodeForm : Route()
+
+    @Keep @Serializable data object AdminInterfaces : Route()
+
+    @Keep @Serializable data class AdminInterfaceForm(val id: String? = null) : Route()
+
+    @Keep @Serializable data object AdminGroups : Route()
+
+    @Keep @Serializable data class AdminGroupForm(val id: String? = null) : Route()
+
+    @Keep @Serializable data class AdminPools(val groupId: String) : Route()
+
+    @Keep
+    @Serializable
+    data class AdminPoolForm(val groupId: String, val id: String? = null) : Route()
+
+    @Keep @Serializable data object AdminAudit : Route()
+
+    @Keep @Serializable data object AdminStats : Route()
+
+    @Keep @Serializable data object AdminSettings : Route()
+
+    @Keep @Serializable data class AdminPlaceholder(val section: AdminSection) : Route()
+}
+
+@Keep
+@Serializable
+enum class AdminSection(val titleRes: Int) {
+    Nodes(R.string.admin_hub_nodes),
+    Interfaces(R.string.admin_hub_interfaces),
+    Groups(R.string.admin_hub_groups),
+    Audit(R.string.admin_hub_audit),
+    Stats(R.string.admin_hub_stats),
+    Settings(R.string.admin_hub_settings),
 }
 
 enum class Tab(
@@ -178,6 +227,13 @@ enum class Tab(
         Icons.Outlined.QuestionMark,
         Icons.Filled.QuestionMark,
         3,
+    ),
+    ADMIN(
+        Route.AdminHub,
+        R.string.admin,
+        Icons.Outlined.AdminPanelSettings,
+        Icons.Filled.AdminPanelSettings,
+        4,
     );
 
     companion object {
@@ -222,9 +278,51 @@ enum class Tab(
                 Route.Logs -> SETTINGS
                 is Route.Support,
                 Route.License -> SUPPORT
+                Route.AdminHub,
+                Route.AdminUsers,
+                Route.AdminTariffs,
+                is Route.AdminUserForm,
+                is Route.AdminTariffForm,
+                Route.AdminNodes,
+                Route.AdminNodeForm,
+                Route.AdminInterfaces,
+                is Route.AdminInterfaceForm,
+                Route.AdminGroups,
+                is Route.AdminGroupForm,
+                is Route.AdminPools,
+                is Route.AdminPoolForm,
+                Route.AdminAudit,
+                Route.AdminStats,
+                Route.AdminSettings,
+                is Route.AdminPlaceholder -> ADMIN
             }
     }
 }
+
+fun Route.isAdminRoute(): Boolean =
+    when (this) {
+        Route.AdminHub,
+        Route.AdminUsers,
+        Route.AdminTariffs,
+        is Route.AdminUserForm,
+        is Route.AdminTariffForm,
+        Route.AdminNodes,
+        Route.AdminNodeForm,
+        Route.AdminInterfaces,
+        is Route.AdminInterfaceForm,
+        Route.AdminGroups,
+        is Route.AdminGroupForm,
+        is Route.AdminPools,
+        is Route.AdminPoolForm,
+        Route.AdminAudit,
+        Route.AdminStats,
+        Route.AdminSettings,
+        is Route.AdminPlaceholder -> true
+        else -> false
+    }
+
+fun visibleTabs(isAdmin: Boolean): List<Tab> =
+    Tab.entries.filter { tab -> tab != Tab.ADMIN || isAdmin }
 
 interface SecureRoute {
     val requiresProtection: Boolean

@@ -15,12 +15,16 @@ import androidx.compose.ui.unit.dp
 import space.ivlev.umbravpn.ui.navigation.Tab
 
 @Composable
-fun BottomNavbar(currentTab: Tab, onTabSelected: (Tab) -> Unit) {
+fun BottomNavbar(
+    currentTab: Tab,
+    tabs: List<Tab> = Tab.entries,
+    onTabSelected: (Tab) -> Unit,
+) {
     NavigationBar(
         containerColor = MaterialTheme.colorScheme.surface,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        Tab.entries.forEach { tab ->
+        tabs.forEach { tab ->
             val isSelected = currentTab == tab
             NavigationBarItem(
                 selected = isSelected,

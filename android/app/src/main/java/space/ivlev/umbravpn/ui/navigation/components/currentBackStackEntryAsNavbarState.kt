@@ -35,7 +35,8 @@ fun currentRouteAsNavbarState(
                     screenDirty = screenDirty,
                 )
 
-            settingsNavbarState(context, route)
+            adminNavbarState(context, route)
+                ?: settingsNavbarState(context, route)
                 ?: tunnelsNavbarState(context, route)
                 ?: accountSupportNavbarState(context, route)
                 ?: NavbarState()

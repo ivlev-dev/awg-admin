@@ -116,4 +116,4 @@ val accountModule = module {
     }
 }
 
-private const val ACCOUNT_HTTP_CLIENT = "account_http_client"
+internal const val ACCOUNT_HTTP_CLIENT = "account_http_client"
