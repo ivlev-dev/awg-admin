@@ -17,12 +17,12 @@ class DatabaseCallback(private val databaseProvider: Lazy<AppDatabase>) : RoomDa
 
     override fun onOpen(db: SupportSQLiteDatabase) {
         super.onOpen(db)
-        db.execSQL("PRAGMA journal_size_limit = ${DatabaseMaintenance.JOURNAL_SIZE_LIMIT_BYTES}")
-        db.execSQL(
-            "PRAGMA wal_autocheckpoint = ${DatabaseMaintenance.WAL_AUTOCHECKPOINT_PAGES}",
-        )
+        db.query("PRAGMA journal_size_limit = ${DatabaseMaintenance.JOURNAL_SIZE_LIMIT_BYTES}")
+            .close()
+        db.query("PRAGMA wal_autocheckpoint = ${DatabaseMaintenance.WAL_AUTOCHECKPOINT_PAGES}")
+            .close()
         if (currentAutoVacuum(db) != AUTO_VACUUM_NONE) {
-            db.execSQL("PRAGMA auto_vacuum = NONE")
+            db.query("PRAGMA auto_vacuum = NONE").close()
             db.execSQL("VACUUM")
         }
     }
