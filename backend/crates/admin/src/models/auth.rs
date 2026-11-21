@@ -65,6 +65,8 @@ pub struct SetupTotpRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct EnableTotpRequest {
+    #[serde(default)]
+    pub password: String,
     pub code: String,
 }
 
@@ -132,6 +134,24 @@ mod tests {
                 r#"{"email":"user@example.com","login":"user","password":"secret123"}"#
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn totp_enable_requires_password_and_code() {
+        let request: EnableTotpRequest =
+            serde_json::from_str(r#"{"password":"password123","code":"123456"}"#).unwrap();
+        assert_eq!(request.password, "password123");
+        assert_eq!(request.code, "123456");
+
+        // A missing password is not a schema error: it deserializes to an
+        // empty value and the service rejects it as a wrong password (403)
+        // instead of leaking the request shape through a 422.
+        let missing: EnableTotpRequest = serde_json::from_str(r#"{"code":"123456"}"#).unwrap();
+        assert!(missing.password.is_empty());
+
+        assert!(
+            serde_json::from_str::<EnableTotpRequest>(r#"{"password":"password123"}"#).is_err()
         );
     }
 

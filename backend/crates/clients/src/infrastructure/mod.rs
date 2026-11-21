@@ -37,6 +37,42 @@ impl RedbDeviceRepository {
     pub fn new(store: Arc<Store>) -> Self {
         Self { store }
     }
+
+    /// Atomic read-modify-write of one device row.
+    ///
+    /// The stored row is read, mutated and written together with both page
+    /// indexes in a single transaction, so concurrent writers cannot lose each
+    /// other's fields (for example, an update cannot resurrect a revoked
+    /// device).
+    fn mutate(
+        &self,
+        id: Uuid,
+        apply: impl FnOnce(&mut Device, &[Device]) -> CoreResult<()>,
+    ) -> CoreResult<Device> {
+        let key = id.to_string();
+        awg_storage::device_index::mutate_device::<Device, _>(&self.store, &key, |stored| {
+            let Some(mut device) = stored else {
+                return (None, Err(CoreError::NotFound("device".into())));
+            };
+            let siblings = match self.store.list::<Device>(Table::Devices) {
+                Ok(devices) => devices,
+                Err(error) => return (Some(device), Err(map_err(error))),
+            };
+            // `apply` mutates the row in place and may fail half-way through
+            // (for example after the name was set but before the tariff limit
+            // check). Keep the stored value and write that back on error so a
+            // rejected update never persists any of its fields.
+            let original = device.clone();
+            match apply(&mut device, &siblings) {
+                Ok(()) => {
+                    device.updated_at = Utc::now();
+                    (Some(device.clone()), Ok(device))
+                }
+                Err(error) => (Some(original), Err(error)),
+            }
+        })
+        .map_err(map_err)?
+    }
 }
 
 impl DeviceRepository for RedbDeviceRepository {
@@ -44,6 +80,23 @@ impl DeviceRepository for RedbDeviceRepository {
         self.store
             .get(Table::Devices, &id.to_string())
             .map_err(map_err)
+    }
+
+    fn apply_update(
+        &self,
+        id: Uuid,
+        change: &crate::domain::DeviceChange<'_>,
+    ) -> CoreResult<Device> {
+        self.mutate(id, |device, siblings| {
+            crate::domain::apply_device_change(device, siblings, change)
+        })
+    }
+
+    fn set_revoked(&self, id: Uuid, revoked: bool) -> CoreResult<Device> {
+        self.mutate(id, |device, _| {
+            device.revoked = revoked;
+            Ok(())
+        })
     }
 
     fn list(&self) -> CoreResult<Vec<Device>> {
@@ -204,6 +257,24 @@ impl ShareLinkRepository for RedbShareLinkRepository {
 
     fn consume(&self, token: &str, now: DateTime<Utc>) -> CoreResult<ShareConsume> {
         let hash = hash_share_token(token);
+        // Public endpoint: never open a write transaction unless the link is
+        // actually consumable. Missing, revoked, expired and exhausted links
+        // are rejected by a plain read.
+        let Some(link) = self
+            .store
+            .get::<ShareLink>(Table::ShareLinks, &hash)
+            .map_err(map_err)?
+        else {
+            return Ok(ShareConsume::NotFound);
+        };
+        match link.state(now) {
+            ShareLinkState::Active => {}
+            ShareLinkState::Revoked => return Ok(ShareConsume::Revoked),
+            ShareLinkState::Expired => return Ok(ShareConsume::Expired),
+            ShareLinkState::Exhausted => return Ok(ShareConsume::Exhausted),
+        }
+        // Re-check the state inside the transaction: another request may have
+        // consumed the last use between the read above and this write.
         let outcome = self
             .store
             .update::<ShareLink, _>(Table::ShareLinks, &hash, |current| match current {

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use ipnet::Ipv4Net;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use awg_billing::BillingService;
@@ -29,6 +30,13 @@ impl SnapshotSource for SnapshotBuilder {
         let interfaces = self.network.interfaces_by_node(node_id)?;
         let mut users = self.identity.list()?;
         users.sort_by_key(|u| u.id);
+        // Accounts that cannot connect must not reach the data plane, even if
+        // their devices are still stored. `ensure_active` covers both the
+        // `disabled` flag and non-active statuses.
+        let user_active: HashMap<Uuid, bool> = users
+            .iter()
+            .map(|user| (user.id, user.ensure_active().is_ok()))
+            .collect();
         let mut tariffs = HashMap::new();
         for user in &users {
             if let Some(tariff_id) = user.tariff_id
@@ -51,7 +59,7 @@ impl SnapshotSource for SnapshotBuilder {
         if interfaces.is_empty() {
             return Ok(DesiredState {
                 node_id,
-                revision: String::new(),
+                revision: state_revision(node_id, &desired),
                 generated_at: chrono::Utc::now(),
                 interfaces: desired,
             });
@@ -110,7 +118,9 @@ impl SnapshotSource for SnapshotBuilder {
                     devices
                         .iter()
                         .filter(|device| {
-                            interface_peers.is_some_and(|ids| ids.contains(&device.id))
+                            !device.revoked
+                                && user_active.get(&device.user_id).copied().unwrap_or(false)
+                                && interface_peers.is_some_and(|ids| ids.contains(&device.id))
                         })
                         .cloned()
                         .collect()
@@ -137,6 +147,9 @@ impl SnapshotSource for SnapshotBuilder {
 
             let mut user_limits = Vec::new();
             for user in &users {
+                if !user_active.get(&user.id).copied().unwrap_or(false) {
+                    continue;
+                }
                 if !group_devices
                     .iter()
                     .any(|d| d.user_id == user.id && !d.revoked)
@@ -275,7 +288,7 @@ impl SnapshotSource for SnapshotBuilder {
 
         Ok(DesiredState {
             node_id,
-            revision: String::new(),
+            revision: state_revision(node_id, &desired),
             generated_at: chrono::Utc::now(),
             interfaces: desired,
         })
@@ -308,6 +321,38 @@ fn first_ip(address: Option<&String>) -> Option<String> {
     address.map(|value| value.split('/').next().unwrap_or(value).to_string())
 }
 
+/// Stable revision of the desired state.
+///
+/// The state is canonicalized (interfaces, peers, limits and forwarding rules
+/// sorted) before hashing, so equal content always yields the same revision
+/// regardless of the order in which repositories return rows. `generated_at`
+/// is intentionally left out.
+fn state_revision(node_id: Uuid, interfaces: &[DesiredInterface]) -> String {
+    let mut canonical = interfaces.to_vec();
+    canonical.sort_by_key(|interface| interface.id);
+    for interface in &mut canonical {
+        interface
+            .peers
+            .sort_by_key(|peer| (peer.device_id, peer.peer_id));
+        interface.user_limits.sort_by_key(|limit| limit.user_id);
+        interface
+            .forwarding
+            .sort_by_key(|rule| (rule.from_device_id, rule.to_device_id));
+    }
+
+    let mut hasher = Sha256::new();
+    hasher.update(node_id.as_bytes());
+    match serde_json::to_vec(&canonical) {
+        Ok(bytes) => hasher.update(bytes),
+        Err(_) => hasher.update(b"unserializable"),
+    }
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -326,7 +371,7 @@ mod tests {
     use awg_identity::domain::UserRepository;
     use awg_identity::{
         CaptureMailer, IdentityService, JwtIssuer, RedbEmailVerificationRepository,
-        RedbUserRepository, Role, User, UserStatus,
+        RedbUserRepository, Role, User, UserChanges, UserStatus,
     };
     use awg_network::domain::CidrPoolRepository;
     use awg_network::{
@@ -1166,6 +1211,121 @@ mod tests {
         assert_eq!(peers_of("awg0"), 3);
         assert_eq!(peers_of("awg1"), 1);
         assert_eq!(peers_of("awg2"), 1);
+    }
+
+    #[test]
+    fn disabled_user_is_absent_from_peers_and_user_limits() {
+        let fixture = seed();
+        let users = fixture.builder.identity.list().unwrap();
+        let alpha = users.iter().find(|user| user.email == "alpha").unwrap();
+
+        let active = fixture.builder.build(fixture.node_id).unwrap();
+        let awg0 = active
+            .interfaces
+            .iter()
+            .find(|interface| interface.name == "awg0")
+            .unwrap();
+        assert!(awg0.peers.iter().any(|peer| peer.user_id == alpha.id));
+        assert!(
+            awg0.user_limits
+                .iter()
+                .any(|limit| limit.user_id == alpha.id)
+        );
+
+        fixture
+            .builder
+            .identity
+            .update(
+                alpha.id,
+                UserChanges {
+                    email: None,
+                    full_name: None,
+                    role: None,
+                    tariff_id: None,
+                    group_id: None,
+                    node_id: None,
+                    disabled: Some(true),
+                },
+            )
+            .unwrap();
+
+        let disabled = fixture.builder.build(fixture.node_id).unwrap();
+        for interface in &disabled.interfaces {
+            assert!(
+                interface.peers.iter().all(|peer| peer.user_id != alpha.id),
+                "disabled user peers leaked into {}",
+                interface.name
+            );
+            assert!(
+                interface
+                    .user_limits
+                    .iter()
+                    .all(|limit| limit.user_id != alpha.id),
+                "disabled user limits leaked into {}",
+                interface.name
+            );
+        }
+        assert_ne!(active.revision, disabled.revision);
+    }
+
+    #[test]
+    fn revision_is_stable_and_content_addressed() {
+        let fixture = seed();
+        let first = fixture.builder.build(fixture.node_id).unwrap();
+        let second = fixture.builder.build(fixture.node_id).unwrap();
+        assert!(!first.revision.is_empty());
+        assert_eq!(first.revision, second.revision);
+
+        let unknown = Uuid::new_v4();
+        let empty = fixture.builder.build(unknown).unwrap();
+        let empty_again = fixture.builder.build(unknown).unwrap();
+        assert!(!empty.revision.is_empty());
+        assert_eq!(empty.revision, empty_again.revision);
+        assert_ne!(empty.revision, first.revision);
+
+        let devices = fixture.builder.devices.list_all().unwrap();
+        let phone = devices
+            .iter()
+            .find(|device| device.name == "phone")
+            .unwrap();
+        let mut peer = fixture
+            .builder
+            .devices
+            .peers_for(phone.id)
+            .unwrap()
+            .into_iter()
+            .next()
+            .unwrap();
+        peer.public_key = "key-phone-rotated".into();
+        fixture.peers.save(&peer).unwrap();
+
+        let changed_peer = fixture.builder.build(fixture.node_id).unwrap();
+        assert_ne!(first.revision, changed_peer.revision);
+
+        let tablet = devices
+            .iter()
+            .find(|device| device.name == "tablet")
+            .unwrap();
+        let mut device = tablet.clone();
+        device.down_kbps = 777;
+        fixture.devices.save(&device).unwrap();
+
+        let changed_limit = fixture.builder.build(fixture.node_id).unwrap();
+        assert_ne!(changed_peer.revision, changed_limit.revision);
+    }
+
+    #[test]
+    fn revision_ignores_interface_ordering() {
+        let fixture = seed();
+        let mut state = fixture.builder.build(fixture.node_id).unwrap();
+        let expected = state.revision.clone();
+        state.interfaces.reverse();
+        for interface in &mut state.interfaces {
+            interface.peers.reverse();
+            interface.user_limits.reverse();
+            interface.forwarding.reverse();
+        }
+        assert_eq!(state_revision(state.node_id, &state.interfaces), expected);
     }
 
     #[test]

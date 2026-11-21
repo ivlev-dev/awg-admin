@@ -10,7 +10,7 @@ use uuid::Uuid;
 use awg_clients::{Device, DeviceProfile, Forwarding, NewDevice};
 use awg_identity::User;
 use awg_network::Interface;
-use awg_shared::CoreError;
+use awg_shared::{CoreError, CoreResult};
 use awg_statistics::StatsScope;
 use awg_tariffs::Tariff;
 
@@ -36,33 +36,51 @@ pub async fn bootstrap(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<AppBootstrapView>> {
-    let account = state.identity.find(user.id()).map_err(ApiError::from)?;
-    let tariff = state.devices.tariff_for(&account).map_err(ApiError::from)?;
-    let used = state
-        .stats
-        .used_bytes(StatsScope::User(account.id))
-        .map_err(ApiError::from)?;
-    let quota =
-        current_quota(&state.tariffs, &account, used, Utc::now()).map_err(ApiError::from)?;
-    let subscription = app_subscription(&state, account.id)?;
-    let access = AppAccessView::build(
-        tariff.is_none(),
-        quota.exceeded,
-        app_subscription_inactive(&state, account.id)?,
-    );
-    let devices = state
-        .devices
-        .list_for_user(account.id)
-        .map_err(ApiError::from)?;
-    let devices_total = devices.len();
-    let interfaces = available_interfaces(&state, &account, tariff.as_ref())?;
+    let user_id = user.id();
+    let identity = state.identity.clone();
+    let devices_service = state.devices.clone();
+    let network = state.network.clone();
+    let stats = state.stats.clone();
+    let tariffs = state.tariffs.clone();
+    let billing = state.billing.clone();
+    let billing_enabled = state.config.billing.enabled;
+
+    let data = blocking::run_api(move || {
+        let account = identity.find(user_id)?;
+        let tariff = devices_service.tariff_for(&account)?;
+        let used = stats.used_bytes(StatsScope::User(account.id))?;
+        let quota = current_quota(&tariffs, &account, used, Utc::now())?;
+        let subscription = app_subscription(&billing, billing_enabled, account.id)?;
+        let access = AppAccessView::build(
+            tariff.is_none(),
+            quota.exceeded,
+            app_subscription_inactive(&billing, billing_enabled, account.id)?,
+        );
+        let devices = devices_service.list_for_user(account.id)?;
+        let devices_total = devices.len();
+        let views = build_views(&devices_service, &network, &devices)?;
+        let interfaces = available_interfaces(&network, &account, tariff.as_ref())?;
+        Ok((
+            account,
+            tariff,
+            quota,
+            subscription,
+            access,
+            views,
+            devices_total,
+            interfaces,
+        ))
+    })
+    .await?;
+
+    let (account, tariff, quota, subscription, access, devices, devices_total, interfaces) = data;
     Ok(Json(AppBootstrapView {
         user: UserView::from(&account),
         tariff: tariff.as_ref().map(AppTariffView::from),
         quota,
         subscription,
         access,
-        devices: build_views(&state.devices, &state.network, &devices)?,
+        devices,
         devices_total,
         interfaces,
     }))
@@ -86,18 +104,21 @@ pub async fn devices_page(
     Ok(Json(page))
 }
 
-fn app_subscription(state: &AppState, user_id: Uuid) -> ApiResult<Option<AppSubscriptionView>> {
-    if !state.config.billing.enabled {
+fn app_subscription(
+    billing: &awg_billing::BillingService,
+    billing_enabled: bool,
+    user_id: Uuid,
+) -> ApiResult<Option<AppSubscriptionView>> {
+    if !billing_enabled {
         return Ok(None);
     }
-    let Some(subscription) = state
-        .billing
+    let Some(subscription) = billing
         .current_subscription(user_id)
         .map_err(ApiError::from)?
     else {
         return Ok(None);
     };
-    let plan = match state.billing.get_plan(subscription.plan_id) {
+    let plan = match billing.get_plan(subscription.plan_id) {
         Ok(plan) => Some(plan),
         Err(CoreError::NotFound(_)) => None,
         Err(error) => return Err(ApiError::from(error)),
@@ -108,12 +129,15 @@ fn app_subscription(state: &AppState, user_id: Uuid) -> ApiResult<Option<AppSubs
     )))
 }
 
-fn app_subscription_inactive(state: &AppState, user_id: Uuid) -> ApiResult<bool> {
-    if !state.config.billing.enabled {
+fn app_subscription_inactive(
+    billing: &awg_billing::BillingService,
+    billing_enabled: bool,
+    user_id: Uuid,
+) -> ApiResult<bool> {
+    if !billing_enabled {
         return Ok(false);
     }
-    let latest = state
-        .billing
+    let latest = billing
         .latest_subscription(user_id)
         .map_err(ApiError::from)?;
     Ok(latest.is_some_and(|subscription| !subscription.grants_access()))
@@ -133,6 +157,11 @@ pub async fn create_device(
     let fingerprint = body_fingerprint(
         &serde_json::to_vec(&request).map_err(|error| ApiError::Internal(error.to_string()))?,
     );
+    // Keep the per-user idempotency table bounded before claiming a new key.
+    state
+        .idempotency
+        .enforce_user_limit(&storage_key)
+        .map_err(ApiError::from)?;
     match state
         .idempotency
         .begin(&storage_key, &fingerprint)
@@ -155,19 +184,58 @@ pub async fn create_device(
     };
     let body =
         serde_json::to_value(&view).map_err(|error| ApiError::Internal(error.to_string()))?;
-    if let Err(error) = state.idempotency.complete(
-        &storage_key,
-        &fingerprint,
-        &IdempotentResponse::new(
-            StatusCode::OK.as_u16(),
-            body,
-            Some("application/json".into()),
-        ),
-    ) {
-        tracing::warn!(%error, "failed to persist the device creation response");
-        return Err(ApiError::from(error));
-    }
+    let cached = IdempotentResponse::new(
+        StatusCode::OK.as_u16(),
+        body,
+        Some("application/json".into()),
+    );
+    let idempotency = state.idempotency.clone();
+    let key = storage_key.clone();
+    apply_idempotent_creation(&state, &view, move || {
+        idempotency.complete(&key, &fingerprint, &cached)
+    })
+    .await?;
     Ok(Json(view).into_response())
+}
+
+/// Publishes the cached creation response. If the idempotency record cannot be
+/// persisted the freshly created device is removed again, so a retry with the
+/// same key cannot leave a duplicate behind: the first request either returns
+/// the cached response or fails without a side effect.
+async fn apply_idempotent_creation<F>(
+    state: &Arc<AppState>,
+    view: &AppDeviceView,
+    complete: F,
+) -> ApiResult<()>
+where
+    F: FnOnce() -> CoreResult<()> + Send + 'static,
+{
+    match blocking::run_core(complete).await {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            tracing::error!(
+                %error,
+                device_id = %view.device.id,
+                "failed to persist the device creation response; rolling back"
+            );
+            rollback_device(state, view).await;
+            Err(ApiError::from(error))
+        }
+    }
+}
+
+async fn rollback_device(state: &Arc<AppState>, view: &AppDeviceView) {
+    let device_id = view.device.id;
+    match state.devices.delete(device_id) {
+        Ok(()) => publish_group(state, view.device.group_id).await,
+        Err(error) => {
+            tracing::error!(
+                %error,
+                %device_id,
+                "failed to roll back the device after a failed idempotency write"
+            );
+        }
+    }
 }
 
 fn idempotency_key(headers: &HeaderMap) -> ApiResult<Option<String>> {
@@ -405,7 +473,7 @@ pub async fn update_device(
         .unwrap_or_else(unlimited_tariff);
     let updated = state
         .devices
-        .update(id, &tariff, Some(name), None, None, None)
+        .update(id, &tariff, Some(name), None, None, None, None)
         .map_err(ApiError::from)?;
     publish_group(&state, updated.group_id).await;
     Ok(Json(build_view(&state, &updated)?))
@@ -490,24 +558,22 @@ fn pick_interface(interfaces: Vec<Interface>) -> Option<Interface> {
 }
 
 fn available_interfaces(
-    state: &AppState,
+    network: &awg_network::NetworkService,
     owner: &User,
     tariff: Option<&Tariff>,
 ) -> ApiResult<Vec<AppInterfaceView>> {
     let mut interfaces = if let Some(interface_id) = tariff.and_then(|tariff| tariff.interface_id) {
-        match state.network.get_interface(interface_id) {
+        match network.get_interface(interface_id) {
             Ok(interface) => vec![interface],
             Err(CoreError::NotFound(_)) => Vec::new(),
             Err(error) => return Err(ApiError::from(error)),
         }
     } else if let Some(node_id) = owner.node_id {
-        state
-            .network
+        network
             .interfaces_by_node(node_id)
             .map_err(ApiError::from)?
     } else if let Some(group_id) = owner.group_id {
-        state
-            .network
+        network
             .interfaces_by_group(group_id)
             .map_err(ApiError::from)?
     } else {
@@ -519,8 +585,7 @@ fn available_interfaces(
             .cmp(&right.name)
             .then_with(|| left.id.cmp(&right.id))
     });
-    let nodes: std::collections::HashMap<Uuid, String> = state
-        .network
+    let nodes: std::collections::HashMap<Uuid, String> = network
         .list_nodes()
         .map_err(ApiError::from)?
         .into_iter()
@@ -535,4 +600,123 @@ fn available_interfaces(
             node_name: nodes.get(&interface.node_id).cloned().unwrap_or_default(),
         })
         .collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use awg_identity::{AuthPrincipal, Role};
+    use awg_storage::Table;
+    use axum::http::{HeaderName, HeaderValue};
+
+    use super::*;
+    use crate::idempotency::IdempotencyRecord;
+    use crate::test_support::app_env;
+
+    #[tokio::test]
+    async fn failed_idempotency_completion_removes_the_created_device() {
+        let env = app_env();
+        let user = AuthUser(AuthPrincipal {
+            user_id: env.owner_id,
+            role: Role::User,
+        });
+        let request = AppDeviceRequest {
+            name: Some("Phone".into()),
+            interface_ids: Vec::new(),
+        };
+        let view = create_device_view(&env.state, &user, &request)
+            .await
+            .unwrap();
+        let device_id = view.device.id;
+        assert!(env.state.devices.get(device_id).is_ok());
+
+        let error = apply_idempotent_creation(&env.state, &view, || {
+            Err(CoreError::Io(std::io::Error::other(
+                "idempotency store is unavailable",
+            )))
+        })
+        .await
+        .unwrap_err();
+
+        assert_eq!(error.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            env.state.devices.get(device_id).is_err(),
+            "the device must be rolled back when the idempotency record cannot be stored"
+        );
+    }
+
+    #[tokio::test]
+    async fn successful_idempotency_completion_keeps_the_device() {
+        let env = app_env();
+        let user = AuthUser(AuthPrincipal {
+            user_id: env.owner_id,
+            role: Role::User,
+        });
+        let request = AppDeviceRequest {
+            name: Some("Phone".into()),
+            interface_ids: Vec::new(),
+        };
+        let view = create_device_view(&env.state, &user, &request)
+            .await
+            .unwrap();
+        let device_id = view.device.id;
+
+        apply_idempotent_creation(&env.state, &view, || Ok(()))
+            .await
+            .unwrap();
+
+        assert!(env.state.devices.get(device_id).is_ok());
+    }
+
+    #[tokio::test]
+    async fn app_device_creation_keeps_the_user_idempotency_table_bounded() {
+        let env = app_env();
+        let prefix = format!("user:{}:", env.owner_id);
+        // MAX_USER_RECORDS is 1000; fill the table exactly, then make sure a
+        // new app creation replaces an old record instead of growing it.
+        for index in 0..1000 {
+            // Seed the table directly: going through `put` would run the
+            // eviction scan on every write and make the fixture quadratic.
+            let key = format!("{prefix}filler-{index:04}");
+            let record = IdempotencyRecord::new(200, "sealed".into(), None);
+            env.store.put(Table::Idempotency, &key, &record).unwrap();
+        }
+        let before = env
+            .store
+            .list_prefix::<IdempotencyRecord>(Table::Idempotency, &prefix)
+            .unwrap()
+            .len();
+        assert_eq!(before, 1000);
+
+        let user = AuthUser(AuthPrincipal {
+            user_id: env.owner_id,
+            role: Role::User,
+        });
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static(IDEMPOTENCY_HEADER),
+            HeaderValue::from_static("app-capacity-0001"),
+        );
+        let response = create_device(
+            State(env.state.clone()),
+            user,
+            headers,
+            Json(AppDeviceRequest {
+                name: Some("Phone".into()),
+                interface_ids: Vec::new(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let after = env
+            .store
+            .list_prefix::<IdempotencyRecord>(Table::Idempotency, &prefix)
+            .unwrap()
+            .len();
+        assert_eq!(
+            after, before,
+            "the app path must evict an old record instead of exceeding the per-user cap"
+        );
+    }
 }

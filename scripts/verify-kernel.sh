@@ -6,8 +6,10 @@ SCRIPT_PATH="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/$(basename -- "
 readonly SCRIPT_PATH
 
 IFACE="awgverify0"
+IFACE_EXPLICIT=0
 APPLY=0
 USE_NETNS=0
+IN_NS=0
 TRAFFIC=1
 INSPECT=""
 FAILED=0
@@ -15,6 +17,10 @@ WARNED=0
 SKIPPED=0
 WORKDIR=""
 CHILD_PIDS=()
+CREATED_IFACE=0
+CREATED_LINKS=0
+TRAFFIC_R1="awgtr-r1"
+TRAFFIC_R2="awgtr-r2"
 
 usage() {
   cat <<'EOF'
@@ -30,6 +36,7 @@ usage() {
   --apply             выполнить проверку (по умолчанию dry-run); проверки всегда идут
                       в новом netns, хост не затрагивается
   --netns             без root: private user+net namespace (unshare -rn)
+  --in-ns             служебный флаг: процесс уже запущен в одноразовом netns
   --ifname NAME       имя временного интерфейса (по умолчанию awgverify0), будет удалён
   --inspect NAME      прочитать живой интерфейс и выйти
   --no-traffic        не проверять сквозной трафик и счётчики
@@ -72,9 +79,35 @@ cleanup() {
   for pid in "${CHILD_PIDS[@]:-}"; do
     kill "$pid" 2>/dev/null || true
   done
+  if have ip; then
+    if [ "$CREATED_LINKS" -eq 1 ]; then
+      ip link del "$TRAFFIC_R1" 2>/dev/null || true
+      ip link del "$TRAFFIC_R2" 2>/dev/null || true
+    fi
+    if [ "$CREATED_IFACE" -eq 1 ]; then
+      ip link del dev "$IFACE" 2>/dev/null || true
+    fi
+  fi
   if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
     rm -rf "$WORKDIR"
   fi
+}
+
+pick_default_ifname() {
+  if ! have ip || ! ip link show dev "$IFACE" >/dev/null 2>&1; then
+    return 0
+  fi
+  local candidate suffix attempt
+  for attempt in $(seq 1 50); do
+    suffix=$(printf '%04x' $((RANDOM % 65536)))
+    candidate="awgv-$suffix"
+    if ! ip link show dev "$candidate" >/dev/null 2>&1; then
+      note "интерфейс $IFACE уже существует, используется $candidate"
+      IFACE="$candidate"
+      return 0
+    fi
+  done
+  die "не удалось подобрать свободное имя интерфейса вместо $IFACE"
 }
 
 parse_args() {
@@ -82,10 +115,12 @@ parse_args() {
     case "$1" in
       --apply) APPLY=1 ;;
       --netns) USE_NETNS=1 ;;
+      --in-ns) IN_NS=1 ;;
       --no-traffic) TRAFFIC=0 ;;
       --ifname)
         [ $# -ge 2 ] || die "--ifname требует значение"
         IFACE="$2"
+        IFACE_EXPLICIT=1
         shift
         ;;
       --inspect)
@@ -102,6 +137,9 @@ parse_args() {
     shift
   done
 
+  if [ "$IFACE_EXPLICIT" -eq 0 ] && [ "$INSPECT" = "" ]; then
+    pick_default_ifname
+  fi
   if [ ${#IFACE} -gt 15 ]; then
     die "имя интерфейса длиннее 15 символов: $IFACE"
   fi
@@ -152,7 +190,7 @@ check_module() {
     ok "модуль загружен (/proc/modules)"
   else
     note "модуль не загружен"
-    if [ "$APPLY" -eq 1 ] && [ -z "${AWG_VERIFY_KERNEL_NS:-}" ]; then
+    if [ "$APPLY" -eq 1 ] && [ "$IN_NS" -eq 0 ]; then
       if [ "$(id -u)" -eq 0 ]; then
         if modprobe "$MODULE" 2>&1; then
           ok "modprobe $MODULE"
@@ -262,6 +300,7 @@ check_link_and_obf() {
     fail "ip link add type $MODULE: $(cat "$WORKDIR/ip.err")"
     return
   fi
+  CREATED_IFACE=1
   ok "ip link add type $MODULE"
 
   print_cmd ip link set dev "$IFACE" mtu 1420
@@ -354,6 +393,7 @@ check_link_and_obf() {
 
   print_cmd ip link del dev "$IFACE"
   ip link del dev "$IFACE" 2>/dev/null || true
+  CREATED_IFACE=0
   if ip link show dev "$IFACE" >/dev/null 2>&1; then
     fail "интерфейс $IFACE не удалён"
   else
@@ -401,11 +441,12 @@ traffic_test() {
   start_netns || { skip "не удалось создать netns 2"; return; }
   ns2=$NS_PID
 
-  local r1=awgtr-r1 r2=awgtr-r2 c1=awgtr-c1 c2=awgtr-c2
+  local r1="$TRAFFIC_R1" r2="$TRAFFIC_R2" c1=awgtr-c1 c2=awgtr-c2
   local k0 k1 pub0 pub1
 
-  ip link add "$r1" type veth peer name "$c1"
-  ip link add "$r2" type veth peer name "$c2"
+  ip link add "$r1" type veth peer name "$c1" || { fail "ip link add $r1"; return; }
+  CREATED_LINKS=1
+  ip link add "$r2" type veth peer name "$c2" || { fail "ip link add $r2"; return; }
   ip addr add 10.40.1.1/24 dev "$r1"
   ip addr add 10.40.2.1/24 dev "$r2"
   ip link set "$r1" up
@@ -491,6 +532,7 @@ INNER
 
   ip link del "$r1" 2>/dev/null || true
   ip link del "$r2" 2>/dev/null || true
+  CREATED_LINKS=0
 }
 
 dry_run() {
@@ -543,8 +585,26 @@ print_summary() {
   return 0
 }
 
+verify_netns_isolation() {
+  [ "$IN_NS" -eq 1 ] || return 0
+  local own parent
+  own=$(readlink /proc/self/ns/net)
+  parent="${AWG_PARENT_NETNS:-}"
+  if [ -z "$parent" ]; then
+    die "--in-ns требует AWG_PARENT_NETNS (служебный флаг, запускайте без него)"
+  fi
+  if [ "$own" = "$parent" ]; then
+    die "скрипт остался в netns хоста ($own); проверка отменена"
+  fi
+  note "netns проверки: $own (хост: $parent)"
+}
+
 main() {
   parse_args "$@"
+
+  if [ "$IN_NS" -eq 1 ]; then
+    verify_netns_isolation
+  fi
 
   if [ -n "$INSPECT" ]; then
     inspect_interface "$INSPECT"
@@ -561,7 +621,7 @@ main() {
 
   require_root_or_netns
 
-  if [ -z "${AWG_VERIFY_KERNEL_NS:-}" ]; then
+  if [ "$IN_NS" -eq 0 ]; then
     check_module
     local rc=0
     reexec_in_netns || rc=$?
@@ -584,7 +644,7 @@ require_root_or_netns() {
 }
 
 reexec_in_netns() {
-  local args=(--apply --ifname "$IFACE")
+  local args=(--apply --in-ns --ifname "$IFACE")
   if [ "$TRAFFIC" -eq 0 ]; then
     args+=(--no-traffic)
   fi
@@ -592,13 +652,16 @@ reexec_in_netns() {
     args+=(--netns)
   fi
 
+  local parent
+  parent=$(readlink /proc/self/ns/net)
+
   section "Изолированный netns"
   if [ "$(id -u)" -eq 0 ]; then
     note "все проверки выполняются в новом netns, хост не затрагивается"
-    unshare --net -- env AWG_VERIFY_KERNEL_NS=1 bash "$SCRIPT_PATH" "${args[@]}"
+    unshare --net -- env AWG_PARENT_NETNS="$parent" bash "$SCRIPT_PATH" "${args[@]}"
   else
     note "все проверки выполняются в user+net namespace, root не нужен"
-    unshare -rn -- env AWG_VERIFY_KERNEL_NS=1 bash "$SCRIPT_PATH" "${args[@]}"
+    unshare -rn -- env AWG_PARENT_NETNS="$parent" bash "$SCRIPT_PATH" "${args[@]}"
   fi
 }
 

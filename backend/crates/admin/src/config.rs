@@ -178,17 +178,23 @@ pub struct ConfigInput {
     pub dev_mail_token: Option<String>,
     pub rate_limit_store: String,
     pub login_rate_limit: u32,
+    pub login_account_rate_limit: u32,
+    pub login_ip_rate_limit: u32,
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
     pub register_rate_limit: u32,
     pub register_rate_window_secs: u64,
+    pub registration_enabled: String,
+    pub webhook_rate_limit: u32,
+    pub webhook_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
     pub forgot_rate_limit: u32,
     pub forgot_rate_window_secs: u64,
     pub http_timeout_secs: u64,
     pub shutdown_grace_secs: u64,
+    pub allow_ws_token: String,
     pub mail_mode: String,
     pub smtp_url: Option<String>,
     pub smtp_from: Option<String>,
@@ -228,12 +234,18 @@ pub struct Config {
     pub trusted_proxies: Vec<IpNet>,
     pub dev_mail_token: Option<String>,
     pub rate_limit_store: RateLimitStore,
+    pub allow_ws_token: bool,
     pub login_rate_limit: u32,
+    pub login_account_rate_limit: u32,
+    pub login_ip_rate_limit: u32,
     pub login_rate_window_secs: u64,
     pub refresh_rate_limit: u32,
     pub refresh_rate_window_secs: u64,
     pub register_rate_limit: u32,
     pub register_rate_window_secs: u64,
+    pub registration_enabled: bool,
+    pub webhook_rate_limit: u32,
+    pub webhook_window_secs: u64,
     pub resend_rate_limit: u32,
     pub resend_rate_window_secs: u64,
     pub forgot_rate_limit: u32,
@@ -264,7 +276,7 @@ impl Config {
         let production = input.environment.is_production();
 
         let bind = input.bind.parse().context("AWG_BIND must be host:port")?;
-        let grpc_bind = input
+        let grpc_bind: SocketAddr = input
             .grpc_bind
             .parse()
             .context("AWG_GRPC_BIND must be host:port")?;
@@ -289,9 +301,16 @@ impl Config {
             );
         }
         if production && grpc_tls_cert.is_none() {
-            tracing::warn!(
-                "worker gRPC is listening without TLS; set AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY to enable server-auth TLS"
-            );
+            if grpc_bind.ip().is_loopback() {
+                tracing::warn!(
+                    grpc_bind = %grpc_bind,
+                    "worker gRPC is listening without TLS on a loopback address; set AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY to enable server-auth TLS"
+                );
+            } else {
+                bail!(
+                    "worker gRPC is listening on {grpc_bind} without TLS in production; set AWG_GRPC_TLS_CERT and AWG_GRPC_TLS_KEY (or bind AWG_GRPC_BIND to a loopback address behind a TLS-terminating proxy)"
+                );
+            }
         }
         if production && grpc_tls_cert.is_some() && grpc_tls_client_ca.is_none() {
             tracing::warn!(
@@ -361,19 +380,26 @@ impl Config {
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
-        let cors_origins = input
+        let cors_origins: Vec<String> = input
             .cors_origins
             .split(',')
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
             .collect();
+        if cors_origins.is_empty() {
+            if production {
+                tracing::warn!(
+                    "AWG_CORS_ORIGINS is empty; cross-origin browser requests are rejected. Set it to the panel origin(s) if the UI is served from a different origin"
+                );
+            }
+        } else if cors_origins.iter().any(|origin| origin == "*") {
+            bail!("AWG_CORS_ORIGINS must list explicit origins; wildcard '*' is not supported");
+        }
 
         let metrics_token = non_empty(&input.metrics_token).map(|value| value.trim().to_string());
         if metrics_token.is_none() {
             if production {
-                tracing::warn!(
-                    "AWG_METRICS_TOKEN is not set; /metrics is served without authentication and must not be reachable from untrusted networks"
-                );
+                tracing::warn!("AWG_METRICS_TOKEN is not set; /metrics returns 404 in production");
             } else {
                 tracing::warn!(
                     "AWG_METRICS_TOKEN is not set; /metrics is served without authentication"
@@ -389,6 +415,20 @@ impl Config {
         }
 
         let rate_limit_store = RateLimitStore::parse(&input.rate_limit_store)?;
+        let registration_enabled = parse_bool(
+            "AWG_REGISTRATION_ENABLED",
+            &input.registration_enabled,
+            true,
+        )?;
+        if !registration_enabled {
+            tracing::warn!("AWG_REGISTRATION_ENABLED=false: public self-registration is disabled");
+        }
+        let allow_ws_token = parse_bool("AWG_ALLOW_WS_TOKEN", &input.allow_ws_token, false)?;
+        if allow_ws_token && production {
+            tracing::warn!(
+                "AWG_ALLOW_WS_TOKEN is enabled in production; access tokens in WebSocket query strings may leak through logs and proxies"
+            );
+        }
         if production && !rate_limit_store.is_shared() {
             tracing::warn!(
                 "AWG_RATE_LIMIT_STORE=memory keeps login/refresh limits per process; set AWG_RATE_LIMIT_STORE=redb when running more than one admin replica"
@@ -440,12 +480,18 @@ impl Config {
             trusted_proxies,
             dev_mail_token,
             rate_limit_store,
+            allow_ws_token,
             login_rate_limit: input.login_rate_limit,
+            login_account_rate_limit: input.login_account_rate_limit,
+            login_ip_rate_limit: input.login_ip_rate_limit,
             login_rate_window_secs: input.login_rate_window_secs.max(1),
             refresh_rate_limit: input.refresh_rate_limit,
             refresh_rate_window_secs: input.refresh_rate_window_secs.max(1),
             register_rate_limit: input.register_rate_limit,
             register_rate_window_secs: input.register_rate_window_secs.max(1),
+            registration_enabled,
+            webhook_rate_limit: input.webhook_rate_limit,
+            webhook_window_secs: input.webhook_window_secs.max(1),
             resend_rate_limit: input.resend_rate_limit,
             resend_rate_window_secs: input.resend_rate_window_secs.max(1),
             forgot_rate_limit: input.forgot_rate_limit,
@@ -586,17 +632,23 @@ fn input_from_env() -> Result<ConfigInput> {
         dev_mail_token: env_optional("AWG_DEV_MAIL_TOKEN"),
         rate_limit_store: env("AWG_RATE_LIMIT_STORE", "memory"),
         login_rate_limit: env_u32("AWG_LOGIN_RATE_LIMIT", 10),
+        login_account_rate_limit: env_u32("AWG_LOGIN_ACCOUNT_RATE_LIMIT", 20),
+        login_ip_rate_limit: env_u32("AWG_LOGIN_IP_RATE_LIMIT", 30),
         login_rate_window_secs: env_u64("AWG_LOGIN_RATE_WINDOW_SECS", 300),
         refresh_rate_limit: env_u32("AWG_REFRESH_RATE_LIMIT", 60),
         refresh_rate_window_secs: env_u64("AWG_REFRESH_RATE_WINDOW_SECS", 300),
         register_rate_limit: env_u32("AWG_REGISTER_RATE_LIMIT", 5),
         register_rate_window_secs: env_u64("AWG_REGISTER_RATE_WINDOW_SECS", 300),
+        registration_enabled: env("AWG_REGISTRATION_ENABLED", "true"),
+        webhook_rate_limit: env_u32("AWG_WEBHOOK_RATE_LIMIT", 120),
+        webhook_window_secs: env_u64("AWG_WEBHOOK_WINDOW_SECS", 60),
         resend_rate_limit: env_u32("AWG_RESEND_RATE_LIMIT", 5),
         resend_rate_window_secs: env_u64("AWG_RESEND_RATE_WINDOW_SECS", 300),
         forgot_rate_limit: env_u32("AWG_FORGOT_RATE_LIMIT", 5),
         forgot_rate_window_secs: env_u64("AWG_FORGOT_RATE_WINDOW_SECS", 300),
         http_timeout_secs: env_u64("AWG_HTTP_TIMEOUT_SECS", 30),
         shutdown_grace_secs: env_u64("AWG_SHUTDOWN_GRACE_SECS", 10),
+        allow_ws_token: env("AWG_ALLOW_WS_TOKEN", "false"),
         mail_mode: env("AWG_MAIL_MODE", "log"),
         smtp_url: env_optional("AWG_SMTP_URL"),
         smtp_from: env_optional("AWG_SMTP_FROM"),
@@ -670,17 +722,23 @@ mod tests {
             dev_mail_token: None,
             rate_limit_store: "memory".into(),
             login_rate_limit: 10,
+            login_account_rate_limit: 20,
+            login_ip_rate_limit: 30,
             login_rate_window_secs: 300,
             refresh_rate_limit: 60,
             refresh_rate_window_secs: 300,
             register_rate_limit: 5,
             register_rate_window_secs: 300,
+            registration_enabled: "true".into(),
+            webhook_rate_limit: 120,
+            webhook_window_secs: 60,
             resend_rate_limit: 5,
             resend_rate_window_secs: 300,
             forgot_rate_limit: 5,
             forgot_rate_window_secs: 300,
             http_timeout_secs: 30,
             shutdown_grace_secs: 10,
+            allow_ws_token: "false".into(),
             mail_mode: "log".into(),
             smtp_url: None,
             smtp_from: None,
@@ -902,6 +960,22 @@ mod tests {
     }
 
     #[test]
+    fn registration_is_enabled_by_default_and_can_be_disabled() {
+        let config = Config::from_input(base_input(Environment::Development)).unwrap();
+        assert!(config.registration_enabled);
+
+        let mut input = base_input(Environment::Development);
+        input.registration_enabled = " false ".into();
+        let config = Config::from_input(input).unwrap();
+        assert!(!config.registration_enabled);
+
+        let mut input = base_input(Environment::Development);
+        input.registration_enabled = "maybe".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_REGISTRATION_ENABLED"), "{error}");
+    }
+
+    #[test]
     fn trusted_proxies_parse_cidrs_and_bare_addresses() {
         let mut input = base_input(Environment::Development);
         input.trusted_proxies = " 10.0.0.0/8, 192.0.2.5 ,, 2001:db8::/32 ".into();
@@ -1087,5 +1161,49 @@ mod tests {
         assert!(config.grpc_tls_cert.is_none());
         assert!(config.grpc_tls_key.is_none());
         assert!(config.grpc_tls_client_ca.is_none());
+    }
+
+    #[test]
+    fn production_rejects_plaintext_grpc_on_a_public_interface() {
+        let mut input = base_input(Environment::Production);
+        input.grpc_bind = "0.0.0.0:9090".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("without TLS in production"), "{error}");
+    }
+
+    #[test]
+    fn production_allows_plaintext_grpc_on_loopback() {
+        for bind in ["127.0.0.1:9090", "[::1]:9090"] {
+            let mut input = base_input(Environment::Production);
+            input.grpc_bind = bind.into();
+            let config = Config::from_input(input).unwrap();
+            assert!(config.grpc_bind.ip().is_loopback());
+        }
+    }
+
+    #[test]
+    fn ws_token_authentication_is_disabled_by_default() {
+        let config = Config::from_input(base_input(Environment::Development)).unwrap();
+        assert!(!config.allow_ws_token);
+
+        let mut input = base_input(Environment::Development);
+        input.allow_ws_token = "true".into();
+        let config = Config::from_input(input).unwrap();
+        assert!(config.allow_ws_token);
+
+        let mut input = base_input(Environment::Development);
+        input.allow_ws_token = "maybe".into();
+        let error = Config::from_input(input).unwrap_err().to_string();
+        assert!(error.contains("AWG_ALLOW_WS_TOKEN"));
+    }
+
+    #[test]
+    fn login_account_and_ip_limits_are_configurable() {
+        let mut input = base_input(Environment::Development);
+        input.login_account_rate_limit = 7;
+        input.login_ip_rate_limit = 11;
+        let config = Config::from_input(input).unwrap();
+        assert_eq!(config.login_account_rate_limit, 7);
+        assert_eq!(config.login_ip_rate_limit, 11);
     }
 }

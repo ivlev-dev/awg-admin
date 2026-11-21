@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::time::Duration;
 
 use axum::Router;
 use axum::body::{Body, to_bytes};
@@ -8,8 +9,9 @@ use serde_json::{Value, json};
 use tower::ServiceExt;
 
 use awg_admin::routes::{self, Readiness};
-use awg_admin::test_support::{AppEnv, OWNER_EMAIL, PASSWORD, app_env};
+use awg_admin::test_support::{AppEnv, OWNER_EMAIL, PASSWORD, app_env, app_env_with_registration};
 use awg_identity::{Role, SessionMetadata, UserChanges};
+use awg_storage::Table;
 
 fn router(env: &AppEnv) -> Router {
     routes::router(env.state.clone(), Readiness::new(env.store.clone()))
@@ -255,6 +257,199 @@ async fn admin_creates_and_updates_full_name_and_email() {
 }
 
 #[tokio::test]
+async fn registration_does_not_reveal_existing_emails() {
+    let env = app_env();
+    let pending = serde_json::json!({ "status": "pending_email" });
+
+    let before = env.store.count(Table::EmailVerifications).unwrap();
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/register",
+        "unused",
+        Some(json!({ "email": OWNER_EMAIL, "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body, pending, "an existing email must look like a new one");
+    assert_eq!(
+        env.store.count(Table::EmailVerifications).unwrap(),
+        before,
+        "an existing address must not receive another verification email"
+    );
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/register",
+        "unused",
+        Some(json!({ "email": "fresh-person@example.com", "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body, pending);
+
+    for payload in [
+        json!({ "email": "not-an-email", "password": PASSWORD }),
+        json!({ "email": "weak-person@example.com", "password": "short" }),
+    ] {
+        let (status, body) = call(
+            router(&env),
+            "POST",
+            "/api/v1/auth/register",
+            "unused",
+            Some(payload),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn registration_can_be_disabled() {
+    let env = app_env_with_registration(false);
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/register",
+        "unused",
+        Some(json!({ "email": "closed@example.com", "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["code"], "registration_disabled");
+    assert!(
+        env.state
+            .identity
+            .find_by_email("closed@example.com")
+            .unwrap()
+            .is_none()
+    );
+
+    let env = app_env_with_registration(true);
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/register",
+        "unused",
+        Some(json!({ "email": "open@example.com", "password": PASSWORD })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+    assert_eq!(body["status"], "pending_email");
+}
+
+#[tokio::test]
+async fn totp_setup_and_enable_require_the_current_password() {
+    let env = app_env();
+    let token = &env.owner_token;
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/totp/setup",
+        token,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["message"], "current password is wrong");
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/totp/setup",
+        token,
+        Some(json!({ "password": "wrong-password" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+
+    // `setup_totp` verifies the password and then hashes eight recovery codes
+    // with Argon2. Routing that through the HTTP layer competes with the other
+    // tests in this binary for CPU and can exceed the 30s request timeout, so
+    // the successful setup is exercised directly. The API's 403 handling above
+    // and the 200 enable path below still cover the HTTP mapping, and the
+    // service-level success path is covered by the identity crate tests.
+    let setup = env
+        .state
+        .identity
+        .setup_totp(env.owner_id, Some(PASSWORD), None)
+        .unwrap();
+    let secret = setup.secret;
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/totp/enable",
+        token,
+        Some(json!({ "code": "123456" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(body["error"]["message"], "current password is wrong");
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/totp/enable",
+        token,
+        Some(json!({ "password": "wrong-password", "code": "123456" })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert!(!env.state.identity.find(env.owner_id).unwrap().totp_enabled);
+
+    let (status, body) = call(
+        router(&env),
+        "POST",
+        "/api/v1/auth/totp/enable",
+        token,
+        Some(json!({
+            "password": PASSWORD,
+            "code": totp_code(&secret, OWNER_EMAIL),
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["enabled"], true);
+    assert!(env.state.identity.find(env.owner_id).unwrap().totp_enabled);
+}
+
+#[tokio::test]
+async fn health_and_readiness_do_not_leak_build_details() {
+    let env = app_env();
+
+    let (status, body) = call(router(&env), "GET", "/api/v1/health", "unused", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "ok");
+    assert_eq!(body["service"], "awg-admin");
+    assert!(body.get("version").is_none(), "{body}");
+
+    let (status, body) = call(router(&env), "GET", "/ready", "unused", None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["status"], "ready");
+    assert!(body.get("version").is_none(), "{body}");
+    assert!(body.get("schema_version").is_none(), "{body}");
+}
+
+fn totp_code(secret: &str, account: &str) -> String {
+    let secret = totp_rs::Secret::try_from_base32(secret).unwrap();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    totp_rs::Builder::new()
+        .with_secret(secret)
+        .with_account_name(account)
+        .with_issuer(Some("awg-admin"))
+        .build()
+        .unwrap()
+        .generate(now)
+        .to_string()
+}
+
+#[tokio::test]
 async fn users_edit_their_own_full_name() {
     let env = app_env();
     let (status, body) = call(
@@ -391,14 +586,23 @@ async fn audit_entries_expose_actor_email() {
     .await;
     assert_eq!(status, StatusCode::OK, "{body}");
 
-    let (status, body) = call(router(&env), "GET", "/api/v1/audit?limit=10", &token, None).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
-    let entry = body["items"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|item| item["entity"] == "users")
-        .expect("the user creation is audited");
+    let mut entry = None;
+    for _ in 0..200 {
+        let (status, body) =
+            call(router(&env), "GET", "/api/v1/audit?limit=10", &token, None).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        entry = body["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["entity"] == "users")
+            .cloned();
+        if entry.is_some() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let entry = entry.expect("the user creation is audited");
     assert_eq!(entry["actor_email"], OWNER_EMAIL);
     assert_eq!(entry["actor_login"], OWNER_EMAIL);
 }

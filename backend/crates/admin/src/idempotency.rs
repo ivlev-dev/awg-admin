@@ -346,7 +346,10 @@ impl IdempotencyStore {
             .map_err(map_err)
     }
 
-    fn enforce_user_limit(&self, key: &str) -> CoreResult<()> {
+    /// Evicts the oldest records for the key's user when the per-user cap is
+    /// reached. Exposed so the app device path can bound its own table before
+    /// it claims a new key.
+    pub(crate) fn enforce_user_limit(&self, key: &str) -> CoreResult<()> {
         let Some(rest) = key.strip_prefix("user:") else {
             return Ok(());
         };
@@ -391,16 +394,13 @@ pub fn valid_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
 }
 
-pub fn cache_key(
-    authorization: Option<&str>,
-    method: &str,
-    target: &str,
-    idempotency_key: &str,
-) -> String {
-    let scope = authorization
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(ANONYMOUS_SCOPE);
+pub fn cache_key(scope: &str, method: &str, target: &str, idempotency_key: &str) -> String {
+    let scope = scope.trim();
+    let scope = if scope.is_empty() {
+        ANONYMOUS_SCOPE
+    } else {
+        scope
+    };
     let mut hasher = Sha256::new();
     for part in [scope, method, target, idempotency_key] {
         hasher.update(part.as_bytes());
@@ -411,6 +411,49 @@ pub fn cache_key(
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RequestScope {
+    Anonymous,
+    User(Uuid),
+    Invalid,
+}
+
+async fn resolve_scope(state: &Arc<AppState>, authorization: Option<&str>) -> RequestScope {
+    let Some(authorization) = authorization else {
+        return RequestScope::Anonymous;
+    };
+    let Some(token) = bearer_token(authorization) else {
+        return RequestScope::Invalid;
+    };
+    match authenticate(state, token).await {
+        Some(user_id) => RequestScope::User(user_id),
+        None => RequestScope::Invalid,
+    }
+}
+
+async fn authenticate(state: &Arc<AppState>, token: &str) -> Option<Uuid> {
+    let identity = state.identity.clone();
+    let token = token.to_string();
+    tokio::task::spawn_blocking(move || identity.authenticate(&token))
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .map(|principal| principal.user_id)
+}
+
+fn bearer_token(header: &str) -> Option<&str> {
+    let token = header.trim().strip_prefix("Bearer ")?.trim();
+    (!token.is_empty()).then_some(token)
+}
+
+fn scope_name(scope: RequestScope) -> String {
+    match scope {
+        RequestScope::Anonymous => ANONYMOUS_SCOPE.to_string(),
+        RequestScope::User(user_id) => format!("user:{user_id}"),
+        RequestScope::Invalid => ANONYMOUS_SCOPE.to_string(),
+    }
 }
 
 pub async fn middleware(
@@ -425,7 +468,19 @@ pub async fn middleware(
         Some(key) => key,
         None => return ApiError::InvalidIdempotencyKey.into_response(),
     };
-    let storage_key = storage_key(&request, key);
+    let authorization = request
+        .headers()
+        .get(header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .map(str::to_string);
+    let scope = resolve_scope(&state, authorization.as_deref()).await;
+    if scope == RequestScope::Invalid {
+        // An unparsable or rejected access token must reach the handler so it
+        // can return 401 instead of replaying a cached response.
+        return next.run(request).await;
+    }
+    let scope = scope_name(scope);
+    let storage_key = storage_key(&request, key, &scope);
 
     let (parts, body) = request.into_parts();
     let body = match to_bytes(body, MAX_REQUEST_BODY_BYTES).await {
@@ -439,7 +494,15 @@ pub async fn middleware(
     let request = Request::from_parts(parts, Body::from(body));
 
     match state.idempotency.begin(&storage_key, &fingerprint) {
-        Ok(BeginOutcome::Ready(cached)) => return cached.into_response(),
+        Ok(BeginOutcome::Ready(cached)) => {
+            if cache_scope_is_valid(&state, authorization.as_deref(), &scope).await {
+                return cached.into_response();
+            }
+            // The token was revoked or the user was disabled after the record
+            // was written. Do not leak the cached response; let the handler
+            // reject the request.
+            return next.run(request).await;
+        }
         Ok(BeginOutcome::InFlight) => return ApiError::IdempotencyInProgress.into_response(),
         Ok(BeginOutcome::FingerprintMismatch) => {
             return ApiError::IdempotencyKeyMismatch.into_response();
@@ -523,17 +586,29 @@ fn idempotency_key(headers: &HeaderMap) -> Option<&str> {
     valid_key(key).then_some(key)
 }
 
-fn storage_key(request: &Request, key: &str) -> String {
-    let authorization = request
-        .headers()
-        .get(header::AUTHORIZATION)
-        .and_then(|value| value.to_str().ok());
+fn storage_key(request: &Request, key: &str, scope: &str) -> String {
     let path = request.uri().path();
     let target = match request.uri().query() {
         Some(query) => format!("{path}?{query}"),
         None => path.to_string(),
     };
-    cache_key(authorization, request.method().as_str(), &target, key)
+    cache_key(scope, request.method().as_str(), &target, key)
+}
+
+async fn cache_scope_is_valid(
+    state: &Arc<AppState>,
+    authorization: Option<&str>,
+    scope: &str,
+) -> bool {
+    if scope == ANONYMOUS_SCOPE {
+        return true;
+    }
+    let Some(token) = authorization.and_then(bearer_token) else {
+        return false;
+    };
+    authenticate(state, token)
+        .await
+        .is_some_and(|user_id| format!("user:{user_id}") == scope)
 }
 
 fn map_err(error: StorageError) -> CoreError {
@@ -825,61 +900,42 @@ mod tests {
 
     #[test]
     fn cache_key_is_stable_and_scope_dependent() {
-        let first = cache_key(
-            Some("Bearer token-a"),
-            "POST",
-            "/api/v1/users",
-            "same-key-1",
-        );
+        let user_a = "user:11111111-1111-1111-1111-111111111111";
+        let user_b = "user:22222222-2222-2222-2222-222222222222";
+        let first = cache_key(user_a, "POST", "/api/v1/users", "same-key-1");
         assert_eq!(first.len(), 64);
         assert!(first.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(
             first,
-            cache_key(
-                Some("Bearer token-a"),
-                "POST",
-                "/api/v1/users",
-                "same-key-1"
-            )
+            cache_key(user_a, "POST", "/api/v1/users", "same-key-1")
         );
         assert_ne!(
             first,
-            cache_key(
-                Some("Bearer token-b"),
-                "POST",
-                "/api/v1/users",
-                "same-key-1"
-            )
+            cache_key(user_b, "POST", "/api/v1/users", "same-key-1")
         );
         assert_ne!(
             first,
-            cache_key(
-                Some("Bearer token-a"),
-                "POST",
-                "/api/v1/groups",
-                "same-key-1"
-            )
+            cache_key(user_a, "POST", "/api/v1/groups", "same-key-1")
         );
         assert_ne!(
             first,
-            cache_key(Some("Bearer token-a"), "PUT", "/api/v1/users", "same-key-1")
+            cache_key(user_a, "PUT", "/api/v1/users", "same-key-1")
         );
         assert_ne!(
             first,
-            cache_key(
-                Some("Bearer token-a"),
-                "POST",
-                "/api/v1/users",
-                "same-key-2"
-            )
+            cache_key(user_a, "POST", "/api/v1/users", "same-key-2")
         );
         assert_ne!(
             first,
-            cache_key(None, "POST", "/api/v1/users", "same-key-1")
+            cache_key(ANONYMOUS_SCOPE, "POST", "/api/v1/users", "same-key-1")
         );
         assert_eq!(
-            cache_key(None, "POST", "/api/v1/users", "same-key-1"),
-            cache_key(Some("   "), "POST", "/api/v1/users", "same-key-1")
+            cache_key("", "POST", "/api/v1/users", "same-key-1"),
+            cache_key(ANONYMOUS_SCOPE, "POST", "/api/v1/users", "same-key-1")
+        );
+        assert_eq!(
+            cache_key("   ", "POST", "/api/v1/users", "same-key-1"),
+            cache_key(ANONYMOUS_SCOPE, "POST", "/api/v1/users", "same-key-1")
         );
     }
 
@@ -937,15 +993,11 @@ mod tests {
             .header(axum::http::header::AUTHORIZATION, "Bearer token-a")
             .body(Body::empty())
             .unwrap();
-        let key = storage_key(&request, "key-12345678");
+        let scope = "user:11111111-1111-1111-1111-111111111111";
+        let key = storage_key(&request, "key-12345678", scope);
         assert_eq!(
             key,
-            cache_key(
-                Some("Bearer token-a"),
-                "POST",
-                "/api/v1/users?limit=10",
-                "key-12345678"
-            )
+            cache_key(scope, "POST", "/api/v1/users?limit=10", "key-12345678")
         );
 
         let plain = Request::builder()
@@ -954,8 +1006,17 @@ mod tests {
             .body(Body::empty())
             .unwrap();
         assert_eq!(
-            storage_key(&plain, "key-12345678"),
-            cache_key(None, "POST", "/api/v1/users", "key-12345678")
+            storage_key(&plain, "key-12345678", ANONYMOUS_SCOPE),
+            cache_key(ANONYMOUS_SCOPE, "POST", "/api/v1/users", "key-12345678")
         );
+    }
+
+    #[test]
+    fn bearer_tokens_are_parsed_leniently() {
+        assert_eq!(bearer_token("Bearer token-a"), Some("token-a"));
+        assert_eq!(bearer_token("  Bearer   token-a  "), Some("token-a"));
+        assert_eq!(bearer_token("Bearer   "), None);
+        assert_eq!(bearer_token("token-a"), None);
+        assert_eq!(bearer_token("Basic dXNlcjpwYXNz"), None);
     }
 }

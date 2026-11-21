@@ -5,6 +5,7 @@ use anyhow::{Context, Result, bail};
 use lettre::message::Mailbox;
 use lettre::transport::smtp::AsyncSmtpTransport;
 use lettre::transport::smtp::authentication::Credentials;
+use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncTransport, Message, Tokio1Executor};
 
 use awg_identity::{Mailer, MailerFuture};
@@ -166,22 +167,98 @@ pub struct SmtpMailer {
     from: Mailbox,
 }
 
-impl SmtpMailer {
-    pub fn from_url(url: &str, from: &str) -> Result<Self> {
-        let parsed = url::Url::parse(url).context("AWG_SMTP_URL is invalid")?;
-        if parsed.scheme() != "smtp" {
-            bail!("AWG_SMTP_URL must use the smtp:// scheme");
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SmtpSecurity {
+    /// `smtp://`: a plaintext connection that must be upgraded with STARTTLS.
+    StartTls,
+    /// `smtps://`: TLS from the first byte (implicit TLS, usually port 465).
+    ImplicitTls,
+}
+
+impl SmtpSecurity {
+    fn default_port(self) -> u16 {
+        match self {
+            SmtpSecurity::StartTls => 587,
+            SmtpSecurity::ImplicitTls => 465,
         }
-        let host = parsed.host_str().context("AWG_SMTP_URL has no host")?;
-        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(host)
-            .port(parsed.port().unwrap_or(25));
-        if !parsed.username().is_empty() {
+    }
+}
+
+/// A parsed `AWG_SMTP_URL`. Kept separate from the lettre transport so the URL
+/// contract (scheme, default port, credentials) can be tested without opening a
+/// network connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SmtpEndpoint {
+    host: String,
+    port: u16,
+    security: SmtpSecurity,
+    username: Option<String>,
+    password: Option<String>,
+}
+
+impl SmtpEndpoint {
+    fn parse(url: &str) -> Result<Self> {
+        let parsed = url::Url::parse(url).context("AWG_SMTP_URL is invalid")?;
+        let security = match parsed.scheme() {
+            "smtp" => SmtpSecurity::StartTls,
+            "smtps" => SmtpSecurity::ImplicitTls,
+            other => bail!(
+                "AWG_SMTP_URL must use the smtp:// (STARTTLS) or smtps:// (implicit TLS) scheme, got {other:?}"
+            ),
+        };
+        let host = parsed
+            .host_str()
+            .filter(|host| !host.is_empty())
+            .context("AWG_SMTP_URL has no host")?
+            .to_string();
+        let port = parsed.port().unwrap_or_else(|| security.default_port());
+        let (username, password) = if parsed.username().is_empty() {
+            (None, None)
+        } else {
+            (
+                Some(percent_decode(parsed.username())),
+                Some(percent_decode(parsed.password().unwrap_or_default())),
+            )
+        };
+        Ok(Self {
+            host,
+            port,
+            security,
+            username,
+            password,
+        })
+    }
+
+    fn tls_parameters(&self) -> Result<TlsParameters> {
+        TlsParameters::new(self.host.clone())
+            .map_err(|error| anyhow::anyhow!("AWG_SMTP_URL TLS setup failed: {error}"))
+    }
+
+    fn into_transport(self) -> Result<AsyncSmtpTransport<Tokio1Executor>> {
+        let parameters = self.tls_parameters()?;
+        let tls = match self.security {
+            // STARTTLS is mandatory: lettre aborts the connection if the
+            // server does not offer an upgrade, so credentials and mail never
+            // travel in plaintext.
+            SmtpSecurity::StartTls => Tls::Required(parameters),
+            SmtpSecurity::ImplicitTls => Tls::Wrapper(parameters),
+        };
+        let mut builder = AsyncSmtpTransport::<Tokio1Executor>::builder_dangerous(&self.host)
+            .port(self.port)
+            .tls(tls);
+        if let Some(username) = self.username {
             builder = builder.credentials(Credentials::new(
-                percent_decode(parsed.username()),
-                percent_decode(parsed.password().unwrap_or_default()),
+                username,
+                self.password.unwrap_or_default(),
             ));
         }
-        let transport = builder.build();
+        Ok(builder.build())
+    }
+}
+
+impl SmtpMailer {
+    pub fn from_url(url: &str, from: &str) -> Result<Self> {
+        let transport = SmtpEndpoint::parse(url)?.into_transport()?;
         let from: Mailbox = from
             .parse()
             .context("AWG_SMTP_FROM must be a valid email address")?;
@@ -423,5 +500,68 @@ mod tests {
             .await
             .unwrap();
         assert!(mailbox.is_empty());
+    }
+
+    #[test]
+    fn smtps_url_uses_implicit_tls_and_port_465() {
+        let endpoint = SmtpEndpoint::parse("smtps://mail.example.com").unwrap();
+        assert_eq!(endpoint.host, "mail.example.com");
+        assert_eq!(endpoint.port, 465);
+        assert_eq!(endpoint.security, SmtpSecurity::ImplicitTls);
+        assert!(endpoint.username.is_none());
+
+        let explicit = SmtpEndpoint::parse("smtps://mail.example.com:2465").unwrap();
+        assert_eq!(explicit.port, 2465);
+        assert_eq!(explicit.security, SmtpSecurity::ImplicitTls);
+    }
+
+    #[test]
+    fn smtp_url_requires_starttls_and_defaults_to_port_587() {
+        let endpoint = SmtpEndpoint::parse("smtp://mail.example.com").unwrap();
+        assert_eq!(endpoint.host, "mail.example.com");
+        assert_eq!(endpoint.port, 587);
+        assert_eq!(endpoint.security, SmtpSecurity::StartTls);
+
+        let explicit = SmtpEndpoint::parse("smtp://mail.example.com:2525").unwrap();
+        assert_eq!(explicit.port, 2525);
+    }
+
+    #[test]
+    fn smtp_url_rejects_other_schemes() {
+        for url in [
+            "http://mail.example.com",
+            "smtp+starttls://mail.example.com",
+            "mail.example.com:587",
+        ] {
+            let error = SmtpEndpoint::parse(url).unwrap_err().to_string();
+            assert!(error.contains("AWG_SMTP_URL"), "{url}: {error}");
+        }
+    }
+
+    #[test]
+    fn smtp_url_decodes_credentials() {
+        let endpoint =
+            SmtpEndpoint::parse("smtp://user%40example.com:p%40ss%3Aword@mail.example.com")
+                .unwrap();
+        assert_eq!(endpoint.username.as_deref(), Some("user@example.com"));
+        assert_eq!(endpoint.password.as_deref(), Some("p@ss:word"));
+    }
+
+    #[tokio::test]
+    async fn smtp_mailer_builds_starttls_transport() {
+        let mailer = SmtpMailer::from_url("smtp://mail.example.com", "panel@example.com").unwrap();
+        assert_eq!(mailer.from.to_string(), "panel@example.com");
+    }
+
+    #[tokio::test]
+    async fn smtp_mailer_builds_implicit_tls_transport() {
+        let mailer = SmtpMailer::from_url("smtps://mail.example.com", "panel@example.com").unwrap();
+        assert_eq!(mailer.from.to_string(), "panel@example.com");
+    }
+
+    #[tokio::test]
+    async fn smtp_mailer_rejects_bad_schemes_and_senders() {
+        assert!(SmtpMailer::from_url("http://mail.example.com", "panel@example.com").is_err());
+        assert!(SmtpMailer::from_url("smtp://mail.example.com", "not-an-email").is_err());
     }
 }

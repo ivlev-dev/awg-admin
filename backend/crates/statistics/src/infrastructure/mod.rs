@@ -33,6 +33,26 @@ fn bucket_key(scope: StatsScope, hour: i64) -> String {
     format!("{}|{id}|{hour}", scope.kind())
 }
 
+/// Inclusive key bounds for `scope|id|hour` buckets between two hours.
+///
+/// Hours are non-negative for any realistic timestamp and share the same
+/// decimal width, so byte ordering matches numeric ordering. `None` means the
+/// bounds cannot be expressed as a range and the caller must fall back to a
+/// prefix scan.
+fn hour_bounds(prefix: &str, from_hour: i64, to_hour: i64) -> Option<(String, String)> {
+    if from_hour < 0 || to_hour < from_hour {
+        return None;
+    }
+    // Only ranges whose bounds have the same decimal width preserve numeric
+    // ordering under lexical comparison. Mixed widths fall back to a scan.
+    if from_hour.to_string().len() != to_hour.to_string().len() {
+        return None;
+    }
+    let lower = format!("{prefix}{from_hour}");
+    let upper = format!("{prefix}{to_hour}");
+    Some((lower, upper))
+}
+
 pub struct RedbStatsRepository {
     store: Arc<Store>,
     write_transactions: AtomicUsize,
@@ -55,6 +75,26 @@ impl RedbStatsRepository {
     /// Number of full device-bucket scans performed by [`Self::device_totals`].
     pub fn device_scan_count(&self) -> usize {
         self.device_scans.load(Ordering::SeqCst)
+    }
+
+    /// Fallback for ranges that cannot be expressed on the key (negative
+    /// hours from before the epoch). Reads the whole scope prefix.
+    fn series_prefix_fallback(
+        &self,
+        scope: StatsScope,
+        from_hour: i64,
+        to_hour: i64,
+    ) -> CoreResult<Vec<Bucket>> {
+        let mut buckets: Vec<Bucket> = self
+            .store
+            .list_prefix(Table::TrafficBuckets, &scope.key_prefix())
+            .map_err(map_err)?
+            .into_iter()
+            .map(|(_, bucket): (String, Bucket)| bucket)
+            .filter(|bucket| bucket.hour >= from_hour && bucket.hour <= to_hour)
+            .collect();
+        buckets.sort_by_key(|b| b.hour);
+        Ok(buckets)
     }
 }
 
@@ -163,14 +203,25 @@ impl StatsRepository for RedbStatsRepository {
     }
 
     fn series(&self, scope: StatsScope, from_hour: i64, to_hour: i64) -> CoreResult<Vec<Bucket>> {
+        if to_hour < from_hour {
+            return Ok(Vec::new());
+        }
+        let prefix = scope.key_prefix();
+        let Some((lower, upper)) = hour_bounds(&prefix, from_hour, to_hour) else {
+            return self.series_prefix_fallback(scope, from_hour, to_hour);
+        };
         let mut buckets: Vec<Bucket> = self
             .store
-            .list_prefix(Table::TrafficBuckets, &scope.key_prefix())
-            .map_err(map_err)?
-            .into_iter()
-            .map(|(_, bucket): (String, Bucket)| bucket)
-            .filter(|bucket| bucket.hour >= from_hour && bucket.hour <= to_hour)
-            .collect();
+            .with_read_txn(|txn| {
+                let table = txn.open_table(Table::TrafficBuckets.definition())?;
+                let mut out = Vec::new();
+                for entry in table.range::<&str>(lower.as_str()..=upper.as_str())? {
+                    let (_, value) = entry?;
+                    out.push(serde_json::from_slice(value.value())?);
+                }
+                Ok(out)
+            })
+            .map_err(map_err)?;
         buckets.sort_by_key(|b| b.hour);
         Ok(buckets)
     }
@@ -181,6 +232,9 @@ impl StatsRepository for RedbStatsRepository {
         from_hour: i64,
         to_hour: i64,
     ) -> CoreResult<HashMap<StatsScope, (u64, u64)>> {
+        if to_hour < from_hour {
+            return Ok(scopes.iter().map(|scope| (*scope, (0, 0))).collect());
+        }
         self.store
             .with_read_txn(|txn| {
                 let table = txn.open_table(Table::TrafficBuckets.definition())?;
@@ -188,20 +242,34 @@ impl StatsRepository for RedbStatsRepository {
                 for scope in scopes {
                     let prefix = scope.key_prefix();
                     let mut totals = (0u64, 0u64);
-                    let upper = prefix_upper_bound(&prefix);
-                    match upper {
-                        Some(upper) => {
-                            for entry in table.range::<&str>(prefix.as_str()..upper.as_str())? {
+                    match hour_bounds(&prefix, from_hour, to_hour) {
+                        Some((lower, upper)) => {
+                            for entry in table.range::<&str>(lower.as_str()..=upper.as_str())? {
                                 let (_, value) = entry?;
                                 let bucket: Bucket = serde_json::from_slice(value.value())?;
-                                accumulate(&mut totals, &bucket, from_hour, to_hour);
+                                totals.0 = totals.0.saturating_add(bucket.rx);
+                                totals.1 = totals.1.saturating_add(bucket.tx);
                             }
                         }
                         None => {
-                            for entry in table.range::<&str>(prefix.as_str()..)? {
-                                let (_, value) = entry?;
-                                let bucket: Bucket = serde_json::from_slice(value.value())?;
-                                accumulate(&mut totals, &bucket, from_hour, to_hour);
+                            let upper = prefix_upper_bound(&prefix);
+                            match upper {
+                                Some(upper) => {
+                                    for entry in
+                                        table.range::<&str>(prefix.as_str()..upper.as_str())?
+                                    {
+                                        let (_, value) = entry?;
+                                        let bucket: Bucket = serde_json::from_slice(value.value())?;
+                                        accumulate(&mut totals, &bucket, from_hour, to_hour);
+                                    }
+                                }
+                                None => {
+                                    for entry in table.range::<&str>(prefix.as_str()..)? {
+                                        let (_, value) = entry?;
+                                        let bucket: Bucket = serde_json::from_slice(value.value())?;
+                                        accumulate(&mut totals, &bucket, from_hour, to_hour);
+                                    }
+                                }
                             }
                         }
                     }
@@ -224,18 +292,23 @@ impl StatsRepository for RedbStatsRepository {
                 };
                 for entry in table.range::<&str>(prefix.as_str()..upper.as_str())? {
                     let (key, value) = entry?;
-                    let bucket: Bucket = serde_json::from_slice(value.value())?;
-                    if bucket.hour < from_hour || bucket.hour > to_hour {
-                        continue;
-                    }
-                    let Some(id) = key
-                        .value()
-                        .strip_prefix(&prefix)
-                        .and_then(|rest| rest.split('|').next())
-                        .and_then(|id| Uuid::parse_str(id).ok())
-                    else {
+                    let key = key.value();
+                    // The hour is the last key segment: parse it from the key
+                    // and skip out-of-range buckets before deserializing.
+                    let Some((id, hour)) = key.strip_prefix(&prefix).and_then(|rest| {
+                        let (id, hour) = rest.split_once('|')?;
+                        let hour = hour.parse::<i64>().ok()?;
+                        Some((id, hour))
+                    }) else {
                         continue;
                     };
+                    if hour < from_hour || hour > to_hour {
+                        continue;
+                    }
+                    let Ok(id) = Uuid::parse_str(id) else {
+                        continue;
+                    };
+                    let bucket: Bucket = serde_json::from_slice(value.value())?;
                     let totals = out.entry(id).or_default();
                     totals.0 = totals.0.saturating_add(bucket.rx);
                     totals.1 = totals.1.saturating_add(bucket.tx);

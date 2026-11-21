@@ -7,10 +7,11 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use awg_clients::{
-    Device, DevicePeer, DeviceService, Forwarding, NewDevice, ProfileService,
-    RedbDevicePeerRepository, RedbDeviceRepository,
+    Device, DevicePageQuery, DevicePeer, DeviceService, Forwarding, MAX_PEERS_PER_DEVICE,
+    NewDevice, ProfileService, RedbDevicePeerRepository, RedbDeviceRepository,
 };
 use awg_identity::{Role, User};
+use awg_network::domain::CidrPoolRepository;
 use awg_network::{
     NetworkService, NewInterface, NewPool, PoolMode, RedbCidrPoolRepository, RedbGroupRepository,
     RedbInterfaceRepository, RedbNodeRepository,
@@ -78,6 +79,7 @@ struct Fixture {
     profiles: ProfileService,
     tariffs: Arc<TariffService>,
     network: Arc<NetworkService>,
+    store: Arc<Store>,
     group_id: Uuid,
     node_id: Uuid,
     interface_id: Uuid,
@@ -170,6 +172,7 @@ fn fixture() -> Fixture {
         profiles,
         tariffs,
         network,
+        store,
         group_id: group.id,
         node_id: node.id,
         interface_id: interface_ids[0],
@@ -801,6 +804,7 @@ fn forwarding_is_scoped_to_the_user() {
                 to_own_devices: false,
                 allowed_devices: vec![first.id],
             }),
+            None,
         )
         .unwrap();
     assert_eq!(updated.forwarding.allowed_devices, vec![first.id]);
@@ -868,6 +872,7 @@ fn create_normalizes_forwarding() {
                 to_own_devices: false,
                 allowed_devices: vec![first.id, first.id],
             }),
+            None,
         )
         .unwrap();
     assert_eq!(updated.forwarding.allowed_devices, vec![first.id]);
@@ -951,6 +956,7 @@ fn create_rejects_invalid_forwarding() {
             to_own_devices: false,
             allowed_devices: vec![first.id],
         }),
+        None,
     );
     assert!(res.is_err());
 }
@@ -1585,13 +1591,384 @@ async fn concurrent_add_peer_allocates_unique_addresses() {
             }
         }
     }
-    assert_eq!(success, 10);
+    assert_eq!(
+        success,
+        MAX_PEERS_PER_DEVICE - 1,
+        "the per-device tunnel limit must hold under concurrency"
+    );
     let peers = fixture.devices.peers_for(device.id).unwrap();
+    assert_eq!(peers.len(), MAX_PEERS_PER_DEVICE);
     let unique: std::collections::HashSet<_> = peers
         .iter()
         .flat_map(|peer| peer.ips.values().copied())
         .collect();
     assert_eq!(unique.len(), peers.len());
+}
+
+#[test]
+fn add_peer_enforces_the_per_device_tunnel_limit() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create_sync(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    assert_eq!(fixture.devices.peers_for(device.id).unwrap().len(), 1);
+
+    for index in 1..MAX_PEERS_PER_DEVICE {
+        fixture
+            .devices
+            .add_peer_sync(
+                &user,
+                &tariff,
+                device.id,
+                fixture.interface_id,
+                Some(format!("peer-{index}")),
+                &ObfuscationSettings::default(),
+            )
+            .unwrap_or_else(|error| panic!("peer {index} must be accepted: {error}"));
+    }
+    assert_eq!(
+        fixture.devices.peers_for(device.id).unwrap().len(),
+        MAX_PEERS_PER_DEVICE
+    );
+
+    let error = fixture
+        .devices
+        .add_peer_sync(
+            &user,
+            &tariff,
+            device.id,
+            fixture.interface_id,
+            Some("overflow".into()),
+            &ObfuscationSettings::default(),
+        )
+        .expect_err("the ninth tunnel must be rejected");
+    assert!(matches!(error, CoreError::Conflict(message) if message.contains("peer limit")));
+    assert_eq!(
+        fixture.devices.peers_for(device.id).unwrap().len(),
+        MAX_PEERS_PER_DEVICE
+    );
+
+    // The limit is per device, not per user: a second device starts empty.
+    let second = fixture
+        .devices
+        .create_sync(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "laptop".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    let peer = fixture
+        .devices
+        .add_peer_sync(
+            &user,
+            &tariff,
+            second.id,
+            fixture.interface_id,
+            Some("extra".into()),
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+    assert_eq!(peer.device_id, second.id);
+}
+
+#[test]
+fn revoke_and_update_do_not_lose_each_others_changes() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create_sync(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let (revoked, renamed) = std::thread::scope(|scope| {
+        let revoke = scope.spawn(|| fixture.devices.revoke(device.id, true));
+        let update = scope.spawn(|| {
+            fixture.devices.update(
+                device.id,
+                &tariff,
+                Some("renamed".into()),
+                None,
+                None,
+                None,
+                None,
+            )
+        });
+        (revoke.join().unwrap(), update.join().unwrap())
+    });
+
+    // The two writes are serialized by the repository, so either order is
+    // valid: a revocation may observe the renamed device and an update may
+    // observe the already revoked one.
+    let revoked = revoked.unwrap();
+    assert!(revoked.revoked);
+    assert!(matches!(revoked.name.as_str(), "phone" | "renamed"));
+    let updated = renamed.unwrap();
+    assert_eq!(updated.name, "renamed");
+
+    let stored = fixture.devices.get(device.id).unwrap();
+    assert_eq!(stored.name, "renamed");
+    assert!(
+        stored.revoked,
+        "an update must not resurrect a revoked device"
+    );
+
+    // Both page indexes still point at the same row.
+    let page = fixture
+        .devices
+        .page(&DevicePageQuery {
+            limit: 10,
+            offset: 0,
+            q: None,
+            status: awg_clients::DevicePageStatus::Revoked,
+            interface_id: None,
+            user_id: None,
+            sort: awg_clients::DevicePageSort::Name,
+            order: awg_clients::DevicePageOrder::Asc,
+            owner_emails: std::collections::HashMap::new(),
+        })
+        .unwrap();
+    assert_eq!(page.total, 1);
+    assert_eq!(page.items[0].id, device.id);
+    assert_eq!(page.items[0].name, "renamed");
+}
+
+#[test]
+fn update_still_enforces_the_tariff_bandwidth_limits() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let mut first = None;
+    for name in ["one", "two"] {
+        let device = fixture
+            .devices
+            .create_sync(
+                &user,
+                &tariff,
+                NewDevice {
+                    user_id: user.id,
+                    group_id: Some(fixture.group_id),
+                    interface_id: Some(fixture.interface_id),
+                    name: name.into(),
+                    down_kbps: 10_000,
+                    up_kbps: 10_000,
+                    interface_ids: Vec::new(),
+                    forwarding: Forwarding::default(),
+                },
+                &ObfuscationSettings::default(),
+            )
+            .unwrap();
+        first.get_or_insert(device);
+    }
+    let first = first.unwrap();
+
+    // Shrink the tariff budget below the sum of two devices.
+    let tariff = fixture
+        .tariffs
+        .update(
+            tariff.id,
+            awg_tariffs::TariffChanges {
+                device_down_kbps: Some(20_000),
+                group_down_kbps: Some(25_000),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+    let error = fixture
+        .devices
+        .update(first.id, &tariff, None, Some(20_000), None, None, None)
+        .expect_err("the group bandwidth budget must stay enforced after an update");
+    assert!(
+        matches!(&error, CoreError::Invalid(message) if message.contains("group limit")),
+        "{error}"
+    );
+}
+
+#[test]
+fn update_applies_name_and_revocation_together() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let device = fixture
+        .devices
+        .create_sync(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .unwrap();
+
+    let updated = fixture
+        .devices
+        .update(
+            device.id,
+            &tariff,
+            Some("renamed".into()),
+            None,
+            None,
+            None,
+            Some(true),
+        )
+        .unwrap();
+    assert_eq!(updated.name, "renamed");
+    assert!(updated.revoked);
+
+    let stored = fixture.devices.get(device.id).unwrap();
+    assert_eq!(stored.name, "renamed");
+    assert!(stored.revoked);
+}
+
+#[test]
+fn rejected_update_persists_neither_name_nor_revocation() {
+    let fixture = fixture();
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let mut first = None;
+    for name in ["one", "two"] {
+        let device = fixture
+            .devices
+            .create_sync(
+                &user,
+                &tariff,
+                NewDevice {
+                    user_id: user.id,
+                    group_id: Some(fixture.group_id),
+                    interface_id: Some(fixture.interface_id),
+                    name: name.into(),
+                    down_kbps: 40_000,
+                    up_kbps: 20_000,
+                    interface_ids: Vec::new(),
+                    forwarding: Forwarding::default(),
+                },
+                &ObfuscationSettings::default(),
+            )
+            .unwrap();
+        first.get_or_insert(device);
+    }
+    let first = first.unwrap();
+
+    // 50 Mbit/s on top of the sibling's 40 Mbit/s exceeds the 80 Mbit/s
+    // group budget, so the whole change must be rejected.
+    let error = fixture
+        .devices
+        .update(
+            first.id,
+            &tariff,
+            Some("renamed".into()),
+            Some(50_000),
+            None,
+            None,
+            Some(true),
+        )
+        .expect_err("the group bandwidth budget must reject the update");
+    assert!(
+        matches!(&error, CoreError::Invalid(message) if message.contains("group limit")),
+        "{error}"
+    );
+
+    let stored = fixture.devices.get(first.id).unwrap();
+    assert_eq!(stored.name, "one");
+    assert!(!stored.revoked);
+}
+
+#[test]
+fn create_rejects_pools_wider_than_slash16() {
+    let fixture = fixture();
+    // The network layer rejects wide pools on creation; emulate an old/restored
+    // database by writing the pool straight into storage.
+    let now = Utc::now();
+    let wide = awg_network::CidrPool {
+        id: Uuid::new_v4(),
+        group_id: fixture.group_id,
+        name: "wide".into(),
+        cidr: "10.0.0.0/15".into(),
+        mode: PoolMode::Auto,
+        gateway: None,
+        enabled: true,
+        created_at: now,
+        updated_at: now,
+    };
+    awg_network::RedbCidrPoolRepository::new(fixture.store.clone())
+        .save(&wide)
+        .unwrap();
+
+    let tariff = fixture.tariffs.list().unwrap().remove(0);
+    let user = user(fixture.group_id, tariff.id);
+    let error = fixture
+        .devices
+        .create_sync(
+            &user,
+            &tariff,
+            NewDevice {
+                user_id: user.id,
+                group_id: Some(fixture.group_id),
+                interface_id: Some(fixture.interface_id),
+                name: "phone".into(),
+                down_kbps: 1_000,
+                up_kbps: 1_000,
+                interface_ids: Vec::new(),
+                forwarding: Forwarding::default(),
+            },
+            &ObfuscationSettings::default(),
+        )
+        .expect_err("a /15 pool must be rejected");
+    assert!(
+        matches!(&error, CoreError::Invalid(message) if message.contains("wider than /16")),
+        "{error}"
+    );
+    assert!(fixture.devices.list_all().unwrap().is_empty());
 }
 
 #[test]

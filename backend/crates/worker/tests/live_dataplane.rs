@@ -433,7 +433,15 @@ async fn live_tc_reapply_is_idempotent() {
         "reconcile must not duplicate ingress filters: {ingress}"
     );
 
-    let ifb = expect_ok("tc", &["qdisc", "show", "dev", "ifb-tcdev0"]);
+    let ifb = expect_ok(
+        "tc",
+        &[
+            "qdisc",
+            "show",
+            "dev",
+            &awg_worker::infrastructure::tc::ifb_name("tcdev0"),
+        ],
+    );
     assert!(ifb.contains("qdisc htb 1:"), "missing ifb htb: {ifb}");
 
     shaper.clear("tcdev0").await.expect("clear tc");
@@ -471,7 +479,13 @@ async fn live_nft_reapply_is_idempotent() {
 
     let chain = expect_ok(
         "nft",
-        &["list", "chain", "inet", "awg_admin", "fwd_nftdev0"],
+        &[
+            "list",
+            "chain",
+            "inet",
+            "awg_admin",
+            &awg_worker::infrastructure::nft::chain_name("nftdev0"),
+        ],
     );
     assert!(chain.contains("accept"), "missing accept rule: {chain}");
     assert_eq!(

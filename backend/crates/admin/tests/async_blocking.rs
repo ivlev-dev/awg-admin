@@ -127,8 +127,12 @@ async fn registration_and_password_change_keep_their_contract() {
         })),
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT, "{body}");
-    assert_eq!(body["error"]["code"], "conflict");
+    assert_eq!(
+        status,
+        StatusCode::ACCEPTED,
+        "a repeated registration must not reveal that the email exists: {body}"
+    );
+    assert_eq!(body["status"], "pending_email");
 
     let (status, _, body) = call(
         router(&env),
@@ -179,5 +183,67 @@ async fn registration_and_password_change_keep_their_contract() {
         })),
     )
     .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// Registration hashes the password and password changes verify the old hash
+/// and write a new one. Both must leave the runtime free to serve `/health`.
+#[tokio::test(flavor = "current_thread")]
+async fn registration_and_password_change_do_not_block_the_runtime() {
+    let env = app_env();
+
+    let state = env.state.clone();
+    let store = env.store.clone();
+    let registration = tokio::spawn(async move {
+        let app = routes::router(state, Readiness::new(store));
+        call(
+            app,
+            "POST",
+            "/api/v1/auth/register",
+            None,
+            Some(json!({
+                "email": "async-registration@example.com",
+                "password": "password123",
+            })),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    let (status, _, body) = tokio::time::timeout(
+        Duration::from_secs(5),
+        call(router(&env), "GET", "/api/v1/health", None, None),
+    )
+    .await
+    .expect("the health check was blocked by registration hashing");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _, body) = registration.await.unwrap();
+    assert_eq!(status, StatusCode::ACCEPTED, "{body}");
+
+    let state = env.state.clone();
+    let store = env.store.clone();
+    let token = env.owner_token.clone();
+    let change = tokio::spawn(async move {
+        let app = routes::router(state, Readiness::new(store));
+        call(
+            app,
+            "POST",
+            "/api/v1/auth/password",
+            Some(&token),
+            Some(json!({
+                "current_password": PASSWORD,
+                "new_password": "new-password-123",
+            })),
+        )
+        .await
+    });
+    tokio::time::sleep(Duration::from_millis(2)).await;
+    let (status, _, body) = tokio::time::timeout(
+        Duration::from_secs(5),
+        call(router(&env), "GET", "/api/v1/health", None, None),
+    )
+    .await
+    .expect("the health check was blocked by password hashing");
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let (status, _, body) = change.await.unwrap();
     assert_eq!(status, StatusCode::OK, "{body}");
 }

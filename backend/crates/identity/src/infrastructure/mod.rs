@@ -2,7 +2,7 @@ pub mod tokens;
 
 pub use tokens::JwtIssuer;
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use argon2::Argon2;
 use argon2::password_hash::SaltString;
@@ -11,6 +11,7 @@ use argon2::{PasswordHash, PasswordHasher as _, PasswordVerifier};
 use uuid::Uuid;
 
 use awg_shared::{CoreError, CoreResult};
+use awg_storage::lookup_index;
 use awg_storage::user_index::{self, UserPageEntry};
 use awg_storage::{Store, Table};
 
@@ -37,14 +38,18 @@ impl UserRepository for RedbUserRepository {
     }
 
     fn find_by_email(&self, email: &str) -> CoreResult<Option<User>> {
-        let wanted = email.trim();
-        let users: Vec<User> = self
-            .store
-            .list(Table::Users)
-            .map_err(|e| CoreError::Io(std::io::Error::other(e.to_string())))?;
-        Ok(users
-            .into_iter()
-            .find(|u| u.email.trim().eq_ignore_ascii_case(wanted)))
+        // The email -> id index is maintained by `user_index::upsert_user` and
+        // `user_index::delete_user`, so a point lookup never needs to scan the
+        // whole `users` table. A missing index row means "no such user"; there
+        // is deliberately no fallback scan.
+        let Some(id) = lookup_index::find_user_id_by_email(&self.store, email).map_err(map_err)?
+        else {
+            return Ok(None);
+        };
+        let Ok(id) = Uuid::parse_str(&id) else {
+            return Ok(None);
+        };
+        self.find_by_id(id)
     }
 
     fn list(&self) -> CoreResult<Vec<User>> {
@@ -64,6 +69,14 @@ impl UserRepository for RedbUserRepository {
 
     fn count(&self) -> CoreResult<usize> {
         self.store.count(Table::Users).map_err(map_err)
+    }
+
+    fn access_epoch(&self, user_id: Uuid) -> CoreResult<Option<i64>> {
+        awg_storage::access_epoch::get(&self.store, user_id).map_err(map_err)
+    }
+
+    fn set_access_epoch(&self, user_id: Uuid, epoch_secs: i64) -> CoreResult<()> {
+        awg_storage::access_epoch::set(&self.store, user_id, epoch_secs).map_err(map_err)
     }
 
     fn page(&self, query: &UserPageQuery) -> CoreResult<UserPage> {
@@ -158,6 +171,29 @@ impl PasswordHasher for Argon2Hasher {
             .verify_password(password.as_bytes(), &parsed)
             .is_ok())
     }
+}
+
+const DUMMY_PASSWORD: &[u8] = b"awg-admin-dummy-password-for-timing";
+static DUMMY_PASSWORD_HASH: OnceLock<String> = OnceLock::new();
+
+/// Runs the same Argon2 verification cost with the same default parameters as
+/// [`Argon2Hasher`] against a throwaway hash.
+///
+/// A login for an unknown email calls this instead of skipping the password
+/// check, so response time does not reveal whether an account exists. The
+/// generated hash never matches a real password.
+pub(crate) fn verify_dummy_password(password: &str) -> CoreResult<()> {
+    let hash = DUMMY_PASSWORD_HASH.get_or_init(|| {
+        let salt = SaltString::generate(&mut OsRng);
+        Argon2::default()
+            .hash_password(DUMMY_PASSWORD, &salt)
+            .expect("generating a dummy Argon2 hash must not fail")
+            .to_string()
+    });
+    let parsed =
+        PasswordHash::new(hash).map_err(|e| CoreError::Crypto(format!("bad dummy hash: {e}")))?;
+    let _ = Argon2::default().verify_password(password.as_bytes(), &parsed);
+    Ok(())
 }
 
 pub struct RedbEmailVerificationRepository {

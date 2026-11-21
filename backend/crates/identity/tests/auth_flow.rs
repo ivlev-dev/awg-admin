@@ -647,6 +647,44 @@ fn logout_all_revokes_every_refresh_token() {
 }
 
 #[test]
+fn access_claims_validate_without_loading_the_user() {
+    let service = service();
+    service.seed_admin("admin@local", "password123").unwrap();
+    let session = service
+        .login("admin@local", "password123", &metadata())
+        .unwrap();
+
+    assert_eq!(
+        service.access_subject(&session.access_token).unwrap(),
+        session.user.id
+    );
+    let claims = service.access_claims(&session.access_token).unwrap();
+    assert_eq!(claims.sub, session.user.id);
+    assert_eq!(claims.role, Role::Admin);
+
+    assert!(
+        service.access_claims(&session.refresh_token).is_err(),
+        "access helpers accept access tokens only"
+    );
+    assert!(service.access_claims("not-a-token").is_err());
+
+    let now = Utc::now().timestamp() as usize;
+    let mut expired = base_claims(session.user.id);
+    expired.iat = now - 3600;
+    expired.nbf = now - 3600;
+    expired.exp = now - 60;
+    assert!(service.access_subject(&mint(&expired)).is_err());
+
+    // Signature and claims are still valid after the user is gone: these
+    // helpers must not consult the user repository.
+    service.delete(session.user.id).unwrap();
+    assert_eq!(
+        service.access_subject(&session.access_token).unwrap(),
+        session.user.id
+    );
+}
+
+#[test]
 fn prune_removes_expired_records() {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let tokens = JwtIssuer::new(SECRET, 900, 0, ISSUER, AUDIENCE, store);

@@ -159,7 +159,10 @@ pub async fn apply(
 ) -> ApiResult<Json<ImportApplyView>> {
     user.require_admin()?;
     let owner_id = resolve_owner(&state, &user, request.owner_user_id)?;
-    let (plan, created) = apply_import(&state.network, &state.devices, &request, owner_id)?;
+    let import_guard = state.import_lock.lock().await;
+    let applied = apply_import(&state.network, &state.devices, &request, owner_id);
+    drop(import_guard);
+    let (plan, created) = applied?;
     publish_node(&state, request.node_id).await;
     Ok(Json(ImportApplyView {
         preview: plan.view(),

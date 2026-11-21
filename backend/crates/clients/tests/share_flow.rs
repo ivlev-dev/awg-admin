@@ -553,6 +553,99 @@ fn tokens_are_sealed_at_rest_and_resolve_by_plaintext() {
 }
 
 #[test]
+fn missing_token_rejects_without_writing() {
+    let fixture = fixture();
+    let service = fixture.service();
+
+    assert!(matches!(
+        service.resolve("unknown"),
+        Err(CoreError::NotFound(_))
+    ));
+    assert!(matches!(
+        fixture.links.consume("unknown", Utc::now()).unwrap(),
+        ShareConsume::NotFound
+    ));
+    assert!(
+        fixture
+            .store
+            .keys(awg_storage::Table::ShareLinks)
+            .unwrap()
+            .is_empty(),
+        "a miss must not touch the share link table"
+    );
+}
+
+#[test]
+fn inactive_links_are_rejected_without_being_rewritten() {
+    let fixture = fixture();
+    let service = fixture.service();
+
+    let revoked = fixture.create(None);
+    service.revoke(&revoked.token).unwrap();
+    let before = fixture.links.find(&revoked.token).unwrap().unwrap();
+    let error = service.resolve(&revoked.token).unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("revoked")));
+    let after = fixture.links.find(&revoked.token).unwrap().unwrap();
+    assert_eq!(after.uses, before.uses);
+    assert_eq!(after.used_at, before.used_at);
+    assert_eq!(after.revoked_at, before.revoked_at);
+
+    let expired = fixture.create(None);
+    let mut stored = fixture.links.find(&expired.token).unwrap().unwrap();
+    stored.expires_at = Utc::now() - Duration::seconds(1);
+    fixture.links.save(&stored).unwrap();
+    let before = fixture.links.find(&expired.token).unwrap().unwrap();
+    let error = service.resolve(&expired.token).unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("expired")));
+    let after = fixture.links.find(&expired.token).unwrap().unwrap();
+    assert_eq!(after.uses, before.uses);
+    assert_eq!(after.used_at, before.used_at);
+}
+
+#[test]
+fn exhausted_link_is_not_rewritten_again() {
+    let fixture = fixture();
+    let service = fixture.service();
+    let link = fixture.create(Some(1));
+
+    assert!(service.resolve(&link.token).is_ok());
+    let before = fixture.links.find(&link.token).unwrap().unwrap();
+    let error = service.resolve(&link.token).unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("exhausted")));
+    let after = fixture.links.find(&link.token).unwrap().unwrap();
+    assert_eq!(after.uses, before.uses);
+    assert_eq!(after.used_at, before.used_at);
+}
+
+#[test]
+fn revoked_device_neither_resolves_nor_creates_links() {
+    let fixture = fixture();
+    let service = fixture.service();
+    let link = fixture.create(None);
+
+    fixture.devices.revoke(fixture.device_id, true).unwrap();
+
+    let error = service.resolve(&link.token).unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("revoked")));
+    let stored = fixture.links.find(&link.token).unwrap().unwrap();
+    assert_eq!(stored.uses, 0, "a revoked device must not consume the link");
+    assert_eq!(stored.used_at, None);
+
+    let error = service
+        .create(
+            fixture.device_id,
+            fixture.interface_id,
+            Uuid::new_v4(),
+            ShareFormat::Conf,
+            3600,
+            None,
+        )
+        .unwrap_err();
+    assert!(matches!(error, CoreError::Forbidden(message) if message.contains("revoked")));
+    assert_eq!(service.list_for_device(fixture.device_id).unwrap().len(), 1);
+}
+
+#[test]
 fn fixture_exposes_group_and_devices() {
     let fixture = fixture();
     assert_eq!(fixture.devices.list_all().unwrap().len(), 1);

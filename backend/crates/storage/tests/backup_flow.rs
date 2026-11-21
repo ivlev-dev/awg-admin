@@ -469,3 +469,82 @@ fn restore_into_in_memory_store_stages_outside_the_backup_directory() {
     assert_eq!(fs::read(&backup).unwrap(), before);
     assert_no_leftovers(&dir.path, &["v8.redb"]);
 }
+
+#[cfg(unix)]
+#[test]
+fn snapshot_and_its_directory_are_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = TempDir::new();
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    store
+        .put(Table::Settings, "theme", &record("dark"))
+        .unwrap();
+
+    let backup = dir.join("backups/db.redb");
+    store.backup_to(&backup).unwrap();
+
+    let file_mode = fs::metadata(&backup).unwrap().permissions().mode() & 0o777;
+    assert_eq!(file_mode, 0o600, "the snapshot must be owner-only");
+    let dir_mode = fs::metadata(dir.join("backups"))
+        .unwrap()
+        .permissions()
+        .mode()
+        & 0o777;
+    assert_eq!(dir_mode, 0o700, "a created backup directory must be 0700");
+}
+
+const OTHER_MASTER_KEY_BYTES: [u8; 32] = [0x42; 32];
+
+#[test]
+fn restore_with_a_foreign_master_key_is_refused() {
+    let dir = TempDir::new();
+    let backup = dir.join("sealed.redb");
+    let sealer = Arc::new(Sealer::from_master_key(MASTER_KEY).unwrap());
+    let sealed = sealer.seal_str("private-key").unwrap();
+    {
+        let source =
+            Store::open_with_sealer(dir.join("source.redb"), Some(sealer.clone())).unwrap();
+        source
+            .put(
+                Table::Devices,
+                "device-1",
+                &serde_json::json!({
+                    "id": "device-1",
+                    "user_id": LEGACY_USER_ID,
+                    "private_key_sealed": sealed.clone(),
+                }),
+            )
+            .unwrap();
+        source.backup_to(&backup).unwrap();
+    }
+
+    let store = Store::open(dir.join("db.redb")).unwrap();
+    store
+        .put(Table::Settings, "theme", &record("light"))
+        .unwrap();
+
+    let foreign = Arc::new(
+        Sealer::from_master_key(&awg_shared::crypto::b64_encode(&OTHER_MASTER_KEY_BYTES)).unwrap(),
+    );
+    let err = store
+        .restore_from_with_sealer(&backup, Some(foreign))
+        .unwrap_err();
+    assert!(
+        matches!(err, StorageError::BackupKeyMismatch),
+        "got {err:?}"
+    );
+    assert_eq!(
+        store.get::<Record>(Table::Settings, "theme").unwrap(),
+        Some(record("light")),
+        "a refused restore must not touch the target store"
+    );
+    assert_eq!(store.count(Table::Devices).unwrap(), 0);
+
+    store
+        .restore_from_with_sealer(&backup, Some(sealer))
+        .unwrap();
+    assert_eq!(store.count(Table::Devices).unwrap(), 1);
+    let device: serde_json::Value = store.get(Table::Devices, "device-1").unwrap().unwrap();
+    assert_eq!(device["private_key_sealed"], sealed);
+}

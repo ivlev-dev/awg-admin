@@ -3,13 +3,15 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{HeaderMap, Method, header};
+use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::Response;
 use ipnet::IpNet;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-use awg_audit::{AuditEntry, NewAuditEntry};
+use awg_audit::{AuditEntry, AuditService, NewAuditEntry};
+use awg_identity::IdentityService;
 
 use crate::state::AppState;
 
@@ -30,35 +32,51 @@ pub async fn middleware(
 
     let response = next.run(request).await;
 
-    if !is_mutating(&method)
-        || !path.starts_with(API_PREFIX)
-        || path == LOGIN_PATH
-        || !response.status().is_success()
-    {
+    let status = response.status();
+    if !is_mutating(&method) || !path.starts_with(API_PREFIX) || path == LOGIN_PATH {
+        return response;
+    }
+    // Audit successful mutations and rejected 4xx attempts (for example a
+    // forbidden delete or a conflicting update). A 401 without credentials is
+    // not audited to keep unauthenticated noise out of the journal.
+    if !(status.is_success() || status.is_client_error()) {
+        return response;
+    }
+    if status == StatusCode::UNAUTHORIZED && authorization.is_none() {
         return response;
     }
     let Some((entity, entity_id)) = audit_target(&path) else {
         return response;
     };
 
-    let (actor_id, actor_login) = match resolve_actor(&state, authorization.as_deref()) {
-        Some((id, email)) => (Some(id), truncate_actor_login(&email)),
-        None => (None, "anonymous".to_string()),
-    };
-    let entry = AuditEntry::from_new(NewAuditEntry {
-        actor_id,
-        actor_login,
-        action: method.as_str().to_string(),
-        entity,
-        entity_id,
-        status: response.status().as_u16(),
-        ip,
-        details: Some(format!("{method} {path}")),
-    });
-    crate::metrics::record_audit(method.as_str(), response.status().as_u16());
-    if let Err(error) = state.audit.record(entry) {
-        tracing::warn!(%error, "failed to record audit entry");
-    }
+    let action = method.as_str().to_string();
+    let details = format!("{method} {}", masked_path(&path));
+    let entry_status = status.as_u16();
+    let identity = state.identity.clone();
+    let audit = state.audit.clone();
+    crate::metrics::record_audit(&action, entry_status);
+
+    // Persisting the audit record must not delay the response. The record is
+    // written on the blocking pool and errors are logged inside the task.
+    drop(tokio::task::spawn_blocking(move || {
+        let (actor_id, actor_login) = match resolve_actor(&identity, authorization.as_deref()) {
+            Some((id, email)) => (Some(id), truncate_actor_login(&email)),
+            None => (None, "anonymous".to_string()),
+        };
+        let entry = AuditEntry::from_new(NewAuditEntry {
+            actor_id,
+            actor_login,
+            action,
+            entity,
+            entity_id,
+            status: entry_status,
+            ip,
+            details: Some(details),
+        });
+        if let Err(error) = audit.record(entry) {
+            tracing::warn!(%error, "failed to record audit entry");
+        }
+    }));
     response
 }
 
@@ -82,9 +100,15 @@ pub fn record_login(
         details,
     });
     crate::metrics::record_audit(Method::POST.as_str(), status);
-    if let Err(error) = state.audit.record(entry) {
-        tracing::warn!(%error, "failed to record audit entry");
-    }
+    schedule_record(state.audit.clone(), entry);
+}
+
+fn schedule_record(audit: Arc<AuditService>, entry: AuditEntry) {
+    drop(tokio::task::spawn_blocking(move || {
+        if let Err(error) = audit.record(entry) {
+            tracing::warn!(%error, "failed to record audit entry");
+        }
+    }));
 }
 
 fn truncate_actor_login(email: &str) -> String {
@@ -95,11 +119,38 @@ fn truncate_actor_login(email: &str) -> String {
     trimmed.chars().take(MAX_ACTOR_LOGIN_LEN).collect()
 }
 
-fn resolve_actor(state: &AppState, authorization: Option<&str>) -> Option<(Uuid, String)> {
+fn resolve_actor(
+    identity: &IdentityService,
+    authorization: Option<&str>,
+) -> Option<(Uuid, String)> {
     let token = authorization?.strip_prefix("Bearer ")?;
-    let principal = state.identity.authenticate(token).ok()?;
-    let user = state.identity.find(principal.user_id).ok()?;
+    let principal = identity.authenticate(token).ok()?;
+    let user = identity.find(principal.user_id).ok()?;
     Some((user.id, user.email))
+}
+
+/// Returns a path safe to persist in the audit journal. Share tokens grant
+/// access to a device configuration, so they are replaced with a short hash.
+pub fn masked_path(path: &str) -> String {
+    let Some(rest) = path.strip_prefix(API_PREFIX) else {
+        return path.to_string();
+    };
+    let rest = rest.trim_start_matches('/');
+    let segments: Vec<&str> = rest.split('/').collect();
+    if segments.first() == Some(&"shares") && segments.len() >= 2 {
+        let digest = share_digest(segments[1]);
+        return format!("/api/v1/shares/sha256:{digest}");
+    }
+    path.to_string()
+}
+
+fn share_digest(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    digest
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 /// Resolves the client address for rate limiting and audit records.
@@ -165,7 +216,11 @@ pub fn audit_target(path: &str) -> Option<(String, Option<String>)> {
         let share_token = segments.first() == Some(&"shares") && index == 1;
         if uuid || share_token {
             if entity_id.is_none() {
-                entity_id = Some((*segment).to_string());
+                entity_id = Some(if share_token {
+                    share_digest(segment)
+                } else {
+                    (*segment).to_string()
+                });
             }
             continue;
         }
@@ -246,11 +301,26 @@ mod tests {
     }
 
     #[test]
-    fn target_treats_share_token_as_id() {
+    fn target_treats_share_token_as_a_hash() {
+        let digest = share_digest("abc123def");
+        assert_eq!(digest.len(), 12);
+        assert!(!digest.contains("abc123def"));
         assert_eq!(
             audit_target("/api/v1/shares/abc123def"),
-            Some(("shares".to_string(), Some("abc123def".to_string())))
+            Some(("shares".to_string(), Some(digest)))
         );
+    }
+
+    #[test]
+    fn share_tokens_are_masked_in_details() {
+        let masked = masked_path("/api/v1/shares/abc123def");
+        assert_eq!(
+            masked,
+            format!("/api/v1/shares/sha256:{}", share_digest("abc123def"))
+        );
+        assert!(!masked.contains("abc123def"));
+        assert_eq!(masked_path("/api/v1/devices/abc"), "/api/v1/devices/abc");
+        assert_eq!(masked_path("/health"), "/health");
     }
 
     #[test]

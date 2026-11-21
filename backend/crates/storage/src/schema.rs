@@ -5,7 +5,7 @@ use awg_shared::crypto::{Sealer, sha256_hex};
 
 use crate::{ALL_TABLES, Result, StorageError, Table};
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 13;
+pub const CURRENT_SCHEMA_VERSION: u32 = 15;
 pub const SCHEMA_VERSION_KEY: &str = "schema_version";
 const NIL_UUID: &str = "00000000-0000-0000-0000-000000000000";
 
@@ -78,6 +78,16 @@ pub const MIGRATIONS: &[MigrationStep] = &[
         from: 12,
         to: 13,
         apply: v13_user_identity,
+    },
+    MigrationStep {
+        from: 13,
+        to: 14,
+        apply: v14_lookup_indexes,
+    },
+    MigrationStep {
+        from: 14,
+        to: 15,
+        apply: v15_access_epochs,
     },
 ];
 
@@ -288,6 +298,18 @@ fn v13_user_identity(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result
     }
     crate::user_index::backfill(txn)?;
     crate::user_search::backfill(txn)
+}
+
+fn v14_lookup_indexes(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    crate::lookup_index::backfill(txn)
+}
+
+/// `user_access_epochs` starts empty: every existing access token predates the
+/// epoch feature and has no recorded revocation. The table itself is created by
+/// `ensure_tables`; opening it here keeps the migration step self-contained.
+fn v15_access_epochs(txn: &WriteTransaction, _sealer: Option<&Sealer>) -> Result<()> {
+    txn.open_table(Table::UserAccessEpochs.definition())?;
+    Ok(())
 }
 
 fn v11_share_token_hash(txn: &WriteTransaction, sealer: Option<&Sealer>) -> Result<()> {
@@ -577,6 +599,17 @@ fn sanitize_email_local(raw: &str) -> String {
     sanitized.trim_matches(['-', '.']).to_string()
 }
 
+/// Tables that carry user data. If any of them is non-empty while `meta` has
+/// no schema version, the database predates schema versioning (or lost its
+/// `meta` row) and must not be silently stamped with the current version.
+const DATA_PROBE_TABLES: &[Table] = &[
+    Table::Users,
+    Table::Nodes,
+    Table::Devices,
+    Table::Settings,
+    Table::Interfaces,
+];
+
 #[cfg(test)]
 pub(crate) fn initialize(db: &Database) -> Result<()> {
     initialize_with(db, None)
@@ -592,12 +625,31 @@ pub(crate) fn initialize_with(db: &Database, sealer: Option<&Sealer>) -> Result<
             supported: CURRENT_SCHEMA_VERSION,
         });
     }
+    if version.is_none() && has_existing_data(db)? {
+        return Err(StorageError::UnversionedDatabase);
+    }
     ensure_tables(db)?;
     match version {
         None => write_version(db, CURRENT_SCHEMA_VERSION),
         Some(version) if version == CURRENT_SCHEMA_VERSION => Ok(()),
         Some(version) => migrate_with(db, version, CURRENT_SCHEMA_VERSION, MIGRATIONS, sealer),
     }
+}
+
+fn has_existing_data(db: &Database) -> Result<bool> {
+    let txn = db.begin_read()?;
+    for table in DATA_PROBE_TABLES {
+        match txn.open_table(table.definition()) {
+            Ok(table) => {
+                if table.iter()?.next().is_some() {
+                    return Ok(true);
+                }
+            }
+            Err(redb::TableError::TableDoesNotExist(_)) => {}
+            Err(err) => return Err(err.into()),
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn ensure_tables(db: &Database) -> Result<()> {
@@ -2031,6 +2083,140 @@ mod tests {
         drop(page);
         let search = txn.open_table(Table::UserSearchIndex.definition()).unwrap();
         assert_eq!(search.iter().unwrap().count(), search_keys.len());
+    }
+
+    #[test]
+    fn migration_v14_backfills_lookup_indexes() {
+        let db = in_memory();
+        seed_legacy(&db, Some(13));
+        let alice = uuid::Uuid::new_v4();
+        let node = uuid::Uuid::new_v4();
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut users = txn.open_table(Table::Users.definition()).unwrap();
+                users
+                    .insert(
+                        alice.to_string().as_str(),
+                        json!({"id": alice, "email": " Alice@Example.COM "})
+                            .to_string()
+                            .as_bytes(),
+                    )
+                    .unwrap();
+                users
+                    .insert(
+                        "legacy-user",
+                        json!({"id": "legacy-user-id", "email": ""})
+                            .to_string()
+                            .as_bytes(),
+                    )
+                    .unwrap();
+            }
+            {
+                let mut nodes = txn.open_table(Table::Nodes.definition()).unwrap();
+                nodes
+                    .insert(
+                        node.to_string().as_str(),
+                        json!({"id": node, "token_hash": "ABCDEF"})
+                            .to_string()
+                            .as_bytes(),
+                    )
+                    .unwrap();
+                nodes
+                    .insert(
+                        "legacy-node",
+                        json!({"id": "legacy-node-id"}).to_string().as_bytes(),
+                    )
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        migrate(&db, 13, 14).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(14));
+        let txn = db.begin_read().unwrap();
+        {
+            let index = txn.open_table(Table::UserEmailIndex.definition()).unwrap();
+            let raw = index.get("alice@example.com").unwrap().unwrap();
+            let id: String = serde_json::from_slice(raw.value()).unwrap();
+            assert_eq!(id, alice.to_string());
+            assert_eq!(index.iter().unwrap().count(), 1);
+            assert!(index.get("").unwrap().is_none());
+        }
+        {
+            let index = txn.open_table(Table::NodeTokenIndex.definition()).unwrap();
+            let raw = index.get("abcdef").unwrap().unwrap();
+            let id: String = serde_json::from_slice(raw.value()).unwrap();
+            assert_eq!(id, node.to_string());
+            assert_eq!(index.iter().unwrap().count(), 1);
+        }
+        drop(txn);
+
+        let txn = db.begin_write().unwrap();
+        v14_lookup_indexes(&txn, None).unwrap();
+        v14_lookup_indexes(&txn, None).unwrap();
+        txn.commit().unwrap();
+
+        let txn = db.begin_read().unwrap();
+        let emails = txn.open_table(Table::UserEmailIndex.definition()).unwrap();
+        assert_eq!(emails.iter().unwrap().count(), 1);
+        let tokens = txn.open_table(Table::NodeTokenIndex.definition()).unwrap();
+        assert_eq!(tokens.iter().unwrap().count(), 1);
+    }
+
+    #[test]
+    fn migration_v15_creates_the_access_epoch_table() {
+        let db = in_memory();
+        seed_legacy(&db, Some(14));
+
+        migrate(&db, 14, 15).unwrap();
+
+        assert_eq!(read_version(&db).unwrap(), Some(15));
+        let txn = db.begin_read().unwrap();
+        let epochs = txn
+            .open_table(Table::UserAccessEpochs.definition())
+            .unwrap();
+        assert_eq!(epochs.iter().unwrap().count(), 0);
+        drop(epochs);
+        drop(txn);
+
+        // Re-running the step on an already migrated store must stay a no-op.
+        let txn = db.begin_write().unwrap();
+        v15_access_epochs(&txn, None).unwrap();
+        txn.commit().unwrap();
+    }
+
+    #[test]
+    fn unversioned_database_with_data_is_rejected() {
+        let db = in_memory();
+        {
+            let txn = db.begin_write().unwrap();
+            {
+                let mut users = txn.open_table(Table::Users.definition()).unwrap();
+                users
+                    .insert(
+                        "user-1",
+                        b"{\"id\":\"11111111-1111-1111-1111-111111111111\"}".as_slice(),
+                    )
+                    .unwrap();
+            }
+            txn.commit().unwrap();
+        }
+
+        let err = initialize(&db).unwrap_err();
+        assert!(
+            matches!(err, StorageError::UnversionedDatabase),
+            "got {err:?}"
+        );
+        assert_eq!(read_version(&db).unwrap(), None);
+    }
+
+    #[test]
+    fn empty_unversioned_database_is_initialized() {
+        let db = in_memory();
+        initialize(&db).unwrap();
+        assert_eq!(read_version(&db).unwrap(), Some(CURRENT_SCHEMA_VERSION));
     }
 
     fn sealer() -> Sealer {

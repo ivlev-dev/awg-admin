@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use chrono::Utc;
 use ipnet::Ipv4Net;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use awg_shared::crypto::{Sealer, generate_keypair, random_bytes};
@@ -12,7 +11,7 @@ use awg_shared::{CoreError, CoreResult};
 use crate::domain::{
     CidrPool, CidrPoolRepository, Group, GroupRepository, Interface, InterfaceRepository, Node,
     NodeMetricsUpdate, NodeRepository, NodeStatus, PoolMode, SubnetAllocator,
-    validate_interface_name,
+    validate_interface_name, validate_pool_gateway,
 };
 
 #[derive(Debug, Clone)]
@@ -165,8 +164,12 @@ impl NetworkService {
     pub fn add_pool(&self, group_id: Uuid, input: NewPool) -> CoreResult<CidrPool> {
         let group = self.get_group(group_id)?;
         let net = SubnetAllocator::ensure_valid_pool(&group.base_cidr, &input.cidr)?;
+        awg_shared::cidr::validate_pool_prefix(net)?;
         if input.name.trim().is_empty() {
             return Err(CoreError::Invalid("pool name is required".into()));
+        }
+        if let Some(gateway) = input.gateway.as_deref() {
+            validate_pool_gateway(net, gateway)?;
         }
         let existing = self.pools.by_group(group_id)?;
         SubnetAllocator::ensure_no_overlap(&existing, net)?;
@@ -212,6 +215,14 @@ impl NetworkService {
         }
         if let Some(enabled) = enabled {
             pool.enabled = enabled;
+        }
+        let net = self.pool_net(&pool)?;
+        if let Some(gateway) = pool.gateway.as_deref() {
+            validate_pool_gateway(net, gateway)?;
+        }
+        if pool.enabled {
+            let siblings = self.pools.by_group(pool.group_id)?;
+            SubnetAllocator::ensure_no_overlap_excluding(&siblings, net, Some(pool.id))?;
         }
         pool.updated_at = Utc::now();
         self.pools.save(&pool)?;
@@ -273,27 +284,14 @@ impl NetworkService {
     }
 
     pub fn record_metrics(&self, id: Uuid, metrics: NodeMetricsUpdate) -> CoreResult<Node> {
-        let mut node = self.get_node(id)?;
-        node.cpu_load = Some(metrics.cpu_load);
-        node.mem_used_bytes = Some(metrics.mem_used_bytes);
-        node.mem_total_bytes = Some(metrics.mem_total_bytes);
-        node.kernel_version = Some(metrics.kernel_version);
-        node.worker_version = Some(metrics.worker_version);
-        node.uptime_secs = Some(metrics.uptime_secs);
-        node.metrics_at = Some(Utc::now());
-        self.nodes.save(&node)?;
-        Ok(node)
+        self.nodes.record_metrics(id, &metrics)
     }
 
     pub fn authenticate_node(&self, token: &str) -> CoreResult<Node> {
         let hash = hash_token(token);
-        let node = self
-            .nodes
-            .list()?
-            .into_iter()
-            .find(|n| n.token_hash == hash)
-            .ok_or_else(|| CoreError::Forbidden("unknown worker token".into()))?;
-        Ok(node)
+        self.nodes
+            .find_by_token_hash(&hash)?
+            .ok_or_else(|| CoreError::Forbidden("unknown worker token".into()))
     }
 
     pub fn mark_node(
@@ -302,14 +300,7 @@ impl NetworkService {
         status: NodeStatus,
         version: Option<String>,
     ) -> CoreResult<Node> {
-        let mut node = self.get_node(id)?;
-        node.status = status;
-        node.last_seen = Some(Utc::now());
-        if version.is_some() {
-            node.version = version;
-        }
-        self.nodes.save(&node)?;
-        Ok(node)
+        self.nodes.set_status(id, status, Utc::now(), version)
     }
 
     pub fn delete_node(&self, id: Uuid) -> CoreResult<()> {
@@ -505,7 +496,7 @@ fn validate_port(port: u16, what: &str) -> CoreResult<()> {
 }
 
 fn hash_token(token: &str) -> String {
-    hex(&Sha256::digest(token.as_bytes()))
+    awg_shared::crypto::sha256_hex(token.as_bytes())
 }
 
 fn hex(bytes: &[u8]) -> String {

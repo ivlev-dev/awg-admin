@@ -264,7 +264,7 @@ async fn weak_password_is_rejected_with_validation_message() {
     assert!(
         error
             .to_string()
-            .contains("password must be at least 8 characters"),
+            .contains("password is too weak: at least 10 characters required"),
         "{error}"
     );
     assert!(

@@ -31,11 +31,13 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/ws/stats", get(ws::stats_ws))
 }
 
+/// Public liveness probe. It deliberately exposes neither the crate version
+/// nor any build metadata: that information only helps an attacker fingerprint
+/// the deployment.
 pub async fn health(State(_): State<Arc<AppState>>) -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
         "service": "awg-admin",
-        "version": env!("CARGO_PKG_VERSION"),
     }))
 }
 
@@ -128,7 +130,7 @@ fn dev_mail_forbidden() -> Response {
 
 fn readiness_response(readiness: &Readiness) -> Response {
     if readiness.is_shutting_down() {
-        return unavailable("shutting_down", None);
+        return unavailable("shutting_down");
     }
     match readiness.store.schema_version() {
         Ok(version) if version == CURRENT_SCHEMA_VERSION => (
@@ -136,27 +138,25 @@ fn readiness_response(readiness: &Readiness) -> Response {
             Json(serde_json::json!({
                 "status": "ready",
                 "service": "awg-admin",
-                "version": env!("CARGO_PKG_VERSION"),
-                "schema_version": version,
             })),
         )
             .into_response(),
-        Ok(version) => unavailable("schema_not_migrated", Some(version)),
+        Ok(_) => unavailable("schema_not_migrated"),
         Err(error) => {
             tracing::warn!(%error, "readiness check failed");
-            unavailable("schema_unavailable", None)
+            unavailable("schema_unavailable")
         }
     }
 }
 
-fn unavailable(reason: &str, schema_version: Option<u32>) -> Response {
-    let mut body = serde_json::json!({
-        "status": "unavailable",
-        "service": "awg-admin",
-        "reason": reason,
-    });
-    if let Some(version) = schema_version {
-        body["schema_version"] = serde_json::json!(version);
-    }
-    (StatusCode::SERVICE_UNAVAILABLE, Json(body)).into_response()
+fn unavailable(reason: &str) -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({
+            "status": "unavailable",
+            "service": "awg-admin",
+            "reason": reason,
+        })),
+    )
+        .into_response()
 }

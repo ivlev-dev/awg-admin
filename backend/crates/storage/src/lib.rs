@@ -10,8 +10,10 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use thiserror::Error;
 
+pub mod access_epoch;
 mod backup;
 pub mod device_index;
+pub mod lookup_index;
 mod schema;
 pub mod user_index;
 pub mod user_search;
@@ -60,6 +62,12 @@ pub enum StorageError {
     IncompatibleBackup { found: u32, supported: u32 },
     #[error("backup path conflicts with the open store database: {0}")]
     BackupPathConflict(PathBuf),
+    #[error(
+        "database has no schema version but already contains data; refusing to stamp it with the current schema version"
+    )]
+    UnversionedDatabase,
+    #[error("backup contains sealed values that cannot be decrypted with the current master key")]
+    BackupKeyMismatch,
 }
 
 macro_rules! tables {
@@ -94,10 +102,13 @@ tables! {
     DeviceCreatedIndex => "device_created_index",
     UserPageIndex => "user_page_index",
     UserSearchIndex => "user_search_index",
+    UserEmailIndex => "user_email_index",
+    NodeTokenIndex => "node_token_index",
     PeerCounters => "peer_counters",
     TrafficBuckets => "traffic_buckets",
     ShareLinks => "share_links",
     RefreshTokens => "refresh_tokens",
+    UserAccessEpochs => "user_access_epochs",
     EmailVerifications => "email_verifications",
     Settings => "settings",
     Audit => "audit",
@@ -255,6 +266,27 @@ impl Store {
         Ok(())
     }
 
+    /// Writes already encoded values to several tables in one transaction.
+    ///
+    /// This is the primitive used to keep a lookup index in sync with the
+    /// entity it points at: both entries land in the same commit, so a crash
+    /// can never leave a document without its index row or vice versa.
+    pub fn put_many_raw(&self, entries: &[(Table, String, Vec<u8>)]) -> Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
+        let txn = self.db.begin_write()?;
+        for (table, _, _) in entries {
+            txn.open_table(table.definition())?;
+        }
+        for (table, key, value) in entries {
+            let mut t = txn.open_table(table.definition())?;
+            t.insert(key.as_str(), value.as_slice())?;
+        }
+        txn.commit()?;
+        Ok(())
+    }
+
     pub fn update<T, R>(
         &self,
         table: Table,
@@ -378,15 +410,18 @@ impl Store {
         let mut removed = 0;
         {
             let mut t = txn.open_table(table.definition())?;
-            let keys: Vec<String> = match prefix_upper_bound(prefix) {
-                Some(upper) => t
-                    .range::<&str>(prefix..upper.as_str())?
+            let keys: Vec<String> = if prefix.is_empty() {
+                t.range::<&str>(..)?
                     .map(|entry| entry.map(|(key, _)| key.value().to_string()))
-                    .collect::<std::result::Result<Vec<_>, _>>()?,
-                None => t
-                    .range::<&str>(prefix..)?
-                    .map(|entry| entry.map(|(key, _)| key.value().to_string()))
-                    .collect::<std::result::Result<Vec<_>, _>>()?,
+                    .collect::<std::result::Result<Vec<_>, _>>()?
+            } else {
+                match prefix_upper_bound(prefix) {
+                    Some(upper) => t
+                        .range::<&str>(prefix..upper.as_str())?
+                        .map(|entry| entry.map(|(key, _)| key.value().to_string()))
+                        .collect::<std::result::Result<Vec<_>, _>>()?,
+                    None => Vec::new(),
+                }
             };
             for key in keys {
                 t.remove(key.as_str())?;
@@ -432,27 +467,27 @@ impl Store {
         let txn = self.db.begin_read()?;
         let table = txn.open_table(table.definition())?;
         let mut out = Vec::new();
-        let upper = prefix_upper_bound(prefix);
-        match upper {
-            Some(upper) => {
-                for entry in table.range::<&str>(prefix..upper.as_str())? {
+        macro_rules! collect {
+            ($range:expr) => {
+                for entry in $range {
                     let (key, value) = entry?;
                     out.push((
                         key.value().to_string(),
                         serde_json::from_slice(value.value())?,
                     ));
                 }
-            }
-            None => {
-                for entry in table.range::<&str>(prefix..)? {
-                    let (key, value) = entry?;
-                    out.push((
-                        key.value().to_string(),
-                        serde_json::from_slice(value.value())?,
-                    ));
-                }
-            }
+            };
         }
+        if prefix.is_empty() {
+            collect!(table.range::<&str>(..)?);
+            return Ok(out);
+        }
+        let Some(upper) = prefix_upper_bound(prefix) else {
+            // No string can extend this prefix, so the range is empty. Falling
+            // back to an open-ended range would return unrelated rows.
+            return Ok(out);
+        };
+        collect!(table.range::<&str>(prefix..upper.as_str())?);
         Ok(out)
     }
 
@@ -525,15 +560,39 @@ impl Store {
     }
 }
 
+/// Returns the smallest string that is greater than every string beginning with
+/// `prefix`, or `None` when no such string exists.
+///
+/// The successor is computed from the last Unicode scalar value, not by
+/// incrementing the last UTF-8 byte. Incrementing a byte may leave the UTF-8
+/// range (for example, `"x¿"` ends in `0xBF`), and a bound that is not valid
+/// UTF-8 cannot be used as a `&str` range bound. `None` therefore means "no
+/// finite upper bound"; callers must treat that as an empty range (an empty
+/// prefix is handled separately, since it legitimately spans the whole table).
 pub fn prefix_upper_bound(prefix: &str) -> Option<String> {
-    let mut bytes = prefix.as_bytes().to_vec();
-    while let Some(last) = bytes.pop() {
-        if last < u8::MAX {
-            bytes.push(last + 1);
-            return String::from_utf8(bytes).ok();
+    let mut chars: Vec<char> = prefix.chars().collect();
+    while let Some(last) = chars.pop() {
+        if let Some(next) = next_scalar(last) {
+            chars.push(next);
+            return Some(chars.into_iter().collect());
         }
     }
     None
+}
+
+/// Returns the smallest Unicode scalar value greater than `value`, skipping the
+/// surrogate range that cannot be encoded as a `char`.
+fn next_scalar(value: char) -> Option<char> {
+    let code = value as u32;
+    if code >= char::MAX as u32 {
+        return None;
+    }
+    let next = code + 1;
+    if (0xD800..=0xDFFF).contains(&next) {
+        char::from_u32(0xE000)
+    } else {
+        char::from_u32(next)
+    }
 }
 
 #[cfg(test)]
@@ -667,6 +726,89 @@ mod tests {
         );
         assert_eq!(store.delete_prefix(Table::RateLimits, "").unwrap(), 2);
         assert_eq!(store.count(Table::RateLimits).unwrap(), 0);
+    }
+
+    #[test]
+    fn prefix_ending_in_a_multibyte_char_stays_inside_the_range() {
+        let store = Store::open_in_memory().unwrap();
+        for key in ["x¿1", "x¿2", "x", "y", "x\u{FFFF}"] {
+            store
+                .put(Table::RateLimits, key, &Counter { value: 1 })
+                .unwrap();
+        }
+
+        let entries: Vec<(String, Counter)> = store
+            .list_prefix(Table::RateLimits, "x¿")
+            .expect("the bound for a multibyte prefix must be a valid string");
+        assert_eq!(
+            entries
+                .iter()
+                .map(|(key, _)| key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["x¿1", "x¿2"]
+        );
+
+        assert_eq!(store.delete_prefix(Table::RateLimits, "x¿").unwrap(), 2);
+        assert_eq!(
+            store.keys(Table::RateLimits).unwrap(),
+            vec!["x", "x\u{FFFF}", "y"]
+        );
+    }
+
+    #[test]
+    fn prefix_ending_in_the_last_bmp_scalar_stays_inside_the_range() {
+        let store = Store::open_in_memory().unwrap();
+        for key in ["\u{FFFF}1", "\u{FFFF}2", "\u{10000}", "z"] {
+            store
+                .put(Table::RateLimits, key, &Counter { value: 1 })
+                .unwrap();
+        }
+
+        let entries: Vec<(String, Counter)> = store
+            .list_prefix(Table::RateLimits, "\u{FFFF}")
+            .expect("U+FFFF has a successor, so the bound must exist");
+        assert_eq!(
+            entries
+                .iter()
+                .map(|(key, _)| key.as_str())
+                .collect::<Vec<_>>(),
+            vec!["\u{FFFF}1", "\u{FFFF}2"]
+        );
+        assert_eq!(
+            store.delete_prefix(Table::RateLimits, "\u{FFFF}").unwrap(),
+            2
+        );
+        assert_eq!(
+            store.keys(Table::RateLimits).unwrap(),
+            vec!["z", "\u{10000}"]
+        );
+    }
+
+    #[test]
+    fn prefix_without_a_string_successor_matches_nothing() {
+        let store = Store::open_in_memory().unwrap();
+        for key in ["\u{10FFFF}", "\u{10FFFF}1", "z"] {
+            store
+                .put(Table::RateLimits, key, &Counter { value: 1 })
+                .unwrap();
+        }
+
+        assert!(prefix_upper_bound("\u{10FFFF}").is_none());
+        assert!(
+            store
+                .list_prefix::<Counter>(Table::RateLimits, "\u{10FFFF}")
+                .unwrap()
+                .is_empty(),
+            "a prefix without an upper bound must not scan the whole table"
+        );
+        assert_eq!(
+            store
+                .delete_prefix(Table::RateLimits, "\u{10FFFF}")
+                .unwrap(),
+            0,
+            "a prefix without an upper bound must not delete unrelated rows"
+        );
+        assert_eq!(store.count(Table::RateLimits).unwrap(), 3);
     }
 
     #[test]

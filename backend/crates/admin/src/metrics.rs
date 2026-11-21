@@ -171,10 +171,26 @@ pub async fn middleware(request: Request, next: Next) -> Response {
 
 pub async fn scrape(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
     let online = state.registry.presence().len();
-    scrape_with(state.config.metrics_token.as_deref(), online, &headers)
+    scrape_with(
+        state.config.metrics_token.as_deref(),
+        state.config.is_production(),
+        online,
+        &headers,
+    )
 }
 
-fn scrape_with(expected: Option<&str>, workers_online: usize, headers: &HeaderMap) -> Response {
+fn scrape_with(
+    expected: Option<&str>,
+    production: bool,
+    workers_online: usize,
+    headers: &HeaderMap,
+) -> Response {
+    if expected.is_none() && production {
+        // Exposing metrics without authentication in production can reveal
+        // traffic patterns and deployment topology. Hide the endpoint instead.
+        tracing::warn!("metrics endpoint is disabled: AWG_METRICS_TOKEN is required in production");
+        return StatusCode::NOT_FOUND.into_response();
+    }
     if let Some(expected) = expected
         && !token_matches(expected, headers)
     {
@@ -353,16 +369,16 @@ mod tests {
 
     #[test]
     fn token_is_required_when_configured() {
-        let response = scrape_with(Some("secret"), 2, &HeaderMap::new());
+        let response = scrape_with(Some("secret"), false, 2, &HeaderMap::new());
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
 
-        let response = scrape_with(Some("secret"), 2, &headers_with("Bearer wrong"));
+        let response = scrape_with(Some("secret"), false, 2, &headers_with("Bearer wrong"));
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[test]
     fn token_grants_access_and_sets_content_type() {
-        let response = scrape_with(Some("secret"), 2, &headers_with("Bearer secret"));
+        let response = scrape_with(Some("secret"), false, 2, &headers_with("Bearer secret"));
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -374,8 +390,8 @@ mod tests {
     }
 
     #[test]
-    fn scrape_is_open_without_token() {
-        let response = scrape_with(None, 0, &HeaderMap::new());
+    fn scrape_is_open_without_token_in_development() {
+        let response = scrape_with(None, false, 0, &HeaderMap::new());
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(
             response
@@ -384,5 +400,18 @@ mod tests {
                 .and_then(|value| value.to_str().ok()),
             Some(CONTENT_TYPE)
         );
+    }
+
+    #[test]
+    fn scrape_is_hidden_without_token_in_production() {
+        let response = scrape_with(None, true, 0, &HeaderMap::new());
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        assert!(response.headers().get(header::CONTENT_TYPE).is_none());
+    }
+
+    #[test]
+    fn scrape_with_token_still_works_in_production() {
+        let response = scrape_with(Some("secret"), true, 1, &headers_with("Bearer secret"));
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

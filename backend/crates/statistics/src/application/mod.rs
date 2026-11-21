@@ -14,6 +14,10 @@ use crate::domain::{
 
 const RATE_SNAPSHOTS: usize = 2;
 
+/// Rate trackers that were not refreshed for this long belong to entities
+/// that no longer report traffic and are dropped by [`StatsService::cleanup`].
+const RATE_TRACKER_TTL_HOURS: i64 = 24;
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct StatsUpdate {
     pub node_id: Uuid,
@@ -32,9 +36,19 @@ pub struct SeriesPoint {
     pub rate: Rate,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct RateTracker {
     samples: VecDeque<CounterState>,
+    updated_at: DateTime<Utc>,
+}
+
+impl Default for RateTracker {
+    fn default() -> Self {
+        Self {
+            samples: VecDeque::new(),
+            updated_at: DateTime::<Utc>::UNIX_EPOCH,
+        }
+    }
 }
 
 impl RateTracker {
@@ -59,6 +73,9 @@ pub struct StatsService {
     repo: Arc<dyn StatsRepository>,
     broadcaster: Arc<dyn StatsBroadcaster>,
     rates: Mutex<HashMap<StatsScope, RateTracker>>,
+    /// Serializes snapshot application per node so that two concurrent
+    /// snapshots cannot both observe the same "previous" counters.
+    node_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
 }
 
 impl StatsService {
@@ -67,7 +84,16 @@ impl StatsService {
             repo,
             broadcaster,
             rates: Mutex::new(HashMap::new()),
+            node_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn node_lock(&self, node_id: Uuid) -> Arc<Mutex<()>> {
+        let mut locks = self
+            .node_locks
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        locks.entry(node_id).or_default().clone()
     }
 
     pub fn current_rate(&self, scope: &StatsScope) -> Option<Rate> {
@@ -122,6 +148,9 @@ impl StatsService {
         if samples.is_empty() {
             return Ok(Vec::new());
         }
+        let lock = self.node_lock(node_id);
+        let _guard = lock.lock().unwrap_or_else(|poison| poison.into_inner());
+
         let keys: Vec<CounterKey> = samples
             .iter()
             .map(|(interface_id, device_id, sample)| CounterKey {
@@ -244,6 +273,7 @@ impl StatsService {
             .unwrap_or_else(|poison| poison.into_inner());
         for (scope, (rx, tx)) in scoped {
             let tracker = guard.entry(*scope).or_default();
+            tracker.updated_at = at;
             let state = match tracker.samples.back() {
                 Some(last) => CounterState {
                     rx_total: last.rx_total.saturating_add(*rx),
@@ -259,14 +289,13 @@ impl StatsService {
             tracker.push(state);
         }
         for (device_id, (rx_total, tx_total)) in devices {
-            guard
-                .entry(StatsScope::Device(*device_id))
-                .or_default()
-                .push(CounterState {
-                    rx_total: *rx_total,
-                    tx_total: *tx_total,
-                    updated_at: at,
-                });
+            let tracker = guard.entry(StatsScope::Device(*device_id)).or_default();
+            tracker.updated_at = at;
+            tracker.push(CounterState {
+                rx_total: *rx_total,
+                tx_total: *tx_total,
+                updated_at: at,
+            });
         }
     }
 
@@ -423,8 +452,25 @@ impl StatsService {
     }
 
     pub fn cleanup(&self, keep_days: i64) -> CoreResult<usize> {
-        let cutoff = Aggregator::hour_of(Utc::now() - Duration::days(keep_days));
-        self.repo.cleanup_before(cutoff)
+        let now = Utc::now();
+        let cutoff = Aggregator::hour_of(now - Duration::days(keep_days));
+        let removed = self.repo.cleanup_before(cutoff)?;
+        self.cleanup_rate_trackers(now);
+        Ok(removed)
+    }
+
+    /// Drops rate trackers for scopes that stopped reporting traffic. Without
+    /// this the map grows forever as devices, users and groups are deleted.
+    fn cleanup_rate_trackers(&self, now: DateTime<Utc>) -> usize {
+        let mut guard = self
+            .rates
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let before = guard.len();
+        guard.retain(|_, tracker| {
+            now.signed_duration_since(tracker.updated_at) <= Duration::hours(RATE_TRACKER_TTL_HOURS)
+        });
+        before - guard.len()
     }
 }
 
@@ -484,4 +530,68 @@ fn validate_window(
         )));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use awg_storage::Store;
+
+    use super::*;
+    use crate::infrastructure::{RedbStatsRepository, StatsHub};
+
+    struct FixedDirectory {
+        group_id: Uuid,
+        user_id: Uuid,
+    }
+
+    impl DeviceDirectory for FixedDirectory {
+        fn group_and_user(&self, _device_id: Uuid) -> CoreResult<Option<(Uuid, Uuid)>> {
+            Ok(Some((self.group_id, self.user_id)))
+        }
+    }
+
+    #[test]
+    fn cleanup_drops_stale_rate_trackers_only() {
+        let store = Arc::new(Store::open_in_memory().unwrap());
+        let repo = Arc::new(RedbStatsRepository::new(store));
+        let service = StatsService::new(repo, Arc::new(StatsHub::new(8)));
+        let directory = FixedDirectory {
+            group_id: Uuid::new_v4(),
+            user_id: Uuid::new_v4(),
+        };
+        let node_id = Uuid::new_v4();
+        let interface_id = Uuid::new_v4();
+        let now = Utc::now();
+        let stale_device = Uuid::new_v4();
+        let fresh_device = Uuid::new_v4();
+
+        for (device_id, at) in [
+            (stale_device, now - Duration::hours(48)),
+            (fresh_device, now),
+        ] {
+            let samples = [(
+                interface_id,
+                device_id,
+                CounterSample {
+                    peer_id: Uuid::new_v4(),
+                    rx_total: 10,
+                    tx_total: 20,
+                },
+            )];
+            service
+                .record_node_snapshot_at(node_id, &samples, &directory, at)
+                .unwrap();
+        }
+
+        service.cleanup(3_650).unwrap();
+
+        let rates = service
+            .rates
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        assert!(rates.contains_key(&StatsScope::Device(fresh_device)));
+        assert!(!rates.contains_key(&StatsScope::Device(stale_device)));
+        // Shared scopes were refreshed by the fresh snapshot.
+        assert!(rates.contains_key(&StatsScope::Global));
+    }
 }

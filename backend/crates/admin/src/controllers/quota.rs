@@ -12,7 +12,7 @@ use awg_tariffs::{QuotaState, TariffService};
 
 use crate::auth::AuthUser;
 use crate::blocking;
-use crate::error::{ApiError, ApiResult};
+use crate::error::ApiResult;
 use crate::state::AppState;
 use crate::views::{QuotaUserView, QuotaView};
 
@@ -21,12 +21,15 @@ pub async fn current(
     user: AuthUser,
 ) -> ApiResult<Json<QuotaView>> {
     let subject = quota_subject(&user);
-    let account = state.identity.find(subject).map_err(ApiError::from)?;
-    let used = state
-        .stats
-        .used_bytes(StatsScope::User(subject))
-        .map_err(ApiError::from)?;
-    let view = current_quota(&state.tariffs, &account, used, Utc::now()).map_err(ApiError::from)?;
+    let identity = state.identity.clone();
+    let stats = state.stats.clone();
+    let tariffs = state.tariffs.clone();
+    let view = blocking::run_api(move || {
+        let account = identity.find(subject)?;
+        let used = stats.used_bytes(StatsScope::User(subject))?;
+        Ok(current_quota(&tariffs, &account, used, Utc::now())?)
+    })
+    .await?;
     Ok(Json(view))
 }
 
@@ -34,45 +37,45 @@ pub async fn users(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Vec<QuotaUserView>>> {
-    authorize_user_quotas(&user)?;
-    let accounts = {
-        let identity = state.identity.clone();
-        blocking::run_core(move || identity.list())
-            .await
-            .map_err(ApiError::from)?
-    };
-    let scopes: Vec<StatsScope> = accounts
-        .iter()
-        .filter(|account| account.tariff_id.is_some())
-        .map(|account| StatsScope::User(account.id))
-        .collect();
-    let used = {
-        let stats = state.stats.clone();
-        blocking::run_core(move || stats.used_bytes_many(&scopes))
-            .await
-            .map_err(ApiError::from)?
-    };
-    let mut items = Vec::new();
-    for account in accounts
-        .iter()
-        .filter(|account| account.tariff_id.is_some())
-    {
-        let used = used
-            .get(&StatsScope::User(account.id))
-            .copied()
-            .unwrap_or_default();
-        items.push(user_quota(&state.tariffs, account, used).map_err(ApiError::from)?);
-    }
-    items.sort_by(|left, right| {
-        left.email
-            .cmp(&right.email)
-            .then_with(|| left.user_id.cmp(&right.user_id))
-    });
+    let admin = user.is_admin();
+    let caller_id = user.id();
+    let identity = state.identity.clone();
+    let stats = state.stats.clone();
+    let tariffs = state.tariffs.clone();
+    let items = blocking::run_api(move || {
+        // A regular user only ever sees their own quota; the full list is
+        // reserved for administrators.
+        let accounts: Vec<User> = if admin {
+            identity
+                .list()?
+                .into_iter()
+                .filter(|account| account.tariff_id.is_some())
+                .collect()
+        } else {
+            vec![identity.find(caller_id)?]
+        };
+        let scopes: Vec<StatsScope> = accounts
+            .iter()
+            .map(|account| StatsScope::User(account.id))
+            .collect();
+        let used = stats.used_bytes_many(&scopes)?;
+        let mut items = Vec::with_capacity(accounts.len());
+        for account in &accounts {
+            let used = used
+                .get(&StatsScope::User(account.id))
+                .copied()
+                .unwrap_or_default();
+            items.push(user_quota(&tariffs, account, used)?);
+        }
+        items.sort_by(|left, right| {
+            left.email
+                .cmp(&right.email)
+                .then_with(|| left.user_id.cmp(&right.user_id))
+        });
+        Ok(items)
+    })
+    .await?;
     Ok(Json(items))
-}
-
-fn authorize_user_quotas(user: &AuthUser) -> ApiResult<()> {
-    user.require_admin()
 }
 
 fn quota_subject(user: &AuthUser) -> Uuid {
@@ -162,13 +165,6 @@ mod tests {
             created_at: now,
             updated_at: now,
         }
-    }
-
-    fn auth(role: Role) -> AuthUser {
-        AuthUser(AuthPrincipal {
-            user_id: Uuid::new_v4(),
-            role,
-        })
     }
 
     fn now() -> DateTime<Utc> {
@@ -262,13 +258,6 @@ mod tests {
         assert_eq!(view.quota_bytes, None);
         assert_eq!(view.percent, None);
         assert!(!view.exceeded);
-    }
-
-    #[test]
-    fn quota_list_is_admin_only() {
-        assert!(authorize_user_quotas(&auth(Role::Admin)).is_ok());
-        let error = authorize_user_quotas(&auth(Role::User)).unwrap_err();
-        assert_eq!(error.status_code(), axum::http::StatusCode::FORBIDDEN);
     }
 
     #[test]

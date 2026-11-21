@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Months, Utc};
 use uuid::Uuid;
@@ -7,10 +7,11 @@ use uuid::Uuid;
 use awg_shared::{CoreError, CoreResult};
 
 use crate::domain::{
-    BillingPeriod, CheckoutRequest, GatewayError, Invoice, InvoiceRepository, InvoiceStatus,
-    PaymentEvent, PaymentEventKind, PaymentEventRecord, PaymentEventRepository, PaymentGateway,
-    PaymentMethod, PaymentMethodInfo, PaymentMethodRepository, Plan, PlanRepository, Subscription,
-    SubscriptionRepository, SubscriptionStatus, WebhookRequest, normalize_currency, payload_sha256,
+    BillingPeriod, CheckoutRequest, EventClaim, GatewayError, Invoice, InvoiceRepository,
+    InvoiceStatus, PaymentEvent, PaymentEventKind, PaymentEventRecord, PaymentEventRepository,
+    PaymentEventStatus, PaymentGateway, PaymentMethod, PaymentMethodInfo, PaymentMethodRepository,
+    Plan, PlanRepository, Subscription, SubscriptionRepository, SubscriptionStatus, WebhookRequest,
+    normalize_currency, payload_sha256,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -136,6 +137,9 @@ pub struct BillingService {
     tariffs: Arc<dyn TariffCatalog>,
     gateway: Arc<dyn PaymentGateway>,
     settings: BillingSettings,
+    /// Serializes checkout per user so that two concurrent requests cannot
+    /// both create an incomplete subscription and a payable invoice.
+    checkout_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
 }
 
 impl BillingService {
@@ -159,7 +163,16 @@ impl BillingService {
             tariffs,
             gateway,
             settings,
+            checkout_locks: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn checkout_lock(&self, user_id: Uuid) -> Arc<Mutex<()>> {
+        let mut locks = self
+            .checkout_locks
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        locks.entry(user_id).or_default().clone()
     }
 
     pub fn settings(&self) -> &BillingSettings {
@@ -384,22 +397,35 @@ impl BillingService {
         plan_id: Uuid,
         now: DateTime<Utc>,
     ) -> CoreResult<CheckoutOutcome> {
+        let lock = self.checkout_lock(user_id);
+        let _guard = lock.lock().unwrap_or_else(|poison| poison.into_inner());
+
         let plan = self.get_plan(plan_id)?;
         if !plan.active {
             return Err(CoreError::Conflict("plan is not active".into()));
         }
 
-        let mut subscription = match self.current_subscription(user_id)? {
-            Some(existing) if existing.plan_id != plan.id => {
+        let existing = self.current_subscription(user_id)?;
+        if let Some(subscription) = &existing {
+            if subscription.plan_id != plan.id {
                 return Err(CoreError::Conflict(
                     "user already has a subscription for another plan".into(),
                 ));
             }
-            Some(existing) if existing.grants_access() => {
+            if subscription.grants_access() {
                 return Err(CoreError::Conflict(
                     "subscription already grants access".into(),
                 ));
             }
+        }
+
+        // Idempotency: a repeated checkout (double click, retry) must reuse the
+        // invoice that is still open instead of creating a second payable one.
+        if let Some(invoice) = self.open_invoice_for_plan(user_id, plan.id, now)? {
+            return self.ensure_checkout_session(user_id, &plan, invoice);
+        }
+
+        let mut subscription = match existing {
             Some(existing) => existing,
             None => {
                 let subscription = Subscription {
@@ -422,30 +448,67 @@ impl BillingService {
             }
         };
 
-        let mut invoice = match self.reusable_invoice(subscription.id, now)? {
-            Some(invoice) => invoice,
-            None => {
-                let invoice = Invoice {
-                    id: Uuid::new_v4(),
-                    user_id,
-                    subscription_id: subscription.id,
-                    amount_cents: plan.price_cents,
-                    currency: plan.currency.clone(),
-                    status: InvoiceStatus::Open,
-                    period_start: subscription.current_period_start,
-                    period_end: subscription.current_period_end,
-                    due_at: now,
-                    paid_at: None,
-                    attempts: 0,
-                    gateway: Some(self.provider_name().to_string()),
-                    gateway_ref: None,
-                    checkout_url: None,
-                };
-                self.invoices.save(&invoice)?;
-                invoice
-            }
+        let invoice = Invoice {
+            id: Uuid::new_v4(),
+            user_id,
+            subscription_id: subscription.id,
+            amount_cents: plan.price_cents,
+            currency: plan.currency.clone(),
+            status: InvoiceStatus::Open,
+            period_start: subscription.current_period_start,
+            period_end: subscription.current_period_end,
+            due_at: now,
+            paid_at: None,
+            attempts: 0,
+            gateway: Some(self.provider_name().to_string()),
+            gateway_ref: None,
+            checkout_url: None,
         };
+        self.invoices.save(&invoice)?;
 
+        subscription.updated_at = now;
+        self.subscriptions.save(&subscription)?;
+
+        self.ensure_checkout_session(user_id, &plan, invoice)
+    }
+
+    /// Finds an open invoice of the user for the given plan, newest first.
+    fn open_invoice_for_plan(
+        &self,
+        user_id: Uuid,
+        plan_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> CoreResult<Option<Invoice>> {
+        let mut found: Option<Invoice> = None;
+        for invoice in self.invoices.list()? {
+            if invoice.user_id != user_id || !invoice.is_reusable_open(now) {
+                continue;
+            }
+            let Some(subscription) = self.subscriptions.find(invoice.subscription_id)? else {
+                continue;
+            };
+            if subscription.user_id != user_id
+                || subscription.plan_id != plan_id
+                || subscription.status == SubscriptionStatus::Canceled
+            {
+                continue;
+            }
+            let replace = found.as_ref().is_none_or(|existing| {
+                (invoice.period_start, invoice.id) > (existing.period_start, existing.id)
+            });
+            if replace {
+                found = Some(invoice);
+            }
+        }
+        Ok(found)
+    }
+
+    fn ensure_checkout_session(
+        &self,
+        user_id: Uuid,
+        plan: &Plan,
+        mut invoice: Invoice,
+    ) -> CoreResult<CheckoutOutcome> {
         if let Some(url) = invoice.checkout_url.clone() {
             return Ok(CheckoutOutcome {
                 invoice,
@@ -470,9 +533,6 @@ impl BillingService {
         invoice.gateway_ref = Some(session.gateway_ref);
         invoice.checkout_url = Some(session.url.clone());
         self.invoices.save(&invoice)?;
-
-        subscription.updated_at = now;
-        self.subscriptions.save(&subscription)?;
 
         Ok(CheckoutOutcome {
             invoice,
@@ -503,21 +563,73 @@ impl BillingService {
             .map_err(webhook_gateway_error)?;
         let hash = payload_sha256(body);
 
-        if let Some(existing) = self
+        // Claim the event before running side effects. The claim is an atomic
+        // insert-if-absent, so only one concurrent delivery can own it.
+        let record = PaymentEventRecord {
+            event_id: event.event_id.clone(),
+            gateway: event.gateway.clone(),
+            kind: event.kind.as_str().to_string(),
+            invoice_id: event.invoice_id,
+            received_at: now,
+            payload_hash: hash.clone(),
+            status: PaymentEventStatus::Processing,
+        };
+        match self
             .payment_events
-            .find(&event.gateway, &event.event_id)
+            .claim(&record)
             .map_err(WebhookError::from)?
         {
-            if existing.payload_hash == hash {
-                return Ok(WebhookOutcome::Duplicate {
-                    event_id: event.event_id,
-                });
+            EventClaim::Claimed => {}
+            EventClaim::Held(existing) => {
+                if existing.payload_hash != hash {
+                    return Err(WebhookError::Invalid(
+                        "duplicate event id with a different payload".into(),
+                    ));
+                }
+                let retry = existing.status == PaymentEventStatus::Failed
+                    && self
+                        .payment_events
+                        .retry(&event.gateway, &event.event_id)
+                        .map_err(WebhookError::from)?;
+                if !retry {
+                    return Ok(WebhookOutcome::Duplicate {
+                        event_id: event.event_id,
+                    });
+                }
             }
-            return Err(WebhookError::Invalid(
-                "duplicate event id with a different payload".into(),
-            ));
         }
 
+        let outcome = self.apply_event(&event, now);
+        let outcome = match outcome {
+            Ok(outcome) => {
+                self.payment_events
+                    .mark(
+                        &event.gateway,
+                        &event.event_id,
+                        PaymentEventStatus::Processed,
+                    )
+                    .map_err(WebhookError::from)?;
+                outcome
+            }
+            Err(error) => {
+                // Keep the record so a gateway redelivery can retry it.
+                let _ = self.payment_events.mark(
+                    &event.gateway,
+                    &event.event_id,
+                    PaymentEventStatus::Failed,
+                );
+                return Err(error);
+            }
+        };
+
+        Ok(outcome)
+    }
+
+    fn apply_event(
+        &self,
+        event: &PaymentEvent,
+        now: DateTime<Utc>,
+    ) -> Result<WebhookOutcome, WebhookError> {
         let affected_user = match event.invoice_id {
             Some(invoice_id) => self
                 .invoices
@@ -526,62 +638,32 @@ impl BillingService {
                 .map(|invoice| invoice.user_id),
             None => None,
         };
-        let outcome = match &event.kind {
+        match &event.kind {
             PaymentEventKind::PaymentSucceeded => {
-                self.apply_payment_succeeded(&event, now)?;
-                WebhookOutcome::Processed {
+                self.apply_payment_succeeded(event, now)?;
+                Ok(WebhookOutcome::Processed {
                     event_id: event.event_id.clone(),
                     user_id: affected_user,
-                }
+                })
             }
             PaymentEventKind::PaymentFailed => {
-                self.apply_payment_failed(&event)?;
-                WebhookOutcome::Processed {
+                self.apply_payment_failed(event, now)?;
+                Ok(WebhookOutcome::Processed {
                     event_id: event.event_id.clone(),
                     user_id: affected_user,
-                }
+                })
             }
-            PaymentEventKind::RefundSucceeded => WebhookOutcome::Processed {
+            PaymentEventKind::RefundSucceeded => {
+                self.apply_refund(event, now)?;
+                Ok(WebhookOutcome::Processed {
+                    event_id: event.event_id.clone(),
+                    user_id: affected_user,
+                })
+            }
+            PaymentEventKind::Other(_) => Ok(WebhookOutcome::Ignored {
                 event_id: event.event_id.clone(),
-                user_id: affected_user,
-            },
-            PaymentEventKind::Other(_) => WebhookOutcome::Ignored {
-                event_id: event.event_id.clone(),
-            },
-        };
-
-        self.payment_events
-            .save(&PaymentEventRecord {
-                event_id: event.event_id,
-                gateway: event.gateway,
-                kind: event.kind.as_str().to_string(),
-                invoice_id: event.invoice_id,
-                received_at: now,
-                payload_hash: hash,
-            })
-            .map_err(WebhookError::from)?;
-
-        Ok(outcome)
-    }
-
-    fn reusable_invoice(
-        &self,
-        subscription_id: Uuid,
-        now: DateTime<Utc>,
-    ) -> CoreResult<Option<Invoice>> {
-        let mut found: Option<Invoice> = None;
-        for invoice in self.invoices.list()? {
-            if invoice.subscription_id != subscription_id || !invoice.is_reusable_open(now) {
-                continue;
-            }
-            let replace = found.as_ref().is_none_or(|existing| {
-                (invoice.period_start, invoice.id) > (existing.period_start, existing.id)
-            });
-            if replace {
-                found = Some(invoice);
-            }
+            }),
         }
-        Ok(found)
     }
 
     fn apply_payment_succeeded(
@@ -646,13 +728,20 @@ impl BillingService {
             .find(invoice.subscription_id)
             .map_err(WebhookError::from)?
             .ok_or_else(|| WebhookError::Invalid("subscription not found".into()))?;
+        let plan = self
+            .plans
+            .find(subscription.plan_id)
+            .map_err(WebhookError::from)?
+            .ok_or_else(|| WebhookError::Invalid("subscription plan not found".into()))?;
         subscription.status = SubscriptionStatus::Active;
         subscription.gateway = Some(event.gateway.clone());
         if gateway_ref.is_some() {
             subscription.gateway_ref = gateway_ref;
         }
-        subscription.current_period_start = invoice.period_start;
-        subscription.current_period_end = invoice.period_end;
+        // The paid period starts when the money actually arrives, not when the
+        // checkout was created.
+        subscription.current_period_start = now;
+        subscription.current_period_end = advance_period(plan.period, now)?;
         subscription.updated_at = now;
         self.subscriptions
             .save(&subscription)
@@ -660,7 +749,11 @@ impl BillingService {
         Ok(())
     }
 
-    fn apply_payment_failed(&self, event: &PaymentEvent) -> Result<(), WebhookError> {
+    fn apply_payment_failed(
+        &self,
+        event: &PaymentEvent,
+        now: DateTime<Utc>,
+    ) -> Result<(), WebhookError> {
         let invoice_id = event
             .invoice_id
             .ok_or_else(|| WebhookError::Invalid("invoice_id is required".into()))?;
@@ -678,7 +771,70 @@ impl BillingService {
             ));
         }
         invoice.attempts = invoice.attempts.saturating_add(1);
-        self.invoices.save(&invoice).map_err(WebhookError::from)
+        self.invoices.save(&invoice).map_err(WebhookError::from)?;
+
+        // Only an access-granting subscription becomes overdue; a checkout that
+        // never completed stays incomplete.
+        if let Some(mut subscription) = self
+            .subscriptions
+            .find(invoice.subscription_id)
+            .map_err(WebhookError::from)?
+            && matches!(
+                subscription.status,
+                SubscriptionStatus::Active | SubscriptionStatus::Trialing
+            )
+        {
+            subscription.status = SubscriptionStatus::PastDue;
+            subscription.updated_at = now;
+            self.subscriptions
+                .save(&subscription)
+                .map_err(WebhookError::from)?;
+        }
+        Ok(())
+    }
+
+    fn apply_refund(&self, event: &PaymentEvent, now: DateTime<Utc>) -> Result<(), WebhookError> {
+        let invoice_id = event
+            .invoice_id
+            .ok_or_else(|| WebhookError::Invalid("invoice_id is required".into()))?;
+        let mut invoice = self
+            .invoices
+            .find(invoice_id)
+            .map_err(WebhookError::from)?
+            .ok_or_else(|| WebhookError::Invalid("invoice not found".into()))?;
+
+        match invoice.status {
+            InvoiceStatus::Refunded => return Ok(()),
+            InvoiceStatus::Paid => {}
+            InvoiceStatus::Open | InvoiceStatus::Draft => {
+                // Nothing was charged yet, so just void the payable invoice.
+                invoice.status = InvoiceStatus::Void;
+                self.invoices.save(&invoice).map_err(WebhookError::from)?;
+                return Ok(());
+            }
+            other => {
+                return Err(WebhookError::Invalid(format!(
+                    "invoice cannot be refunded from {}",
+                    other.as_str()
+                )));
+            }
+        }
+
+        invoice.status = InvoiceStatus::Refunded;
+        self.invoices.save(&invoice).map_err(WebhookError::from)?;
+
+        if let Some(mut subscription) = self
+            .subscriptions
+            .find(invoice.subscription_id)
+            .map_err(WebhookError::from)?
+        {
+            subscription.status = SubscriptionStatus::Canceled;
+            subscription.updated_at = now;
+            self.subscriptions
+                .save(&subscription)
+                .map_err(WebhookError::from)?;
+        }
+        Ok(())
     }
 
     fn upsert_payment_method(
@@ -1205,6 +1361,82 @@ mod tests {
     }
 
     #[test]
+    fn concurrent_checkouts_create_one_subscription_and_one_invoice() {
+        let harness = Harness::mock();
+        let plan = harness.plan(99_000);
+        let user_id = Uuid::new_v4();
+        let now = at(17);
+
+        let (first, second) = std::thread::scope(|scope| {
+            let first = scope.spawn(|| harness.service.start_checkout(user_id, plan.id, now));
+            let second = scope.spawn(|| harness.service.start_checkout(user_id, plan.id, now));
+            (first.join().unwrap(), second.join().unwrap())
+        });
+        let first = first.unwrap();
+        let second = second.unwrap();
+
+        assert_eq!(first.invoice.id, second.invoice.id);
+        assert_eq!(first.checkout_url, second.checkout_url);
+        assert_eq!(harness.invoices.list().unwrap().len(), 1);
+
+        let subscriptions: Vec<Subscription> = harness
+            .subscriptions
+            .list()
+            .unwrap()
+            .into_iter()
+            .filter(|subscription| subscription.user_id == user_id)
+            .collect();
+        assert_eq!(subscriptions.len(), 1);
+        assert_eq!(subscriptions[0].status, SubscriptionStatus::Incomplete);
+    }
+
+    #[test]
+    fn subscription_period_starts_at_payment_time() {
+        let harness = Harness::mock();
+        let plan = harness.plan(99_000);
+        let user_id = Uuid::new_v4();
+        let checkout_at = at(1);
+        let paid_at = at(20);
+
+        let checkout = harness
+            .service
+            .start_checkout(user_id, plan.id, checkout_at)
+            .unwrap();
+        assert_eq!(
+            checkout.invoice.period_end,
+            Utc.with_ymd_and_hms(2026, 12, 1, 12, 0, 0).unwrap()
+        );
+
+        let (headers, body) = signed(
+            event_body(
+                "evt-late",
+                "payment.succeeded",
+                checkout.invoice.id,
+                99_000,
+                "RUB",
+            ),
+            paid_at.timestamp(),
+        );
+        harness
+            .service
+            .handle_webhook("mock", &headers, &body, paid_at)
+            .unwrap();
+
+        let subscription = harness
+            .service
+            .current_subscription(user_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(subscription.status, SubscriptionStatus::Active);
+        assert_eq!(subscription.current_period_start, paid_at);
+        assert_eq!(
+            subscription.current_period_end,
+            Utc.with_ymd_and_hms(2026, 12, 20, 12, 0, 0).unwrap()
+        );
+        assert_ne!(subscription.current_period_end, checkout.invoice.period_end);
+    }
+
+    #[test]
     fn checkout_rejects_inactive_plan() {
         let harness = Harness::mock();
         let plan = harness.plan(1000);
@@ -1308,8 +1540,11 @@ mod tests {
             .unwrap();
         assert_eq!(subscription.status, SubscriptionStatus::Active);
         assert!(subscription.grants_access());
-        assert_eq!(subscription.current_period_start, invoice.period_start);
-        assert_eq!(subscription.current_period_end, invoice.period_end);
+        assert_eq!(subscription.current_period_start, now);
+        assert_eq!(
+            subscription.current_period_end,
+            Utc.with_ymd_and_hms(2026, 12, 17, 12, 0, 0).unwrap()
+        );
         assert_eq!(subscription.gateway.as_deref(), Some("mock"));
         assert_eq!(subscription.gateway_ref.as_deref(), Some("gw-1"));
 
@@ -1376,6 +1611,200 @@ mod tests {
         assert_eq!(second.updated_at, first.updated_at);
         let invoice = harness.invoices.find(checkout.invoice.id).unwrap().unwrap();
         assert_eq!(invoice.paid_at, Some(now));
+    }
+
+    #[test]
+    fn concurrent_identical_webhooks_apply_side_effects_once() {
+        let harness = Harness::mock();
+        let plan = harness.plan(99_000);
+        let user_id = Uuid::new_v4();
+        let now = at(17);
+        let checkout = harness
+            .service
+            .start_checkout(user_id, plan.id, now)
+            .unwrap();
+        let (headers, body) = signed(
+            event_body(
+                "evt-race",
+                "payment.succeeded",
+                checkout.invoice.id,
+                99_000,
+                "RUB",
+            ),
+            now.timestamp(),
+        );
+
+        let outcomes = std::thread::scope(|scope| {
+            let first =
+                scope.spawn(|| harness.service.handle_webhook("mock", &headers, &body, now));
+            let second =
+                scope.spawn(|| harness.service.handle_webhook("mock", &headers, &body, now));
+            vec![first.join().unwrap(), second.join().unwrap()]
+        });
+
+        let mut processed = 0;
+        let mut duplicates = 0;
+        for outcome in outcomes {
+            match outcome.unwrap() {
+                WebhookOutcome::Processed { .. } => processed += 1,
+                WebhookOutcome::Duplicate { .. } => duplicates += 1,
+                WebhookOutcome::Ignored { .. } => panic!("unexpected ignored outcome"),
+            }
+        }
+        assert_eq!(processed, 1);
+        assert_eq!(duplicates, 1);
+
+        let invoice = harness.invoices.find(checkout.invoice.id).unwrap().unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Paid);
+        assert_eq!(invoice.paid_at, Some(now));
+        assert_eq!(harness.events.list().unwrap().len(), 1);
+        assert_eq!(
+            harness.events.list().unwrap()[0].status,
+            PaymentEventStatus::Processed
+        );
+    }
+
+    #[test]
+    fn failed_webhook_can_be_retried_with_the_same_payload() {
+        let harness = Harness::mock();
+        let user_id = Uuid::new_v4();
+        let invoice_id = Uuid::new_v4();
+        let now = at(19);
+        let payload = event_body("evt-retry", "payment.failed", invoice_id, 1_000, "RUB");
+        let (headers, body) = signed(payload.clone(), now.timestamp());
+
+        let error = harness
+            .service
+            .handle_webhook("mock", &headers, &body, now)
+            .unwrap_err();
+        assert!(matches!(error, WebhookError::Invalid(_)));
+        let stored = harness
+            .events
+            .find("mock", "evt-retry")
+            .unwrap()
+            .expect("failed event is kept for a retry");
+        assert_eq!(stored.status, PaymentEventStatus::Failed);
+
+        let subscription = subscription(user_id, Uuid::new_v4(), SubscriptionStatus::Active, now);
+        harness.subscriptions.save(&subscription).unwrap();
+        let mut invoice = invoice(user_id, now);
+        invoice.id = invoice_id;
+        invoice.subscription_id = subscription.id;
+        invoice.amount_cents = 1_000;
+        invoice.status = InvoiceStatus::Open;
+        harness.invoices.save(&invoice).unwrap();
+
+        let (headers, body) = signed(payload, now.timestamp());
+        let outcome = harness
+            .service
+            .handle_webhook("mock", &headers, &body, now)
+            .unwrap();
+        assert_eq!(outcome.status(), "processed");
+        let invoice = harness.invoices.find(invoice_id).unwrap().unwrap();
+        assert_eq!(invoice.attempts, 1);
+        assert_eq!(
+            harness
+                .events
+                .find("mock", "evt-retry")
+                .unwrap()
+                .unwrap()
+                .status,
+            PaymentEventStatus::Processed
+        );
+    }
+
+    #[test]
+    fn payment_failure_moves_an_active_subscription_to_past_due() {
+        let harness = Harness::mock();
+        let plan = harness.plan(99_000);
+        let user_id = Uuid::new_v4();
+        let now = at(21);
+        let subscription = subscription(user_id, plan.id, SubscriptionStatus::Active, now);
+        harness.subscriptions.save(&subscription).unwrap();
+        let mut invoice = invoice(user_id, now);
+        invoice.subscription_id = subscription.id;
+        invoice.amount_cents = 99_000;
+        harness.invoices.save(&invoice).unwrap();
+
+        let (headers, body) = signed(
+            event_body("evt-failed", "payment.failed", invoice.id, 99_000, "RUB"),
+            now.timestamp(),
+        );
+        harness
+            .service
+            .handle_webhook("mock", &headers, &body, now)
+            .unwrap();
+
+        let stored = harness
+            .subscriptions
+            .find(subscription.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status, SubscriptionStatus::PastDue);
+        assert!(!stored.grants_access());
+    }
+
+    #[test]
+    fn refund_marks_the_invoice_and_revokes_access_idempotently() {
+        let harness = Harness::mock();
+        let plan = harness.plan(99_000);
+        let user_id = Uuid::new_v4();
+        let now = at(17);
+        let checkout = harness
+            .service
+            .start_checkout(user_id, plan.id, now)
+            .unwrap();
+
+        let (headers, body) = signed(
+            event_body(
+                "evt-pay",
+                "payment.succeeded",
+                checkout.invoice.id,
+                99_000,
+                "RUB",
+            ),
+            now.timestamp(),
+        );
+        harness
+            .service
+            .handle_webhook("mock", &headers, &body, now)
+            .unwrap();
+
+        let refund = |event_id: &str| {
+            let (headers, body) = signed(
+                event_body(
+                    event_id,
+                    "refund.succeeded",
+                    checkout.invoice.id,
+                    99_000,
+                    "RUB",
+                ),
+                now.timestamp(),
+            );
+            harness.service.handle_webhook("mock", &headers, &body, now)
+        };
+
+        assert_eq!(refund("evt-refund").unwrap().status(), "processed");
+        let invoice = harness.invoices.find(checkout.invoice.id).unwrap().unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Refunded);
+        let subscription = harness
+            .service
+            .latest_subscription(user_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(subscription.status, SubscriptionStatus::Canceled);
+        assert!(!subscription.grants_access());
+
+        // A second refund event for the same invoice is a no-op.
+        assert_eq!(refund("evt-refund-2").unwrap().status(), "processed");
+        let invoice = harness.invoices.find(checkout.invoice.id).unwrap().unwrap();
+        assert_eq!(invoice.status, InvoiceStatus::Refunded);
+        let subscription = harness
+            .service
+            .latest_subscription(user_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(subscription.status, SubscriptionStatus::Canceled);
     }
 
     #[test]
@@ -1469,7 +1898,9 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(subscription.status, SubscriptionStatus::Incomplete);
-        assert_eq!(harness.events.list().unwrap().len(), 0);
+        let events = harness.events.list().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].status, PaymentEventStatus::Failed);
     }
 
     #[test]
@@ -1534,7 +1965,7 @@ mod tests {
     }
 
     #[test]
-    fn refund_and_unknown_events_are_recorded_without_changes() {
+    fn refund_voids_an_unpaid_invoice_and_unknown_events_change_nothing() {
         let harness = Harness::mock();
         let plan = harness.plan(99_000);
         let now = at(17);
@@ -1582,7 +2013,7 @@ mod tests {
         );
 
         let invoice = harness.invoices.find(checkout.invoice.id).unwrap().unwrap();
-        assert_eq!(invoice.status, InvoiceStatus::Open);
+        assert_eq!(invoice.status, InvoiceStatus::Void);
         assert_eq!(harness.events.list().unwrap().len(), 2);
     }
 

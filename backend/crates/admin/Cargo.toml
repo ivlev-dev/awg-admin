@@ -30,7 +30,7 @@ base64.workspace = true
 chrono.workspace = true
 futures-util = "0.3"
 ipnet.workspace = true
-lettre.workspace = true
+lettre = { workspace = true, features = ["tokio1-rustls", "rustls-native-certs", "ring"] }
 prometheus.workspace = true
 rand.workspace = true
 redb.workspace = true
@@ -59,3 +59,4 @@ test-support = []
 [dev-dependencies]
 awg-admin = { path = ".", features = ["test-support"] }
 rcgen = "0.14"
+totp-rs.workspace = true

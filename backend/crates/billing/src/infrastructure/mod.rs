@@ -6,8 +6,9 @@ use awg_shared::{CoreError, CoreResult};
 use awg_storage::{Store, Table};
 
 use crate::domain::{
-    Invoice, InvoiceRepository, PaymentEventRecord, PaymentEventRepository, PaymentMethod,
-    PaymentMethodRepository, Plan, PlanRepository, Subscription, SubscriptionRepository,
+    EventClaim, Invoice, InvoiceRepository, PaymentEventRecord, PaymentEventRepository,
+    PaymentEventStatus, PaymentMethod, PaymentMethodRepository, Plan, PlanRepository, Subscription,
+    SubscriptionRepository,
 };
 
 pub struct RedbPlanRepository {
@@ -175,6 +176,54 @@ impl PaymentEventRepository for RedbPaymentEventRepository {
             )
             .map_err(map_err)
     }
+
+    fn claim(&self, event: &PaymentEventRecord) -> CoreResult<EventClaim> {
+        // `Store::update` runs the closure inside a single write transaction,
+        // so the read-modify-write below is an atomic insert-if-absent.
+        self.store
+            .update::<PaymentEventRecord, _>(
+                Table::BillingEvents,
+                &event_key(&event.gateway, &event.event_id),
+                |current| match current {
+                    None => (Some(event.clone()), EventClaim::Claimed),
+                    Some(existing) => (Some(existing.clone()), EventClaim::Held(existing)),
+                },
+            )
+            .map_err(map_err)
+    }
+
+    fn retry(&self, gateway: &str, event_id: &str) -> CoreResult<bool> {
+        self.store
+            .update::<PaymentEventRecord, _>(
+                Table::BillingEvents,
+                &event_key(gateway, event_id),
+                |current| match current {
+                    Some(mut existing) if existing.status == PaymentEventStatus::Failed => {
+                        existing.status = PaymentEventStatus::Processing;
+                        (Some(existing), true)
+                    }
+                    Some(existing) => (Some(existing), false),
+                    None => (None, false),
+                },
+            )
+            .map_err(map_err)
+    }
+
+    fn mark(&self, gateway: &str, event_id: &str, status: PaymentEventStatus) -> CoreResult<()> {
+        self.store
+            .update::<PaymentEventRecord, _>(
+                Table::BillingEvents,
+                &event_key(gateway, event_id),
+                |current| match current {
+                    Some(mut existing) => {
+                        existing.status = status;
+                        (Some(existing), ())
+                    }
+                    None => (None, ()),
+                },
+            )
+            .map_err(map_err)
+    }
 }
 
 fn map_err(error: awg_storage::StorageError) -> CoreError {
@@ -186,7 +235,9 @@ mod tests {
     use chrono::{Duration, Utc};
 
     use super::*;
-    use crate::domain::{BillingPeriod, InvoiceStatus, SubscriptionStatus};
+    use crate::domain::{
+        BillingPeriod, EventClaim, InvoiceStatus, PaymentEventStatus, SubscriptionStatus,
+    };
 
     fn store() -> Arc<Store> {
         Arc::new(Store::open_in_memory().unwrap())
@@ -348,12 +399,74 @@ mod tests {
             invoice_id: Some(Uuid::new_v4()),
             received_at: now,
             payload_hash: "hash".into(),
+            status: PaymentEventStatus::Processed,
         };
         repo.save(&event).unwrap();
 
         let found = repo.find("mock", "evt-1").unwrap().unwrap();
         assert_eq!(found, event);
         assert!(repo.find("other", "evt-1").unwrap().is_none());
+        assert_eq!(repo.list().unwrap().len(), 1);
+    }
+
+    fn event_record() -> PaymentEventRecord {
+        PaymentEventRecord {
+            event_id: "evt-claim".into(),
+            gateway: "mock".into(),
+            kind: "payment.succeeded".into(),
+            invoice_id: Some(Uuid::new_v4()),
+            received_at: Utc::now(),
+            payload_hash: "hash".into(),
+            status: PaymentEventStatus::Processing,
+        }
+    }
+
+    #[test]
+    fn payment_event_claim_is_atomic_and_retryable() {
+        let repo = Arc::new(RedbPaymentEventRepository::new(store()));
+        let event = event_record();
+
+        assert_eq!(repo.claim(&event).unwrap(), EventClaim::Claimed);
+        assert!(matches!(
+            repo.claim(&event).unwrap(),
+            EventClaim::Held(existing) if existing.status == PaymentEventStatus::Processing
+        ));
+
+        repo.mark("mock", "evt-claim", PaymentEventStatus::Failed)
+            .unwrap();
+        assert!(repo.retry("mock", "evt-claim").unwrap());
+        assert!(!repo.retry("mock", "evt-claim").unwrap());
+        assert_eq!(
+            repo.find("mock", "evt-claim").unwrap().unwrap().status,
+            PaymentEventStatus::Processing
+        );
+
+        repo.mark("mock", "evt-claim", PaymentEventStatus::Processed)
+            .unwrap();
+        assert!(!repo.retry("mock", "evt-claim").unwrap());
+    }
+
+    #[test]
+    fn concurrent_claims_elect_exactly_one_owner() {
+        let repo = Arc::new(RedbPaymentEventRepository::new(store()));
+        let event = event_record();
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let repo = repo.clone();
+            let event = event.clone();
+            handles.push(std::thread::spawn(move || repo.claim(&event).unwrap()));
+        }
+        let claims: Vec<EventClaim> = handles
+            .into_iter()
+            .map(|handle| handle.join().unwrap())
+            .collect();
+        assert_eq!(
+            claims
+                .iter()
+                .filter(|claim| matches!(claim, EventClaim::Claimed))
+                .count(),
+            1
+        );
         assert_eq!(repo.list().unwrap().len(), 1);
     }
 

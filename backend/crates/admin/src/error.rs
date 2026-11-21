@@ -20,6 +20,7 @@ pub enum ApiError {
     Forbidden(String),
     NotFound(String),
     BillingDisabled,
+    RegistrationDisabled,
     Conflict(String),
     TariffRequired,
     TooManyRequests { message: String, retry_after: u64 },
@@ -50,7 +51,14 @@ impl From<CoreError> for ApiError {
                 CODE_ACCOUNT_DISABLED => ApiError::AccountDisabled,
                 _ => ApiError::Forbidden(message),
             },
-            CoreError::Codec(message) | CoreError::Crypto(message) => ApiError::BadRequest(message),
+            CoreError::Codec(message) => {
+                tracing::error!(%message, "codec error");
+                ApiError::Internal("internal error".into())
+            }
+            CoreError::Crypto(message) => {
+                tracing::error!(%message, "crypto error");
+                ApiError::Internal("internal error".into())
+            }
             CoreError::Io(error) => ApiError::Internal(error.to_string()),
         }
     }
@@ -78,6 +86,7 @@ impl ApiError {
             | ApiError::EmailNotVerified
             | ApiError::PendingApproval
             | ApiError::Rejected
+            | ApiError::RegistrationDisabled
             | ApiError::AccountDisabled => StatusCode::FORBIDDEN,
             ApiError::NotFound(_) => StatusCode::NOT_FOUND,
             ApiError::BillingDisabled => StatusCode::NOT_FOUND,
@@ -105,6 +114,9 @@ impl ApiError {
             ApiError::Forbidden(message) => message.clone(),
             ApiError::NotFound(message) => message.clone(),
             ApiError::BillingDisabled => "billing is disabled".to_string(),
+            ApiError::RegistrationDisabled => {
+                "self-registration is disabled; ask an administrator to create an account".to_string()
+            }
             ApiError::Conflict(message) => message.clone(),
             ApiError::TariffRequired => "tariff is required".to_string(),
             ApiError::TooManyRequests { message, .. } => message.clone(),
@@ -116,7 +128,7 @@ impl ApiError {
             ApiError::AccountDisabled => "account is disabled".into(),
             ApiError::Internal(message) => {
                 tracing::error!(%message, "internal API error");
-                "internal server error".to_string()
+                "internal error".to_string()
             }
         }
     }
@@ -132,6 +144,7 @@ impl ApiError {
             ApiError::Forbidden(_) => "forbidden",
             ApiError::NotFound(_) => "not_found",
             ApiError::BillingDisabled => "billing_disabled",
+            ApiError::RegistrationDisabled => "registration_disabled",
             ApiError::Conflict(_) => "conflict",
             ApiError::TariffRequired => "tariff_required",
             ApiError::TooManyRequests { .. } => "too_many_requests",
@@ -220,6 +233,14 @@ mod tests {
     }
 
     #[test]
+    fn registration_disabled_is_a_forbidden_with_a_stable_code() {
+        let error = ApiError::RegistrationDisabled;
+        assert_eq!(error.status_code(), StatusCode::FORBIDDEN);
+        assert_eq!(error.code(), "registration_disabled");
+        assert!(error.message().contains("self-registration is disabled"));
+    }
+
+    #[test]
     fn exposes_response_messages() {
         assert_eq!(ApiError::BadRequest("bad ids".into()).message(), "bad ids");
         assert_eq!(ApiError::Forbidden("denied".into()).message(), "denied");
@@ -231,7 +252,20 @@ mod tests {
         );
         assert_eq!(
             ApiError::Internal("storage failure".into()).message(),
-            "internal server error"
+            "internal error"
         );
+    }
+
+    #[test]
+    fn crypto_and_codec_errors_are_internal_without_details() {
+        for error in [
+            CoreError::Crypto("sealed payload is corrupt".into()),
+            CoreError::Codec("invalid json at byte 7".into()),
+        ] {
+            let api = ApiError::from(error);
+            assert_eq!(api.status_code(), StatusCode::INTERNAL_SERVER_ERROR);
+            assert_eq!(api.code(), "internal");
+            assert_eq!(api.message(), "internal error");
+        }
     }
 }

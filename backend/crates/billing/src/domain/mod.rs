@@ -102,6 +102,7 @@ pub enum InvoiceStatus {
     Draft,
     Open,
     Paid,
+    Refunded,
     Void,
     Uncollectible,
 }
@@ -112,6 +113,7 @@ impl InvoiceStatus {
             Self::Draft => "draft",
             Self::Open => "open",
             Self::Paid => "paid",
+            Self::Refunded => "refunded",
             Self::Void => "void",
             Self::Uncollectible => "uncollectible",
         }
@@ -122,6 +124,7 @@ impl InvoiceStatus {
             "draft" => Ok(Self::Draft),
             "open" => Ok(Self::Open),
             "paid" => Ok(Self::Paid),
+            "refunded" => Ok(Self::Refunded),
             "void" => Ok(Self::Void),
             "uncollectible" => Ok(Self::Uncollectible),
             other => Err(CoreError::Invalid(format!(
@@ -131,7 +134,10 @@ impl InvoiceStatus {
     }
 
     pub fn is_settled(self) -> bool {
-        matches!(self, Self::Paid | Self::Void | Self::Uncollectible)
+        matches!(
+            self,
+            Self::Paid | Self::Refunded | Self::Void | Self::Uncollectible
+        )
     }
 }
 
@@ -235,6 +241,38 @@ impl PaymentMethod {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PaymentEventStatus {
+    /// The event was claimed by a handler and its side effects are in flight.
+    Processing,
+    /// Side effects were applied; a redelivery must not repeat them.
+    #[default]
+    Processed,
+    /// Processing failed; the gateway may redeliver the same event id.
+    Failed,
+}
+
+impl PaymentEventStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Processing => "processing",
+            Self::Processed => "processed",
+            Self::Failed => "failed",
+        }
+    }
+}
+
+/// Result of an atomic "insert if absent" claim on a payment event.
+#[derive(Debug, Clone, PartialEq)]
+pub enum EventClaim {
+    /// The caller owns the event and must apply its side effects.
+    Claimed,
+    /// The event was already claimed or processed; the record is returned so
+    /// the caller can compare payload hashes and decide about a retry.
+    Held(PaymentEventRecord),
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PaymentEventRecord {
     pub event_id: String,
@@ -243,6 +281,10 @@ pub struct PaymentEventRecord {
     pub invoice_id: Option<Uuid>,
     pub received_at: DateTime<Utc>,
     pub payload_hash: String,
+    /// Records written before deduplication carried no status and are treated
+    /// as already processed.
+    #[serde(default)]
+    pub status: PaymentEventStatus,
 }
 
 pub trait PlanRepository: Send + Sync {
@@ -273,6 +315,40 @@ pub trait PaymentEventRepository: Send + Sync {
     fn find(&self, gateway: &str, event_id: &str) -> CoreResult<Option<PaymentEventRecord>>;
     fn list(&self) -> CoreResult<Vec<PaymentEventRecord>>;
     fn save(&self, event: &PaymentEventRecord) -> CoreResult<()>;
+
+    /// Atomically inserts the record when it is absent. Backends backed by a
+    /// transactional store should override this with a single insert-if-absent
+    /// so that two concurrent deliveries cannot both win the claim.
+    fn claim(&self, event: &PaymentEventRecord) -> CoreResult<EventClaim> {
+        if let Some(existing) = self.find(&event.gateway, &event.event_id)? {
+            return Ok(EventClaim::Held(existing));
+        }
+        self.save(event)?;
+        Ok(EventClaim::Claimed)
+    }
+
+    /// Flips a failed event back to processing so it can be retried. Returns
+    /// `false` when another delivery already owns or finished the event.
+    fn retry(&self, gateway: &str, event_id: &str) -> CoreResult<bool> {
+        let Some(mut existing) = self.find(gateway, event_id)? else {
+            return Ok(false);
+        };
+        if existing.status != PaymentEventStatus::Failed {
+            return Ok(false);
+        }
+        existing.status = PaymentEventStatus::Processing;
+        self.save(&existing)?;
+        Ok(true)
+    }
+
+    /// Records the final status of an owned event.
+    fn mark(&self, gateway: &str, event_id: &str, status: PaymentEventStatus) -> CoreResult<()> {
+        let mut existing = self
+            .find(gateway, event_id)?
+            .ok_or_else(|| CoreError::NotFound("payment event".into()))?;
+        existing.status = status;
+        self.save(&existing)
+    }
 }
 
 pub fn normalize_currency(raw: &str) -> CoreResult<String> {
@@ -346,7 +422,13 @@ mod tests {
         assert_eq!(InvoiceStatus::parse("OPEN").unwrap(), InvoiceStatus::Open);
         assert_eq!(InvoiceStatus::Paid.as_str(), "paid");
         assert!(InvoiceStatus::parse("unknown").is_err());
+        assert_eq!(
+            InvoiceStatus::parse("refunded").unwrap(),
+            InvoiceStatus::Refunded
+        );
+        assert_eq!(InvoiceStatus::Refunded.as_str(), "refunded");
         assert!(InvoiceStatus::Paid.is_settled());
+        assert!(InvoiceStatus::Refunded.is_settled());
         assert!(InvoiceStatus::Void.is_settled());
         assert!(InvoiceStatus::Uncollectible.is_settled());
         assert!(!InvoiceStatus::Open.is_settled());

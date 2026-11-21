@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use redb::{ReadableTable, ReadableTableMetadata};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
@@ -266,6 +267,63 @@ pub fn delete_device(store: &Store, key: &str) -> Result<()> {
     })
 }
 
+/// Atomic read-modify-write for one device row.
+///
+/// Runs read, `apply`, write and both index updates in a single write
+/// transaction, so a revocation written here cannot be overwritten by a
+/// concurrent [`Store::update`]. The name and created-at index rows of the old
+/// value are removed before the new value is indexed.
+pub fn mutate_device<T, R>(
+    store: &Store,
+    key: &str,
+    apply: impl FnOnce(Option<T>) -> (Option<T>, R),
+) -> Result<R>
+where
+    T: Serialize + DeserializeOwned,
+{
+    store.with_write_txn(|txn| {
+        let previous = {
+            let table = txn.open_table(Table::Devices.definition())?;
+            table.get(key)?.map(|value| value.value().to_vec())
+        };
+        let current = match &previous {
+            Some(bytes) => Some(serde_json::from_slice(bytes)?),
+            None => None,
+        };
+        let (next, output) = apply(current);
+        let next = match next {
+            Some(value) => Some(serde_json::to_value(&value)?),
+            None => None,
+        };
+
+        {
+            let mut table = txn.open_table(Table::Devices.definition())?;
+            match &next {
+                Some(value) => {
+                    let bytes = serde_json::to_vec(value)?;
+                    table.insert(key, bytes.as_slice())?;
+                }
+                None => {
+                    table.remove(key)?;
+                }
+            }
+        }
+
+        if let Some(previous) = previous {
+            let parsed: Value = serde_json::from_slice(&previous)?;
+            if let Some(old) = DevicePageEntry::from_json(&parsed) {
+                remove_entry(txn, &old)?;
+            }
+        }
+        if let Some(value) = &next
+            && let Some(entry) = DevicePageEntry::from_json(value)
+        {
+            insert_entry(txn, &entry)?;
+        }
+        Ok(output)
+    })
+}
+
 pub(crate) fn clear(txn: &WriteTransaction) -> Result<()> {
     clear_table(txn, Table::DevicePageIndex)?;
     clear_table(txn, Table::DeviceCreatedIndex)?;
@@ -364,5 +422,92 @@ mod tests {
             "user_id": Uuid::new_v4(),
         });
         assert!(DevicePageEntry::from_json(&value).is_none());
+    }
+
+    #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+    struct DeviceRow {
+        id: Uuid,
+        user_id: Uuid,
+        group_id: Uuid,
+        interface_id: Uuid,
+        name: String,
+        revoked: bool,
+        created_at: String,
+    }
+
+    #[test]
+    fn mutate_device_updates_row_and_both_indexes() {
+        let store = Store::open_in_memory().unwrap();
+        let id = Uuid::new_v4();
+        let key = id.to_string();
+        let device = DeviceRow {
+            id,
+            user_id: Uuid::new_v4(),
+            group_id: Uuid::new_v4(),
+            interface_id: Uuid::new_v4(),
+            name: "Phone".to_string(),
+            revoked: false,
+            created_at: "2026-01-02T03:04:05Z".to_string(),
+        };
+
+        let created = mutate_device::<DeviceRow, _>(&store, &key, |current| {
+            assert!(current.is_none());
+            (Some(device.clone()), 1u8)
+        })
+        .unwrap();
+        assert_eq!(created, 1);
+
+        let old_name_key = name_index_key("Phone", id);
+        let old_created_key = created_index_key(parse_micros(&device.created_at).unwrap(), id);
+        assert_eq!(
+            store.keys(Table::DevicePageIndex).unwrap(),
+            vec![old_name_key.clone()]
+        );
+        assert_eq!(
+            store.keys(Table::DeviceCreatedIndex).unwrap(),
+            vec![old_created_key.clone()]
+        );
+
+        let updated_created = "2026-02-03T04:05:06Z";
+        mutate_device::<DeviceRow, _>(&store, &key, |current| {
+            let mut device = current.expect("the device exists");
+            device.name = "Laptop".to_string();
+            device.revoked = true;
+            device.created_at = updated_created.to_string();
+            (Some(device), ())
+        })
+        .unwrap();
+
+        let new_name_key = name_index_key("Laptop", id);
+        let new_created_key = created_index_key(parse_micros(updated_created).unwrap(), id);
+        let name_keys = store.keys(Table::DevicePageIndex).unwrap();
+        assert_eq!(name_keys, vec![new_name_key.clone()]);
+        assert!(
+            !name_keys.contains(&old_name_key),
+            "the old name key must be gone"
+        );
+        let created_keys = store.keys(Table::DeviceCreatedIndex).unwrap();
+        assert_eq!(created_keys, vec![new_created_key.clone()]);
+        assert!(
+            !created_keys.contains(&old_created_key),
+            "the old created-at key must be gone"
+        );
+
+        let entry: DevicePageEntry = store
+            .get(Table::DevicePageIndex, &new_name_key)
+            .unwrap()
+            .unwrap();
+        assert!(entry.revoked);
+        assert_eq!(entry.name, "Laptop");
+
+        mutate_device::<DeviceRow, _>(&store, &key, |_| (None, ())).unwrap();
+        assert!(
+            store
+                .get::<DeviceRow>(Table::Devices, &key)
+                .unwrap()
+                .is_none()
+        );
+        assert!(store.keys(Table::DevicePageIndex).unwrap().is_empty());
+        assert!(store.keys(Table::DeviceCreatedIndex).unwrap().is_empty());
     }
 }

@@ -7,6 +7,7 @@ use uuid::Uuid;
 
 use awg_shared::obf::ClientObf;
 use awg_shared::{CoreError, CoreResult};
+use awg_tariffs::{LimitPolicy, Tariff};
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Forwarding {
@@ -157,6 +158,10 @@ impl DevicePageOrder {
 pub const DEFAULT_DEVICE_PAGE_LIMIT: usize = 50;
 pub const MAX_DEVICE_PAGE_LIMIT: usize = 200;
 
+/// Upper bound on the number of tunnels (peers) a single device may own.
+/// Each extra peer is another client profile on another interface.
+pub const MAX_PEERS_PER_DEVICE: usize = 8;
+
 #[derive(Debug, Clone)]
 pub struct DevicePageQuery {
     pub limit: usize,
@@ -240,6 +245,60 @@ pub struct DevicePage {
     pub offset: usize,
 }
 
+/// Validated description of an administrative device update.
+///
+/// Passing the whole change (instead of read-modify-write in the service)
+/// lets the repository apply it atomically: the current device row is read,
+/// changed and written inside one transaction, so a concurrent revocation
+/// cannot be overwritten by an update.
+#[derive(Debug, Clone)]
+pub struct DeviceChange<'a> {
+    pub tariff: &'a Tariff,
+    pub name: Option<String>,
+    pub down_kbps: Option<u32>,
+    pub up_kbps: Option<u32>,
+    pub forwarding: Option<Forwarding>,
+    pub revoked: Option<bool>,
+}
+
+/// Applies `change` to `device`, validating names, forwarding scope and the
+/// tariff limits against the owner's other devices (`siblings`).
+pub fn apply_device_change(
+    device: &mut Device,
+    siblings: &[Device],
+    change: &DeviceChange<'_>,
+) -> CoreResult<()> {
+    if let Some(name) = &change.name {
+        validate_device_name(name)?;
+        device.name = name.trim().to_string();
+    }
+    if let Some(down) = change.down_kbps {
+        device.down_kbps = down;
+    }
+    if let Some(up) = change.up_kbps {
+        device.up_kbps = up;
+    }
+    let (down, up) =
+        LimitPolicy::resolve_device_limits(change.tariff, device.down_kbps, device.up_kbps);
+    device.down_kbps = down;
+    device.up_kbps = up;
+    if let Some(forwarding) = &change.forwarding {
+        device.forwarding = ForwardingPolicy::normalize(forwarding);
+    }
+    if let Some(revoked) = change.revoked {
+        device.revoked = revoked;
+    }
+    ForwardingPolicy::validate(device, siblings)?;
+    let mut limits: Vec<(u32, u32)> = siblings
+        .iter()
+        .filter(|other| !other.revoked && other.id != device.id)
+        .map(|other| (other.down_kbps, other.up_kbps))
+        .collect();
+    limits.push((device.down_kbps, device.up_kbps));
+    LimitPolicy::validate_group_sum(change.tariff, &limits)?;
+    Ok(())
+}
+
 pub trait DeviceRepository: Send + Sync {
     fn find(&self, id: Uuid) -> CoreResult<Option<Device>>;
     fn list(&self) -> CoreResult<Vec<Device>>;
@@ -247,6 +306,32 @@ pub trait DeviceRepository: Send + Sync {
     fn by_group(&self, group_id: Uuid) -> CoreResult<Vec<Device>>;
     fn save(&self, device: &Device) -> CoreResult<()>;
     fn delete(&self, id: Uuid) -> CoreResult<()>;
+
+    /// Applies an administrative update. The default implementation keeps the
+    /// historical read-modify-write behaviour; storage-backed repositories
+    /// override it with a single atomic transaction.
+    fn apply_update(&self, id: Uuid, change: &DeviceChange<'_>) -> CoreResult<Device> {
+        let mut device = self
+            .find(id)?
+            .ok_or_else(|| CoreError::NotFound("device".into()))?;
+        let siblings = self.by_user(device.user_id)?;
+        apply_device_change(&mut device, &siblings, change)?;
+        device.updated_at = Utc::now();
+        self.save(&device)?;
+        Ok(device)
+    }
+
+    /// Sets the revocation flag without touching any other field. Storage-backed
+    /// repositories perform the read and the write atomically.
+    fn set_revoked(&self, id: Uuid, revoked: bool) -> CoreResult<Device> {
+        let mut device = self
+            .find(id)?
+            .ok_or_else(|| CoreError::NotFound("device".into()))?;
+        device.revoked = revoked;
+        device.updated_at = Utc::now();
+        self.save(&device)?;
+        Ok(device)
+    }
 
     fn page(&self, query: &DevicePageQuery) -> CoreResult<DevicePage> {
         let mut matched: Vec<Device> = self

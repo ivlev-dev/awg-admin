@@ -407,7 +407,7 @@ async fn cache_hit_does_not_wait_for_the_per_key_lock() {
     assert_eq!(status, StatusCode::OK, "{first}");
 
     let storage_key = awg_admin::idempotency::cache_key(
-        Some(&format!("Bearer {token}")),
+        &format!("user:{}", env.owner_id),
         "POST",
         "/api/v1/users",
         key,
@@ -462,14 +462,28 @@ async fn concurrent_identical_posts_create_one_effect() {
     let ((first_status, _, first_body), (second_status, _, second_body)) =
         tokio::join!(first, second);
 
-    assert_eq!(first_status, StatusCode::OK, "{first_body}");
+    let responses = [(first_status, &first_body), (second_status, &second_body)];
+
+    // Either request may win the race to claim the key; the loser must not
+    // create a second effect.
     assert!(
-        second_status == StatusCode::OK || second_status == StatusCode::CONFLICT,
-        "unexpected status {second_status}: {second_body}"
+        responses
+            .iter()
+            .any(|(status, _)| *status == StatusCode::OK),
+        "at least one identical request must succeed: {responses:?}"
     );
-    if second_status == StatusCode::OK {
+    assert!(
+        responses
+            .iter()
+            .all(|(status, _)| matches!(*status, StatusCode::OK | StatusCode::CONFLICT)),
+        "unexpected statuses: {responses:?}"
+    );
+    if responses
+        .iter()
+        .all(|(status, _)| *status == StatusCode::OK)
+    {
         assert_eq!(
-            second_body, first_body,
+            first_body, second_body,
             "a repeat replays the cached response"
         );
     }
@@ -527,4 +541,207 @@ async fn cached_response_bodies_are_encrypted_at_rest() {
     assert_eq!(cached.status, 200);
     assert_eq!(cached.body, body);
     assert_eq!(cached.content_type.as_deref(), Some("application/json"));
+}
+
+fn login_as(env: &AppEnv, email: &str) -> String {
+    env.state
+        .identity
+        .login(
+            email,
+            PASSWORD,
+            &awg_identity::SessionMetadata {
+                user_agent: None,
+                ip: None,
+            },
+        )
+        .unwrap()
+        .access_token
+}
+
+#[tokio::test]
+async fn a_new_token_for_the_same_user_reuses_the_cached_response() {
+    let env = app_env();
+    let first_token = admin_token(&env).await;
+    let payload = json!({
+        "email": "token-scope@example.com",
+        "role": "user",
+        "password": PASSWORD,
+    });
+    let key = "users-token-scope-1";
+
+    let (status, _, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&first_token),
+        Some(key),
+        Some(payload.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let second_token = login_as(&env, OWNER_EMAIL);
+    assert_ne!(
+        first_token, second_token,
+        "a fresh login issues a new token"
+    );
+
+    let (status, _, second) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&second_token),
+        Some(key),
+        Some(payload),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_eq!(second, first, "the same user replays the cached response");
+
+    let created = env
+        .state
+        .identity
+        .list()
+        .unwrap()
+        .into_iter()
+        .filter(|user| user.email == "token-scope@example.com")
+        .count();
+    assert_eq!(created, 1);
+}
+
+#[tokio::test]
+async fn another_user_with_the_same_key_gets_a_separate_record() {
+    let env = app_env();
+    let owner = admin_token(&env).await;
+    env.state
+        .identity
+        .update(
+            env.other_id,
+            awg_identity::UserChanges {
+                full_name: None,
+                email: None,
+                role: Some(awg_identity::Role::Admin),
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: None,
+            },
+        )
+        .unwrap();
+    let other = login_as(&env, awg_admin::test_support::OTHER_EMAIL);
+    let key = "users-shared-key-1";
+
+    let (status, _, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&owner),
+        Some(key),
+        Some(json!({
+            "email": "owner-created@example.com",
+            "role": "user",
+            "password": PASSWORD,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let (status, _, second) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&other),
+        Some(key),
+        Some(json!({
+            "email": "other-created@example.com",
+            "role": "user",
+            "password": PASSWORD,
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second}");
+    assert_ne!(second["id"], first["id"]);
+
+    let emails: Vec<String> = env
+        .state
+        .identity
+        .list()
+        .unwrap()
+        .into_iter()
+        .map(|user| user.email)
+        .filter(|email| {
+            matches!(
+                email.as_str(),
+                "owner-created@example.com" | "other-created@example.com"
+            )
+        })
+        .collect();
+    assert_eq!(
+        emails.len(),
+        2,
+        "different users must not share a cache entry"
+    );
+}
+
+#[tokio::test]
+async fn a_rejected_token_never_gets_a_cached_response() {
+    let env = app_env();
+    let token = admin_token(&env).await;
+    let payload = json!({
+        "email": "cache-rejected@example.com",
+        "role": "user",
+        "password": PASSWORD,
+    });
+    let key = "users-rejected-token-1";
+
+    let (status, _, first) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&token),
+        Some(key),
+        Some(payload.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{first}");
+
+    let (status, _, body) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some("not-a-valid-access-token"),
+        Some(key),
+        Some(payload.clone()),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_ne!(body, first, "a cached response must not be replayed");
+
+    env.state
+        .identity
+        .update(
+            env.owner_id,
+            awg_identity::UserChanges {
+                full_name: None,
+                email: None,
+                role: None,
+                tariff_id: None,
+                group_id: None,
+                node_id: None,
+                disabled: Some(true),
+            },
+        )
+        .unwrap();
+
+    let (status, _, body) = call_with_key(
+        router(&env),
+        "POST",
+        "/api/v1/users",
+        Some(&token),
+        Some(key),
+        Some(payload),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_ne!(body, first, "a cached response must not be replayed");
 }

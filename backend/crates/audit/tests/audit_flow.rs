@@ -441,6 +441,35 @@ fn repository_combines_filters_with_cursor() {
 }
 
 #[test]
+fn repository_prune_removes_only_entries_before_the_cutoff() {
+    let store = Arc::new(Store::open_in_memory().unwrap());
+    let repo = RedbAuditRepository::new(store);
+    let cutoff = base();
+
+    for index in 0..300 {
+        repo.record(&entry(base() - Duration::seconds(index + 1), "POST"))
+            .unwrap();
+    }
+    for index in 0..300 {
+        repo.record(&entry(base() + Duration::seconds(index), "PATCH"))
+            .unwrap();
+    }
+
+    assert_eq!(repo.prune(cutoff).unwrap(), 300);
+
+    let remaining = repo.list(1_000).unwrap();
+    assert_eq!(remaining.len(), 300);
+    assert!(remaining.iter().all(|item| item.at >= cutoff));
+    assert!(
+        remaining
+            .iter()
+            .all(|item| item.action == "PATCH" && item.at >= cutoff)
+    );
+
+    assert_eq!(repo.prune(cutoff).unwrap(), 0);
+}
+
+#[test]
 fn repository_filter_without_matches_returns_empty_page() {
     let (repo, _) = seeded();
 

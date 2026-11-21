@@ -11,9 +11,15 @@ use awg_audit::AuditFilter;
 use awg_shared::CoreError;
 
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::ApiError;
 use crate::state::AppState;
 use crate::views::AuditEntryView;
+
+/// Always request a bounded page, even when the client omits `limit`, so a
+/// single call cannot stream the whole journal.
+const DEFAULT_AUDIT_LIMIT: usize = 200;
+const MAX_AUDIT_LIMIT: usize = 1000;
 
 #[derive(Debug, Deserialize)]
 pub struct AuditQuery {
@@ -62,10 +68,15 @@ pub async fn list(
         CoreError::Invalid(message) => AuditError::InvalidFilter(message),
         other => AuditError::Api(other.into()),
     })?;
-    let page = state
-        .audit
-        .list_page_filtered(query.limit.unwrap_or(0), query.before.as_deref(), &filter)
-        .map_err(ApiError::from)?;
+    let limit = audit_limit(query.limit);
+    let before = query.before.clone();
+    let audit = state.audit.clone();
+    let page = blocking::run_api(move || {
+        audit
+            .list_page_filtered(limit, before.as_deref(), &filter)
+            .map_err(ApiError::from)
+    })
+    .await?;
     Ok(Json(AuditPageResponse {
         items: page.items.iter().map(AuditEntryView::from).collect(),
         next_cursor: page.next_cursor,
@@ -83,11 +94,14 @@ pub async fn clear(
         CoreError::Invalid(message) => AuditError::InvalidFilter(message),
         other => AuditError::Api(other.into()),
     })?;
-    let deleted = state
-        .audit
-        .delete_filtered(&filter)
-        .map_err(ApiError::from)?;
+    let audit = state.audit.clone();
+    let deleted =
+        blocking::run_api(move || audit.delete_filtered(&filter).map_err(ApiError::from)).await?;
     Ok(Json(AuditClearResponse { deleted }))
+}
+
+fn audit_limit(raw: Option<usize>) -> usize {
+    raw.unwrap_or(DEFAULT_AUDIT_LIMIT).clamp(1, MAX_AUDIT_LIMIT)
 }
 
 pub enum AuditError {
@@ -160,5 +174,13 @@ mod tests {
     fn filter_with_inverted_range_is_invalid() {
         let filter = query(json!({ "from": 10, "to": 5 })).filter();
         assert!(filter.validate().is_err());
+    }
+
+    #[test]
+    fn audit_limit_is_always_bounded() {
+        assert_eq!(audit_limit(None), DEFAULT_AUDIT_LIMIT);
+        assert_eq!(audit_limit(Some(0)), 1);
+        assert_eq!(audit_limit(Some(25)), 25);
+        assert_eq!(audit_limit(Some(10_000)), MAX_AUDIT_LIMIT);
     }
 }

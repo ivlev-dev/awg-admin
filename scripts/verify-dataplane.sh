@@ -6,6 +6,7 @@ readonly SCRIPT_PATH
 
 IFACE="awgtest0"
 APPLY=0
+IN_NS=0
 TRAFFIC=1
 FAILED=0
 WARNED=0
@@ -13,6 +14,9 @@ SKIPPED=0
 WORKDIR=""
 CHILD_PIDS=()
 NS_PID=""
+CREATED_LINKS=0
+CREATED_IFB=0
+CREATED_NFT_TABLE=0
 
 usage() {
   cat <<'EOF'
@@ -24,6 +28,7 @@ usage() {
 
 Опции:
   --apply          выполнить проверку (по умолчанию dry-run)
+  --in-ns          служебный флаг: процесс уже запущен в одноразовом netns
   --ifname NAME    базовое имя проверяемого интерфейса (по умолчанию awgtest0)
   --no-traffic     только структура tc/nft, без ping между netns
   -h, --help       эта справка
@@ -72,23 +77,43 @@ cleanup() {
   for pid in "${CHILD_PIDS[@]:-}"; do
     kill "$pid" 2>/dev/null || true
   done
-  if have nft; then
+  # Remove only objects created by this run; never touch the host.
+  if have nft && [ "$CREATED_NFT_TABLE" -eq 1 ]; then
     nft delete table inet awg_admin 2>/dev/null || true
   fi
   if have ip; then
-    ip link del dev "dp-r1" 2>/dev/null || true
-    ip link del dev "dp-r2" 2>/dev/null || true
-    ip link del dev "$IFB" 2>/dev/null || true
+    if [ "$CREATED_LINKS" -eq 1 ]; then
+      ip link del dev "dp-r1" 2>/dev/null || true
+      ip link del dev "dp-r2" 2>/dev/null || true
+    fi
+    if [ "$CREATED_IFB" -eq 1 ]; then
+      ip link del dev "$IFB" 2>/dev/null || true
+    fi
   fi
   if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
     rm -rf "$WORKDIR"
   fi
 }
 
+verify_netns_isolation() {
+  [ "$IN_NS" -eq 1 ] || return 0
+  local own parent
+  own=$(readlink /proc/self/ns/net)
+  parent="${AWG_PARENT_NETNS:-}"
+  if [ -z "$parent" ]; then
+    die "--in-ns требует AWG_PARENT_NETNS (служебный флаг, запускайте без него)"
+  fi
+  if [ "$own" = "$parent" ]; then
+    die "скрипт остался в netns хоста ($own); проверка отменена"
+  fi
+  note "netns проверки: $own (хост: $parent)"
+}
+
 parse_args() {
   while [ $# -gt 0 ]; do
     case "$1" in
       --apply) APPLY=1 ;;
+      --in-ns) IN_NS=1 ;;
       --no-traffic) TRAFFIC=0 ;;
       --ifname)
         [ $# -ge 2 ] || die "--ifname требует значение"
@@ -234,6 +259,7 @@ apply_ingress() {
   if ! ip link show "$IFB" >/dev/null 2>&1; then
     print_cmd ip link add "$IFB" type ifb
     ip link add "$IFB" type ifb
+    CREATED_IFB=1
   fi
   print_cmd ip link set dev "$IFB" up
   ip link set dev "$IFB" up
@@ -270,6 +296,7 @@ apply_ingress() {
 
 create_router_links() {
   ip link add dp-r1 type veth peer name dp-c1
+  CREATED_LINKS=1
   ip link add dp-r2 type veth peer name dp-c2
   ip addr add 10.30.1.1/24 dev dp-r1
   ip addr add 10.30.2.1/24 dev dp-r2
@@ -374,6 +401,7 @@ apply_nft() {
 
   print_cmd nft add table inet awg_admin
   nft add table inet awg_admin
+  CREATED_NFT_TABLE=1
   print_cmd nft add chain inet awg_admin "$CHAIN" "{ type filter hook forward priority 10; }"
   nft add chain inet awg_admin "$CHAIN" "{ type filter hook forward priority 10; }"
 
@@ -511,22 +539,27 @@ dry_run() {
 main() {
   parse_args "$@"
 
+  if [ "$IN_NS" -eq 1 ]; then
+    verify_netns_isolation
+  fi
+
   if [ "$APPLY" -eq 0 ]; then
     dry_run
   else
-    if [ -z "${AWG_VERIFY_DATAPLANE_NS:-}" ]; then
-      local args=(--apply --ifname "$IFACE")
+    if [ "$IN_NS" -eq 0 ]; then
+      local args=(--apply --in-ns --ifname "$IFACE")
       if [ "$TRAFFIC" -eq 0 ]; then
         args+=(--no-traffic)
       fi
       if ! have unshare; then
         die "нужен unshare (util-linux)"
       fi
-      local rc=0
+      local parent rc=0
+      parent=$(readlink /proc/self/ns/net)
       if [ "$(id -u)" -eq 0 ]; then
-        unshare --net -- env AWG_VERIFY_DATAPLANE_NS=1 bash "$SCRIPT_PATH" "${args[@]}" || rc=$?
+        unshare --net -- env AWG_PARENT_NETNS="$parent" bash "$SCRIPT_PATH" "${args[@]}" || rc=$?
       elif unshare -rn true 2>/dev/null; then
-        unshare -rn -- env AWG_VERIFY_DATAPLANE_NS=1 bash "$SCRIPT_PATH" "${args[@]}" || rc=$?
+        unshare -rn -- env AWG_PARENT_NETNS="$parent" bash "$SCRIPT_PATH" "${args[@]}" || rc=$?
       else
         die "нужен root или доступные unprivileged user namespaces (unshare -rn)"
       fi

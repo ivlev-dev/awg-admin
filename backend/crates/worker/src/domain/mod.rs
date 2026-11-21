@@ -94,6 +94,10 @@ pub struct PeerCounter {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CounterBook {
     pub peers: HashMap<String, PeerCounter>,
+    /// How many times the kernel counter went backwards (peer/interface reset).
+    /// Not persisted: it describes the current worker process lifetime.
+    #[serde(default, skip_serializing)]
+    pub resets: u64,
 }
 
 impl CounterBook {
@@ -107,9 +111,11 @@ impl CounterBook {
 
         if raw_rx < entry.last_rx {
             entry.offset_rx = entry.offset_rx.saturating_add(entry.last_rx);
+            self.resets = self.resets.saturating_add(1);
         }
         if raw_tx < entry.last_tx {
             entry.offset_tx = entry.offset_tx.saturating_add(entry.last_tx);
+            self.resets = self.resets.saturating_add(1);
         }
         entry.last_rx = raw_rx;
         entry.last_tx = raw_tx;

@@ -1,4 +1,5 @@
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
@@ -9,11 +10,13 @@ use sha2::{Digest, Sha256};
 use totp_rs::{Algorithm, Builder, Secret, Totp};
 
 use crate::domain::{
-    CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
+    AuthClaims, CODE_INVALID_TOKEN, CODE_TOTP_INVALID, CODE_TOTP_REQUIRED, EmailVerification,
     EmailVerificationRepository, IssuedTokens, Mailer, PasswordHasher, RefreshSession, Role,
     SessionMetadata, TokenIssuer, User, UserPage, UserPageQuery, UserRepository, UserStatus,
     VerificationKind, normalize_email, normalize_optional_full_name, validate_password,
+    validate_password_for_email,
 };
+use crate::infrastructure::verify_dummy_password;
 const VERIFICATION_TTL_HOURS: i64 = 24;
 const PASSWORD_RESET_TTL_HOURS: i64 = 1;
 const RECOVERY_CODE_COUNT: usize = 8;
@@ -94,6 +97,9 @@ pub struct IdentityService {
     sealer: Arc<Sealer>,
     public_url: String,
     app_verify_url: Option<String>,
+    /// Serializes one-time code consumption per user so two concurrent logins
+    /// cannot spend the same TOTP step or recovery code.
+    totp_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
 }
 
 impl IdentityService {
@@ -115,6 +121,7 @@ impl IdentityService {
             sealer,
             public_url,
             app_verify_url: None,
+            totp_locks: Mutex::new(HashMap::new()),
         }
     }
 
@@ -162,20 +169,24 @@ impl IdentityService {
     ) -> CoreResult<AuthSession> {
         let email = email.trim();
         if email.len() > MAX_EMAIL_LEN || password.len() > MAX_PASSWORD_LEN {
-            return Err(CoreError::Forbidden("invalid email or password".into()));
+            return Err(invalid_credentials());
         }
         let Ok(email) = normalize_email(email) else {
-            return Err(CoreError::Forbidden("invalid email or password".into()));
+            return Err(invalid_credentials());
         };
-        let user = self
-            .users
-            .find_by_email(&email)?
-            .ok_or_else(|| CoreError::Forbidden("invalid email or password".into()))?;
-        user.ensure_active()?;
+        // Verify the password before any account status is disclosed: otherwise
+        // the response would reveal that the email belongs to a pending,
+        // rejected or disabled account without knowing the password. An unknown
+        // email still pays one Argon2 verification so the timing matches.
+        let Some(user) = self.users.find_by_email(&email)? else {
+            verify_dummy_password(password)?;
+            return Err(invalid_credentials());
+        };
         if !self.hasher.verify(password, &user.password_hash)? {
-            return Err(CoreError::Forbidden("invalid email or password".into()));
+            return Err(invalid_credentials());
         }
         let mut user = user;
+        user.ensure_active()?;
         if user.totp_enabled {
             let code = totp_code
                 .map(str::trim)
@@ -222,11 +233,23 @@ impl IdentityService {
     }
 
     pub fn revoke_session(&self, user_id: Uuid, jti: Uuid) -> CoreResult<()> {
+        // Only the refresh record of this session family is revoked, so the
+        // access token of the session stays valid until it expires. That is
+        // intentional: a single-session logout cannot name an access token
+        // (they are stateless) and bumping the per-user epoch would also kill
+        // every other session of the user. Use `logout_all` for that.
         self.tokens.revoke_session(user_id, jti)
     }
 
     pub fn logout_all(&self, user_id: Uuid) -> CoreResult<usize> {
-        self.tokens.revoke_all(user_id)
+        // Revoke refresh tokens first, then record the epoch: if the epoch
+        // write fails, the worst case is a stolen access token living out its
+        // short TTL, whereas a live refresh token would mint a new, unrevoked
+        // access token.
+        let revoked = self.tokens.revoke_all(user_id)?;
+        self.users
+            .set_access_epoch(user_id, Utc::now().timestamp())?;
+        Ok(revoked)
     }
 
     pub fn authenticate(&self, access_token: &str) -> CoreResult<AuthPrincipal> {
@@ -236,10 +259,30 @@ impl IdentityService {
             .find_by_id(claims.sub)?
             .ok_or_else(|| CoreError::Forbidden("user no longer exists".into()))?;
         user.ensure_active()?;
+        // `iat` is in whole seconds and the comparison is strict: a token
+        // issued in the same second as the epoch is accepted, so a login that
+        // follows a revocation immediately is not rejected.
+        if let Some(epoch) = self.users.access_epoch(user.id)?
+            && (claims.iat as i64) < epoch
+        {
+            return Err(CoreError::Forbidden("session revoked".into()));
+        }
         Ok(AuthPrincipal {
             user_id: user.id,
             role: user.role,
         })
+    }
+
+    /// Validates an access token (signature, `exp`, `iss`, `aud`, kind) without
+    /// loading the user. Callers that only need the subject or role can use
+    /// this to stay off the database.
+    pub fn access_claims(&self, token: &str) -> CoreResult<AuthClaims> {
+        self.tokens.verify_access(token)
+    }
+
+    /// Returns the subject of a valid access token without loading the user.
+    pub fn access_subject(&self, token: &str) -> CoreResult<Uuid> {
+        Ok(self.access_claims(token)?.sub)
     }
 
     pub fn find(&self, id: Uuid) -> CoreResult<User> {
@@ -263,7 +306,7 @@ impl IdentityService {
     pub fn create(&self, input: NewUser) -> CoreResult<User> {
         let email = normalize_email(&input.email)?;
         let full_name = normalize_optional_full_name(input.full_name)?;
-        validate_password(&input.password)?;
+        validate_password_for_email(&input.password, &email)?;
         if self.users.find_by_email(&email)?.is_some() {
             return Err(CoreError::Conflict("email is already registered".into()));
         }
@@ -408,12 +451,15 @@ impl IdentityService {
             .find_by_id(verification.user_id)?
             .ok_or_else(|| CoreError::Invalid(CODE_INVALID_TOKEN.into()))?;
         user.ensure_active()?;
+        validate_password_for_email(new_password, &user.email)?;
         user.password_hash = self.hasher.hash(new_password)?;
         user.updated_at = Utc::now();
         verification.used = true;
         self.verifications.save(&key, &verification)?;
         self.users.save(&user)?;
         self.tokens.revoke_all(user.id)?;
+        self.users
+            .set_access_epoch(user.id, Utc::now().timestamp())?;
         Ok(())
     }
 
@@ -462,10 +508,10 @@ impl IdentityService {
         Ok(user)
     }
 
-    /// Generates a new TOTP secret. When 2FA is already enabled the caller
-    /// must prove ownership of the account with the current password and a
-    /// valid code; the new secret is staged as *pending* so that a repeated
-    /// setup never silently turns 2FA off.
+    /// Generates a new TOTP secret. The caller must always prove ownership of
+    /// the account with the current password. When 2FA is already enabled a
+    /// valid code is required as well and the new secret is staged as
+    /// *pending* so that a repeated setup never silently turns 2FA off.
     pub fn setup_totp(
         &self,
         user_id: Uuid,
@@ -474,15 +520,15 @@ impl IdentityService {
     ) -> CoreResult<TotpSetup> {
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
+        let password_ok = match password.filter(|value| !value.is_empty()) {
+            Some(password) => self.hasher.verify(password, &user.password_hash)?,
+            None => false,
+        };
+        if !password_ok {
+            return Err(CoreError::Forbidden("current password is wrong".into()));
+        }
         let enabled = user.totp_enabled;
         if enabled {
-            let password_ok = match password.filter(|value| !value.is_empty()) {
-                Some(password) => self.hasher.verify(password, &user.password_hash)?,
-                None => false,
-            };
-            if !password_ok {
-                return Err(CoreError::Forbidden("current password is wrong".into()));
-            }
             let code = code
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
@@ -504,9 +550,14 @@ impl IdentityService {
         Ok(setup)
     }
 
-    pub fn enable_totp(&self, user_id: Uuid, code: &str) -> CoreResult<()> {
+    /// Activates the staged (or initial) TOTP secret. The current password is
+    /// required so that a stolen access token alone cannot turn 2FA on.
+    pub fn enable_totp(&self, user_id: Uuid, password: &str, code: &str) -> CoreResult<()> {
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
+        if password.is_empty() || !self.hasher.verify(password, &user.password_hash)? {
+            return Err(CoreError::Forbidden("current password is wrong".into()));
+        }
         let was_enabled = user.totp_enabled;
         let pending = user.totp_pending_secret_sealed.clone();
         let sealed = pending
@@ -620,30 +671,79 @@ impl IdentityService {
         }
     }
 
+    /// Serializes TOTP and recovery code consumption for one user.
+    ///
+    /// Every caller runs on a blocking worker, so a synchronous mutex is the
+    /// right primitive. The entry is removed again once no other caller holds
+    /// it, which keeps the map from growing with every user that ever logged
+    /// in.
+    fn with_totp_lock<R>(
+        &self,
+        user_id: Uuid,
+        apply: impl FnOnce() -> CoreResult<R>,
+    ) -> CoreResult<R> {
+        let lock = {
+            let mut locks = self
+                .totp_locks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            locks.entry(user_id).or_default().clone()
+        };
+        let result = {
+            let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            apply()
+        };
+        drop(lock);
+        {
+            let mut locks = self
+                .totp_locks
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if locks
+                .get(&user_id)
+                .is_some_and(|entry| Arc::strong_count(entry) == 1)
+            {
+                locks.remove(&user_id);
+            }
+        }
+        result
+    }
+
     fn consume_auth_code(&self, user: &mut User, code: &str) -> CoreResult<bool> {
         if code.is_empty() {
             return Ok(false);
         }
-        if let Some(sealed) = user.totp_secret_sealed.as_deref()
-            && let Some(step) = self.verify_totp_step(&user.email, sealed, code)?
-        {
-            if !totp_step_is_fresh(user, step) {
+        self.with_totp_lock(user.id, || {
+            // Re-read inside the lock: another login may have consumed this
+            // step or code after the caller loaded the user.
+            let Some(mut fresh) = self.users.find_by_id(user.id)? else {
                 return Ok(false);
-            }
-            user.last_totp_step = Some(step);
-            user.updated_at = Utc::now();
-            self.users.save(user)?;
-            return Ok(true);
-        }
-        for index in 0..user.recovery_codes.len() {
-            if self.hasher.verify(code, &user.recovery_codes[index])? {
-                user.recovery_codes.remove(index);
-                user.updated_at = Utc::now();
-                self.users.save(user)?;
+            };
+            if let Some(sealed) = fresh.totp_secret_sealed.as_deref()
+                && let Some(step) = self.verify_totp_step(&fresh.email, sealed, code)?
+            {
+                if !totp_step_is_fresh(&fresh, step) {
+                    *user = fresh;
+                    return Ok(false);
+                }
+                fresh.last_totp_step = Some(step);
+                fresh.updated_at = Utc::now();
+                self.users.save(&fresh)?;
+                *user = fresh;
                 return Ok(true);
             }
-        }
-        Ok(false)
+            for index in 0..fresh.recovery_codes.len() {
+                if self.hasher.verify(code, &fresh.recovery_codes[index])? {
+                    fresh.recovery_codes.remove(index);
+                    fresh.updated_at = Utc::now();
+                    self.users.save(&fresh)?;
+                    *user = fresh;
+                    return Ok(true);
+                }
+            }
+            *user = fresh;
+            Ok(false)
+        })
     }
 
     fn verify_totp_step(&self, email: &str, sealed: &str, code: &str) -> CoreResult<Option<u64>> {
@@ -656,6 +756,7 @@ impl IdentityService {
 
     pub fn update(&self, id: Uuid, changes: UserChanges) -> CoreResult<User> {
         let mut user = self.find(id)?;
+        let was_disabled = user.disabled;
         if let Some(email) = changes.email {
             let email = normalize_email(&email)?;
             if let Some(existing) = self.users.find_by_email(&email)?
@@ -687,6 +788,13 @@ impl IdentityService {
         self.users.save(&user)?;
         if user.disabled {
             self.tokens.revoke_all(user.id)?;
+            // Defense in depth: `authenticate` already rejects a disabled
+            // account, but the epoch keeps pre-block tokens dead if the
+            // account is re-enabled later.
+            if !was_disabled {
+                self.users
+                    .set_access_epoch(user.id, Utc::now().timestamp())?;
+            }
         }
         Ok(user)
     }
@@ -704,6 +812,7 @@ impl IdentityService {
         validate_password(new_password)?;
         let mut user = self.find(user_id)?;
         user.ensure_active()?;
+        validate_password_for_email(new_password, &user.email)?;
         let password_ok =
             !current.is_empty() && self.hasher.verify(current, &user.password_hash)?;
         if !password_ok {
@@ -720,16 +829,20 @@ impl IdentityService {
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         self.tokens.revoke_all(user.id)?;
+        self.users
+            .set_access_epoch(user.id, Utc::now().timestamp())?;
         Ok(())
     }
 
     pub fn reset_password_for_user(&self, user_id: Uuid, new_password: &str) -> CoreResult<()> {
-        validate_password(new_password)?;
         let mut user = self.find(user_id)?;
+        validate_password_for_email(new_password, &user.email)?;
         user.password_hash = self.hasher.hash(new_password)?;
         user.updated_at = Utc::now();
         self.users.save(&user)?;
         self.tokens.revoke_all(user.id)?;
+        self.users
+            .set_access_epoch(user.id, Utc::now().timestamp())?;
         Ok(())
     }
 
@@ -761,7 +874,11 @@ fn register_user(
 ) -> CoreResult<(User, String)> {
     let email = normalize_email(&input.email)?;
     let full_name = normalize_optional_full_name(input.full_name)?;
-    validate_password(&input.password)?;
+    validate_password_for_email(&input.password, &email)?;
+    // Hash before the duplicate check: otherwise an existing email would be
+    // answered without Argon2 work and the response time would reveal whether
+    // the account exists, defeating the opaque registration response.
+    let password_hash = hasher.hash(&input.password)?;
     if users.find_by_email(&email)?.is_some() {
         return Err(CoreError::Conflict("email is already registered".into()));
     }
@@ -770,7 +887,7 @@ fn register_user(
         id: Uuid::new_v4(),
         email: email.clone(),
         full_name,
-        password_hash: hasher.hash(&input.password)?,
+        password_hash,
         role: Role::User,
         tariff_id: None,
         group_id: None,
@@ -794,6 +911,10 @@ fn join_error(error: tokio::task::JoinError) -> CoreError {
     CoreError::Io(std::io::Error::other(format!(
         "blocking task failed: {error}"
     )))
+}
+
+fn invalid_credentials() -> CoreError {
+    CoreError::Forbidden("invalid email or password".into())
 }
 
 fn totp_step_is_fresh(user: &User, step: u64) -> bool {
@@ -829,7 +950,10 @@ fn hash_token(token: &str) -> String {
 fn generate_recovery_code() -> String {
     use rand::RngCore;
 
-    let mut bytes = [0u8; 5];
+    // 128 bits of entropy. Existing codes were shorter, but they are stored as
+    // Argon2 hashes and keep verifying because only the plaintext length
+    // changed.
+    let mut bytes = [0u8; 16];
     rand::rng().fill_bytes(&mut bytes);
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }

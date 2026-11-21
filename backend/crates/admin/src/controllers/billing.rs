@@ -1,8 +1,9 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::body::Bytes;
-use axum::extract::{Path, Query, Request, State};
+use axum::extract::{ConnectInfo, Path, Query, Request, State};
 use axum::http::HeaderMap;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
@@ -16,7 +17,9 @@ use awg_billing::{
 use awg_shared::CoreResult;
 use awg_tariffs::TariffService;
 
+use crate::audit::client_ip;
 use crate::auth::AuthUser;
+use crate::blocking;
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
     AdminSubscriptionQuery, CreatePlanRequest, InvoiceQuery, StartCheckoutRequest,
@@ -72,7 +75,9 @@ pub async fn list_plans(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Vec<Plan>>> {
-    Ok(Json(list_plans_for(&state.billing, &user)?))
+    let billing = state.billing.clone();
+    let plans = blocking::run_api(move || list_plans_for(&billing, &user)).await?;
+    Ok(Json(plans))
 }
 
 pub async fn create_plan(
@@ -80,11 +85,10 @@ pub async fn create_plan(
     user: AuthUser,
     Json(request): Json<CreatePlanRequest>,
 ) -> ApiResult<Json<Plan>> {
-    Ok(Json(create_plan_for(
-        &state.billing,
-        &user,
-        request.into(),
-    )?))
+    let billing = state.billing.clone();
+    let input: NewPlan = request.into();
+    let plan = blocking::run_api(move || create_plan_for(&billing, &user, input)).await?;
+    Ok(Json(plan))
 }
 
 pub async fn update_plan(
@@ -93,19 +97,19 @@ pub async fn update_plan(
     Path(id): Path<Uuid>,
     Json(request): Json<UpdatePlanRequest>,
 ) -> ApiResult<Json<Plan>> {
-    Ok(Json(update_plan_for(
-        &state.billing,
-        &user,
-        id,
-        request.into(),
-    )?))
+    let billing = state.billing.clone();
+    let changes: PlanChanges = request.into();
+    let plan = blocking::run_api(move || update_plan_for(&billing, &user, id, changes)).await?;
+    Ok(Json(plan))
 }
 
 pub async fn subscription(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Option<Subscription>>> {
-    Ok(Json(subscription_for(&state.billing, &user)?))
+    let billing = state.billing.clone();
+    let subscription = blocking::run_api(move || subscription_for(&billing, &user)).await?;
+    Ok(Json(subscription))
 }
 
 pub async fn invoices(
@@ -113,12 +117,11 @@ pub async fn invoices(
     user: AuthUser,
     Query(query): Query<InvoiceQuery>,
 ) -> ApiResult<Json<Vec<Invoice>>> {
-    Ok(Json(invoices_for(
-        &state.billing,
-        &user,
-        query.user_id,
-        query.limit,
-    )?))
+    let billing = state.billing.clone();
+    let invoices =
+        blocking::run_api(move || invoices_for(&billing, &user, query.user_id, query.limit))
+            .await?;
+    Ok(Json(invoices))
 }
 
 pub async fn checkout(
@@ -126,10 +129,15 @@ pub async fn checkout(
     user: AuthUser,
     Json(request): Json<StartCheckoutRequest>,
 ) -> ApiResult<Json<CheckoutView>> {
-    let outcome = state
-        .billing
-        .start_checkout(user.id(), request.plan_id, Utc::now())
-        .map_err(ApiError::from)?;
+    let billing = state.billing.clone();
+    let user_id = user.id();
+    let plan_id = request.plan_id;
+    let outcome = blocking::run_api(move || {
+        billing
+            .start_checkout(user_id, plan_id, Utc::now())
+            .map_err(ApiError::from)
+    })
+    .await?;
     Ok(Json(CheckoutView {
         invoice: outcome.invoice,
         checkout_url: outcome.checkout_url,
@@ -140,10 +148,14 @@ pub async fn payment_methods(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<Vec<PaymentMethodView>>> {
-    let methods = state
-        .billing
-        .payment_methods_for_user(user.id())
-        .map_err(ApiError::from)?;
+    let billing = state.billing.clone();
+    let user_id = user.id();
+    let methods = blocking::run_api(move || {
+        billing
+            .payment_methods_for_user(user_id)
+            .map_err(ApiError::from)
+    })
+    .await?;
     Ok(Json(
         methods.into_iter().map(PaymentMethodView::from).collect(),
     ))
@@ -151,10 +163,21 @@ pub async fn payment_methods(
 
 pub async fn webhook(
     State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     Path(provider): Path<String>,
     headers: HeaderMap,
     body: Bytes,
 ) -> ApiResult<Json<WebhookView>> {
+    let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies)
+        .unwrap_or_else(|| "unknown".into());
+    if let Err(retry_after) = state.webhook_limiter.check(&format!("webhook:{ip}")) {
+        crate::metrics::record_rate_limited("webhook");
+        return Err(ApiError::TooManyRequests {
+            message: "too many webhook deliveries, try again later".into(),
+            retry_after,
+        });
+    }
+
     let headers: Vec<(String, String)> = headers
         .iter()
         .filter_map(|(name, value)| {
@@ -164,10 +187,15 @@ pub async fn webhook(
                 .map(|value| (name.as_str().to_string(), value.to_string()))
         })
         .collect();
-    let outcome = state
-        .billing
-        .handle_webhook(&provider, &headers, body.as_ref(), Utc::now())
-        .map_err(webhook_error)?;
+    // Signature verification and the redb writes behind it are synchronous:
+    // keep them off the async runtime even though the body is capped at 64 KiB.
+    let billing = state.billing.clone();
+    let outcome = blocking::run_api(move || {
+        billing
+            .handle_webhook(&provider, &headers, body.as_ref(), Utc::now())
+            .map_err(webhook_error)
+    })
+    .await?;
     if let Some(user_id) = outcome.affected_user() {
         publish_user_groups(&state, user_id).await;
     }
@@ -192,7 +220,9 @@ pub async fn admin_subscriptions(
     user: AuthUser,
     Query(query): Query<AdminSubscriptionQuery>,
 ) -> ApiResult<Json<SubscriptionPageView>> {
-    Ok(Json(admin_subscriptions_for(&state.billing, &user, query)?))
+    let billing = state.billing.clone();
+    let page = blocking::run_api(move || admin_subscriptions_for(&billing, &user, query)).await?;
+    Ok(Json(page))
 }
 
 fn list_plans_for(billing: &BillingService, user: &AuthUser) -> ApiResult<Vec<Plan>> {

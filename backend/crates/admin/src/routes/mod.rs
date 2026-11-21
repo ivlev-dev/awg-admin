@@ -8,7 +8,7 @@ use axum::http::{HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
@@ -83,7 +83,21 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
             crate::audit::middleware,
         ))
         .layer(cors)
-        .layer(TraceLayer::new_for_http())
+        .layer(
+            TraceLayer::new_for_http().make_span_with(|request: &Request| {
+                let request_id = request
+                    .headers()
+                    .get(REQUEST_ID_HEADER)
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-");
+                tracing::info_span!(
+                    "http",
+                    request_id = %request_id,
+                    method = %request.method(),
+                    path = %request.uri().path(),
+                )
+            }),
+        )
         .layer(middleware::from_fn(crate::metrics::middleware))
         .layer(middleware::from_fn(request_id))
         .layer(axum::Extension(readiness))
@@ -92,7 +106,11 @@ pub fn router(state: Arc<AppState>, readiness: Readiness) -> Router {
 
 async fn json_timeout(request: Request, next: Next) -> Response {
     let response = next.run(request).await;
-    if response.status() == StatusCode::GATEWAY_TIMEOUT {
+    // Only replace the empty body produced by `TimeoutLayer`. A handler that
+    // already returned a JSON 504 keeps its own payload.
+    if response.status() == StatusCode::GATEWAY_TIMEOUT
+        && response.headers().get(header::CONTENT_TYPE).is_none()
+    {
         return timeout_response();
     }
     response
@@ -165,7 +183,11 @@ fn build_cors(origins: &[String]) -> CorsLayer {
         ])
         .expose_headers([request_id]);
     if origins.is_empty() {
-        return layer.allow_origin(Any);
+        // Same-origin requests do not need CORS headers. Adding
+        // `Access-Control-Allow-Origin: *` here would let any website call the
+        // API with a user's credentials, so an empty allow-list rejects
+        // cross-origin browser traffic.
+        return layer;
     }
     let list: Vec<HeaderValue> = origins
         .iter()
@@ -177,7 +199,7 @@ fn build_cors(origins: &[String]) -> CorsLayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use awg_storage::{CURRENT_SCHEMA_VERSION, SCHEMA_VERSION_KEY, Store, Table};
+    use awg_storage::{SCHEMA_VERSION_KEY, Store, Table};
     use axum::body::{Body, to_bytes};
     use serde_json::Value;
     use tower::ServiceExt;
@@ -293,7 +315,15 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
         let body = json_body(response).await;
         assert_eq!(body["status"], "ready");
-        assert_eq!(body["schema_version"], CURRENT_SCHEMA_VERSION);
+        assert_eq!(body["service"], "awg-admin");
+        assert!(
+            body.get("version").is_none(),
+            "readiness must not expose the crate version"
+        );
+        assert!(
+            body.get("schema_version").is_none(),
+            "readiness must not expose the storage schema version"
+        );
     }
 
     #[tokio::test]

@@ -91,14 +91,19 @@ pub(crate) fn page_view(
     let order = DevicePageOrder::parse(params.order.as_deref()).map_err(ApiError::from)?;
     let q = DevicePageQuery::normalize_q(params.q.as_deref());
     let owner_emails = if q.is_some() {
-        state
-            .identity
-            .list()
-            .map_err(ApiError::from)?
-            .into_iter()
-            .filter(|owner| user_filter.is_none_or(|id| owner.id == id))
-            .map(|owner| (owner.id, owner.email.clone()))
-            .collect()
+        match user_filter {
+            Some(id) => {
+                let owner = state.identity.find(id).map_err(ApiError::from)?;
+                HashMap::from([(owner.id, owner.email)])
+            }
+            None => state
+                .identity
+                .list()
+                .map_err(ApiError::from)?
+                .into_iter()
+                .map(|owner| (owner.id, owner.email))
+                .collect(),
+        }
     } else {
         HashMap::new()
     };
@@ -204,11 +209,11 @@ pub async fn update(
 ) -> ApiResult<Json<DeviceView>> {
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
-    if user.is_admin() && request.revoked.is_some() {
-        state
-            .devices
-            .revoke(id, request.revoked.unwrap_or(false))
-            .map_err(ApiError::from)?;
+    let revoked = request.revoked;
+    if revoked.is_some() && !user.is_admin() {
+        return Err(ApiError::Forbidden(
+            "only administrators can change the revocation state".into(),
+        ));
     }
     let owner = state
         .identity
@@ -219,6 +224,8 @@ pub async fn update(
         .tariff_for(&owner)
         .map_err(ApiError::from)?
         .unwrap_or_else(unlimited_tariff);
+    // Fields and the revocation flag are applied in one repository
+    // transaction: a rejected update leaves neither half persisted.
     let updated = state
         .devices
         .update(
@@ -228,8 +235,15 @@ pub async fn update(
             request.down_kbps,
             request.up_kbps,
             request.forwarding,
+            revoked,
         )
         .map_err(ApiError::from)?;
+    if revoked == Some(true) {
+        state
+            .share
+            .revoke_all_for_device(id)
+            .map_err(ApiError::from)?;
+    }
     publish_group(&state, updated.group_id).await;
     Ok(Json(build_view(&state, &updated)?))
 }
@@ -377,7 +391,16 @@ pub async fn create_share(
 ) -> ApiResult<Json<ShareLinkView>> {
     let device = state.devices.get(id).map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
-    let ttl = request.ttl_secs.unwrap_or(state.config.share_ttl_secs);
+    let ttl = match request.ttl_secs {
+        Some(ttl) => ttl,
+        None => {
+            state
+                .settings
+                .get()
+                .map_err(ApiError::from)?
+                .share_default_ttl_secs
+        }
+    };
     let max_uses = request.resolved_max_uses().map_err(ApiError::BadRequest)?;
     let link = state
         .share

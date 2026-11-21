@@ -484,6 +484,9 @@ fn app_config(
     environment: Environment,
     dev_mail_token: Option<String>,
     mock_billing: bool,
+    login_account_rate_limit: u32,
+    login_ip_rate_limit: u32,
+    registration_enabled: bool,
 ) -> crate::config::Config {
     use crate::config::{
         Config, ConfigInput, DEFAULT_ADMIN_EMAIL, DEFAULT_APP_VERIFY_URL, DEFAULT_JWT_AUDIENCE,
@@ -521,17 +524,28 @@ fn app_config(
         dev_mail_token,
         rate_limit_store: "memory".into(),
         login_rate_limit: 100,
+        login_account_rate_limit,
+        login_ip_rate_limit,
         login_rate_window_secs: 60,
         refresh_rate_limit: 100,
         refresh_rate_window_secs: 60,
         register_rate_limit: 100,
         register_rate_window_secs: 60,
+        registration_enabled: if registration_enabled {
+            "true"
+        } else {
+            "false"
+        }
+        .into(),
+        webhook_rate_limit: 120,
+        webhook_window_secs: 60,
         resend_rate_limit: 100,
         resend_rate_window_secs: 60,
         forgot_rate_limit: 100,
         forgot_rate_window_secs: 60,
         http_timeout_secs: 30,
         shutdown_grace_secs: 10,
+        allow_ws_token: "false".into(),
         mail_mode: "log".into(),
         smtp_url: None,
         smtp_from: None,
@@ -577,11 +591,58 @@ pub fn app_env_with_dev_mail_token(token: &str) -> AppEnv {
     )
 }
 
+/// Test environment with tight per-account and per-IP login limits so the
+/// rate-limit behaviour can be exercised without dozens of requests.
+pub fn app_env_with_login_limits(account: u32, ip: u32) -> AppEnv {
+    app_env_full(
+        false,
+        Environment::Development,
+        None,
+        false,
+        account,
+        ip,
+        true,
+    )
+}
+
+/// Test environment with self-registration switched on or off.
+pub fn app_env_with_registration(enabled: bool) -> AppEnv {
+    app_env_full(
+        false,
+        Environment::Development,
+        None,
+        false,
+        20,
+        30,
+        enabled,
+    )
+}
+
 fn app_env_with(
     billing_enabled: bool,
     environment: Environment,
     dev_mail_token: Option<String>,
     mock_billing: bool,
+) -> AppEnv {
+    app_env_full(
+        billing_enabled,
+        environment,
+        dev_mail_token,
+        mock_billing,
+        20,
+        30,
+        true,
+    )
+}
+
+fn app_env_full(
+    billing_enabled: bool,
+    environment: Environment,
+    dev_mail_token: Option<String>,
+    mock_billing: bool,
+    login_account_rate_limit: u32,
+    login_ip_rate_limit: u32,
+    registration_enabled: bool,
 ) -> AppEnv {
     use std::time::Duration;
 
@@ -615,6 +676,9 @@ fn app_env_with(
         environment,
         dev_mail_token,
         mock_billing,
+        login_account_rate_limit,
+        login_ip_rate_limit,
+        registration_enabled,
     ));
     let store = Arc::new(Store::open_in_memory().unwrap());
     let key = base64::engine::general_purpose::STANDARD.encode([13u8; 32]);
@@ -813,8 +877,13 @@ fn app_env_with(
         store.clone(),
     ))));
     let backend: Arc<dyn RateLimiter> = Arc::new(MemoryRateLimiter::new());
-    let scope = |prefix: &'static str| {
-        RateLimitScope::new(backend.clone(), prefix, 100, Duration::from_secs(60))
+    let scope = |prefix: &'static str, limit: u32, window_secs: u64| {
+        RateLimitScope::new(
+            backend.clone(),
+            prefix,
+            limit,
+            Duration::from_secs(window_secs),
+        )
     };
 
     let state = Arc::new(AppState {
@@ -833,12 +902,16 @@ fn app_env_with(
         audit,
         billing,
         idempotency,
+        ws_tickets: Arc::new(crate::ws_ticket::WsTicketStore::new()),
         import_lock: Arc::new(tokio::sync::Mutex::new(())),
-        login_limiter: scope("login"),
-        refresh_limiter: scope("refresh"),
-        register_limiter: scope("register"),
-        resend_limiter: scope("resend"),
-        forgot_limiter: scope("forgot"),
+        login_limiter: scope("login", 100, 60),
+        login_account_limiter: scope("login-account", login_account_rate_limit, 60),
+        login_ip_limiter: scope("login-ip", login_ip_rate_limit, 60),
+        refresh_limiter: scope("refresh", 100, 60),
+        register_limiter: scope("register", 100, 60),
+        webhook_limiter: scope("webhook", 120, 60),
+        resend_limiter: scope("resend", 100, 60),
+        forgot_limiter: scope("forgot", 100, 60),
     });
 
     AppEnv {

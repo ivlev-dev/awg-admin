@@ -17,7 +17,7 @@ impl GrpcTlsOptions {
         let options = Self {
             ca_path: env_optional("AWG_GRPC_TLS_CA").map(PathBuf::from),
             domain: env_optional("AWG_GRPC_TLS_DOMAIN"),
-            use_system_roots: env_flag("AWG_GRPC_TLS_SYSTEM_ROOTS"),
+            use_system_roots: crate::infrastructure::env::env_flag("AWG_GRPC_TLS_SYSTEM_ROOTS")?,
             client_cert_path: env_optional("AWG_GRPC_TLS_CLIENT_CERT").map(PathBuf::from),
             client_key_path: env_optional("AWG_GRPC_TLS_CLIENT_KEY").map(PathBuf::from),
         };
@@ -115,18 +115,6 @@ fn env_optional(key: &str) -> Option<String> {
         .ok()
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-}
-
-fn env_flag(key: &str) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| {
-            matches!(
-                value.trim().to_ascii_lowercase().as_str(),
-                "1" | "true" | "yes" | "on"
-            )
-        })
-        .unwrap_or(false)
 }
 
 #[cfg(test)]

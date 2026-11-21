@@ -13,6 +13,7 @@ use crate::config::Config;
 use crate::idempotency::IdempotencyStore;
 use crate::rate_limit::RateLimitScope;
 use crate::settings::SettingsStore;
+use crate::ws_ticket::WsTicketStore;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -31,10 +32,14 @@ pub struct AppState {
     pub audit: Arc<AuditService>,
     pub billing: Arc<BillingService>,
     pub idempotency: Arc<IdempotencyStore>,
+    pub ws_tickets: Arc<WsTicketStore>,
     pub import_lock: Arc<tokio::sync::Mutex<()>>,
     pub login_limiter: RateLimitScope,
+    pub login_account_limiter: RateLimitScope,
+    pub login_ip_limiter: RateLimitScope,
     pub refresh_limiter: RateLimitScope,
     pub register_limiter: RateLimitScope,
+    pub webhook_limiter: RateLimitScope,
     pub resend_limiter: RateLimitScope,
     pub forgot_limiter: RateLimitScope,
 }

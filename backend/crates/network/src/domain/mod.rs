@@ -6,6 +6,8 @@ use ipnet::Ipv4Net;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use subtle::ConstantTimeEq;
+
 use awg_shared::cidr::{self, validate_pool};
 use awg_shared::obf::InterfaceObf;
 use awg_shared::{CoreError, CoreResult};
@@ -117,6 +119,19 @@ pub trait NodeRepository: Send + Sync {
     fn list(&self) -> CoreResult<Vec<Node>>;
     fn save(&self, node: &Node) -> CoreResult<()>;
     fn delete(&self, id: Uuid) -> CoreResult<()>;
+    /// Looks a node up by token hash through the lookup index and verifies that
+    /// the stored hash still matches, so a stale index row never authenticates.
+    fn find_by_token_hash(&self, token_hash: &str) -> CoreResult<Option<Node>>;
+    /// Atomically updates only the metrics fields of `id`.
+    fn record_metrics(&self, id: Uuid, metrics: &NodeMetricsUpdate) -> CoreResult<Node>;
+    /// Atomically updates only the status/version/last-seen fields of `id`.
+    fn set_status(
+        &self,
+        id: Uuid,
+        status: NodeStatus,
+        last_seen: DateTime<Utc>,
+        version: Option<String>,
+    ) -> CoreResult<Node>;
 }
 
 pub trait InterfaceRepository: Send + Sync {
@@ -147,8 +162,18 @@ impl SubnetAllocator {
     }
 
     pub fn ensure_no_overlap(pools: &[CidrPool], candidate: Ipv4Net) -> CoreResult<()> {
+        Self::ensure_no_overlap_excluding(pools, candidate, None)
+    }
+
+    /// Same as [`Self::ensure_no_overlap`], but ignores `exclude` so a pool can
+    /// be re-validated against its siblings after an update.
+    pub fn ensure_no_overlap_excluding(
+        pools: &[CidrPool],
+        candidate: Ipv4Net,
+        exclude: Option<Uuid>,
+    ) -> CoreResult<()> {
         for existing in pools {
-            if !existing.enabled {
+            if !existing.enabled || Some(existing.id) == exclude {
                 continue;
             }
             let net = cidr::parse_net(&existing.cidr)?;
@@ -171,6 +196,48 @@ impl SubnetAllocator {
         let reserved: Vec<Ipv4Addr> = gateway.into_iter().collect();
         cidr::allocate_ip(pool, used, seed, &reserved)
     }
+}
+
+/// Validates a pool gateway address against the pool it serves.
+///
+/// A gateway without `/` is a plain host address; one with `/` is accepted as
+/// a server address (`10.1.0.1/24`), but only its address part is checked.
+/// The address must belong to the pool and, unless the pool is a `/31` or
+/// `/32`, must not be the network or broadcast address.
+pub fn validate_pool_gateway(pool: Ipv4Net, gateway: &str) -> CoreResult<()> {
+    let raw = gateway.trim();
+    if raw.is_empty() {
+        return Err(CoreError::Invalid("pool gateway must not be empty".into()));
+    }
+    let addr = if raw.contains('/') {
+        cidr::parse_net(raw)?.addr()
+    } else {
+        raw.parse::<Ipv4Addr>()
+            .map_err(|e| CoreError::Invalid(format!("invalid pool gateway {raw:?}: {e}")))?
+    };
+    if !pool.contains(&addr) {
+        return Err(CoreError::Invalid(format!(
+            "pool gateway {addr} is outside {pool}"
+        )));
+    }
+    if pool.prefix_len() <= 30 && (addr == pool.network() || addr == pool.broadcast()) {
+        return Err(CoreError::Invalid(format!(
+            "pool gateway {addr} must not be the network or broadcast address of {pool}"
+        )));
+    }
+    Ok(())
+}
+
+/// Constant-time comparison of a stored and a presented token hash.
+///
+/// Token hashes are hex strings of equal length, so a plain `==` would leak
+/// the position of the first differing byte through timing. Both sides are
+/// normalized the same way the lookup index stores its keys, so an
+/// uppercase legacy hash keeps working.
+pub fn token_hash_matches(stored: &str, presented: &str) -> bool {
+    let stored = stored.trim().to_ascii_lowercase();
+    let presented = presented.trim().to_ascii_lowercase();
+    stored.as_bytes().ct_eq(presented.as_bytes()).into()
 }
 
 pub fn validate_interface_name(name: &str) -> CoreResult<()> {

@@ -27,9 +27,41 @@ impl SessionId {
     }
 }
 
+/// Destination of a desired-state push.
+///
+/// `Shared` transports `Arc<DesiredState>` so a publish does not clone the whole
+/// state per node. `Owned` keeps the historical channel type working for
+/// existing callers.
+#[derive(Clone)]
+pub enum StateSender {
+    Shared(tokio::sync::mpsc::Sender<Arc<DesiredState>>),
+    Owned(tokio::sync::mpsc::Sender<DesiredState>),
+}
+
+impl StateSender {
+    fn try_send(&self, state: Arc<DesiredState>) -> bool {
+        match self {
+            Self::Shared(sender) => sender.try_send(state).is_ok(),
+            Self::Owned(sender) => sender.try_send((*state).clone()).is_ok(),
+        }
+    }
+}
+
+impl From<tokio::sync::mpsc::Sender<DesiredState>> for StateSender {
+    fn from(sender: tokio::sync::mpsc::Sender<DesiredState>) -> Self {
+        Self::Owned(sender)
+    }
+}
+
+impl From<tokio::sync::mpsc::Sender<Arc<DesiredState>>> for StateSender {
+    fn from(sender: tokio::sync::mpsc::Sender<Arc<DesiredState>>) -> Self {
+        Self::Shared(sender)
+    }
+}
+
 struct Entry {
     session: SessionId,
-    sender: tokio::sync::mpsc::Sender<DesiredState>,
+    sender: StateSender,
     connected_at: DateTime<Utc>,
     last_seen: DateTime<Utc>,
     version: Option<String>,
@@ -61,6 +93,21 @@ impl WorkerRegistry {
         sender: tokio::sync::mpsc::Sender<DesiredState>,
         version: Option<String>,
     ) -> SessionId {
+        self.insert(node_id, StateSender::Owned(sender), version)
+    }
+
+    /// Registers a worker that receives shared snapshots, avoiding a full
+    /// `DesiredState` clone on every publish.
+    pub fn register_shared(
+        &self,
+        node_id: Uuid,
+        sender: tokio::sync::mpsc::Sender<Arc<DesiredState>>,
+        version: Option<String>,
+    ) -> SessionId {
+        self.insert(node_id, StateSender::Shared(sender), version)
+    }
+
+    fn insert(&self, node_id: Uuid, sender: StateSender, version: Option<String>) -> SessionId {
         let now = Utc::now();
         let session = SessionId(self.next_session.fetch_add(1, Ordering::SeqCst));
         let mut workers = self.workers.lock().expect("worker registry lock");
@@ -100,20 +147,17 @@ impl WorkerRegistry {
         }
     }
 
-    pub fn push(&self, node_id: Uuid, state: &DesiredState) -> bool {
+    pub fn push(&self, node_id: Uuid, state: Arc<DesiredState>) -> bool {
         let mut workers = self.workers.lock().expect("worker registry lock");
         let Some(entry) = workers.get_mut(&node_id) else {
             return false;
         };
-        match entry.sender.try_send(state.clone()) {
-            Ok(()) => {
-                entry.dirty = false;
-                true
-            }
-            Err(_) => {
-                entry.dirty = true;
-                false
-            }
+        if entry.sender.try_send(state) {
+            entry.dirty = false;
+            true
+        } else {
+            entry.dirty = true;
+            false
         }
     }
 
@@ -165,6 +209,12 @@ impl WorkerRegistry {
 
 pub trait SnapshotSource: Send + Sync {
     fn build(&self, node_id: Uuid) -> CoreResult<DesiredState>;
+
+    /// Cheap revision probe used to skip rebuilding an unchanged snapshot.
+    /// `None` (the default) forces a rebuild on every publish.
+    fn current_revision(&self, _node_id: Uuid) -> CoreResult<Option<String>> {
+        Ok(None)
+    }
 }
 
 pub trait NodeDirectory: Send + Sync {
@@ -178,6 +228,11 @@ pub struct OrchestrationService {
     stats: Arc<StatsService>,
     directory: Arc<dyn DeviceDirectory>,
     nodes: Arc<dyn NodeDirectory>,
+    /// Serializes build+push per node so a slower, older build cannot land
+    /// after a newer one.
+    publish_locks: Mutex<HashMap<Uuid, Arc<Mutex<()>>>>,
+    /// Last state published per node, reused when the revision is unchanged.
+    published: Mutex<HashMap<Uuid, Arc<DesiredState>>>,
 }
 
 impl OrchestrationService {
@@ -194,6 +249,8 @@ impl OrchestrationService {
             stats,
             directory,
             nodes,
+            publish_locks: Mutex::new(HashMap::new()),
+            published: Mutex::new(HashMap::new()),
         }
     }
 
@@ -205,12 +262,52 @@ impl OrchestrationService {
         self.source.build(node_id).map(|state| state.seal())
     }
 
+    fn publish_lock(&self, node_id: Uuid) -> Arc<Mutex<()>> {
+        let mut locks = self
+            .publish_locks
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        locks.entry(node_id).or_default().clone()
+    }
+
+    fn cached_state(&self, node_id: Uuid) -> Option<Arc<DesiredState>> {
+        let published = self
+            .published
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        published.get(&node_id).cloned()
+    }
+
+    fn remember_state(&self, node_id: Uuid, state: Arc<DesiredState>) {
+        let mut published = self
+            .published
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        published.insert(node_id, state);
+    }
+
     pub fn publish(&self, node_id: Uuid) -> CoreResult<bool> {
         if !self.registry.is_online(node_id) {
             return Ok(false);
         }
-        let state = self.snapshot(node_id)?;
-        Ok(self.registry.push(node_id, &state))
+        let lock = self.publish_lock(node_id);
+        let _guard = lock.lock().unwrap_or_else(|poison| poison.into_inner());
+        // The worker may have gone away while we waited for the lock.
+        if !self.registry.is_online(node_id) {
+            return Ok(false);
+        }
+
+        if let Some(revision) = self.source.current_revision(node_id)?
+            && let Some(cached) = self.cached_state(node_id)
+            && cached.revision == revision
+        {
+            // Re-deliver the cached pointer, but do not rebuild the snapshot.
+            return Ok(self.registry.push(node_id, cached));
+        }
+
+        let state = Arc::new(self.source.build(node_id)?.seal());
+        self.remember_state(node_id, state.clone());
+        Ok(self.registry.push(node_id, state))
     }
 
     pub fn publish_all(&self) {
@@ -309,13 +406,13 @@ mod tests {
         let (sender, mut receiver) = tokio::sync::mpsc::channel(1);
         registry.register(node_id, sender, None);
 
-        assert!(registry.push(node_id, &state(node_id)));
-        assert!(!registry.push(node_id, &state(node_id)));
+        assert!(registry.push(node_id, Arc::new(state(node_id))));
+        assert!(!registry.push(node_id, Arc::new(state(node_id))));
         assert_eq!(registry.dirty_nodes(), vec![node_id]);
 
         let queued = receiver.try_recv().expect("the first state is queued");
         assert_eq!(queued.node_id, node_id);
-        assert!(registry.push(node_id, &state(node_id)));
+        assert!(registry.push(node_id, Arc::new(state(node_id))));
         assert!(registry.dirty_nodes().is_empty());
     }
 
@@ -398,6 +495,124 @@ mod tests {
         registry.register(node_id, sender, None);
         assert!(service.publish(node_id).unwrap());
         assert_eq!(source.count(), 1);
+    }
+
+    const FIXED_TS: i64 = 1_700_000_000;
+
+    fn fixed_state(node_id: Uuid) -> DesiredState {
+        DesiredState {
+            node_id,
+            revision: String::new(),
+            generated_at: DateTime::from_timestamp(FIXED_TS, 0).unwrap(),
+            interfaces: Vec::new(),
+        }
+        .seal()
+    }
+
+    struct FixedRevisionSource {
+        builds: AtomicUsize,
+    }
+
+    impl SnapshotSource for FixedRevisionSource {
+        fn build(&self, node_id: Uuid) -> CoreResult<DesiredState> {
+            self.builds.fetch_add(1, Ordering::SeqCst);
+            Ok(fixed_state(node_id))
+        }
+
+        fn current_revision(&self, node_id: Uuid) -> CoreResult<Option<String>> {
+            Ok(Some(fixed_state(node_id).revision))
+        }
+    }
+
+    struct SequencedSource {
+        builds: AtomicUsize,
+    }
+
+    impl SnapshotSource for SequencedSource {
+        fn build(&self, node_id: Uuid) -> CoreResult<DesiredState> {
+            let sequence = self.builds.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(DesiredState {
+                node_id,
+                revision: String::new(),
+                generated_at: DateTime::from_timestamp(sequence as i64, 0).unwrap(),
+                interfaces: Vec::new(),
+            }
+            .seal())
+        }
+    }
+
+    fn stats() -> Arc<StatsService> {
+        Arc::new(StatsService::new(Arc::new(EmptyStats), Arc::new(Hub)))
+    }
+
+    #[test]
+    fn repeated_publish_with_the_same_revision_reuses_the_snapshot() {
+        let registry = Arc::new(WorkerRegistry::new());
+        let node_id = Uuid::new_v4();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel::<Arc<DesiredState>>(4);
+        registry.register_shared(node_id, sender, None);
+        let source = Arc::new(FixedRevisionSource {
+            builds: AtomicUsize::new(0),
+        });
+        let service = OrchestrationService::new(
+            registry.clone(),
+            source.clone(),
+            stats(),
+            Arc::new(Directory),
+            Arc::new(Nodes),
+        );
+
+        assert!(service.publish(node_id).unwrap());
+        assert!(service.publish(node_id).unwrap());
+        service.publish_all();
+
+        assert_eq!(source.builds.load(Ordering::SeqCst), 1);
+        let first = receiver.try_recv().expect("first state");
+        let second = receiver.try_recv().expect("cached state");
+        let third = receiver
+            .try_recv()
+            .expect("publish_all republished the cache");
+        assert!(Arc::ptr_eq(&first, &second));
+        assert!(Arc::ptr_eq(&first, &third));
+    }
+
+    #[test]
+    fn concurrent_publishes_leave_the_newest_snapshot_last() {
+        let registry = Arc::new(WorkerRegistry::new());
+        let node_id = Uuid::new_v4();
+        let (sender, mut receiver) = tokio::sync::mpsc::channel(8);
+        registry.register(node_id, sender, None);
+        let source = Arc::new(SequencedSource {
+            builds: AtomicUsize::new(0),
+        });
+        let service = OrchestrationService::new(
+            registry.clone(),
+            source.clone(),
+            stats(),
+            Arc::new(Directory),
+            Arc::new(Nodes),
+        );
+
+        std::thread::scope(|scope| {
+            for _ in 0..4 {
+                let service = &service;
+                scope.spawn(move || {
+                    service.publish(node_id).unwrap();
+                });
+            }
+        });
+
+        let builds = source.builds.load(Ordering::SeqCst);
+        assert_eq!(builds, 4);
+        let mut last = None;
+        while let Ok(state) = receiver.try_recv() {
+            last = Some(state);
+        }
+        let last = last.expect("states were published");
+        assert_eq!(
+            last.generated_at,
+            DateTime::from_timestamp(builds as i64, 0).unwrap()
+        );
     }
 
     struct Directory;

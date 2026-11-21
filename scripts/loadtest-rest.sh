@@ -28,6 +28,28 @@ if [ -z "$token" ]; then
   exit 1
 fi
 
+# JWT uses base64url + dots; reject anything else before embedding it in Lua.
+if ! printf '%s' "$token" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+  echo "access_token содержит недопустимые символы" >&2
+  exit 1
+fi
+
+# The token must never appear in argv (/proc/<pid>/cmdline is world-readable).
+# wrk reads headers from a Lua script, so keep it in a 0600 temp file and
+# remove it on exit.
+wrk_script=$(mktemp "${TMPDIR:-/tmp}/awg-loadtest-XXXXXX.lua")
+chmod 600 "$wrk_script"
+cleanup() {
+  rm -f "$wrk_script"
+}
+trap cleanup EXIT INT TERM
+
+cat >"$wrk_script" <<EOF
+wrk.method = "GET"
+wrk.headers["Authorization"] = "Bearer $token"
+wrk.headers["Accept"] = "application/json"
+EOF
+
 endpoints=(
   "/api/v1/health"
   "/api/v1/devices"
@@ -44,8 +66,7 @@ printf 'target: %s\nthreads: %s, connections: %s, duration: %s\n\n' \
 for path in "${endpoints[@]}"; do
   printf '== %s ==\n' "$path"
   wrk -t"$THREADS" -c"$CONNECTIONS" -d"$DURATION" \
-    -H "Authorization: Bearer $token" \
-    -H "Accept: application/json" \
+    -s "$wrk_script" \
     "$BASE_URL$path"
   printf '\n'
 done

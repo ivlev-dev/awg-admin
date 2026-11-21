@@ -23,6 +23,7 @@ mod publish;
 mod rate_limit;
 mod snapshot;
 mod ws;
+pub mod ws_ticket;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -65,6 +66,7 @@ use crate::routes::Readiness;
 use crate::settings::SettingsStore;
 use crate::snapshot::SnapshotBuilder;
 use crate::state::AppState;
+use crate::ws_ticket::WsTicketStore;
 
 pub async fn run() -> Result<()> {
     let log_format = logging::LogFormat::from_env()?;
@@ -287,6 +289,18 @@ pub async fn run() -> Result<()> {
         config.login_rate_limit,
         Duration::from_secs(config.login_rate_window_secs),
     );
+    let login_account_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "login-account",
+        config.login_account_rate_limit,
+        Duration::from_secs(config.login_rate_window_secs),
+    );
+    let login_ip_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "login-ip",
+        config.login_ip_rate_limit,
+        Duration::from_secs(config.login_rate_window_secs),
+    );
     let refresh_limiter = RateLimitScope::new(
         limiter_backend.clone(),
         "refresh",
@@ -298,6 +312,12 @@ pub async fn run() -> Result<()> {
         "register",
         config.register_rate_limit,
         Duration::from_secs(config.register_rate_window_secs),
+    );
+    let webhook_limiter = RateLimitScope::new(
+        limiter_backend.clone(),
+        "webhook",
+        config.webhook_rate_limit,
+        Duration::from_secs(config.webhook_window_secs),
     );
     let resend_limiter = RateLimitScope::new(
         limiter_backend.clone(),
@@ -385,10 +405,14 @@ pub async fn run() -> Result<()> {
         audit,
         billing,
         idempotency,
+        ws_tickets: Arc::new(WsTicketStore::new()),
         import_lock: Arc::new(tokio::sync::Mutex::new(())),
         login_limiter,
+        login_account_limiter,
+        login_ip_limiter,
         refresh_limiter,
         register_limiter,
+        webhook_limiter,
         resend_limiter,
         forgot_limiter,
     });

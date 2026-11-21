@@ -9,6 +9,10 @@ use crate::domain::{AuditEntry, AuditFilter, AuditPage, AuditRepository, validat
 
 const KEY_OFFSET_MICROS: i64 = 9_000_000_000_000_000;
 
+/// Number of entries removed per write transaction while pruning. Keeps the
+/// write lock bounded instead of holding it for the whole table.
+const PRUNE_CHUNK_SIZE: usize = 256;
+
 pub fn audit_key(entry: &AuditEntry) -> String {
     let micros = entry
         .at
@@ -80,8 +84,12 @@ impl AuditRepository for RedbAuditRepository {
     }
 
     fn prune(&self, before: DateTime<Utc>) -> CoreResult<usize> {
-        self.store
-            .retain::<AuditEntry>(Table::Audit, |_, entry| entry.at >= before)
-            .map_err(map_err)
+        let (removed, _chunks) = self
+            .store
+            .retain_chunked::<AuditEntry>(Table::Audit, PRUNE_CHUNK_SIZE, |_, entry| {
+                entry.at >= before
+            })
+            .map_err(map_err)?;
+        Ok(removed)
     }
 }

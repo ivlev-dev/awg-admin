@@ -14,15 +14,16 @@ use uuid::Uuid;
 
 use awg_identity::User;
 use awg_network::NetworkService;
-use awg_shared::cidr::seed_from_uuid;
+use awg_shared::cidr::{seed_from_uuid, validate_pool_prefix};
 use awg_shared::crypto::{Sealer, generate_keypair, random_key};
 use awg_shared::obf::{ObfuscationSettings, generate_client_obf};
 use awg_shared::{CoreError, CoreResult};
 use awg_tariffs::{LimitPolicy, Tariff, TariffService};
 
 use crate::domain::{
-    Device, DevicePage, DevicePageQuery, DevicePeer, DevicePeerRepository, DeviceRepository,
-    Forwarding, ForwardingPolicy, MAX_DEVICE_PAGE_LIMIT, validate_device_name, validate_peer_label,
+    Device, DeviceChange, DevicePage, DevicePageQuery, DevicePeer, DevicePeerRepository,
+    DeviceRepository, Forwarding, ForwardingPolicy, MAX_DEVICE_PAGE_LIMIT, MAX_PEERS_PER_DEVICE,
+    validate_device_name, validate_peer_label,
 };
 
 #[derive(Debug, Clone)]
@@ -249,6 +250,10 @@ impl DeviceService {
         let mut ips = std::collections::BTreeMap::new();
         for pool in &enabled_pools {
             let net = self.network.pool_net(pool)?;
+            // The network layer validates pools on creation, but allocation is
+            // also reachable directly (imports, restored backups). Refuse pools
+            // wider than /16 before walking them.
+            validate_pool_prefix(net)?;
             let gateway = pool
                 .gateway
                 .as_deref()
@@ -321,6 +326,12 @@ impl DeviceService {
         };
 
         let _lock = self.lock_group(device.group_id).await;
+        let device_peers = self.peers.by_device(device_id)?;
+        if device_peers.len() >= MAX_PEERS_PER_DEVICE {
+            return Err(CoreError::Conflict(format!(
+                "device peer limit reached: at most {MAX_PEERS_PER_DEVICE} tunnels per device"
+            )));
+        }
         let all_peers = self.peers.list()?;
         let mut used: HashSet<IpAddr> = all_peers
             .iter()
@@ -523,6 +534,7 @@ impl DeviceService {
         Ok(interface)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &self,
         id: Uuid,
@@ -531,46 +543,41 @@ impl DeviceService {
         down_kbps: Option<u32>,
         up_kbps: Option<u32>,
         forwarding: Option<Forwarding>,
+        revoked: Option<bool>,
     ) -> CoreResult<Device> {
-        let mut device = self.get(id)?;
-        let user_devices = self.devices.by_user(device.user_id)?;
-        if let Some(name) = name {
-            validate_device_name(&name)?;
-            device.name = name.trim().to_string();
-        }
-        if let Some(down) = down_kbps {
-            device.down_kbps = down;
-        }
-        if let Some(up) = up_kbps {
-            device.up_kbps = up;
-        }
-        let (down, up) =
-            LimitPolicy::resolve_device_limits(tariff, device.down_kbps, device.up_kbps);
-        device.down_kbps = down;
-        device.up_kbps = up;
-        if let Some(forwarding) = forwarding {
-            device.forwarding = ForwardingPolicy::normalize(forwarding);
-        }
-        ForwardingPolicy::validate(&device, &user_devices)?;
-        let mut limits: Vec<(u32, u32)> = user_devices
-            .iter()
-            .filter(|d| !d.revoked && d.id != device.id)
-            .map(|d| (d.down_kbps, d.up_kbps))
-            .collect();
-        limits.push((device.down_kbps, device.up_kbps));
-        LimitPolicy::validate_group_sum(tariff, &limits)?;
-        device.updated_at = Utc::now();
-        self.devices.save(&device)?;
-        Ok(device)
+        self.devices.apply_update(
+            id,
+            &DeviceChange {
+                tariff,
+                name,
+                down_kbps,
+                up_kbps,
+                forwarding,
+                revoked,
+            },
+        )
     }
 
-    pub fn apply_limits(&self, id: Uuid, down: u32, up: u32) -> CoreResult<Device> {
-        let mut device = self.get(id)?;
-        device.down_kbps = down;
-        device.up_kbps = up;
-        device.updated_at = Utc::now();
-        self.devices.save(&device)?;
-        Ok(device)
+    /// Applies new bandwidth limits through the same atomic repository path as
+    /// [`Self::update`], so a concurrent revocation cannot be lost.
+    pub fn apply_limits(
+        &self,
+        id: Uuid,
+        tariff: &Tariff,
+        down: u32,
+        up: u32,
+    ) -> CoreResult<Device> {
+        self.devices.apply_update(
+            id,
+            &DeviceChange {
+                tariff,
+                name: None,
+                down_kbps: Some(down),
+                up_kbps: Some(up),
+                forwarding: None,
+                revoked: None,
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -763,11 +770,7 @@ impl DeviceService {
     }
 
     pub fn revoke(&self, id: Uuid, revoked: bool) -> CoreResult<Device> {
-        let mut device = self.get(id)?;
-        device.revoked = revoked;
-        device.updated_at = Utc::now();
-        self.devices.save(&device)?;
-        Ok(device)
+        self.devices.set_revoked(id, revoked)
     }
 
     pub fn delete(&self, id: Uuid) -> CoreResult<()> {

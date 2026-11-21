@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use chrono::{Duration, Utc};
@@ -142,26 +143,30 @@ impl JwtIssuer {
         self.revoke_where(|record| record.family_id == family_id && !record.revoked)
     }
 
+    /// Marks every matching record as revoked in a single write transaction.
+    ///
+    /// Revoking a family used to commit one transaction per record, which
+    /// turned into one fsync per rotated refresh token. Records are read in a
+    /// single read transaction and written back as one batch, so the whole
+    /// operation is one durable commit.
     fn revoke_where(&self, predicate: impl Fn(&RefreshRecord) -> bool) -> CoreResult<usize> {
-        let keys = self
+        let records = self
             .store
-            .keys(Table::RefreshTokens)
+            .list_prefix::<RefreshRecord>(Table::RefreshTokens, "")
             .map_err(|e| CoreError::Crypto(e.to_string()))?;
-        let mut revoked = 0;
-        for key in keys {
-            let Ok(jti) = Uuid::parse_str(&key) else {
-                continue;
-            };
-            let Some(record) = self.record(jti)? else {
-                continue;
-            };
+        let mut updates = Vec::new();
+        for (key, mut record) in records {
             if !predicate(&record) {
                 continue;
             }
-            let mut record = record;
             record.revoked = true;
-            self.save_record(jti, &record)?;
-            revoked += 1;
+            updates.push((Table::RefreshTokens, key, record));
+        }
+        let revoked = updates.len();
+        if revoked > 0 {
+            self.store
+                .put_many(&updates)
+                .map_err(|e| CoreError::Crypto(e.to_string()))?;
         }
         Ok(revoked)
     }
@@ -237,14 +242,17 @@ impl TokenIssuer for JwtIssuer {
 
     fn revoke_session(&self, user_id: Uuid, jti: Uuid) -> CoreResult<()> {
         let _guard = self.guard();
-        let Some(mut record) = self.record(jti)? else {
+        let Some(record) = self.record(jti)? else {
             return Err(CoreError::NotFound("session".into()));
         };
         if record.user_id != user_id {
             return Err(CoreError::NotFound("session".into()));
         }
-        record.revoked = true;
-        self.save_record(jti, &record)
+        // A refresh token is one rotation of a session family. Revoking any
+        // member must invalidate the whole family, otherwise the current
+        // refresh token of the same login would keep working.
+        self.revoke_family(record.family_id)?;
+        Ok(())
     }
 
     fn revoke_all(&self, user_id: Uuid) -> CoreResult<usize> {
@@ -254,22 +262,33 @@ impl TokenIssuer for JwtIssuer {
 
     fn list_sessions(&self, user_id: Uuid) -> CoreResult<Vec<RefreshSession>> {
         let now = Utc::now();
-        let keys = self
+        let records = self
             .store
-            .keys(Table::RefreshTokens)
+            .list_prefix::<RefreshRecord>(Table::RefreshTokens, "")
             .map_err(|e| CoreError::Crypto(e.to_string()))?;
-        let mut sessions = Vec::new();
-        for key in keys {
-            let Ok(jti) = Uuid::parse_str(&key) else {
-                continue;
-            };
-            let Some(record) = self.record(jti)? else {
-                continue;
-            };
+        // One login rotates its refresh token on every use but keeps the same
+        // family id. The UI wants one row per login, so keep the freshest live
+        // rotation of each family (or the freshest record if the family was
+        // revoked).
+        let mut by_family: HashMap<Uuid, (Uuid, RefreshRecord)> = HashMap::new();
+        for (key, record) in records {
             if record.user_id != user_id || record.expires_at <= now {
                 continue;
             }
-            sessions.push(RefreshSession {
+            let Ok(jti) = Uuid::parse_str(&key) else {
+                continue;
+            };
+            let replace = match by_family.get(&record.family_id) {
+                None => true,
+                Some((_, existing)) => session_rank(&record) > session_rank(existing),
+            };
+            if replace {
+                by_family.insert(record.family_id, (jti, record));
+            }
+        }
+        let mut sessions: Vec<RefreshSession> = by_family
+            .into_values()
+            .map(|(jti, record)| RefreshSession {
                 jti,
                 user_id: record.user_id,
                 family_id: record.family_id,
@@ -279,8 +298,8 @@ impl TokenIssuer for JwtIssuer {
                 used: record.used,
                 user_agent: record.user_agent,
                 ip: record.ip,
-            });
-        }
+            })
+            .collect();
         sessions.sort_by_key(|session| std::cmp::Reverse(session.created_at));
         Ok(sessions)
     }
@@ -309,6 +328,13 @@ impl TokenIssuer for JwtIssuer {
         }
         Ok(removed)
     }
+}
+
+/// Orders rotations of one session family: a live record wins over a spent or
+/// revoked one, and newer wins over older. `DateTime` is `Copy`, so the tuple
+/// can be compared without cloning.
+fn session_rank(record: &RefreshRecord) -> (bool, chrono::DateTime<Utc>) {
+    (!record.revoked && !record.used, record.created_at)
 }
 
 fn sanitize(value: Option<&str>, max_len: usize) -> Option<String> {

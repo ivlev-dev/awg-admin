@@ -13,6 +13,11 @@ use crate::obf::ClientObf;
 
 pub const CONTAINER_AWG3: &str = "amnezia-awg3";
 
+/// Hard limit for the decompressed `vpn://` payload. A legitimate key carries
+/// a single client config, so anything close to this size is treated as a
+/// decompression bomb.
+pub const MAX_DECOMPRESSED_BYTES: u64 = 1024 * 1024;
+
 pub struct VpnBundle<'a> {
     pub conf: &'a str,
     pub name: &'a str,
@@ -189,11 +194,16 @@ pub fn vpn_decode(link: &str) -> CoreResult<Value> {
     if bytes.len() <= 4 {
         return Err(CoreError::Codec("vpn payload is truncated".into()));
     }
-    let mut decoder = ZlibDecoder::new(&bytes[4..]);
+    let mut decoder = ZlibDecoder::new(&bytes[4..]).take(MAX_DECOMPRESSED_BYTES + 1);
     let mut inflated = Vec::new();
     decoder
         .read_to_end(&mut inflated)
         .map_err(|e| CoreError::Codec(format!("zlib decode failed: {e}")))?;
+    if inflated.len() as u64 > MAX_DECOMPRESSED_BYTES {
+        return Err(CoreError::Codec(format!(
+            "vpn payload exceeds {MAX_DECOMPRESSED_BYTES} bytes after decompression"
+        )));
+    }
     serde_json::from_slice(&inflated)
         .map_err(|e| CoreError::Codec(format!("invalid vpn json: {e}")))
 }
@@ -345,5 +355,24 @@ mod tests {
     fn rejects_broken_link() {
         assert!(vpn_decode("vpn://%%%").is_err());
         assert!(vpn_to_conf("vpn://AAAA").is_err());
+    }
+
+    #[test]
+    fn rejects_decompression_bombs() {
+        let bomb = vec![0u8; 8 * 1024 * 1024];
+        let mut encoder = ZlibEncoder::new(Vec::new(), Compression::best());
+        encoder.write_all(&bomb).unwrap();
+        let compressed = encoder.finish().unwrap();
+
+        let mut payload = Vec::with_capacity(4 + compressed.len());
+        payload.extend_from_slice(&(bomb.len() as u32).to_be_bytes());
+        payload.extend_from_slice(&compressed);
+        let link = format!("vpn://{}", URL_SAFE_NO_PAD.encode(payload));
+
+        let err = vpn_decode(&link).unwrap_err();
+        assert!(
+            err.to_string().contains("exceeds"),
+            "expected a decompression limit error, got {err}"
+        );
     }
 }

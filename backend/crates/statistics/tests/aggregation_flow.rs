@@ -8,7 +8,7 @@ use awg_statistics::{
     AggregateBucket, Aggregator, CounterSample, DailyBucket, DeviceDirectory, MonthlyBucket, Rate,
     RedbStatsRepository, StatsHub, StatsRepository, StatsScope, StatsService,
 };
-use awg_storage::Store;
+use awg_storage::{Store, Table};
 
 struct Directory {
     group_id: Uuid,
@@ -49,6 +49,7 @@ impl DeviceDirectory for BatchDirectory {
 struct Fixture {
     service: StatsService,
     repo: Arc<RedbStatsRepository>,
+    store: Arc<Store>,
     group_id: Uuid,
     user_id: Uuid,
     interface_id: Uuid,
@@ -59,17 +60,31 @@ struct Fixture {
 fn fixture() -> Fixture {
     let store = Arc::new(Store::open_in_memory().unwrap());
     let hub = Arc::new(StatsHub::new(64));
-    let repo = Arc::new(RedbStatsRepository::new(store));
+    let repo = Arc::new(RedbStatsRepository::new(store.clone()));
     let service = StatsService::new(repo.clone(), hub);
     Fixture {
         service,
         repo,
+        store,
         group_id: Uuid::new_v4(),
         user_id: Uuid::new_v4(),
         interface_id: Uuid::new_v4(),
         device_id: Uuid::new_v4(),
         peer_id: Uuid::new_v4(),
     }
+}
+
+/// Writes bytes that are not a valid bucket so tests can prove that a key was
+/// never deserialized.
+fn write_corrupt_bucket(fixture: &Fixture, key: String) {
+    fixture
+        .store
+        .with_write_txn(|txn| {
+            let mut table = txn.open_table(Table::TrafficBuckets.definition())?;
+            table.insert(key.as_str(), b"{ not a bucket".as_slice())?;
+            Ok(())
+        })
+        .unwrap();
 }
 
 fn directory(fixture: &Fixture) -> Directory {
@@ -338,6 +353,74 @@ fn series_returns_hourly_buckets() {
     assert_eq!(series.len(), 1);
     assert_eq!(series[0].rx, 1_000);
     assert_eq!(series[0].tx, 2_000);
+}
+
+#[test]
+fn series_reads_only_the_requested_hour_range() {
+    let fixture = fixture();
+    let scope = StatsScope::User(fixture.user_id);
+    add(&fixture, scope, "2026-06-01T00:00:00Z", 1, 1);
+    add(&fixture, scope, "2026-06-01T01:00:00Z", 2, 2);
+    add(&fixture, scope, "2026-06-01T05:00:00Z", 5, 5);
+
+    let corrupt_hour = Aggregator::hour_of(utc("2026-06-03T00:00:00Z"));
+    write_corrupt_bucket(&fixture, format!("{}{corrupt_hour}", scope.key_prefix()));
+
+    let buckets = fixture
+        .service
+        .series(
+            scope,
+            utc("2026-06-01T01:00:00Z"),
+            utc("2026-06-01T01:30:00Z"),
+        )
+        .unwrap();
+
+    assert_eq!(buckets.len(), 1);
+    assert_eq!(
+        buckets[0].hour,
+        Aggregator::hour_of(utc("2026-06-01T01:00:00Z"))
+    );
+    assert_eq!((buckets[0].rx, buckets[0].tx), (2, 2));
+}
+
+#[test]
+fn concurrent_snapshots_of_one_node_apply_their_delta_once() {
+    let fixture = fixture();
+    let directory = directory(&fixture);
+    let node_id = Uuid::new_v4();
+    let at = Utc::now();
+    let samples = [(
+        fixture.interface_id,
+        fixture.device_id,
+        CounterSample {
+            peer_id: fixture.peer_id,
+            rx_total: 100,
+            tx_total: 200,
+        },
+    )];
+
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                fixture
+                    .service
+                    .record_node_snapshot_at(node_id, &samples, &directory, at)
+                    .unwrap();
+            });
+        }
+    });
+
+    assert_eq!(
+        fixture
+            .service
+            .totals(
+                StatsScope::Device(fixture.device_id),
+                at - Duration::hours(1),
+                at + Duration::hours(1),
+            )
+            .unwrap(),
+        (100, 200)
+    );
 }
 
 #[test]
@@ -769,6 +852,32 @@ fn device_totals_are_collected_in_a_single_scan() {
     assert_eq!(totals.get(&other_device).copied(), Some((3, 4)));
     assert_eq!(totals.len(), 2);
     assert_eq!(fixture.repo.device_scan_count(), 1);
+}
+
+#[test]
+fn device_totals_skip_out_of_range_buckets_without_deserializing() {
+    let fixture = fixture();
+    let hour = Aggregator::hour_of(Utc::now());
+    fixture
+        .repo
+        .add_bucket(StatsScope::Device(fixture.device_id), hour, 7, 8)
+        .unwrap();
+
+    let corrupt_device = Uuid::new_v4();
+    write_corrupt_bucket(
+        &fixture,
+        format!(
+            "{}|{}|{}",
+            StatsScope::Device(Uuid::nil()).kind(),
+            corrupt_device,
+            hour - 86_400
+        ),
+    );
+
+    let totals = fixture.service.today_device_totals().unwrap();
+    assert_eq!(totals.get(&fixture.device_id).copied(), Some((7, 8)));
+    assert!(!totals.contains_key(&corrupt_device));
+    assert_eq!(totals.len(), 1);
 }
 
 #[test]

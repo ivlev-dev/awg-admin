@@ -48,12 +48,21 @@ pub(crate) async fn publish_node(state: &Arc<AppState>, node_id: Uuid) {
 }
 
 fn publish_group_now(state: &AppState, group_id: Uuid) {
-    for node in node_ids_for_group(state, group_id) {
+    let mut nodes = node_ids_for_group(state, group_id);
+    nodes.sort_unstable();
+    nodes.dedup();
+    for node in nodes {
         push_node(state, node);
     }
 }
 
 fn push_node(state: &AppState, node: Uuid) {
+    // Building a snapshot for a node without a connected worker is wasted
+    // work. Offline nodes receive a fresh snapshot on connect, so no pending
+    // marker is required.
+    if !state.registry.is_online(node) {
+        return;
+    }
     if state.registry.mark_dirty(node) {
         let _ = state.orchestration.publish(node);
     }
@@ -69,8 +78,14 @@ fn publish_user_groups_now(state: &AppState, user_id: Uuid) {
     if let Ok(devices) = state.devices.list_for_user(user_id) {
         groups.extend(devices.iter().map(|device| device.group_id));
     }
+    let mut nodes: HashSet<Uuid> = HashSet::new();
     for group in groups {
-        publish_group_now(state, group);
+        nodes.extend(node_ids_for_group(state, group));
+    }
+    let mut nodes: Vec<Uuid> = nodes.into_iter().collect();
+    nodes.sort_unstable();
+    for node in nodes {
+        push_node(state, node);
     }
 }
 

@@ -1,16 +1,22 @@
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{ConnectInfo, Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
+use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use awg_identity::{RegisterInput, SessionMetadata};
+use awg_shared::CoreError;
+use awg_statistics::StatsScope;
 
 use crate::audit::{client_ip, record_login};
 use crate::auth::AuthUser;
 use crate::blocking;
+use crate::controllers::stats::{authorize_scope, parse_scope};
 use crate::error::{ApiError, ApiResult};
 use crate::models::{
     ChangePasswordRequest, DisableTotpRequest, EnableTotpRequest, ForgotPasswordRequest,
@@ -28,7 +34,17 @@ pub async fn login(
 ) -> ApiResult<Json<AuthView>> {
     let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = rate_key(ip.as_deref(), &request.email);
-    if let Err(retry_after) = state.login_limiter.check(&key) {
+    let account_key = account_key(&request.email);
+    let ip_limit_key = ip_key("login-ip", ip.as_deref());
+    let limited = [
+        state.login_limiter.check(&key).err(),
+        state.login_account_limiter.check(&account_key).err(),
+        state.login_ip_limiter.check(&ip_limit_key).err(),
+    ]
+    .into_iter()
+    .flatten()
+    .next();
+    if let Some(retry_after) = limited {
         crate::metrics::record_rate_limited("login");
         crate::metrics::record_login("rate_limited");
         record_login(
@@ -97,7 +113,13 @@ pub async fn refresh(
 ) -> ApiResult<Json<AuthView>> {
     let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = format!("refresh:{}", ip.unwrap_or_else(|| "unknown".into()));
-    if let Err(retry_after) = state.refresh_limiter.check(&key) {
+    let token_key = refresh_token_key(&request.refresh_token);
+    let limited = state
+        .refresh_limiter
+        .check(&key)
+        .err()
+        .or_else(|| state.refresh_limiter.check(&token_key).err());
+    if let Some(retry_after) = limited {
         crate::metrics::record_rate_limited("refresh");
         return Err(ApiError::TooManyRequests {
             message: "too many refresh attempts, try again later".into(),
@@ -130,12 +152,41 @@ pub async fn logout(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+#[derive(Debug, Default, Deserialize)]
+pub struct WsTicketRequest {
+    pub scope: Option<String>,
+    pub id: Option<Uuid>,
+}
+
+/// Issues a short-lived, single-use ticket for the statistics WebSocket. The
+/// ticket replaces the access token in the query string.
+pub async fn ws_ticket(
+    State(state): State<Arc<AppState>>,
+    user: AuthUser,
+    request: Option<Json<WsTicketRequest>>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let request = request.map(|Json(request)| request).unwrap_or_default();
+    let scope = match request.scope.as_deref() {
+        None | Some("global") => StatsScope::Global,
+        Some(kind) => parse_scope(kind, request.id)?,
+    };
+    authorize_scope(&state, &user, scope)?;
+    let (ticket, expires_in) = state.ws_tickets.issue(user.id(), scope);
+    Ok(Json(serde_json::json!({
+        "ticket": ticket,
+        "expires_in": expires_in,
+    })))
+}
+
 pub async fn register(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     Json(request): Json<RegisterRequest>,
 ) -> ApiResult<(StatusCode, Json<serde_json::Value>)> {
+    if !state.config.registration_enabled {
+        return Err(ApiError::RegistrationDisabled);
+    }
     let ip = client_ip(Some(peer), &headers, &state.config.trusted_proxies);
     let key = ip_key("register", ip.as_deref());
     if let Err(retry_after) = state.register_limiter.check(&key) {
@@ -145,7 +196,14 @@ pub async fn register(
             retry_after,
         });
     }
-    state
+    // The response never depends on whether the email already has an account:
+    // reporting "email is already registered" would turn registration into an
+    // account-enumeration oracle. Validation errors (malformed email, weak
+    // password) are still reported as 400 because they describe the input, not
+    // another account. `IdentityService::register` also hashes the password
+    // before the duplicate check so the timing stays comparable, and it never
+    // sends a verification email for an existing address.
+    match state
         .identity
         .register(RegisterInput {
             email: request.email,
@@ -153,7 +211,10 @@ pub async fn register(
             password: request.password,
         })
         .await
-        .map_err(ApiError::from)?;
+    {
+        Ok(_) | Err(CoreError::Conflict(_)) => {}
+        Err(error) => return Err(ApiError::from(error)),
+    }
     Ok((
         StatusCode::ACCEPTED,
         Json(serde_json::json!({ "status": "pending_email" })),
@@ -259,9 +320,12 @@ pub async fn totp_enable(
     user: AuthUser,
     Json(request): Json<EnableTotpRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    state
-        .identity
-        .enable_totp(user.id(), &request.code)
+    let identity = state.identity.clone();
+    let user_id = user.id();
+    let password = request.password.clone();
+    let code = request.code.clone();
+    blocking::run_core(move || identity.enable_totp(user_id, &password, &code))
+        .await
         .map_err(ApiError::from)?;
     Ok(Json(serde_json::json!({ "enabled": true })))
 }
@@ -384,6 +448,20 @@ fn rate_key(ip: Option<&str>, email: &str) -> String {
     )
 }
 
+fn account_key(email: &str) -> String {
+    email.trim().to_lowercase()
+}
+
+fn refresh_token_key(token: &str) -> String {
+    let digest = Sha256::digest(token.as_bytes());
+    let mut out = String::with_capacity(8 + 32);
+    out.push_str("token:");
+    for byte in digest.iter().take(16) {
+        let _ = write!(out, "{byte:02x}");
+    }
+    out
+}
+
 fn ip_key(prefix: &str, ip: Option<&str>) -> String {
     format!("{prefix}:{}", ip.unwrap_or("unknown"))
 }
@@ -425,6 +503,58 @@ mod tests {
             scope
                 .check(&rate_key(Some("198.51.100.1"), "user@example.com"))
                 .is_ok()
+        );
+    }
+
+    #[test]
+    fn account_key_is_normalized_without_the_ip() {
+        assert_eq!(account_key(" User@Example.COM "), "user@example.com");
+        assert_eq!(account_key("user@example.com"), "user@example.com");
+    }
+
+    #[test]
+    fn refresh_token_key_is_a_stable_short_hash() {
+        let key = refresh_token_key("refresh-token-a");
+        assert_eq!(key, refresh_token_key("refresh-token-a"));
+        assert_ne!(key, refresh_token_key("refresh-token-b"));
+        assert!(key.starts_with("token:"));
+        assert_eq!(key.len(), "token:".len() + 32);
+        assert!(!key.contains("refresh-token"));
+    }
+
+    #[test]
+    fn login_limits_are_independent_per_scope() {
+        let window = Duration::from_secs(60);
+        let backend = Arc::new(MemoryRateLimiter::new());
+        let pair = RateLimitScope::new(backend.clone(), "login", 100, window);
+        let account = RateLimitScope::new(backend.clone(), "login-account", 2, window);
+        let ip = RateLimitScope::new(backend.clone(), "login-ip", 2, window);
+
+        // The same account from different addresses eventually hits the
+        // per-account limit, while each pair stays below its own limit.
+        for source in ["198.51.100.1", "198.51.100.2"] {
+            let key = rate_key(Some(source), "victim@example.com");
+            assert!(pair.check(&key).is_ok());
+            assert!(account.check(&account_key("victim@example.com")).is_ok());
+            assert!(ip.check(&ip_key("login-ip", Some(source))).is_ok());
+        }
+        assert!(
+            account.check(&account_key("victim@example.com")).is_err(),
+            "the account limit must trip across addresses"
+        );
+
+        // Different accounts from one address eventually hit the per-IP
+        // limit, while every account stays below its own limit.
+        let backend = Arc::new(MemoryRateLimiter::new());
+        let account = RateLimitScope::new(backend.clone(), "login-account", 100, window);
+        let ip = RateLimitScope::new(backend.clone(), "login-ip", 2, window);
+        for email in ["a@example.com", "b@example.com"] {
+            assert!(account.check(&account_key(email)).is_ok());
+            assert!(ip.check(&ip_key("login-ip", Some("203.0.113.7"))).is_ok());
+        }
+        assert!(
+            ip.check(&ip_key("login-ip", Some("203.0.113.7"))).is_err(),
+            "the IP limit must trip across accounts"
         );
     }
 }

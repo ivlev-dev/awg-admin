@@ -1,13 +1,17 @@
 use std::sync::Arc;
 
 use axum::Router;
+use axum::extract::Request;
+use axum::http::{HeaderValue, header};
+use axum::middleware::{self, Next};
+use axum::response::Response;
 use axum::routing::{delete, get, post};
 
 use crate::controllers;
 use crate::state::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
-    Router::new()
+    let auth = Router::new()
         .route("/auth/login", post(controllers::auth::login))
         .route("/auth/register", post(controllers::auth::register))
         .route("/auth/verify-email", post(controllers::auth::verify_email))
@@ -39,6 +43,14 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/auth/totp/setup", post(controllers::auth::totp_setup))
         .route("/auth/totp/enable", post(controllers::auth::totp_enable))
         .route("/auth/totp/disable", post(controllers::auth::totp_disable))
+        .route("/ws/ticket", post(controllers::auth::ws_ticket))
+        .layer(middleware::from_fn(no_store));
+
+    auth.merge(users())
+}
+
+fn users() -> Router<Arc<AppState>> {
+    Router::new()
         .route("/users/pending", get(controllers::users::pending))
         .route(
             "/users",
@@ -58,4 +70,19 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/users/{id}/approve", post(controllers::users::approve))
         .route("/users/{id}/reject", post(controllers::users::reject))
+}
+
+/// Auth responses carry credentials (access and refresh tokens), so they must
+/// never be stored by browsers or intermediate caches.
+async fn no_store(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    response
+        .headers_mut()
+        .entry(header::CACHE_CONTROL)
+        .or_insert(HeaderValue::from_static("no-store"));
+    response
+        .headers_mut()
+        .entry(header::PRAGMA)
+        .or_insert(HeaderValue::from_static("no-cache"));
+    response
 }

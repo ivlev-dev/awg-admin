@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -6,7 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use uuid::Uuid;
 
-use awg_statistics::{AggregateBucket, StatsScope};
+use awg_statistics::{AggregateBucket, Rate, StatsScope};
 
 use crate::auth::AuthUser;
 use crate::blocking;
@@ -40,68 +41,145 @@ pub struct AggregateView {
 }
 
 const TOP_DEVICES: usize = 8;
+const MAX_SERIES_WINDOW_DAYS: i64 = 366;
+
+struct OverviewData {
+    devices: Vec<awg_clients::Device>,
+    today: (u64, u64),
+    month: (u64, u64),
+    rate: Rate,
+    today_by_device: HashMap<Uuid, (u64, u64)>,
+    device_rates: HashMap<Uuid, Rate>,
+    nodes_online: usize,
+    nodes_total: usize,
+    interfaces: usize,
+    groups: usize,
+    users: usize,
+}
 
 pub async fn overview(
     State(state): State<Arc<AppState>>,
     user: AuthUser,
 ) -> ApiResult<Json<OverviewView>> {
-    let scope = if user.is_admin() {
-        StatsScope::Global
-    } else {
-        StatsScope::User(user.id())
-    };
-    let (today_rx, today_tx) = state.stats.today(scope).map_err(ApiError::from)?;
-    let (month_rx, month_tx) = state.stats.month(scope).map_err(ApiError::from)?;
-    let rate = state.stats.current_rate(&scope).unwrap_or_default();
+    let admin = user.is_admin();
+    let user_id = user.id();
+    let stats = state.stats.clone();
+    let devices_service = state.devices.clone();
+    let network = state.network.clone();
+    let identity = state.identity.clone();
+    let registry = state.registry.clone();
 
-    let devices = visible_devices(&state, &user).await?;
+    let data = blocking::run_api(move || {
+        let devices = if admin {
+            devices_service.list_all()?
+        } else {
+            devices_service.list_for_user(user_id)?
+        };
+        let scope = if admin {
+            StatsScope::Global
+        } else {
+            StatsScope::User(user_id)
+        };
+        let today = stats.today(scope)?;
+        let month = stats.month(scope)?;
+        let rate = stats.current_rate(&scope).unwrap_or_default();
+
+        let device_scopes: Vec<StatsScope> = devices
+            .iter()
+            .filter(|device| !device.revoked)
+            .map(|device| StatsScope::Device(device.id))
+            .collect();
+        let today_by_device = if admin {
+            stats.today_device_totals()?
+        } else {
+            stats
+                .today_many(&device_scopes)?
+                .into_iter()
+                .filter_map(|(scope, totals)| match scope {
+                    StatsScope::Device(id) => Some((id, totals)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let device_rates: HashMap<Uuid, Rate> = device_scopes
+            .iter()
+            .filter_map(|scope| match scope {
+                StatsScope::Device(id) => stats.current_rate(scope).map(|rate| (*id, rate)),
+                _ => None,
+            })
+            .collect();
+
+        let nodes = if admin {
+            network.list_nodes()?
+        } else {
+            Vec::new()
+        };
+        let nodes_online = nodes
+            .iter()
+            .filter(|node| registry.is_online(node.id))
+            .count();
+        let nodes_total = nodes.len();
+        let interfaces = if admin {
+            network.list_interfaces()?.len()
+        } else {
+            0
+        };
+        let groups = if admin {
+            network.list_groups()?.len()
+        } else {
+            0
+        };
+        let users = if admin { identity.list()?.len() } else { 1 };
+
+        Ok(OverviewData {
+            devices,
+            today,
+            month,
+            rate,
+            today_by_device,
+            device_rates,
+            nodes_online,
+            nodes_total,
+            interfaces,
+            groups,
+            users,
+        })
+    })
+    .await?;
+
+    let OverviewData {
+        devices,
+        today,
+        month,
+        rate,
+        today_by_device,
+        device_rates,
+        nodes_online,
+        nodes_total,
+        interfaces,
+        groups,
+        users,
+    } = data;
     let devices_total = devices.len();
-    let today_by_device = state.stats.today_device_totals().map_err(ApiError::from)?;
-    let top = top_devices(&devices, &today_by_device, TOP_DEVICES);
-
-    let nodes = if user.is_admin() {
-        state.network.list_nodes().map_err(ApiError::from)?
-    } else {
-        Vec::new()
-    };
-    let nodes_online = nodes
-        .iter()
-        .filter(|n| state.registry.is_online(n.id))
-        .count();
+    let top = top_devices(&devices, &today_by_device, &device_rates, TOP_DEVICES);
 
     Ok(Json(OverviewView {
         today: TrafficTotals {
-            rx: today_rx,
-            tx: today_tx,
+            rx: today.0,
+            tx: today.1,
         },
         month: TrafficTotals {
-            rx: month_rx,
-            tx: month_tx,
+            rx: month.0,
+            tx: month.1,
         },
         rx_bps: rate.rx_bps,
         tx_bps: rate.tx_bps,
         nodes_online,
-        nodes_total: nodes.len(),
-        interfaces: if user.is_admin() {
-            state
-                .network
-                .list_interfaces()
-                .map_err(ApiError::from)?
-                .len()
-        } else {
-            0
-        },
-        groups: if user.is_admin() {
-            state.network.list_groups().map_err(ApiError::from)?.len()
-        } else {
-            0
-        },
+        nodes_total,
+        interfaces,
+        groups,
         devices: devices_total,
-        users: if user.is_admin() {
-            state.identity.list().map_err(ApiError::from)?.len()
-        } else {
-            1
-        },
+        users,
         top_devices: top,
     }))
 }
@@ -126,7 +204,8 @@ async fn visible_devices(
 
 fn top_devices(
     devices: &[awg_clients::Device],
-    totals: &std::collections::HashMap<Uuid, (u64, u64)>,
+    totals: &HashMap<Uuid, (u64, u64)>,
+    rates: &HashMap<Uuid, Rate>,
     limit: usize,
 ) -> Vec<DeviceTrafficView> {
     let mut ranked: Vec<DeviceTrafficView> = devices
@@ -134,13 +213,16 @@ fn top_devices(
         .filter(|device| !device.revoked)
         .map(|device| {
             let (rx, tx) = totals.get(&device.id).copied().unwrap_or_default();
+            let online = rates
+                .get(&device.id)
+                .is_some_and(|rate| rate.rx_bps > 0.0 || rate.tx_bps > 0.0);
             DeviceTrafficView {
                 device_id: device.id,
                 name: device.name.clone(),
                 user_id: device.user_id,
                 rx,
                 tx,
-                online: false,
+                online,
             }
         })
         .collect();
@@ -159,33 +241,38 @@ pub async fn devices(
     user: AuthUser,
 ) -> ApiResult<Json<Vec<DeviceStatsView>>> {
     let devices = visible_devices(&state, &user).await?;
-    let scopes: Vec<StatsScope> = devices
-        .iter()
-        .filter(|device| !device.revoked)
-        .map(|device| StatsScope::Device(device.id))
-        .collect();
-    let today = state.stats.today_many(&scopes).map_err(ApiError::from)?;
-    let month = state.stats.month_many(&scopes).map_err(ApiError::from)?;
-    let mut views = Vec::with_capacity(scopes.len());
-    for device in devices.iter().filter(|device| !device.revoked) {
-        let scope = StatsScope::Device(device.id);
-        let (today_rx, today_tx) = today.get(&scope).copied().unwrap_or_default();
-        let (month_rx, month_tx) = month.get(&scope).copied().unwrap_or_default();
-        let rate = state.stats.current_rate(&scope).unwrap_or_default();
-        views.push(DeviceStatsView {
-            device_id: device.id,
-            today: TrafficTotals {
-                rx: today_rx,
-                tx: today_tx,
-            },
-            month: TrafficTotals {
-                rx: month_rx,
-                tx: month_tx,
-            },
-            rx_bps: rate.rx_bps,
-            tx_bps: rate.tx_bps,
-        });
-    }
+    let stats = state.stats.clone();
+    let views = blocking::run_api(move || {
+        let scopes: Vec<StatsScope> = devices
+            .iter()
+            .filter(|device| !device.revoked)
+            .map(|device| StatsScope::Device(device.id))
+            .collect();
+        let today = stats.today_many(&scopes)?;
+        let month = stats.month_many(&scopes)?;
+        let mut views = Vec::with_capacity(scopes.len());
+        for device in devices.iter().filter(|device| !device.revoked) {
+            let scope = StatsScope::Device(device.id);
+            let (today_rx, today_tx) = today.get(&scope).copied().unwrap_or_default();
+            let (month_rx, month_tx) = month.get(&scope).copied().unwrap_or_default();
+            let rate = stats.current_rate(&scope).unwrap_or_default();
+            views.push(DeviceStatsView {
+                device_id: device.id,
+                today: TrafficTotals {
+                    rx: today_rx,
+                    tx: today_tx,
+                },
+                month: TrafficTotals {
+                    rx: month_rx,
+                    tx: month_tx,
+                },
+                rx_bps: rate.rx_bps,
+                tx_bps: rate.tx_bps,
+            });
+        }
+        Ok(views)
+    })
+    .await?;
     Ok(Json(views))
 }
 
@@ -196,17 +283,13 @@ pub async fn series(
 ) -> ApiResult<Json<Vec<StatsSeriesPoint>>> {
     let scope = parse_scope(&query.scope, query.id)?;
     authorize_scope(&state, &user, scope)?;
-    let to = query
-        .to
-        .and_then(|ts| DateTime::from_timestamp(ts, 0))
-        .unwrap_or_else(Utc::now);
-    let from = query
-        .from
-        .and_then(|ts| DateTime::from_timestamp(ts, 0))
-        .unwrap_or_else(|| to - Duration::days(1));
-    let points = state
-        .stats
-        .series_with_rates(scope, from, to)
+    let to = parse_optional_timestamp(query.to, "to")?.unwrap_or_else(Utc::now);
+    let from =
+        parse_optional_timestamp(query.from, "from")?.unwrap_or_else(|| to - Duration::days(1));
+    validate_series_range(from, to)?;
+    let stats = state.stats.clone();
+    let points = blocking::run_core(move || stats.series_with_rates(scope, from, to))
+        .await
         .map_err(ApiError::from)?;
     Ok(Json(
         points
@@ -240,34 +323,37 @@ pub async fn aggregate(
             .ok_or_else(|| ApiError::BadRequest("from is out of range".into()))?,
         None => to - default_span(bucket),
     };
-    let points = match bucket {
-        AggregateBucket::Day => state
-            .stats
-            .daily(scope, from, to)
-            .map_err(ApiError::from)?
-            .into_iter()
-            .filter_map(|bucket| {
-                DateTime::from_timestamp(bucket.day, 0).map(|at| StatsPoint {
-                    at,
-                    rx: bucket.rx,
-                    tx: bucket.tx,
+    let stats = state.stats.clone();
+    let points = blocking::run_api(move || {
+        let points = match bucket {
+            AggregateBucket::Day => stats
+                .daily(scope, from, to)
+                .map_err(ApiError::from)?
+                .into_iter()
+                .filter_map(|bucket| {
+                    DateTime::from_timestamp(bucket.day, 0).map(|at| StatsPoint {
+                        at,
+                        rx: bucket.rx,
+                        tx: bucket.tx,
+                    })
                 })
-            })
-            .collect(),
-        AggregateBucket::Month => state
-            .stats
-            .monthly(scope, from, to)
-            .map_err(ApiError::from)?
-            .into_iter()
-            .filter_map(|bucket| {
-                month_start(&bucket.month).map(|at| StatsPoint {
-                    at,
-                    rx: bucket.rx,
-                    tx: bucket.tx,
+                .collect(),
+            AggregateBucket::Month => stats
+                .monthly(scope, from, to)
+                .map_err(ApiError::from)?
+                .into_iter()
+                .filter_map(|bucket| {
+                    month_start(&bucket.month).map(|at| StatsPoint {
+                        at,
+                        rx: bucket.rx,
+                        tx: bucket.tx,
+                    })
                 })
-            })
-            .collect(),
-    };
+                .collect(),
+        };
+        Ok(points)
+    })
+    .await?;
     Ok(Json(AggregateView {
         bucket: bucket.as_str(),
         points,
@@ -279,19 +365,27 @@ pub async fn device_stats(
     user: AuthUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let device = state.devices.get(id).map_err(ApiError::from)?;
+    let devices = state.devices.clone();
+    let device = blocking::run_core(move || devices.get(id))
+        .await
+        .map_err(ApiError::from)?;
     user.require_self_or_admin(device.user_id)?;
-    let scope = StatsScope::Device(id);
-    let (today_rx, today_tx) = state.stats.today(scope).map_err(ApiError::from)?;
-    let (month_rx, month_tx) = state.stats.month(scope).map_err(ApiError::from)?;
-    let rate = state.stats.current_rate(&scope).unwrap_or_default();
-    Ok(Json(serde_json::json!({
-        "device_id": id,
-        "today": { "rx": today_rx, "tx": today_tx },
-        "month": { "rx": month_rx, "tx": month_tx },
-        "rx_bps": rate.rx_bps,
-        "tx_bps": rate.tx_bps,
-    })))
+    let stats = state.stats.clone();
+    let view = blocking::run_api(move || {
+        let scope = StatsScope::Device(id);
+        let (today_rx, today_tx) = stats.today(scope)?;
+        let (month_rx, month_tx) = stats.month(scope)?;
+        let rate = stats.current_rate(&scope).unwrap_or_default();
+        Ok(serde_json::json!({
+            "device_id": id,
+            "today": { "rx": today_rx, "tx": today_tx },
+            "month": { "rx": month_rx, "tx": month_tx },
+            "rx_bps": rate.rx_bps,
+            "tx_bps": rate.tx_bps,
+        }))
+    })
+    .await?;
+    Ok(Json(view))
 }
 
 pub fn parse_scope(scope: &str, id: Option<Uuid>) -> Result<StatsScope, ApiError> {
@@ -300,7 +394,6 @@ pub fn parse_scope(scope: &str, id: Option<Uuid>) -> Result<StatsScope, ApiError
     }
     let id = id.ok_or_else(|| ApiError::BadRequest("scope id is required".into()))?;
     match scope {
-        "global" => Ok(StatsScope::Global),
         "user" => Ok(StatsScope::User(id)),
         "group" => Ok(StatsScope::Group(id)),
         "interface" => Ok(StatsScope::Interface(id)),
@@ -312,6 +405,30 @@ pub fn parse_scope(scope: &str, id: Option<Uuid>) -> Result<StatsScope, ApiError
 pub fn parse_bucket(value: &str) -> Result<AggregateBucket, ApiError> {
     AggregateBucket::parse(value)
         .ok_or_else(|| ApiError::BadRequest(format!("unknown bucket {value:?}")))
+}
+
+fn parse_optional_timestamp(
+    value: Option<i64>,
+    name: &str,
+) -> Result<Option<DateTime<Utc>>, ApiError> {
+    value
+        .map(|ts| {
+            DateTime::from_timestamp(ts, 0)
+                .ok_or_else(|| ApiError::BadRequest(format!("{name} is out of range")))
+        })
+        .transpose()
+}
+
+fn validate_series_range(from: DateTime<Utc>, to: DateTime<Utc>) -> Result<(), ApiError> {
+    if to < from {
+        return Err(ApiError::BadRequest("to must not be before from".into()));
+    }
+    if to - from > Duration::days(MAX_SERIES_WINDOW_DAYS) {
+        return Err(ApiError::BadRequest(format!(
+            "range must not exceed {MAX_SERIES_WINDOW_DAYS} days"
+        )));
+    }
+    Ok(())
 }
 
 fn default_span(bucket: AggregateBucket) -> Duration {
@@ -452,5 +569,45 @@ mod tests {
         let at = month_start("2026-02").unwrap();
         assert_eq!(at, utc("2026-02-01T00:00:00Z"));
         assert!(month_start("2026-13").is_none());
+    }
+
+    #[test]
+    fn series_range_accepts_a_bounded_window() {
+        let from = utc("2026-01-01T00:00:00Z");
+        let to = from + Duration::days(MAX_SERIES_WINDOW_DAYS);
+        assert!(validate_series_range(from, to).is_ok());
+        assert!(validate_series_range(from, from).is_ok());
+    }
+
+    #[test]
+    fn series_range_rejects_an_inverted_window() {
+        let from = utc("2026-01-02T00:00:00Z");
+        let to = utc("2026-01-01T00:00:00Z");
+        assert!(matches!(
+            validate_series_range(from, to),
+            Err(ApiError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn series_range_rejects_an_oversized_window() {
+        let from = utc("2025-01-01T00:00:00Z");
+        let to = from + Duration::days(MAX_SERIES_WINDOW_DAYS + 1);
+        assert!(matches!(
+            validate_series_range(from, to),
+            Err(ApiError::BadRequest(_))
+        ));
+    }
+
+    #[test]
+    fn out_of_range_series_timestamps_are_rejected() {
+        assert!(matches!(
+            parse_optional_timestamp(Some(i64::MAX), "to"),
+            Err(ApiError::BadRequest(_))
+        ));
+        assert_eq!(
+            parse_optional_timestamp(Some(0), "from").unwrap(),
+            Some(utc("1970-01-01T00:00:00Z"))
+        );
     }
 }

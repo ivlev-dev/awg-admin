@@ -116,14 +116,50 @@ impl User {
     }
 }
 
+pub const MIN_PASSWORD_LEN: usize = 10;
+pub const MAX_PASSWORD_LEN: usize = 1024;
+
+/// Passwords that are common enough to be guessed in the first few attempts.
+/// The development seed password (`admin12345`) is deliberately absent: it is
+/// rejected separately in production by the admin password check.
+const COMMON_PASSWORDS: &[&str] = &[
+    "password",
+    "password1",
+    "qwerty123",
+    "1234567890",
+    "letmein123",
+];
+
 pub fn validate_password(password: &str) -> CoreResult<()> {
-    if password.chars().count() < 8 {
+    if password.chars().count() < MIN_PASSWORD_LEN {
+        return Err(CoreError::Invalid(format!(
+            "password is too weak: at least {MIN_PASSWORD_LEN} characters required"
+        )));
+    }
+    if password.len() > MAX_PASSWORD_LEN {
+        return Err(CoreError::Invalid(format!(
+            "password is too weak: at most {MAX_PASSWORD_LEN} bytes allowed"
+        )));
+    }
+    let lowered = password.to_ascii_lowercase();
+    if COMMON_PASSWORDS.contains(&lowered.as_str()) {
         return Err(CoreError::Invalid(
-            "password must be at least 8 characters".into(),
+            "password is too weak: it is one of the most common passwords".into(),
         ));
     }
-    if password.len() > 1024 {
-        return Err(CoreError::Invalid("password is too long".into()));
+    Ok(())
+}
+
+/// Validates a password in the context of its account email. Besides the
+/// standalone policy, a password must not repeat the email local part: it is
+/// public knowledge and would make credential stuffing trivial.
+pub fn validate_password_for_email(password: &str, email: &str) -> CoreResult<()> {
+    validate_password(password)?;
+    let local = email.split('@').next().unwrap_or_default().trim();
+    if !local.is_empty() && password.eq_ignore_ascii_case(local) {
+        return Err(CoreError::Invalid(
+            "password is too weak: it must differ from the email local part".into(),
+        ));
     }
     Ok(())
 }
@@ -228,6 +264,13 @@ pub trait UserRepository: Send + Sync {
     fn save(&self, user: &User) -> CoreResult<()>;
     fn delete(&self, id: Uuid) -> CoreResult<()>;
     fn count(&self) -> CoreResult<usize>;
+
+    /// Returns the unix second at which access tokens of `user_id` were last
+    /// invalidated, if any.
+    fn access_epoch(&self, user_id: Uuid) -> CoreResult<Option<i64>>;
+
+    /// Records a new access-token revocation epoch for `user_id`.
+    fn set_access_epoch(&self, user_id: Uuid, epoch_secs: i64) -> CoreResult<()>;
 
     fn page(&self, query: &UserPageQuery) -> CoreResult<UserPage> {
         let mut matched: Vec<User> = self
@@ -510,6 +553,36 @@ mod tests {
         assert_eq!(reset, "\"reset_password\"");
         let parsed: VerificationKind = serde_json::from_str("\"verify_email\"").unwrap();
         assert_eq!(parsed, VerificationKind::VerifyEmail);
+    }
+
+    #[test]
+    fn validates_password_strength() {
+        for weak in ["short", "123456789", "password", "Password1", "Qwerty123"] {
+            let error = validate_password(weak).unwrap_err().to_string();
+            assert!(error.contains("password is too weak"), "{weak}: {error}");
+        }
+        assert!(validate_password("correct-horse-42").is_ok());
+        assert!(
+            validate_password("admin12345").is_ok(),
+            "the development seed password must stay usable"
+        );
+        assert!(validate_password("a".repeat(MAX_PASSWORD_LEN).as_str()).is_ok());
+        assert!(validate_password("a".repeat(MAX_PASSWORD_LEN + 1).as_str()).is_err());
+    }
+
+    #[test]
+    fn rejects_a_password_matching_the_email_local_part() {
+        for (password, email) in [
+            ("alice.smith", "alice.smith@example.com"),
+            ("AliceSmith", "alicesmith@example.com"),
+        ] {
+            let error = validate_password_for_email(password, email)
+                .unwrap_err()
+                .to_string();
+            assert!(error.contains("password is too weak"), "{error}");
+            assert!(error.contains("email local part"), "{error}");
+        }
+        assert!(validate_password_for_email("correct-horse-42", "alice@example.com").is_ok());
     }
 
     #[test]

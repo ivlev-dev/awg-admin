@@ -7,5 +7,5 @@ pub use application::{
 };
 pub use infrastructure::{
     FileCounterRepository, GrpcTlsOptions, NetlinkAwg, NftForwarding, NodeMetrics, TcShaper,
-    WorkerClient,
+    WorkerClient, env_flag, parse_flag, url_is_remote,
 };
