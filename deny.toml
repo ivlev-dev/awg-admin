@@ -2,6 +2,9 @@
 all-features = false
 no-default-features = false
 
+# Проверяется в CI job «Dependencies policy» (`.github/workflows/ci.yml`,
+# `cargo deny check`). Локально: `cargo deny check`.
+
 [advisories]
 version = 2
 db-urls = ["https://github.com/RustSec/advisory-db"]

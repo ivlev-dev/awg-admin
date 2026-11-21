@@ -6,23 +6,23 @@
 {"error":{"code":"not_found","message":"..."}}
 ```
 
-Коды: `bad_request`, `invalid_idempotency_key`, `idempotency_in_progress`, `idempotency_key_mismatch`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
+Коды: `bad_request`, `invalid_idempotency_key`, `idempotency_in_progress`, `idempotency_key_mismatch`, `invalid_token`, `invalid_filter`, `unauthorized`, `forbidden`, `not_found`, `billing_disabled`, `registration_disabled`, `conflict`, `tariff_required`, `too_many_requests`, `internal`, `totp_required`, `totp_invalid`, `email_not_verified`, `pending_approval`, `rejected`, `account_disabled`. Пагинации нет. Права: `public`, `user`, `admin`; `user (self)` — только владелец объекта или admin. Ответ `429` дополнительно содержит заголовок `Retry-After` (секунды).
 
 ## Маршруты
 
 | Метод | Путь | Права | Запрос | Ответ |
 |---|---|---|---|---|
-| GET | `/health` | public | — | `{status,service,version}` |
+| GET | `/health` | public | — | `{status,service}` (без версии и build-метаданных) |
 | GET | `/dev/mail` | admin | — | `DevMail[]` (только dev; `404` в production) |
 | DELETE | `/dev/mail` | admin | — | `204` (только dev) |
 | POST | `/auth/login` | public | `LoginRequest` | `AuthView` |
-| POST | `/auth/register` | public | `{email,password,full_name?}` | `202 {status:"pending_email"}` |
+| POST | `/auth/register` | public | `{email,password,full_name?}` | `202 {status:"pending_email"}` (при `AWG_REGISTRATION_ENABLED=false` — `403 registration_disabled`) |
 | POST | `/auth/verify-email` | public | `{token}` | `{status:"pending_approval"}` |
 | POST | `/auth/resend-verification` | public | `{email}` | `202 {status:"sent"}` |
 | POST | `/auth/forgot-password` | public | `{email}` | `202 {status:"sent"}` |
 | POST | `/auth/reset-password` | public | `{token,password}` | `200 {status:"reset"}` |
-| POST | `/auth/totp/setup` | user | `{password?,code?}`¹ | `{secret,otpauth_url,recovery_codes}` |
-| POST | `/auth/totp/enable` | user | `{code}` | `{enabled:true}` |
+| POST | `/auth/totp/setup` | user | `{password,code?}`¹ | `{secret,otpauth_url,recovery_codes}` |
+| POST | `/auth/totp/enable` | user | `{password,code}` | `{enabled:true}` |
 | POST | `/auth/totp/disable` | user | `{password,code}` | `{enabled:false}` |
 | POST | `/auth/refresh` | public | `RefreshRequest` | `AuthView` |
 | POST | `/auth/logout` | user | `LogoutRequest` | `{ok:true}` |
@@ -30,9 +30,6 @@
 | GET | `/auth/me` | user | — | `UserView` |
 | PATCH | `/auth/me` | user | `{full_name?}` | `UserView` |
 | POST | `/auth/password` | user | `{current_password,new_password,totp_code?}` | `{ok:true}` |
-| GET | `/auth/sessions` | user | — | `SessionView[]` |
-| DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
-| POST | `/auth/logout-all` | user | — | `{ok:true,revoked}` |
 | GET | `/auth/sessions` | user | — | `SessionView[]` |
 | DELETE | `/auth/sessions/{jti}` | user | — | `{ok:true}` |
 | GET | `/users` | admin | — | `UserView[]` |
@@ -61,7 +58,7 @@
 | PATCH | `/pools/{id}` | admin | `UpdatePoolRequest` | `PoolView` |
 | DELETE | `/pools/{id}` | admin | — | `{ok:true}` |
 | GET | `/nodes` | user | — | `NodeView[]` |
-| POST | `/nodes` | admin | `CreateNodeRequest` | `NodeView` |
+| POST | `/nodes` | admin | `CreateNodeRequest` | `{node:{id,name,created_at}, token}` (токен показывается один раз) |
 | DELETE | `/nodes/{id}` | admin | — | `{ok:true}` |
 | POST | `/nodes/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
 | POST | `/nodes/{id}/rotate` | admin | — | `{node: NodeView, token}` (токен показывается один раз) |
@@ -70,7 +67,7 @@
 | PATCH | `/interfaces/{id}` | admin | `UpdateInterfaceRequest` | `InterfaceView` |
 | DELETE | `/interfaces/{id}` | admin | — | `{ok:true}` |
 | POST | `/interfaces/bulk` | admin | `{action,ids}` (см. «Массовые действия») | `{done,failed[]}` |
-| POST | `/interfaces/{id}/rotate` | admin | — | `{ok:true}` |
+| POST | `/interfaces/{id}/rotate` | admin | — | `InterfaceView` |
 | GET | `/devices` | user | — | `DeviceView[]` (admin видит все, user — свои) |
 | GET | `/devices/page` | user | query `limit,offset,q,status,interface_id,user_id,sort,order` (см. «Серверная пагинация») | `{items: DeviceView[], total, limit, offset}` |
 | POST | `/devices` | user | `CreateDeviceRequest` | `DeviceView` |
@@ -87,13 +84,14 @@
 | GET | `/devices/{id}/shares` | self/admin | — | `ShareLinkView[]` |
 | POST | `/devices/{id}/shares` | self/admin | `CreateShareRequest` | `ShareLinkView` |
 | DELETE | `/devices/{id}/shares` | self/admin | — | `{revoked:N}` (отзыв всех ссылок устройства) |
-| GET | `/devices/{id}/stats` | self/admin | — | `DeviceTrafficView` (через stats) |
+| GET | `/devices/{id}/stats` | self/admin | — | `{device_id,today:{rx,tx},month:{rx,tx},rx_bps,tx_bps}` |
 | DELETE | `/shares/{token}` | self/admin | — | `{ok:true}` (ставит `revoked_at`; чужой токен — `403`, неизвестный — `404`) |
 | GET | `/stats/overview` | user/admin | — | `OverviewView` |
-| GET | `/stats/series` | user/admin | query `scope,id,from,to` | `StatsPoint[]` |
+| GET | `/stats/series` | user/admin | query `scope,id,from,to` | `{at,rx,tx,rx_bps,tx_bps}[]` |
+| GET | `/stats/devices` | user/admin | — | `DeviceStatsView[]` (`device_id`, `today`, `month`, `rx_bps`, `tx_bps`; revoked не входят) |
 | GET | `/stats/aggregate` | user/admin | query `scope,id,bucket,from,to` (см. «Агрегация статистики») | `{bucket,points}` |
 | GET | `/quota` | user/admin | — | `QuotaView` (только своя квота) |
-| GET | `/quota/users` | admin | — | `QuotaUserView[]` |
+| GET | `/quota/users` | user/admin | — | `QuotaUserView[]` (admin — все пользователи с тарифом; user — только своя квота) |
 | GET | `/settings` | admin | — | `SettingsView` (obfuscation, share TTL, stats retention) |
 | PUT | `/settings` | admin | `UpdateSettingsRequest` | `SettingsView` |
 | GET | `/audit` | admin | query `limit`, `before`, `action`, `entity`, `actor`, `status`, `from`, `to` (см. «Аудит») | `{items, next_cursor}` |
@@ -103,7 +101,8 @@
 | POST | `/import/apply` | admin | `BatchImportRequest` | `ImportApplyView` |
 | POST | `/import/clients/preview` | admin | `ClientsImportRequest` | `ClientsImportPreviewView` (без записи в БД) |
 | POST | `/import/clients/apply` | admin | `ClientsImportRequest` | `ClientsImportApplyView` |
-| GET | `/ws/stats` | user | query `token,scope,id` | WebSocket |
+| POST | `/ws/ticket` | user | `{scope?,id?}` (необязательно) | `{ticket,expires_in}` |
+| GET | `/ws/stats` | user | query `ticket,scope,id` | WebSocket |
 | GET | `/app/bootstrap` | user | — | `AppBootstrapView` (профиль, тариф, квота, подписка, доступ, устройства, `devices_total`, доступные интерфейсы) |
 | GET | `/app/devices/page` | user | query `limit,offset,q,status` (см. «Серверная пагинация») | `{items: DeviceView[], total, limit, offset}` (только свои устройства) |
 | POST | `/app/devices` | user | `{name, interface_ids?}`, заголовок `Idempotency-Key` (опционально) | `{device: DeviceView, config: AppConfigView, configs: AppConfigView[]}` |
@@ -142,9 +141,14 @@
   ключ — `400` с кодом `invalid_idempotency_key`; запрос до обработчика не
   доходит.
 - Область ключа — пара «пользователь + метод + путь с query + ключ».
-  Владелец определяется по заголовку `Authorization` (без токена — `anon`).
-  Одинаковый ключ у разных пользователей или для разных маршрутов не
-  конфликтует; повтор с тем же ключом на другой `path` — это другой запрос.
+  Пользователь берётся из проверенного access-токена (`sub`); без заголовка
+  `Authorization` область — `anon`. Невалидный или отклонённый токен не
+  кэшируется: запрос доходит до обработчика и получает `401`. Одинаковый ключ
+  у разных пользователей или для разных маршрутов не конфликтует; повтор с тем
+  же ключом на другой `path` — это другой запрос.
+- Перед отдачей сохранённого ответа пользователь и токен проверяются повторно:
+  если access-токен отозван (epoch), пользователь удалён или заблокирован,
+  кэш не возвращается, а запрос обрабатывается заново и получает отказ.
 - TTL записи — 24 часа, после чего ключ можно использовать снова.
   Просроченная запись удаляется при чтении.
 - Повтор во время выполнения первого запроса получает `409` с кодом
@@ -288,6 +292,33 @@
 - `DELETE /devices/{id}/tunnels/{peer_id}` → `204`; удаление последнего пира
   устройства запрещено (`409`), иначе пир удаляется и группа публикуется на
   ноды.
+- На устройство приходится не более `MAX_PEERS_PER_DEVICE = 8` туннелей
+  (константа в `clients`); создание девятого пира — `409 conflict`.
+
+`PATCH /devices/{id}` принимает `name`, `down_kbps`, `up_kbps`, `forwarding` и
+`revoked`. Поля и `revoked` применяются в одной транзакции репозитория: если
+хотя бы одно значение отклонено, не сохраняется ничего. Менять `revoked`
+может только администратор; не-администратору `revoked` в теле даёт
+`403 forbidden` (даже для своего устройства). При `revoked=true` все
+share-ссылки устройства отзываются (`revoked_at`), и группа публикуется на
+ноды.
+
+### Пулы и адресация
+
+`CreatePoolRequest` — `{name, cidr, mode, gateway?}`; `UpdatePoolRequest` —
+`{name?, mode?, gateway?, enabled?}` (`gateway` — double option: отсутствие
+поля не меняет значение, `null` очищает).
+
+- Пул должен лежать внутри `base_cidr` группы и не пересекаться с другими
+  пулами; имя непустое.
+- Минимальный префикс пула — `/16`: `cidr` шире `/16` (например `/15`, `/8`)
+  отклоняется с `400 bad_request` (`MIN_POOL_PREFIX_LEN` — константа
+  `awg_shared::cidr`, отдельной переменной окружения нет).
+- `gateway?` — необязательный адрес шлюза. Он проверяется: должен быть
+  валидным IPv4, входить в CIDR пула и не совпадать с network/broadcast
+  адресом (для `/31` и `/32` это правило не применяется); иначе
+  `400 bad_request`. Допускается запись с префиксом (`10.8.0.1/24`),
+  хост-часть используется как адрес.
 
 ## Серверная пагинация
 
@@ -954,16 +985,20 @@ Access- и refresh-токены подписаны HS256 и содержат `su
   сообщением `refresh token reuse detected; the session family was revoked`.
   Последующий refresh из этой family также вернёт `403`.
 - `POST /auth/logout` — отзывает один refresh; access остаётся валидным до
-  истечения TTL.
-- `POST /auth/logout-all` — отзывает все refresh-сессии пользователя,
-  возвращает `{"ok":true,"revoked":N}`.
+  истечения TTL (см. ниже про epoch).
+- `POST /auth/logout-all` — отзывает все refresh-сессии пользователя и
+  фиксирует epoch отзыва access, возвращает `{"ok":true,"revoked":N}`.
 - `POST /auth/password` требует `current_password` (`{current_password,
   new_password, totp_code?}`); при включённом TOTP вместо пароля можно передать
   действующий `totp_code`. `DELETE /users/{id}` дополнительно удаляет устройства,
   пиры и share-ссылки пользователя.
 - `POST /auth/password`, `POST /auth/reset-password`, `PATCH /users/{id}` с
   `disabled=true`, `POST /users/{id}/password` и `DELETE /users/{id}` отзывают
-  все refresh-сессии затронутого пользователя.
+  все refresh-сессии затронутого пользователя. Кроме того, эти операции
+  (кроме `DELETE /users/{id}`, где пользователя уже нет) записывают epoch, и
+  ранее выданные access-токены перестают приниматься. `POST /auth/logout-all`
+  делает то же самое; `DELETE /auth/sessions/{jti}` и `POST /auth/logout`
+  access-токены **не** отзывают.
 
 `GET /auth/sessions` возвращает неистёкшие refresh-сессии текущего
 пользователя (без самих токенов, новые сверху):
@@ -985,10 +1020,14 @@ Access- и refresh-токены подписаны HS256 и содержат `su
 
 `DELETE /auth/sessions/{jti}` отзывает свою сессию; чужая или несуществующая
 сессия даёт `404 not_found` (без раскрытия существования). Access-токены
-stateless: после logout/logout-all ранее выданный access действует до `exp`
-(не дольше `AWG_ACCESS_TTL_SECS`, по умолчанию 900 секунд). Каждый запрос
-дополнительно проверяет, что пользователь существует и не заблокирован, поэтому
-блокировка и удаление действуют немедленно.
+stateless, но не полностью: `authenticate` на каждом запросе проверяет
+существование и активность пользователя, а также epoch отзыва
+(`user_access_epochs`). Поэтому `logout-all`, смена/сброс пароля и блокировка
+гасят ранее выданные access-токены; `logout` и `revoke-session` отзывают только
+refresh, и access живёт до `exp` (не дольше `AWG_ACCESS_TTL_SECS`, по умолчанию
+900 секунд) либо до ближайшей операции, повышающей epoch. Проверка epoch
+сравнивает `iat` токена с меткой времени: токен, выданный в ту же секунду, что
+и epoch, ещё принимается, поэтому вход сразу после отзыва не ломается.
 
 Ошибки аутентификации: `401 unauthorized` — нет/некорректный Bearer-заголовок;
 `403 forbidden` — неверная подпись, `exp`/`nbf`/`iss`/`aud`/`kind`, отозванный
@@ -1009,8 +1048,12 @@ refresh, повтор refresh, заблокированный или удалё�
    `{"email":"user@example.com","password":"…","full_name":"Иван Петров"}`
    → `202 {"status":"pending_email"}`. Email нормализуется (trim + нижний
    регистр), уникален без учёта регистра. `full_name` опционален: trim,
-   1..200 символов, иначе `400 bad_request`. Существующий email даёт
-   `409 conflict`.
+   1..200 символов, иначе `400 bad_request`. Ответ не зависит от того,
+   существует ли email: существующий адрес даёт тот же `202`, письмо не
+   отправляется, чтобы регистрация не превращалась в оракул перечисления
+   аккаунтов. Невалидный email или слабый пароль по-прежнему `400
+   bad_request`. При `AWG_REGISTRATION_ENABLED=false` — `403
+   registration_disabled`.
 2. `POST /auth/verify-email` `{"token":"…"}` →
    `{"status":"pending_approval"}`. Повторный вызов — `400 bad_request`.
 3. `GET /users/pending` (admin) → `UserView[]` со статусом `pending_approval`.
@@ -1050,19 +1093,25 @@ Seed-администратор создаётся при первом запу�
 `full_name: null`, если поля нет; индексы `user_page_index` и
 `user_search_index` перестраиваются без логина. Идемпотентно; после миграции
 email меняется через `PATCH /users/{id}`, ФИО — через `PATCH /users/{id}` или
-`PATCH /auth/me`.
+`PATCH /auth/me`. Текущая версия схемы — **15**: `13 → 14`
+(`v14_lookup_indexes`) заполняет индекс поиска пользователей по email,
+`14 → 15` (`v15_access_epochs`) создаёт таблицу `user_access_epochs` для
+отзыва access-токенов.
 
 TOTP (RFC 6238, SHA-1, 6 цифр, шаг 30 секунд, допуск ±1):
 
-- `POST /auth/totp/setup` → `{secret, otpauth_url, recovery_codes}`. Секрет
-  хранится только в зашифрованном виде (`Sealer`), возвращаются 8 одноразовых
-  recovery-кодов (в хранилище — Argon2-хэши), `totp_enabled` пока `false`.
-  Если TOTP уже включён, запрос обязан содержать `password` и действующий
-  `code`; новый секрет сохраняется как pending, старый продолжает работать,
-  пока его не подтвердят через `/auth/totp/enable` — повторная привязка не
-  отключает 2FA.
-- `POST /auth/totp/enable` `{"code":"123456"}` → `{"enabled":true}`;
-  подтверждает первый или pending-секрет.
+- `POST /auth/totp/setup` → `{secret, otpauth_url, recovery_codes}`. Запрос
+  всегда требует `password` (проверяется текущий пароль аккаунта): одного
+  украденного access-токена недостаточно. Секрет хранится только в
+  зашифрованном виде (`Sealer`), возвращаются 8 одноразовых recovery-кодов
+  по 128 бит энтропии каждый (32 hex-символа; в хранилище — Argon2-хэши),
+  `totp_enabled` пока `false`. Если TOTP уже включён, запрос обязан
+  дополнительно содержать действующий `code`; новый секрет сохраняется как
+  pending, старый продолжает работать, пока его не подтвердят через
+  `/auth/totp/enable` — повторная привязка не отключает 2FA.
+- `POST /auth/totp/enable` `{"password":"…","code":"123456"}` →
+  `{"enabled":true}`; пароль обязателен, чтобы украденный access-токен не мог
+  включить 2FA. Подтверждает первый или pending-секрет.
 - `POST /auth/totp/disable` `{"password":"…","code":"…"}` →
   `{"enabled":false}`, секрет, pending-секрет и recovery-коды удаляются. Один и
   тот же TOTP-шаг нельзя использовать повторно (replay отклоняется как
@@ -1089,7 +1138,9 @@ email.
    по умолчанию 5, и `AWG_FORGOT_RATE_WINDOW_SECS`, по умолчанию 300); при
    превышении — `429 too_many_requests` с `Retry-After`.
 2. `POST /auth/reset-password` `{"token":"…","password":"…"}` → `200
-   {"status":"reset"}`. Пароль проверяется по общим правилам (8–256 символов).
+   {"status":"reset"}`. Пароль проверяется по общим правилам: минимум 10
+   символов, максимум 1024 байта, не из списка распространённых и не равен
+   локальной части email.
    Неизвестный, уже использованный, просроченный токен или токен другого типа
    дают `400 invalid_token`; слабый пароль — `400 bad_request` с текстом
    валидации. Успешный сброс меняет хэш пароля, помечает токен использованным и
@@ -1134,16 +1185,15 @@ email.
   превышении snapshot ограничивает группу и устройства пользователя
   скоростью 1 kbps (см. «Троттлинг доступа»).
 
-`GET /api/v1/quota/users` доступен только роли `admin` (иначе
-`403 forbidden`) и возвращает массив по пользователям, у которых задан
-тариф. Ответ `QuotaUserView[]`:
+`GET /api/v1/quota/users` для администратора возвращает массив по всем
+пользователям, у которых задан тариф; обычный пользователь получает массив из
+одного элемента — только свою квоту (без `403`). Ответ `QuotaUserView[]`:
 
 ```json
 [
   {
     "user_id": "…",
     "email": "alice@example.com",
-    "full_name": "Alice",
     "used_bytes": 52428800,
     "quota_bytes": 107374182400,
     "exceeded": false,
@@ -1152,8 +1202,9 @@ email.
 ]
 ```
 
-Пользователь с тарифом без квоты попадает в список с `quota_bytes:null` и
-`percent:null`. Пользователи без тарифа не возвращаются.
+`full_name` в `QuotaUserView` не входит. Пользователь с тарифом без квоты
+попадает в список с `quota_bytes:null` и `percent:null`; при запросе
+администратором пользователи без тарифа не возвращаются.
 
 ### Троттлинг доступа
 
@@ -1177,6 +1228,12 @@ email.
 месяцам UTC. Доступны роли `user` и `admin`; scope проверяется так же, как у
 `/stats/series`: admin может запросить любой scope, user — только
 `scope=user&id=<свой id>` и `scope=device&id=<своё устройство>`.
+
+`GET /api/v1/stats/series` принимает `scope`, `id`, `from`, `to` (Unix-секунды).
+`from`/`to` опциональны: по умолчанию окно — один день до текущего момента.
+Валидация: `to >= from` (иначе `400 bad_request`, `to must not be before
+from`) и окно не больше **366 дней** (иначе `400 bad_request`, `range must not
+exceed 366 days`). Значения вне диапазона `DateTime` — `400 bad_request`.
 
 Query-параметры:
 
@@ -1240,11 +1297,28 @@ bad_request`; неизвестный scope — `400 bad_request`, недосту
 
 ## WebSocket `/api/v1/ws/stats`
 
-Подключение: `GET /api/v1/ws/stats?token=...&scope=...&id=...`.
+Подключение двухшаговое: сначала `POST /api/v1/ws/ticket` с обычным
+`Authorization: Bearer <access>`, затем `GET /api/v1/ws/stats?ticket=...`.
 
-- `token` — JWT access token.
-- `scope`: `global` (по умолчанию), `user`, `group`, `interface`, `device`.
-- `id` — UUID для user/group/interface/device.
+`POST /api/v1/ws/ticket` (роль `user`, тело необязательно):
+
+```json
+{"scope": "device", "id": "uuid"}
+```
+
+- `scope`: `global` (по умолчанию), `user`, `group`, `interface`, `device`;
+  `id` — UUID для всех scope, кроме `global`. Права проверяются тем же
+  `authorize_scope`, что и у `/stats/series`.
+- Ответ: `{"ticket":"<64 hex>","expires_in":30}`. Ticket — 256 бит случайности,
+  живёт 30 секунд, одноразовый; в памяти процесса хранится не больше 10 000
+  тикетов. Область (`user_id` + `scope`) фиксируется в тикете, и query-параметры
+  `scope`/`id` при подключении игнорируются — расширить область тикетом нельзя.
+- `GET /api/v1/ws/stats?ticket=...` принимает только тикет. Старый флоу
+  `?token=<access>` выключен по умолчанию и включается только
+  `AWG_ALLOW_WS_TOKEN=true` (не рекомендуется: токен в query утекает в логи,
+  прокси и историю браузера). Без тикета (или при невключённом старом флоу) —
+  `401 unauthorized`.
+- Тикет проверяется и гасится один раз; повторное использование — `401`.
 
 Сообщения сервер→клиент:
 ```json
@@ -1343,10 +1417,17 @@ DELETE /api/v1/audit?entity=devices&status=404
 DELETE /api/v1/audit?actor=admin&from=1767225600&to=1767312000
 ```
 
-Автоматически фиксируются успешные (2xx) mutating-запросы `POST`, `PATCH`,
-`PUT`, `DELETE` под `/api/v1`: actor определяется по Bearer-токену (без токена —
-`anonymous`), `entity` — путь без идентификатора, `entity_id` — первый UUID или
-share-токен из пути, `ip` — клиентский адрес: при доверенном peer (`AWG_TRUSTED_PROXIES`) первый справа недоверенный хоп `X-Forwarded-For`/`X-Real-IP`, иначе адрес peer.
+Автоматически фиксируются mutating-запросы `POST`, `PATCH`, `PUT`, `DELETE`
+под `/api/v1` со статусом `2xx` и `4xx` (например, `403` на запрещённое
+удаление или `409` на конфликтное обновление). `401` без заголовка
+`Authorization` не пишется, чтобы не засорять журнал анонимным шумом.
+Actor определяется по Bearer-токену (без токена — `anonymous`), `entity` —
+путь без идентификатора, `entity_id` — первый UUID из пути. Share-токены не
+попадают в журнал в открытом виде: в пути они заменяются на
+`sha256:<12 hex>`, а `entity_id` для `/shares/{token}` — на такой же
+12-символьный SHA-256-дайджест. `ip` — клиентский адрес: при доверенном peer
+(`AWG_TRUSTED_PROXIES`) первый справа недоверенный хоп
+`X-Forwarded-For`/`X-Real-IP`, иначе адрес peer.
 
 ```json
 {
@@ -1369,16 +1450,29 @@ share-токен из пути, `ip` — клиентский адрес: при
 
 ## Rate limiting
 
-Скользящее окно в памяти процесса, без внешних зависимостей:
+Скользящее окно в памяти процесса (или в redb при
+`AWG_RATE_LIMIT_STORE=redb`), без внешних зависимостей:
 
-- `POST /auth/login` — ключ `IP + email` (email нормализуется), по умолчанию
-  10 попыток за 300 секунд;
-- `POST /auth/refresh` — ключ `IP`, по умолчанию 60 попыток за 300 секунд.
+- `POST /auth/login` проверяется по трём ключам одновременно: пара
+  `IP + email` (`AWG_LOGIN_RATE_LIMIT`, по умолчанию 10 за 300 секунд),
+  email без IP (`AWG_LOGIN_ACCOUNT_RATE_LIMIT`, по умолчанию 20) и IP без email
+  (`AWG_LOGIN_IP_RATE_LIMIT`, по умолчанию 30). Окно —
+  `AWG_LOGIN_RATE_WINDOW_SECS`;
+- `POST /auth/refresh` — ключ `IP` и отдельно хэш refresh-токена
+  (`sha256`, в ключе нет самого токена), по умолчанию 60 за 300 секунд;
+- `POST /billing/webhook/{provider}` — ключ `IP` (`AWG_WEBHOOK_RATE_LIMIT`,
+  по умолчанию 120 за `AWG_WEBHOOK_WINDOW_SECS`, по умолчанию 60 секунд);
+- `POST /auth/register`, `POST /auth/resend-verification`,
+  `POST /auth/forgot-password` — по IP (`AWG_REGISTER_*`, `AWG_RESEND_*`,
+  `AWG_FORGOT_*`).
 
-Настройки: `AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
-`AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`. `0` в лимите
-отключает ограничение. Успешный вход сбрасывает счётчик для пары IP+email.
-При превышении — `429 too_many_requests` и `Retry-After`.
+Настройки: `AWG_LOGIN_RATE_LIMIT`, `AWG_LOGIN_ACCOUNT_RATE_LIMIT`,
+`AWG_LOGIN_IP_RATE_LIMIT`, `AWG_LOGIN_RATE_WINDOW_SECS`,
+`AWG_REFRESH_RATE_LIMIT`, `AWG_REFRESH_RATE_WINDOW_SECS`,
+`AWG_WEBHOOK_RATE_LIMIT`, `AWG_WEBHOOK_WINDOW_SECS`. `0` в лимите отключает
+ограничение. Успешный вход сбрасывает счётчик пары IP+email (счётчики email и
+IP не сбрасываются). При превышении — `429 too_many_requests` и
+`Retry-After`.
 
 ## Биллинг (этап 2: checkout и webhook)
 
@@ -1440,16 +1534,22 @@ webhook. Автосписания, dunning и UI биллинга — не ре�
 ```
 
 Статусы подписок дополнительно включают `incomplete` (checkout создан, но не
-оплачен; доступа не даёт). Статусы счетов: `draft`, `open`, `paid`, `void`,
-`uncollectible`.
+оплачен; доступа не даёт). Статусы счетов: `draft`, `open`, `paid`,
+`refunded`, `void`, `uncollectible`.
 
 ### Checkout
 
 `POST /api/v1/billing/checkout` с телом `{"plan_id": "…"}`.
 
+- Checkout идемпотентен на уровне пользователя: на время запроса берётся
+  per-user lock, поэтому параллельные вызовы не создают две подписки/счёта.
 - Создаёт подписку `incomplete` (если её ещё нет) и ровно один открытый счёт на
-  период. Повторный вызов возвращает тот же счёт и тот же `checkout_url`, пока
-  счёт открыт и период не истёк.
+  период. Повторный вызов переиспользует существующий открытый счёт и
+  возвращает тот же `checkout_url`, пока счёт открыт.
+- Период подписки начинается с даты оплаты: `current_period_start` =
+  момент успешного `payment.succeeded`, `current_period_end` = start + период
+  плана (месяц/год). `invoice.period_start/period_end` заполняются из подписки
+  при создании счёта.
 - Ответ: `{"invoice": Invoice, "checkout_url": "…"}`.
 - `409 conflict`: план неактивен, у пользователя уже есть подписка на другой
   план или действующая подписка.
@@ -1461,10 +1561,20 @@ webhook. Автосписания, dunning и UI биллинга — не ре�
 Провайдер должен совпадать с `AWG_PAYMENT_PROVIDER` (`404` иначе).
 
 - Подпись проверяется шлюзом; неверная подпись или timestamp вне окна — `400`.
-- Дедупликация по `event_id`: повторный webhook возвращает
-  `{"status":"duplicate"}` и не меняет состояние.
+  Дополнительно действует rate limit по IP (см. «Rate limiting»).
+- Дедупликация по `event_id` через атомарный claim: запись создаётся в статусе
+  `Processing`, затем переходит в `Processed` или `Failed`. Повторный webhook
+  для `Processed` (или `Processing`) возвращает `{"status":"duplicate"}` и не
+  меняет состояние. Повтор для `Failed` разрешён и обрабатывает событие заново;
+  тот же `event_id` с другим `payload_sha256` — `400`.
 - `payment.succeeded` проверяет `invoice_id`, сумму и валюту, помечает счёт
-  `paid` и активирует подписку; `payment.failed` увеличивает `attempts`.
+  `paid`, активирует подписку и ставит `current_period_start` в момент оплаты;
+  `payment.failed` увеличивает `attempts` и переводит в `past_due` только
+  подписку в `active`/`trialing` (незавершённый checkout остаётся
+  `incomplete`);
+  `refund.succeeded` помечает оплаченный счёт `refunded`, а подписку —
+  `canceled` (неоплаченный счёт переводится в `void`). Повторный refund для
+  уже возвращённого счёта — no-op.
 - Ответы: `{"status":"processed"|"duplicate"|"ignored","event_id":"…"}`.
 
 ### Mock-шлюз (только вне production)

@@ -29,6 +29,16 @@
 | 19 | Для строк без второго параметра создавался лишний accessor индекса | 0.11.20 |
 | 20 | Гидрация списков: `Index` не обновлял строки, `For` терял вставленные строки и мог снести `silent-end`; утечки эффектов при keyed-пере-рендере | 0.11.21 |
 
+### Исправлено в приложении (аудит 2026-11)
+
+| № | Баг | Что сделано |
+|---|---|---|
+| 1 | Любой `403` отправлял пользователя на экран логина, включая запрет на конкретный раздел | `ForbiddenInterceptor` реагирует только на коды блокировки аккаунта (`pending_approval`, `rejected`, `account_disabled`) и не трогает `/auth/me`; обычный `403` показывается как ошибка страницы |
+| 2 | Прерванные запросы (`AbortController`) показывали toast об ошибке | `code === "aborted"` подавляется в `network-error.interceptor` и `userMessage`, отмена навигации/поиска больше не шумит |
+| 3 | Синхронизация фильтров теряла путь/hash или уводила на другой раздел | `filter-url.ts` проверяет префикс пути, сохраняет `pathname` и `hash`, пишет только непустые параметры; `replaceState` обёрнут в `try/catch` |
+| 4 | Тема `system` не следовала за ОС | `ThemeMode = "system" \| "light" \| "dark"`, `matchMedia("(prefers-color-scheme: dark)")` и подписка на изменения; `system` — значение по умолчанию |
+| 5 | Access-токен в query WebSocket попадал в логи | Клиент получает одноразовый тикет `POST /api/v1/ws/ticket` и подключается с `?ticket=`; токен в query остался только за `AWG_ALLOW_WS_TOKEN` |
+
 ## Открытые проблемы 0.11.21
 
 **A. `@watch` вызывает селектор до инициализации `props`.**
@@ -60,8 +70,8 @@
 - `staticRows` и исправления гидрации списков касаются SSR/hydration-пути; у
   нас mount-only, поэтому разметка и клиентские тесты не изменились;
 - `renderToString(..., { markers: false })` доступен для негидрируемого SSR;
-- проверки после обновления: 999 unit-тестов, typecheck, arch:check, build,
-  e2e 14/14 Chromium и Firefox.
+- проверки после обновления: unit-тесты (точное число — в выводе `pnpm test`
+  и CI), typecheck, arch:check, build, e2e Chromium и Firefox (локально).
 
 ## Миграция на 0.11.17
 
@@ -109,6 +119,6 @@
 
 ## Проверки
 
-- `pnpm typecheck`, `pnpm test` (758 тестов), `pnpm arch:check`, `pnpm build` — зелёные.
-- `pnpm e2e` — 26/26 (Chromium + Firefox), включая повторный вход с TOTP и
-  сценарии аудита без обхода.
+- `pnpm typecheck`, `pnpm test`, `pnpm arch:check`, `pnpm build` — прогоняются локально и в CI; результат смотрите в выводе job'ов.
+- `pnpm e2e` — Chromium и Firefox локально; в CI job `E2E` гоняет Chromium,
+  включая повторный вход с TOTP и сценарии аудита без обхода.

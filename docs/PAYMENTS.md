@@ -7,6 +7,31 @@
 `docs/API.md`. Решение зафиксировано в
 [`docs/adr/0001-payments-architecture.md`](adr/0001-payments-architecture.md).
 
+### Фактическая реализация (на дату аудита)
+
+- Статусы подписки: `incomplete`, `trialing`, `active`, `past_due`,
+  `suspended`, `canceled` (в коде — `trialing`, не `trial`).
+- Статусы счёта: `draft`, `open`, `paid`, `refunded`, `void`,
+  `uncollectible`.
+- Checkout идемпотентен на пользователя: per-user lock + переиспользование
+  открытого счёта; период подписки начинается с момента успешной оплаты.
+- Webhook: атомарный claim `Processing` → `Processed`/`Failed`; повтор для
+  `Failed` разрешён, для `Processed`/`Processing` — `duplicate`; тот же
+  `event_id` с другим хешем тела — `400`.
+- `payment.succeeded` → счёт `paid`, подписка `active`, период с даты оплаты;
+  `payment.failed` → `attempts += 1`, подписка `past_due` (только из
+  `active`/`trialing`; `incomplete` остаётся `incomplete`); `refund.succeeded`
+  → оплаченный счёт `refunded`, подписка `canceled` (неоплаченный счёт —
+  `void`), повторный refund — no-op.
+- Реализованы только маршруты из `docs/API.md` (планы, подписка, счета,
+  checkout, webhook, способы оплаты). Маршруты ниже, помеченные как целевые
+  (`cancel`, `resume`, admin-suspend, mark-paid и т.п.), в коде отсутствуют.
+- Полей `number`, `tax_minor`, `payment_method_id`, `paid_via`,
+  `refunded_minor`, `grace_ends_at`, `next_charge_at`, `status_reason` в
+  текущей модели нет; таблицы ниже описывают целевую модель, а не схему redb.
+- Dunning, автосписания, trial-конверсия, фоновые billing-jobs и метрики
+  `awg_billing_*` не реализованы.
+
 ## 1. Контекст
 
 Сейчас в системе есть технические тарифы, но нет коммерческого слоя:
@@ -106,7 +131,7 @@
 | `id` | UUID | да | неизменен |
 | `user_id` | UUID | да | пользователь существует; один текущий subscription на пользователя |
 | `plan_id` | UUID | да | Plan существует |
-| `status` | enum | да | `incomplete`, `trial`, `active`, `past_due`, `suspended`, `canceled` |
+| `status` | enum | да | `incomplete`, `trialing`, `active`, `past_due`, `suspended`, `canceled` |
 | `status_reason` | string | нет | код причины, не свободный текст |
 | `current_period_start` | datetime | да | UTC |
 | `current_period_end` | datetime | да | строго больше `current_period_start` |
@@ -170,7 +195,7 @@
 | `number` | string | да | уникален; `INV-YYYY-NNNNNN`; выдаётся в транзакции из `billing_meta.next_invoice_seq` |
 | `subscription_id` | UUID | да | существует |
 | `user_id` | UUID | да | денормализация для выборок; совпадает с subscription.user_id |
-| `status` | enum | да | `draft`, `open`, `paid`, `void`, `uncollectible` |
+| `status` | enum | да | `draft`, `open`, `paid`, `refunded`, `void`, `uncollectible` |
 | `amount_minor` | u64 | да | `>= 0`; gross-сумма в минимальных единицах |
 | `tax_minor` | u64 | нет | `<= amount_minor`; для фискализации, если шлюз её считает |
 | `currency` | string | да | совпадает с валютой subscription |
@@ -206,8 +231,9 @@
   `paid`, но `current_period_start/end` подписки не меняются до наступления
   `period_start`; иначе пользователь потерял бы остаток текущего периода.
 - `attempts` увеличивается только перед фактическим вызовом шлюза.
-- Возврат не меняет `status = paid`; он увеличивает `refunded_minor` и
-  фиксируется событием/аудитом.
+- Возврат переводит оплаченный счёт в `refunded` и подписку в `canceled`
+  (доступ закрывается); неоплаченный счёт переводится в `void`. Повторный
+  `refund.succeeded` для того же счёта — no-op.
 
 ### 2.4 PaymentMethod
 
@@ -351,7 +377,7 @@ Append-only история переходов и действий.
 | Статус | Что означает | `tariff_id` | API | Worker | Квота |
 |---|---|---|---|---|---|
 | `incomplete` | checkout создан, первый платёж не завершён | не меняется | только billing | `1 kbps`, если нет другого доступа | не расходуется |
-| `trial` | бесплатный период | равен `plan.tariff_id` | полный, кроме смены плана | лимиты тарифа | месячная, как обычно |
+| `trialing` | бесплатный период | равен `plan.tariff_id` | полный, кроме смены плана | лимиты тарифа | месячная, как обычно |
 | `active` | период оплачен | равен `plan.tariff_id` | полный | лимиты тарифа | месячная |
 | `past_due` | платёж не прошёл, идёт grace | сохраняется | чтение, оплата, смена способа; новые устройства/share запрещены | лимиты тарифа до `grace_ends_at` | месячная |
 | `suspended` | доступ приостановлен | сохраняется | чтение и billing; изменения устройств запрещены | `1 kbps` | не расходуется |
@@ -373,12 +399,12 @@ Append-only история переходов и действий.
 | # | Из | В | Инициатор | Условие | Побочные эффекты |
 |---|---|---|---|---|---|
 | 1 | — | `incomplete` | user | checkout без trial для пользователя без текущего доступа | создать subscription/invoice draft, checkout session |
-| 2 | — | `trial` | user/admin | trial разрешён, способ оплаты сохранён (если требуется) | выставить `tariff_id`, `trial_ends_at = period_end`, access `full` |
+| 2 | — | `trialing` | user/admin | trial разрешён, способ оплаты сохранён (если требуется) | выставить `tariff_id`, `trial_ends_at = period_end`, access `full` |
 | 3 | `incomplete` | `active` | webhook | первый платёж успешен и `period_start <= now` | invoice `paid`, `activated_at`, access `full` |
 | 4 | `incomplete` | `canceled` | system/user | checkout истёк/отменён | access `blocked`, checkout `expired` |
-| 5 | `trial` | `active` | webhook/system | счёт за период после trial оплачен и наступил `period_start` (обычно `trial_ends_at`) | новый период, `trial_ends_at` остаётся историческим |
-| 6 | `trial` | `past_due` | system | trial закончился, платёж не прошёл | `grace_ends_at`, dunning |
-| 7 | `trial` | `canceled` | user/system | отмена или trial без способа оплаты при `trial_requires_payment_method = false` | access `blocked` |
+| 5 | `trialing` | `active` | webhook/system | счёт за период после trial оплачен и наступил `period_start` (обычно `trial_ends_at`) | новый период, `trial_ends_at` остаётся историческим |
+| 6 | `trialing` | `past_due` | system | trial закончился, платёж не прошёл | `grace_ends_at`, dunning |
+| 7 | `trialing` | `canceled` | user/system | отмена или trial без способа оплаты при `trial_requires_payment_method = false` | access `blocked` |
 | 8 | `active` | `active` | webhook/system | продление оплачено | новый период, invoice `paid`, access `full` |
 | 9 | `active` | `past_due` | system | `due_at` наступил, счёт не оплачен | `grace_ends_at`, dunning |
 | 10 | `active` | `canceled` | system | `cancel_at_period_end` и период закончился | access `blocked`, будущих счетов нет |
@@ -488,12 +514,12 @@ pub trait PaymentGateway: Send + Sync {
 
 | Операция | Ключ | Где хранится | Правило |
 |---|---|---|---|
-| Checkout | `checkout:{user_id}:{plan_id}:{request_id}` | `checkout_sessions`, `billing_idempotency` | `request_id` из заголовка `Idempotency-Key`; тот же ключ + другое тело → `409` |
-| Первое списание | `charge:{invoice_id}:1` | `dunning_attempts` | создаётся до вызова шлюза |
-| Повтор dunning | `charge:{invoice_id}:{attempt_no}` | `dunning_attempts` | номер попытки не переиспользуется |
-| Реактивация | `charge:{invoice_id}:1` для нового счёта | `dunning_attempts` | новый invoice — новый ключ |
-| Возврат | `refund:{invoice_id}:{refund_seq}` | `billing_idempotency` | `refund_seq` увеличивается в транзакции |
-| Webhook | `event:{gateway}:{event_id}` | `payment_events` | первичный ключ, дубликат — no-op |
+| Checkout | `user_id` + `plan_id` (per-user lock) | в памяти процесса + `open`-счёт в `billing_invoices` | повторный checkout переиспользует открытый счёт и возвращает тот же `checkout_url`; заголовок `Idempotency-Key` не требуется |
+| Первое списание | `charge:{invoice_id}:1` | `dunning_attempts` | создаётся до вызова шлюза (этап 3, не реализовано) |
+| Повтор dunning | `charge:{invoice_id}:{attempt_no}` | `dunning_attempts` | номер попытки не переиспользуется (этап 3) |
+| Реактивация | `charge:{invoice_id}:1` для нового счёта | `dunning_attempts` | новый invoice — новый ключ (этап 3) |
+| Возврат | `refund:{invoice_id}:{refund_seq}` | `billing_idempotency` | refund идемпотентен по `invoice_id`: повторный счёт уже `refunded` — no-op |
+| Webhook | `event:{gateway}:{event_id}` | `billing_events` | claim-if-absent; `Processing`/`Processed` → `duplicate`, `Failed` → повтор |
 
 Требования:
 
@@ -513,8 +539,10 @@ pub trait PaymentGateway: Send + Sync {
 2. Проверять подпись/секрет шлюза; сравнение constant-time.
 3. Проверять timestamp подписи с допуском `AWG_BILLING_WEBHOOK_TOLERANCE_SECS`
    (по умолчанию 300 с); старые подписи отклонять.
-4. Проверять `event_id`; дубликат в `processed` возвращает `200` без side
-   effects, дубликат в `received`/`failed` повторяет обработку.
+4. Проверять `event_id`; дубликат в `processed`/`processing` возвращает `200`
+   без side effects, дубликат в `failed` повторяет обработку (claim →
+   `processing`, затем `processed` или `failed`). Тот же `event_id` с другим
+   `payload_sha256` отклоняется как `400`.
 5. Сохранять `payload_sha256` и нормализованное событие.
 6. Обрабатывать событие в транзакции: invoice/subscription/access/events.
 7. Возвращать `2xx` только после сохранения события; если обработка не успела,
@@ -531,12 +559,12 @@ pub trait PaymentGateway: Send + Sync {
 |---|---|
 | `checkout.completed` | связать checkout с invoice/subscription |
 | `payment.succeeded` | invoice `paid`, активация/продление |
-| `payment.failed` | dunning, `past_due` по правилам |
-| `payment.requires_action` | сохранить `action_url`, уведомить пользователя |
+| `payment.failed` | `attempts += 1`, подписка `past_due` (только `active`/`trialing`) |
+| `payment.requires_action` | сохранить `action_url`, уведомить пользователя (этап 3) |
 | `invoice.paid` | то же, что `payment.succeeded`, если не было |
 | `invoice.payment_failed` | то же, что `payment.failed` |
-| `subscription.canceled` | синхронизировать `canceled` |
-| `refund.succeeded` | увеличить `refunded_minor`, событие аудита |
+| `subscription.canceled` | синхронизировать `canceled` (этап 3) |
+| `refund.succeeded` | оплаченный счёт `refunded`, подписка `canceled`; неоплаченный — `void`; повтор — no-op |
 | `dispute.opened` | пометить счёт/подписку, уведомить админа, опционально suspend |
 | `payment_method.updated` | обновить brand/last4/exp, не хранить PAN |
 | `unknown` | `ignored`, `200`, метрика |
@@ -599,7 +627,7 @@ pub trait PaymentGateway: Send + Sync {
 
 Отдельный шаг тика: если у подписки есть `paid`-счёт с
 `period_start = current_period_end` и `period_start <= now`, период
-продвигается на этот счёт, а `trial`/`incomplete` переводятся в `active`. Это
+продвигается на этот счёт, а `trialing`/`incomplete` переводятся в `active`. Это
 покрывает досрочную оплату и восстановление после простоя.
 
 Арифметика периода: `month`/`year` считаются календарно от
@@ -615,8 +643,8 @@ pub trait PaymentGateway: Send + Sync {
   `current_period_end = invoice.period_end`, `next_charge_at =
   current_period_end - renew_ahead`;
 - если `invoice.period_start > now` (досрочная оплата): invoice `paid`, но
-  текущий период и статус не меняются (`trial` остаётся `trial`, `incomplete`
-  остаётся `incomplete`); `next_charge_at = invoice.period_start`, job
+  текущий период и статус не меняются (`trialing` остаётся `trialing`,
+  `incomplete` остаётся `incomplete`); `next_charge_at = invoice.period_start`, job
   переведёт период и статус в `period_start`;
 - dunning закрыт, письмо «оплачено».
 
@@ -765,7 +793,7 @@ mailer асинхронный, нужен outbox; иначе повторный 
 | Условие | `state` |
 |---|---|
 | billing disabled | `full` |
-| `trial`, `active` | `full` |
+| `trialing`, `active` | `full` |
 | `past_due` и `now <= grace_ends_at` | `grace` |
 | `past_due` и `now > grace_ends_at` | `blocked` (fail-safe) |
 | `incomplete`, `suspended`, `canceled` | `blocked` |
@@ -814,6 +842,14 @@ forwarding. Share-ссылки не отзываются, но новый share/
 
 ### 6.5 API
 
+Фактически реализованы и описаны в `docs/API.md`: `GET/POST/PATCH
+/billing/plans`, `GET /billing/subscription`, `GET /billing/invoices`,
+`GET /billing/admin/subscriptions`, `POST /billing/checkout`,
+`GET /billing/payment-methods`, `POST /billing/webhook/{provider}`.
+Таблицы ниже — целевой контракт этапов 2–4; маршруты отмены, resume,
+change-plan, admin-suspend/grant, mark-paid/void/refund и `/billing/events`
+пока не реализованы.
+
 Пользовательские маршруты (все — `user`, свои объекты; admin может смотреть
 чужие через query `user_id` только в admin-разделе):
 
@@ -821,7 +857,7 @@ forwarding. Share-ссылки не отзываются, но новый share/
 |---|---|---|
 | GET | `/billing/plans` | активные планы |
 | GET | `/billing/subscription` | текущая подписка, статус, доступ, период, способ оплаты |
-| POST | `/billing/checkout` | создать checkout; `Idempotency-Key` обязателен |
+| POST | `/billing/checkout` | создать checkout; идемпотентен per-user (открытый счёт переиспользуется) |
 | POST | `/billing/subscription/cancel` | `{at_period_end, reason?}` |
 | POST | `/billing/subscription/resume` | отменить `cancel_at_period_end` |
 | POST | `/billing/subscription/change-plan` | `{plan_id, effective: next_period}` |
@@ -856,8 +892,9 @@ forwarding. Share-ссылки не отзываются, но новый share/
 
 - `GET /billing/subscription` возвращает `access` (`full/grace/blocked`),
   `grace_ends_at`, `next_charge_at`, причину блокировки.
-- `POST /billing/checkout` принимает `plan_id`, `payment_method_id?`,
-  `success_url`, `cancel_url`; сумму и валюту клиент не присылает.
+- `POST /billing/checkout` принимает `plan_id`; сумму и валюту клиент не
+  присылает. `Idempotency-Key` не требуется: повтор переиспользует открытый
+  счёт.
 - `success_url`/`cancel_url` проверяются по allowlist хостов
   (`AWG_BILLING_ALLOWED_REDIRECT_HOSTS`), иначе `400`.
 - Мутации при `blocked` возвращают `402 payment_required` с ссылкой на
@@ -929,6 +966,12 @@ past_due вырос, job не выполнялся > 2 часов.
 `TableDefinition<&str, &[u8]>`, как в остальном `Store`.
 
 ### 7.1 Таблицы
+
+Ниже — целевая схема. Фактически в redb сейчас пять таблиц:
+`billing_plans`, `billing_subscriptions`, `billing_invoices`,
+`billing_payment_methods`, `billing_events` (ключ `gateway:event_id`).
+Индексов, `checkout_sessions`, `dunning_attempts`, `billing_idempotency`,
+`billing_access`, `subscription_events` и `billing_meta` пока нет.
 
 | Таблица | Ключ | Значение | Назначение |
 |---|---|---|---|

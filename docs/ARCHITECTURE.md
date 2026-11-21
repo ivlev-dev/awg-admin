@@ -253,7 +253,7 @@ pnpm e2e:headed                # с видимым браузером
 
 Служебная таблица `meta` хранит ключ `schema_version` (JSON `u32`), рядом с
 доменными таблицами; `Store::open`/`open_in_memory` создают её, если её нет.
-Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `13`). `Store::schema_version()`
+Текущая версия — `CURRENT_SCHEMA_VERSION` (сейчас `15`). `Store::schema_version()`
 возвращает версию открытой базы.
 
 При открытии (`schema::initialize`):
@@ -280,9 +280,13 @@ write-транзакции: ошибка любого шага откатыва�
 (`v7_idempotency`, открывает таблицу `idempotency`), `8 → 9`
 (`v9_device_page_index`, бэкфиллит индексы пагинации устройств), `9 → 10`
 (`v10_user_page_index`, строит индекс пагинации пользователей), `10 → 11`
-(`v11_share_token_hash`, переводит share-ссылки на хэш и запечатанный токен) и
+(`v11_share_token_hash`, переводит share-ссылки на хэш и запечатанный токен),
 `11 → 12` (`v12_user_search_index`, строит триграммный поисковый индекс
-пользователей); остальные шаги меняют данные существующих таблиц.
+пользователей), `12 → 13` (`v13_user_identity`, убирает `login`, нормализует
+email и перестраивает индексы), `13 → 14` (`v14_lookup_indexes`, бэкфиллит
+индекс поиска по email), `14 → 15` (`v15_access_epochs`, создаёт
+`user_access_epochs`); остальные шаги
+меняют данные существующих таблиц.
 
 Sealer передаётся в миграции как `Option<&Sealer>`: `Store::open_with_sealer` /
 `open_multi_writer_with_sealer` получают его от admin (`AWG_MASTER_KEY`), а
@@ -539,11 +543,15 @@ Refresh-записи лежат в redb-таблице `refresh_tokens` по к�
 фоновым таском `main` раз в час; на каждом запросе таблица не сканируется,
 кроме точечного чтения по `jti`.
 
-Access-токены остаются stateless: после logout или logout-all ранее выданный
-access валиден до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по умолчанию 900
-секунд). Denylist не используется; вместо него `authenticate` на каждом
-запросе проверяет, что пользователь существует и не заблокирован, поэтому
-блокировка и удаление применяются немедленно.
+Access-токены stateless, но с per-user epoch отзыва
+(`user_access_epochs`): `authenticate` на каждом запросе проверяет, что
+пользователь существует и не заблокирован, и сравнивает `iat` токена с
+epoch. `logout-all`, смена/сброс пароля и блокировка повышают epoch, поэтому
+ранее выданные access-токены перестают приниматься; `logout` и
+`DELETE /auth/sessions/{jti}` отзывают только refresh, и access такой сессии
+живёт до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по умолчанию 900 секунд).
+Отдельного denylist по `jti` нет. Токен, выданный в ту же секунду, что и
+epoch, принимается — иначе вход сразу после отзыва ломался бы.
 
 ### Регистрация, email и TOTP
 
@@ -565,20 +573,33 @@ access валиден до `exp` (не больше `AWG_ACCESS_TTL_SECS`, по 
 
 TOTP реализован на `totp-rs` (SHA-1, 6 цифр, шаг 30 секунд, допуск ±1).
 Base32-секрет шифруется `awg_shared::crypto::Sealer` перед сохранением, в
-`recovery_codes` хранятся Argon2-хэши 8 одноразовых кодов. Вход при
-включённом TOTP требует `totp_code`: проверяется текущий код или recovery-код
-(после использования удаляется). `disable` требует пароль и действующий код.
+`recovery_codes` хранятся Argon2-хэши 8 одноразовых кодов по 128 бит
+(32 hex-символа). `setup` всегда требует пароль; при уже включённом TOTP —
+ещё и действующий код, новый секрет становится pending. `enable` требует
+`password` + `code`, `disable` — `password` + `code`. Вход при включённом
+TOTP требует `totp_code`: проверяется текущий код или recovery-код (после
+использования удаляется). Использованный шаг запоминается, replay
+отклоняется; проверка и запись шага сериализуются мьютексом на пользователя.
+
+Самостоятельная регистрация включается/выключается
+`AWG_REGISTRATION_ENABLED`. При выключенной регистрации `POST /auth/register`
+отвечает `403 registration_disabled`. При включённой существующий email не
+раскрывается: ответ всегда `202`, письмо для занятого адреса не отправляется.
 
 ### Аудит
 
-`admin` содержит middleware (`audit::middleware`), которое после успешного (2xx)
-`POST`/`PATCH`/`PUT`/`DELETE` под `/api/v1` пишет `AuditEntry` в redb-таблицу
-`audit`. Ключ — `время в микросекундах + id`, поэтому итерация по ключам
-хронологическая, а `GET /api/v1/audit` отдаёт сначала новые записи. Actor
-определяется по Bearer-токену; для входа в систему запись создаёт контроллер,
-т.к. middleware не читает тело запроса. IP берётся из `ConnectInfo<SocketAddr>`; `X-Forwarded-For`/`X-Real-IP`
-учитываются только если peer входит в `AWG_TRUSTED_PROXIES` (берётся первый
-справа недоверенный хоп).
+`admin` содержит middleware (`audit::middleware`), которое после mutating
+`POST`/`PATCH`/`PUT`/`DELETE` под `/api/v1` со статусом `2xx` или `4xx`
+пишет `AuditEntry` в redb-таблицу `audit` (`401` без заголовка
+`Authorization` не пишется). Ключ — `время в микросекундах + id`, поэтому
+итерация по ключам хронологическая, а `GET /api/v1/audit` отдаёт сначала новые
+записи. Actor определяется по Bearer-токену; для входа в систему запись
+создаёт контроллер, т.к. middleware не читает тело запроса. Share-токены в
+пути маскируются: `masked_path` заменяет `/shares/{token}` на
+`/shares/sha256:<12 hex>`, `entity_id` хранит такой же дайджест. IP берётся из
+`ConnectInfo<SocketAddr>`; `X-Forwarded-For`/`X-Real-IP` учитываются только
+если peer входит в `AWG_TRUSTED_PROXIES` (берётся первый справа недоверенный
+хоп).
 
 ### Rate limiting
 
@@ -638,9 +659,14 @@ Base32-секрет шифруется `awg_shared::crypto::Sealer` перед �
 - Ключ валидируется до хранилища: 8..128 символов `[A-Za-z0-9._-]`, иначе
   `400 invalid_idempotency_key` (`ApiError::InvalidIdempotencyKey`).
 - Ключ хранения — hex от SHA-256 по строке
-  `Authorization\nMETHOD\npath?query\nIdempotency-Key`; без токена вместо
-  `Authorization` подставляется `anon`. Поэтому ключ уникален для пары
-  «пользователь + маршрут + ключ» и не конфликтует между пользователями.
+  `scope\nMETHOD\npath?query\nIdempotency-Key`, где `scope` — `user:<id>` из
+  проверенного access-токена или `anon` без заголовка. Поэтому ключ уникален
+  для пары «пользователь + маршрут + ключ» и не конфликтует между
+  пользователями. Невалидный/отклонённый токен не кэшируется: запрос доходит
+  до обработчика и получает `401`.
+- Перед отдачей сохранённого ответа пользователь и токен проверяются повторно
+  (`cache_scope_is_valid`): при отозванном epoch, удалённом или заблокированном
+  пользователе кэш не возвращается, запрос обрабатывается заново.
 - Перед вызовом обработчика middleware атомарно занимает ключ записью
   `state=processing` с SHA-256-отпечатком тела (`IdempotencyStore::begin`).
   Параллельный повтор получает `409 idempotency_in_progress`, повтор с другим
@@ -789,10 +815,11 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ```
 
 Безопасность: если `AWG_METRICS_TOKEN` задан, запрос без корректного
-`Authorization: Bearer <token>` получает `401` (сравнение constant-time). Если
-токен не задан, `/metrics` открыт, и защита ложится на сеть: порт admin
+`Authorization: Bearer <token>` получает `401` (сравнение constant-time). В
+`production` без токена `/metrics` отвечает `404` (эндпоинт скрыт); в
+`development` без токена он открыт, и защита ложится на сеть: порт admin
 (`8080`) не должен быть доступен из untrusted-сетей, снаружи публикуется
-только Traefik. В `production` при пустом `AWG_METRICS_TOKEN` в лог пишется
+только Traefik. В production при пустом `AWG_METRICS_TOKEN` в лог пишется
 предупреждение на старте.
 
 ### Логи
@@ -887,10 +914,10 @@ nginx (`docker/nginx.conf`), API — middleware Traefik (`docker-compose.yml`).
 
 - `Strict-Transport-Security` (`max-age=31536000; includeSubDomains`) —
   middleware `frontend-hsts` и `admin-api-sec`, только на роутерах
-  `websecure`; HTTP-entrypoint отвечает `308` и HSTS не отдаёт.
+  `websecure`; HTTP-entrypoint отвечает `301` (Traefik `permanent: true`) и HSTS не отдаёт.
 - `Content-Security-Policy` у frontend: `default-src 'self'`, скрипты только
   внешние из `/assets`, `style-src 'unsafe-inline'` из-за inline `style="..."`
-  в компонентах, `connect-src 'self' ws: wss:` для REST и WebSocket статистики.
+  в компонентах, `connect-src 'self'` для REST и WebSocket статистики.
   У API CSP — `default-src 'none'; frame-ancestors 'none'; base-uri 'none'`.
 - `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`,
   `Cross-Origin-Opener-Policy`, `Permissions-Policy` — на nginx; API получает
@@ -931,25 +958,30 @@ WebSocket upgrade.
 
 ## Биллинг
 
-Этап 1: модель, схема и read-only API. Платёжный шлюз, checkout, webhook и
-автосписания не реализованы. Полная модель — `docs/PAYMENTS.md`, решение —
+Этапы 1 и ядро этапа 2: модель, схема, read-only API, checkout, идемпотентный
+webhook и `MockGateway`. Реальный платёжный шлюз, автосписания, dunning и UI
+биллинга не реализованы. Полная модель — `docs/PAYMENTS.md`, решение —
 `docs/adr/0001-payments-architecture.md`.
 
 Крейт `awg-billing` следует DDD-слоям:
 
 - `domain` — `Plan`, `Subscription`, `Invoice`, статусы, порты
   `PlanRepository`, `SubscriptionRepository`, `InvoiceRepository` и
-  `PaymentGateway`. `NoopGateway` на любой вызов возвращает
-  `GatewayError::Unsupported`; реального шлюза нет.
+  `PaymentGateway`. `NoopGateway` на вызовы возвращает
+  `GatewayError::Unsupported`; `MockGateway` проверяет HMAC-подпись
+  (`X-Mock-Timestamp`/`X-Mock-Signature`) и разрешён только вне production.
 - `application` — `BillingService`: каталог планов (CRUD), текущая подписка,
-  `plan_for_user` (активная подписка → план → `tariff_id`), счета и
-  админ-список подписок. Списаний и переходов статусов нет.
+  `plan_for_user` (активная подписка → план → `tariff_id`), счета,
+  админ-список подписок, `start_checkout` (per-user lock, переиспользование
+  открытого счёта) и `handle_webhook` (claim `Processing` → `Processed`/
+  `Failed`, повтор `Failed` разрешён). `payment.succeeded` активирует
+  подписку и ставит начало периода в момент оплаты, `payment.failed` —
+  `past_due`, `refund.succeeded` — счёт `refunded` и подписка `canceled`.
 - `infrastructure` — Redb-репозитории поверх `awg-storage`.
 
 `Plan` — коммерческий каталог, `Tariff` — технические лимиты. `Plan` ссылается
-на `tariff_id`, но `User.tariff_id` на этом этапе не меняется: связь с
-пользователем только вычисляется через `plan_for_user` и пока не влияет на
-snapshot/worker.
+на `tariff_id`; при оплате `User.tariff_id` не меняется автоматически —
+snapshot использует `plan_for_user` и статус подписки.
 
 Таблицы redb (JSON-значения, ключ — UUID):
 
@@ -961,7 +993,7 @@ snapshot/worker.
 
 Схема была поднята до версии `2`. Миграция `v2_billing` идемпотентно открывает
 таблицы и не трогает `users`, `tariffs`, `devices` и остальные данные.
-Текущая версия схемы — `13` (шаг `v3_rate_limits` добавляет `rate_limits`,
+Текущая версия схемы — `15` (шаг `v3_rate_limits` добавляет `rate_limits`,
 `v4_device_interfaces` привязывает устройства к интерфейсу,
 `v5_user_nodes` привязывает пользователей к ноде по первому интерфейсу их
 группы, `v6_user_emails` проставляет email пользователям без email:
@@ -977,7 +1009,8 @@ snapshot/worker.
 таблицы `share_links` на хэш), `v12_user_search_index` строит триграммный
 индекс поиска, `v13_user_identity` удаляет `login`, заполняет пропущенные
 email из старого логина, нормализует email, добавляет `full_name: null` и
-перестраивает оба пользовательских индекса).
+перестраивает оба пользовательских индекса, `v14_lookup_indexes` заполняет
+индекс поиска по email, `v15_access_epochs` создаёт `user_access_epochs`).
 Backup/restore по-прежнему требует точного совпадения версии.
 
 Конфигурация:
@@ -994,4 +1027,6 @@ Backup/restore по-прежнему требует точного совпад�
 
 API: `GET/POST /billing/plans`, `PATCH /billing/plans/{id}` (admin),
 `GET /billing/subscription` (self), `GET /billing/invoices` (self, admin — все
-или `?user_id=`), `GET /billing/admin/subscriptions` (admin).
+или `?user_id=`), `GET /billing/admin/subscriptions` (admin),
+`POST /billing/checkout` (self, идемпотентный) и
+`POST /billing/webhook/{provider}` (public, подпись шлюза).

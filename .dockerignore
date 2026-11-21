@@ -1,16 +1,33 @@
+# Контекст сборки: только то, что читают docker/Dockerfile.admin,
+# Dockerfile.worker и Dockerfile.frontend (Cargo.toml/Cargo.lock, backend/,
+# frontend/, docker/nginx*.conf).
 .git
+.github
+.gitignore
 .scratch
+.android
+android
+docs
+scripts
+Any-Tech-ARCHITECT
+Makefile
 target
+data
+coverage
+
+# Фронтенд: артефакты и кэши не нужны, зависимости ставятся в образе
 frontend/node_modules
 frontend/dist
 frontend/.vite
+frontend/coverage
 frontend/playwright-report
 frontend/test-results
-data
-.playwright-mcp
-Any-Tech-ARCHITECT
-docs
+
+# Документация не влияет на сборку
 *.md
+**/*.md
+
+# Секреты и локальные переменные (в .env.example секретов нет)
 .env
 .env.*
 !.env.example

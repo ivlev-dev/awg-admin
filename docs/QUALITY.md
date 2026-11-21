@@ -8,14 +8,39 @@
 
 | Workflow / job | Что проверяет | Команда | Порог |
 | --- | --- | --- | --- |
-| `ci.yml` → `Rust` | форматирование, clippy, тесты workspace | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` | без предупреждений и падений |
-| `ci.yml` → `Frontend` | типы, архитектурные границы, unit-тесты, сборка | `pnpm typecheck`, `pnpm arch:check`, `pnpm test`, `pnpm build` | без ошибок |
+| `ci.yml` → `Rust` | форматирование, clippy, тесты workspace | `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` | без предупреждений и падений; точное число тестов — в логе job'а |
+| `ci.yml` → `Frontend` | типы, архитектурные границы, unit-тесты, сборка | `pnpm typecheck`, `pnpm arch:check`, `pnpm test`, `pnpm build` | без ошибок; число тестов — в логе job'а |
 | `ci.yml` → `Security` | уязвимости зависимостей | `cargo audit --deny warnings`, `pnpm audit --audit-level high --prod` | нет high/critical |
-| `ci.yml` → `Docker` | сборка образов admin, worker, frontend | `docker build` | образы собираются |
+| `ci.yml` → `Dependencies policy` | политика зависимостей Rust | `cargo deny check` (`deny.toml`) | advisories/bans/licenses/sources — без ошибок |
+| `ci.yml` → `Docker` | валидация compose и сборка образов admin, worker, frontend | `docker compose config`, `docker build` | конфигурация интерполируется, образы собираются |
 | `ci.yml` → `E2E` | сквозные сценарии в реальном compose-стеке | `pnpm e2e --project=chromium` | все тесты проходят |
 | `ci.yml` → `Performance budgets` | gzip-размер фронтенда и debug APK | `node scripts/check-frontend-size.mjs`, `../scripts/check-android-size.sh --mode debug` | см. ниже |
 | `android.yml` → `quality` | форматирование, unit-тесты, lint, debug-сборка | `./gradlew formatCheck testFdroidDebugUnitTest lintFdroidDebug assembleFdroidDebug` | без ошибок |
 | `android.yml` → `migration` | instrumentation-тесты на API 34 и 36 | `connectedFdroidDebugAndroidTest` | все тесты проходят |
+
+Цифры по количеству тестов здесь намеренно не дублируются: они меняются от
+коммита к коммиту, источник истины — вывод `cargo test --workspace` и
+`pnpm test` в CI.
+
+### `cargo deny`
+
+Job `Dependencies policy` запускает `cargo deny check` (action
+`EmbarkStudios/cargo-deny-action`) по `deny.toml`:
+
+- advisories — RustSec, `yanked = "deny"`, исключения только с комментарием;
+- licenses — allowlist (MIT/Apache-2.0/BSD/ISC/…), всё остальное падает;
+- bans — `multiple-versions = "deny"`: известные дубли перечислены в `skip`,
+  новый дубль ломает job (осознанное ужесточение, а не шум);
+- sources — разрешены crates.io и `netlink-packet-amnezia-wireguard`.
+
+Локально:
+
+```bash
+cargo install --locked cargo-deny
+cargo deny check
+```
+
+Если `cargo deny` недоступен, минимум — `cargo audit --deny warnings`.
 
 ### E2E
 
@@ -30,6 +55,9 @@ Traefik не запускается: он вынесен в профиль `tls`
 не занимаются. Admin доступен на `127.0.0.1:8080`, frontend — на
 `127.0.0.1:8081`. Job ждёт одновременно `GET /ready` (проверка схемы redb и
 отсутствия shutdown) и ответ frontend, затем запускает Playwright в Chromium.
+Стек поднимается с `AWG_ENV=development` и `AWG_TRUSTED_PROXIES=127.0.0.1/32`;
+вход выполняется по email (`E2E_ADMIN_LOGIN=admin@local`), переменной
+`AWG_ADMIN_LOGIN` больше нет.
 При падении выгружаются `frontend/playwright-report` и
 `frontend/test-results`; шаг `docker compose down -v --remove-orphans`
 выполняется всегда.
@@ -40,6 +68,31 @@ Firefox-проект остаётся доступным локально:
 cd frontend
 pnpm e2e --project=firefox
 ```
+
+### Образы, пины и supply chain
+
+- Базовые образы в `docker/Dockerfile.*` и `docker-compose.yml` запинены по
+  digest multi-arch manifest (`image:tag@sha256:...`). Тег без digest не
+  принимается на ревью: он делает сборку невоспроизводимой.
+- Версии GitHub Actions запинены по commit SHA с комментарием-тегом; обновления
+  приходят от Dependabot (`github-actions`, `docker`, `docker-compose`).
+- pnpm не ставится глобально: версия берётся из `packageManager` в
+  `frontend/package.json`, Dockerfile и CI используют `corepack`/`pnpm/action-setup`.
+- `cargo build`/`cargo install` в образах выполняются с `--locked`.
+- Проверка digest: `docker buildx imagetools inspect rust:1.90-bookworm`.
+  Обновление образа = новый digest в Dockerfile + зелёные `docker`/`e2e`.
+- `docker compose config` в job `Docker` валидирует интерполяцию обоих файлов
+  (`docker-compose.yml` и overlay `docker-compose.dev.yml`) до сборки.
+
+Осознанный долг (пины от 21.11.2026):
+
+- `nginx:1.27-alpine` — ветка 1.27 уже не mainline; обновление до актуальной
+  стабильной ветки требует проверки конфигов `docker/nginx*.conf` и делается
+  отдельной задачей вместе с пересборкой digest.
+- `rust:1.90-bookworm` зафиксирован под `rust-version = "1.90"` в `Cargo.toml`;
+  повышение версии тулчейна — отдельная задача с прогоном всего CI.
+- Digest'ы не обновляются автоматически при выходе патчей образа: Dependabot
+  присылает PR на docker-compose/Dockerfile, но не на каждый digest.
 
 ## Бюджеты фронтенда
 
@@ -183,8 +236,14 @@ cd ..
 node scripts/check-frontend-size.mjs
 
 # backend
+cargo fmt --all -- --check
 cargo test --workspace
+cargo deny check
 scripts/check-backend-perf.sh
+
+# compose
+docker compose config >/dev/null
+docker compose -f docker-compose.yml -f docker-compose.dev.yml config >/dev/null
 
 # android (при наличии SDK)
 scripts/check-android-size.sh --mode=debug

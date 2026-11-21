@@ -1,19 +1,34 @@
-FROM rust:1.90-bookworm AS builder
+# Образы запинены по digest (multi-arch manifest list). Тег оставлен для
+# читаемости; при обновлении меняйте и тег, и digest, иначе сборка останется
+# на прежнем образе. Проверка актуального digest:
+#   docker buildx imagetools inspect rust:1.90-bookworm
+FROM rust:1.90-bookworm@sha256:3914072ca0c3b8aad871db9169a651ccfce30cf58303e5d6f2db16d1d8a7e58f AS base
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang cmake protobuf-compiler pkg-config libssl-dev \
     && rm -rf /var/lib/apt/lists/*
+
+FROM base AS builder
 COPY Cargo.toml Cargo.lock ./
 COPY backend ./backend
-RUN cargo build --release -p awg-admin
+# --locked: сборка строго по Cargo.lock, без неявного обновления зависимостей.
+RUN cargo build --release --locked -p awg-admin
 
-FROM debian:bookworm-slim AS runtime
+# Цель для локальной разработки (docker-compose.dev.yml): исходники монтируются
+# томом, cargo-watch перезапускает процесс при изменениях.
+FROM base AS dev
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && cargo install cargo-watch --locked
+CMD ["cargo", "watch", "-x", "run -p awg-admin"]
+
+FROM debian:bookworm-slim@sha256:734a72b3d6142a71993b4bc580ca01d8ca687f77a2c422d96a961d3376b179bc AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --gid nogroup awg \
     && mkdir -p /data && chown -R awg:nogroup /data
 COPY --from=builder /app/target/release/awg-admin /usr/local/bin/awg-admin
 COPY --from=builder /app/target/release/awg-backup /usr/local/bin/awg-backup
-USER awg
+USER 10001:65534
 EXPOSE 8080 9090
 ENTRYPOINT ["/usr/local/bin/awg-admin"]

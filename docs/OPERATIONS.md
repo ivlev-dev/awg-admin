@@ -4,15 +4,59 @@
 
 ```bash
 cp .env.example .env
-$EDITOR .env
+$EDITOR .env                    # обязательно: AWG_ENV, домен, секреты
+docker compose config >/dev/null   # проверка интерполяции без запуска
 docker compose up -d --build   # admin/frontend; traefik: --profile tls
 ```
+
+`docker-compose.yml` подставляет `AWG_ENV=production`, если переменная не
+задана (fail-closed). В `production` admin не стартует без `AWG_MASTER_KEY`,
+`AWG_JWT_SECRET` и сменённого `AWG_ADMIN_PASSWORD`; для локального запуска
+поставьте `AWG_ENV=development` или используйте `docker-compose.dev.yml`.
+
+С профилем `tls` поднимается Traefik вместе с `docker-socket-proxy`:
+
+```bash
+docker compose --profile tls up -d --build
+```
+
+Traefik не монтирует `/var/run/docker.sock`: провайдер ходит на
+`tcp://docker-socket-proxy:2375`, у прокси разрешены только read-эндпоинты
+(`CONTAINERS`, `NETWORKS`, `SERVICES`, `TASKS`, `EVENTS`, `PING`, `VERSION`).
+Порт 80 публикуется для redirect на HTTPS (`AWG_TRAEFIK_HTTP_BIND`, по
+умолчанию `0.0.0.0`); ACME работает через TLS-ALPN на 443.
+
+Диагностика socket-proxy:
+
+```bash
+docker compose --profile tls logs --tail=50 docker-socket-proxy
+docker compose --profile tls logs --tail=50 traefik | grep -i "docker provider\|error"
+```
+
+Если Traefik не видит контейнеры, а в логах прокси `403` — нужный эндпоинт не
+входит в allowlist. Если контейнер не стартует на хосте с SELinux, смонтируйте
+сокет с меткой (`/var/run/docker.sock:/var/run/docker.sock:ro,z`) — это
+безопаснее, чем выдавать прокси `privileged`.
+
+Сеть `web` зафиксирована подсетью `172.30.0.0/24` — на неё опирается
+`AWG_TRUSTED_PROXIES`. Если сеть уже была создана compose с другой подсетью,
+после обновления `docker compose up` ругнётся на несовпадение: остановите стек
+(`docker compose down`) и удалите сеть (`docker network rm <project>_web`,
+имя видно в `docker network ls`), затем поднимите снова. Данные в томе
+`awg-data` при этом не затрагиваются.
 
 С профилем worker:
 
 ```bash
 docker compose --profile worker up -d --build
 ```
+
+Worker не получает `.env`: в compose ему переданы только `AWG_NODE_ID`,
+`AWG_NODE_TOKEN`, `AWG_GRPC_URL`, `AWG_GRPC_TLS_*`, `AWG_DRY_RUN`,
+`AWG_COUNTERS_PATH`, `AWG_STATS_INTERVAL_SECS`. Значения этих переменных
+подставляются из `.env` при интерполяции compose, но остальные секреты admin
+(`AWG_MASTER_KEY`, `AWG_JWT_SECRET`, SMTP, платёжные ключи) в контейнер worker
+не попадают.
 
 Проверки:
 
@@ -34,9 +78,23 @@ docker compose down -v --remove-orphans
 `make clean` эквивалентен `docker compose down -v --remove-orphans` и удаляет том `awg-data` с БД. Локальная разработка:
 
 ```bash
-cargo run -p awg-admin
-cd frontend && pnpm install && pnpm dev
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 ```
+
+Dev-файл поднимает admin из цели `dev` (toolchain + cargo-watch) и Vite; порты
+привязаны к `127.0.0.1` (8080, 9090, 5173), `AWG_ENV=development` по умолчанию
+(значение из `.env` имеет приоритет), `AWG_TRUSTED_PROXIES=127.0.0.1/32`.
+В контейнер монтируются только `backend/`, `Cargo.toml`, `Cargo.lock` и
+`.cargo/`. Первый старт admin дольше обычного: образ цели `dev` собирает
+`cargo-watch`, а `frontend` ждёт healthcheck admin. Без Docker:
+
+```bash
+cargo run -p awg-admin
+cd frontend && corepack enable && pnpm install && pnpm dev
+```
+
+Версия pnpm берётся из `packageManager` в `frontend/package.json`
+(`corepack enable` один раз на машину).
 
 Frontend доступен на `http://localhost:5173`, admin на `http://localhost:8080`, gRPC на `localhost:9090`.
 
@@ -45,20 +103,25 @@ Frontend доступен на `http://localhost:5173`, admin на `http://local
 - `AWG_MASTER_KEY` — 32 байта в base64 (`openssl rand -base64 32`), используется `Sealer` (ChaCha20-Poly1305) для шифрования приватных ключей устройств и интерфейсов в redb. В `production` старт завершается ошибкой, если ключ не задан, не base64 или длина не 32 байта. Потеря ключа делает сохранённые секреты нечитаемыми; менять ключ на данных production нельзя.
 - `AWG_JWT_SECRET` — не короче 32 байт в `production` (`openssl rand -base64 48`). Влияет на все JWT; смена секрета инвалидирует выданные токены.
 - `AWG_ADMIN_PASSWORD` — в `production` не пустой и не равен `admin12345`; если переменная не задана, применяется дефолт `admin12345`, и старт завершается ошибкой (`AWG_ADMIN_PASSWORD must be changed…`). Seed-администратор создаётся при первом запуске из `AWG_ADMIN_EMAIL`/`AWG_ADMIN_PASSWORD`; переменная `AWG_ADMIN_LOGIN` удалена, вход только по email.
-- `AWG_TRUSTED_PROXIES` — список IP/CIDR через запятую. `X-Forwarded-For` и `X-Real-IP` принимаются только от перечисленных адресов; клиентский IP для rate limit/аудита — первый справа хоп XFF, не входящий в trusted-сети. Пусто (по умолчанию) — заголовки игнорируются. За Traefik укажите подсеть docker-сети (`docker network inspect`), локально достаточно `127.0.0.1/32`.
+- `AWG_TRUSTED_PROXIES` — список IP/CIDR через запятую. `X-Forwarded-For` и `X-Real-IP` принимаются только от перечисленных адресов; клиентский IP для rate limit/аудита — первый справа хоп XFF, не входящий в trusted-сети. `docker-compose.yml` фиксирует подсеть сети `web` (`172.30.0.0/24`) и по умолчанию подставляет её же в `AWG_TRUSTED_PROXIES`; при смене подсети обновите переменную. Локально достаточно `127.0.0.1/32` (это же значение в `docker-compose.dev.yml`).
 - `AWG_DEV_MAIL_TOKEN` — токен для `GET/DELETE /api/v1/dev/mail` вне production. Без него маршрут требует обычный access token администратора. В `production` маршрут всегда отвечает `404`, а dev-mailbox и токены в письмах не логируются.
 - `AWG_JWT_ISSUER` и `AWG_JWT_AUDIENCE` по умолчанию `awg-admin`; пустые значения заменяются значением по умолчанию.
-- SMTP: `AWG_MAIL_MODE=log|smtp`, `AWG_SMTP_URL=smtp://user:pass@host:port`, `AWG_SMTP_FROM`, `AWG_PUBLIC_URL` для ссылки подтверждения email.
+- SMTP: `AWG_MAIL_MODE=log|smtp`, `AWG_SMTP_URL=smtp://user:pass@host:port` (обязательный STARTTLS, порт 587) или `smtps://…` (implicit TLS, порт 465), `AWG_SMTP_FROM`, `AWG_PUBLIC_URL` для ссылки подтверждения email. Открытый SMTP без TLS не поддерживается.
 - `AWG_APP_VERIFY_URL` — deep link мобильного приложения для подтверждения email (`umbravpn://verify` по умолчанию); в письме добавляется `{AWG_APP_VERIFY_URL}?token=…`.
-- Без `.env` admin генерирует эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` с предупреждением; после рестарта секреты устройств становятся нечитаемыми. Проверка:
+- `AWG_ENV` — `production` или `development`. Код по умолчанию считает окружение `development`, но `docker-compose.yml` подставляет `production` (fail-closed). В production обязательны `AWG_MASTER_KEY`, `AWG_JWT_SECRET` и `AWG_ADMIN_PASSWORD`, отличный от `admin12345`.
+- `AWG_REGISTRATION_ENABLED` (по умолчанию `true`) — самостоятельная регистрация; `false` даёт `403 registration_disabled`.
+- `AWG_ALLOW_WS_TOKEN` (по умолчанию `false`) — совместимость со старым WebSocket-флоу `?token=`. Включайте только на время миграции клиентов: токен в query попадает в логи и историю.
+- `AWG_LOGIN_ACCOUNT_RATE_LIMIT` (20) и `AWG_LOGIN_IP_RATE_LIMIT` (30) — дополнительные лимиты логина по email и по IP; `AWG_WEBHOOK_RATE_LIMIT` (120) и `AWG_WEBHOOK_WINDOW_SECS` (60) — лимит webhook по IP.
+- Без `.env` compose в production **не** стартует: admin завершится с ошибкой о недостающих секретах. Эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` генерируются только при `AWG_ENV=development` (или при прямом запуске без compose). После рестарта с эфемерным ключом секреты устройств становятся нечитаемыми. Проверка:
 
 ```bash
-docker compose logs admin | grep -i "ephemeral" && echo "ключ не задан"
+# только для development: предупреждение об эфемерном ключе
+docker compose logs admin | grep -i "ephemeral"
 ```
 
 ## 3. Backup и restore redb
 
-БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 13` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
+БД — один файл `/data/awg-admin.redb` (`AWG_DB_PATH`), том `awg-data`. Текущая версия схемы — `CURRENT_SCHEMA_VERSION = 15` (таблица `meta`, ключ `schema_version`). Проверка версии открытой базы: `Store::schema_version()`.
 
 Методы `Store`:
 
@@ -89,6 +152,21 @@ volumes:
 # environment:
 #   AWG_BACKUP_DIR: /backups
 ```
+
+Права на каталог и файлы: backup содержит приватные ключи устройств, поэтому
+каталог создаётся/используется с `0700`, а файлы — `0600` (владелец —
+пользователь, под которым работает admin, в образе это uid 10001). Это делает
+сам планировщик на Unix; при копировании на другой носитель права нужно
+сохранить:
+
+```bash
+install -d -m 700 -o 10001 -g 65534 ./backups
+chmod 600 ./backups/*.redb
+```
+
+Если каталог смонтирован с другой ФС без поддержки Unix-прав (например, некоторые
+сетевые тома), полагайтесь на права точки монтирования и шифруйте внешние
+копии.
 
 Снимок проверяется на целостность (как `Store::backup_to`) и пригоден для
 `awg-backup restore`, в том числе для старых версий схемы (они обновляются
@@ -164,7 +242,7 @@ docker compose logs --tail=50 admin              # нет ошибок мигр�
 
 Затем войти в панель и проверить пользователей, ноды, тарифы и последние аудит-события.
 
-Проверка версии: `restore` обновляет старые backup автоматически, если для всех шагов хватает данных и (при необходимости) `AWG_MASTER_KEY`; иначе он отклоняется, а БД остаётся прежней. Backup новее `CURRENT_SCHEMA_VERSION` не восстанавливается — используйте `awg-backup` из той же версии admin, что создала backup. Для отката на предыдущую версию admin берите `awg-backup` из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`; шаги `1 → 2` (`v2_billing`), `2 → 3` (`v3_rate_limits`), `3 → 4` (`v4_device_interfaces`), `4 → 5` (`v5_user_nodes`), `5 → 6` (`v6_user_emails`), `6 → 7` (`v7_idempotency`), `7 → 8` (`v8_peer_ids`), `8 → 9` (`v9_device_page_index`), `9 → 10` (`v10_user_page_index`), `10 → 11` (`v11_share_token_hash`, шифрует legacy-токены и требует master key), `11 → 12` (`v12_user_search_index`), `12 → 13` (`v13_user_identity`: удаляет `login`, заполняет пропущенные email из старого логина, нормализует email, добавляет `full_name: null`, перестраивает `user_page_index` и `user_search_index`) не удаляют пользовательские записи; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
+Проверка версии: `restore` обновляет старые backup автоматически, если для всех шагов хватает данных и (при необходимости) `AWG_MASTER_KEY`; иначе он отклоняется, а БД остаётся прежней. Backup новее `CURRENT_SCHEMA_VERSION` не восстанавливается — используйте `awg-backup` из той же версии admin, что создала backup. Для отката на предыдущую версию admin берите `awg-backup` из того же тега, что и возвращаемый admin. Схема новее поддерживаемой даёт `StorageError::SchemaTooNew` (`store schema version N is newer than supported version M`) и admin не стартует. Миграции: реестр `MIGRATIONS`; шаги `1 → 2` (`v2_billing`), `2 → 3` (`v3_rate_limits`), `3 → 4` (`v4_device_interfaces`), `4 → 5` (`v5_user_nodes`), `5 → 6` (`v6_user_emails`), `6 → 7` (`v7_idempotency`), `7 → 8` (`v8_peer_ids`), `8 → 9` (`v9_device_page_index`), `9 → 10` (`v10_user_page_index`), `10 → 11` (`v11_share_token_hash`, шифрует legacy-токены и требует master key), `11 → 12` (`v12_user_search_index`), `12 → 13` (`v13_user_identity`: удаляет `login`, заполняет пропущенные email из старого логина, нормализует email, добавляет `full_name: null`, перестраивает `user_page_index` и `user_search_index`), `13 → 14` (`v14_lookup_indexes`: заполняет индекс поиска пользователей по email), `14 → 15` (`v15_access_epochs`: создаёт `user_access_epochs`) не удаляют пользовательские записи; все шаги и запись версии выполняются в одной write-транзакции, ошибка откатывает данные и версию.
 
 ## 4. Очистка устаревших данных
 
@@ -188,7 +266,10 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
   http://127.0.0.1:8080/metrics
 ```
 
-`AWG_METRICS_TOKEN` включает `Authorization: Bearer <token>`; без токена эндпоинт открыт, поэтому порт `8080` не публикуйте наружу. В `production` при пустом токене в лог пишется предупреждение на старте. Сравнение токена constant-time, без токена — `401`.
+`AWG_METRICS_TOKEN` включает обязательный `Authorization: Bearer <token>`;
+без корректного токена — `401` (сравнение constant-time). В `production` при
+пустом токене `/metrics` отвечает `404` (эндпоинт скрыт), в `development` —
+открыт. Порт `8080` не публикуйте наружу.
 
 Пример scrape-конфига Prometheus:
 
@@ -257,7 +338,7 @@ Jaeger, OTel Collector) и при необходимости ограничьт�
 
 `GET /api/v1/audit` доступен только роли `admin`; записи в обратном хронологическом порядке, ответ `{"items":[...],"next_cursor":"..."}`. Фильтры (AND): `limit` (1..500, по умолчанию 100), `before` (курсор `<микросекунды>:<uuid>`), `action` (например `POST`, `DELETE`), `entity` (например `devices`), `actor` (регистронезависимое вхождение), `status` (HTTP-код), `from`/`to` (Unix-секунды, включительно). `from > to` — `400 invalid_filter`.
 
-Retention: `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) — записи старше удаляются фоновой задачей раз в сутки. UI раздел `/audit` (admin only). Автоматически фиксируются успешные (2xx) mutating-запросы `POST`/`PATCH`/`PUT`/`DELETE` под `/api/v1`; вход фиксируется контроллером. `entity` — путь без идентификатора, `entity_id` — первый UUID или share-токен из пути, `ip` — первый адрес `X-Forwarded-For` либо адрес peer.
+Retention: `AWG_AUDIT_RETENTION_DAYS` (по умолчанию 90; 0 — не чистить) — записи старше удаляются фоновой задачей раз в сутки. UI раздел `/audit` (admin only). Автоматически фиксируются mutating-запросы `POST`/`PATCH`/`PUT`/`DELETE` под `/api/v1` со статусом `2xx` и `4xx` (401 без учётных данных не пишется); вход фиксируется контроллером. `entity` — путь без идентификатора, `entity_id` — первый UUID из пути; share-токены в пути и `entity_id` заменяются на `sha256:<12 hex>`. `ip` — первый справа недоверенный хоп `X-Forwarded-For`/`X-Real-IP` при доверенном peer, иначе адрес peer.
 
 ## 8. Квоты
 
@@ -271,7 +352,7 @@ curl -fsS -H "authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/quota/users
 ```
 
-`GET /api/v1/quota` возвращает `QuotaView` текущего пользователя: `used_bytes`, `quota_bytes`, `exceeded`, `remaining_bytes`, `percent`, `period_start`, `period_end`, `reset_at`. `GET /api/v1/quota/users` (admin) — массив `QuotaUserView`. При превышении (`used_bytes >= quota_bytes`) snapshot ограничивает группу и устройства пользователя скоростью 1 kbps. Проверка на worker:
+`GET /api/v1/quota` возвращает `QuotaView` текущего пользователя: `used_bytes`, `quota_bytes`, `exceeded`, `remaining_bytes`, `percent`, `period_start`, `period_end`, `reset_at`. `GET /api/v1/quota/users` для admin — массив `QuotaUserView` по всем пользователям с тарифом, для обычного пользователя — массив из одного элемента со своей квотой. При превышении (`used_bytes >= quota_bytes`) snapshot ограничивает группу и устройства пользователя скоростью 1 kbps. Проверка на worker:
 
 ```bash
 tc -s class show dev <ifname> | grep -i '1kbit\|1kibit'
@@ -333,10 +414,22 @@ sudo -E PANEL_PASSWORD=... ./scripts/verify-hairpin.sh --apply --group "VPN Pilo
 | server-auth TLS | `AWG_GRPC_TLS_CERT`/`KEY` | `AWG_GRPC_TLS_CA`/`DOMAIN`/`SYSTEM_ROOTS` | канал пересекает недоверенную сеть |
 | mTLS | + `AWG_GRPC_TLS_CLIENT_CA` | + `AWG_GRPC_TLS_CLIENT_CERT`/`KEY` | нужно отсекать подключения без доверенного клиентского сертификата |
 
-Plaintext остаётся поведением по умолчанию: без переменных admin слушает h2c,
-worker подключается по `http://`. В production при выключенном TLS admin
-пишет предупреждение; при включённом TLS без `AWG_GRPC_TLS_CLIENT_CA` —
-предупреждение, что клиентский сертификат не требуется.
+Plaintext остаётся допустимым на loopback. В production admin **не стартует**
+с plaintext на не-loopback адресе (`AWG_GRPC_BIND=0.0.0.0:9090` и без TLS —
+ошибка); на loopback пишется предупреждение. При включённом TLS без
+`AWG_GRPC_TLS_CLIENT_CA` — предупреждение, что клиентский сертификат не
+требуется.
+
+Worker по-прежнему не анализирует `AWG_GRPC_URL` и не отказывается от
+plaintext к удалённому адресу: fail-closed реализован только на стороне admin.
+Поэтому TLS для канала за пределами доверенной сети включается вручную. Это
+остаточный риск (см. `docs/SECURITY.md`); проверяйте конфигурацию штатной
+командой:
+
+```bash
+docker compose exec worker env | grep AWG_GRPC_
+# ожидаемо: TLS_CA+DOMAIN (или SYSTEM_ROOTS=true) для канала вне доверенной сети
+```
 
 #### Выпуск CA и сертификатов (openssl)
 
@@ -516,9 +609,15 @@ openssl s_client -connect admin.internal:9090 -CAfile certs/grpc-ca.crt \
 
 1. Backup БД (раздел 3) и `.env`.
 2. Обновить образы: `docker compose build --pull` или `docker compose up -d --build   # admin/frontend; traefik: --profile tls`.
+   Базовые образы запинены по digest: `--pull` не «подтянет» более новый тег,
+   пока digest в `docker/Dockerfile.*` не обновлён (это делает Dependabot).
+   Для Traefik digest задан в `docker-compose.yml`; `docker compose pull`
+   обновит только тот digest, который указан.
 3. Запустить admin, применятся миграции redb (одна write-транзакция, при ошибке откат).
 4. Проверить health, логи, версию схемы.
 5. Запустить worker: `docker compose --profile worker up -d --build`.
+6. Профиль `tls`: проверить, что Traefik поднялся вместе с `docker-socket-proxy`
+   (`docker compose --profile tls ps`) и контейнеры видны провайдеру.
 
 Откат: остановить admin, вернуть прежний образ/`.env`, восстановить БД из backup командой `awg-backup restore --offline` (backup не должен быть новее возвращаемого admin; более старый будет обновлён миграциями, раздел 3), запустить. Не менять `AWG_MASTER_KEY` при откате.
 
@@ -530,6 +629,8 @@ make ps
 make logs
 make health
 docker compose config --quiet
+docker network inspect awg-admin_web --format '{{(index .IPAM.Config 0).Subnet}}'
+docker compose --profile tls ps
 docker compose exec admin sh -c 'id'
 docker run --rm --entrypoint sh awg-admin:latest -c 'id'
 docker run --rm --entrypoint sh awg-worker:latest -c 'ip -V; tc -V; nft --version; modprobe --version'

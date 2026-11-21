@@ -33,16 +33,22 @@ cp .env.example .env
 # сгенерируйте секреты и впишите в .env:
 # AWG_MASTER_KEY=$(openssl rand -base64 32)
 # AWG_JWT_SECRET=$(openssl rand -base64 48)
+# AWG_ADMIN_PASSWORD=<уникальный пароль, не admin12345>
 $EDITOR .env
 docker compose up -d --build
 ```
 
-`.env` не обязателен для сборки и запуска: без него admin сгенерирует
-эфемерные `AWG_MASTER_KEY`/`AWG_JWT_SECRET` (приватные ключи устройств станут
-нечитаемыми после рестарта), а логин/пароль будут `admin`/`admin12345`.
+`docker-compose.yml` подставляет `AWG_ENV=production` по умолчанию
+(fail-closed). В production контейнер **не стартует** без `AWG_MASTER_KEY`,
+`AWG_JWT_SECRET` и пароля администратора, отличного от `admin12345`. Для
+локального запуска без секретов задайте `AWG_ENV=development` или используйте
+`docker-compose.dev.yml`: тогда admin сгенерирует эфемерные
+`AWG_MASTER_KEY`/`AWG_JWT_SECRET` (приватные ключи устройств станут
+нечитаемыми после рестарта), а логин/пароль будут `admin@local`/`admin12345`.
 
-Traefik с портами 80/443 запускается отдельным профилем:
-`docker compose --profile tls up -d`. Без него порты 80/443 не занимаются.
+Traefik с портами 80/443 запускается отдельным профилем `tls` и работает через
+`docker-socket-proxy` (Traefik не монтирует `/var/run/docker.sock`):
+`docker compose --profile tls up -d`. Без профиля порты 80/443 не занимаются.
 Затем откройте `https://panel.localhost` (или `AWG_DOMAIN`). Первый вход:
 `AWG_ADMIN_EMAIL` / `AWG_ADMIN_PASSWORD` из `.env` (по умолчанию
 `admin@local` / `admin12345`); вход выполняется только по email — **смените
@@ -67,8 +73,15 @@ Frontend опубликован на `127.0.0.1:8081` для локальной 
 ## Создание ноды и запуск воркера
 
 1. Войдите в панель и создайте ноду в разделе «Ноды».
-2. Скопируйте `AWG_NODE_ID` и `AWG_NODE_TOKEN` в `.env`.
+2. Скопируйте `AWG_NODE_ID` и `AWG_NODE_TOKEN` в `.env` (compose подставит их
+   в контейнер worker при интерполяции).
 3. Запустите воркер: `docker compose --profile worker up -d --build`.
+
+Worker не получает `.env` целиком: в compose ему переданы только
+`AWG_NODE_ID`, `AWG_NODE_TOKEN`, `AWG_GRPC_URL`, `AWG_GRPC_TLS_*`,
+`AWG_DRY_RUN`, `AWG_COUNTERS_PATH`, `AWG_STATS_INTERVAL_SECS`. Секреты admin
+(`AWG_MASTER_KEY`, `AWG_JWT_SECRET`, SMTP, платёжные ключи) в контейнер worker
+не попадают.
 
 Для проверки без ядра: `AWG_DRY_RUN=true`.
 
@@ -101,7 +114,8 @@ nginx раздаёт frontend с CSP, nosniff, `Referrer-Policy`, `Permissions-P
 `X-Frame-Options: DENY` и `Cross-Origin-Opener-Policy: same-origin`; Traefik
 добавляет HSTS на HTTPS-роутерах и заголовки для API. CSP использует
 `style-src 'unsafe-inline'` (inline `style="..."` в компонентах) и
-`connect-src ws: wss:` для WebSocket статистики; inline-скриптов нет.
+`connect-src 'self'` для REST и WebSocket статистики (WS подключается по
+одноразовому тикету на том же origin); inline-скриптов нет.
 
 ```bash
 curl -sSI http://127.0.0.1:8081/ | grep -Ei 'content-security|x-content|referrer|permissions|x-frame'
@@ -131,10 +145,14 @@ curl -sSI http://127.0.0.1:8081/assets/<hash>.js | grep -Ei 'cache-control|conte
 ## Аудит зависимостей
 
 CI job `security` независимо от сборки проверяет Rust (`cargo audit --deny warnings`)
-и frontend (`pnpm audit --audit-level high --prod`). Игнорируемые advisory
-с обоснованием — в `.cargo/audit.toml`.
+и frontend (`pnpm audit --audit-level high --prod`); job `Dependencies policy`
+запускает `cargo deny check` по `deny.toml`. Job `rust` начинается с
+`cargo fmt --all -- --check`. Игнорируемые advisory с обоснованием — в
+`.cargo/audit.toml`.
 
 ```bash
+cargo fmt --all -- --check
+cargo deny check
 cargo audit --deny warnings
 cd frontend && pnpm audit --audit-level high --prod
 ```
@@ -148,8 +166,11 @@ Dependabot еженедельно открывает PR на patch/minor-обн�
 - `GET /metrics` — Prometheus text-формат (`awg_http_requests_total`,
   `awg_http_request_duration_seconds`, `awg_auth_logins_total`,
   `awg_rate_limited_total`, `awg_audit_events_total`, `awg_worker_online`).
-- `AWG_METRICS_TOKEN` включает `Authorization: Bearer <token>` для `/metrics`;
-  без токена эндпоинт открыт, поэтому порт `8080` не публикуйте наружу.
+- `AWG_METRICS_TOKEN` включает обязательный `Authorization: Bearer <token>`
+  для `/metrics`; без корректного токена — `401` (сравнение constant-time).
+  В `production` при пустом `AWG_METRICS_TOKEN` `/metrics` отвечает `404`;
+  в `development` без токена эндпоинт открыт. Порт `8080` в любом случае не
+  публикуйте наружу.
 - `AWG_LOG_FORMAT=json` переключает логи на structured JSON, `RUST_LOG`
   задаёт уровень (`info` по умолчанию).
 
@@ -161,9 +182,9 @@ curl -fsS -H "Authorization: Bearer $AWG_METRICS_TOKEN" \
 ## Тесты
 
 ```bash
-cargo test --workspace          # 378 тестов
+cargo test --workspace          # точное число — в выводе раннера и CI
 cd frontend && pnpm typecheck
-cd frontend && pnpm test        # 746 тестов
+cd frontend && pnpm test        # точное число — в выводе раннера и CI
 cd frontend && pnpm arch:check  # границы слоёв (dependency-cruiser)
 cd frontend && pnpm build
 docker compose --profile worker build
@@ -172,9 +193,9 @@ docker compose --profile worker build
 ### E2E (Playwright)
 
 Браузерные тесты живут в `frontend/e2e` и запускаются против уже поднятого
-стека (`http://127.0.0.1:8081`, `admin`/`admin12345`). В CI их поднимает job
-`e2e`: `docker compose up -d --build`, ожидание `/api/v1/health`, затем
-Chromium и Firefox.
+стека (`http://127.0.0.1:8081`, вход только по email: `admin@local` /
+`admin12345`). В CI их поднимает job `e2e`: `docker compose up -d --build`,
+ожидание `/api/v1/health`, затем Chromium.
 
 ```bash
 cd frontend
@@ -207,12 +228,14 @@ timestamp, поэтому повторные прогоны не конфлик�
 
 Фактический прогон 16.11.2026 (Linux 7.3.4, `amneziawg` 3.1, iproute2 7.3.0):
 `verify-kernel.sh --apply --netns` — 0 провалов; `verify-dataplane.sh --apply` —
-1 провал (повторный `tc qdisc replace` root htb не поддерживается ядром);
+1 провал (повторный `tc qdisc replace` root htb не поддерживался ядром);
 `verify-tls.sh --local` — 2 провала (нет `Host(...)` в compose и HSTS), остальное
 `ok`; live worker создаёт интерфейс с H1–H4/S1–S4/HPK и пирами, handshake
-проходит, но статистика не собирается: netlink `GetDevice` отправляется без
-`NLM_F_DUMP`. Детали и ограничения — в
-[`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md).
+проходит, но на момент прогона статистика не собиралась: netlink `GetDevice`
+отправлялся без `NLM_F_DUMP`. Оба дефекта (dump-флаг и пересоздание qdisc через
+`del`+`add`) исправлены в коде; сводка в
+[`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md) помечает
+прогон как исторический.
 
 Полный чек-лист с предусловиями, откатом и критериями приёмки:
 [`docs/PRODUCTION-VERIFICATION.md`](docs/PRODUCTION-VERIFICATION.md).

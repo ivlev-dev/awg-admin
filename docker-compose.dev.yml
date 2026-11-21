@@ -1,44 +1,66 @@
+# Локальная разработка.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#
+# ВНИМАНИЕ: это окружение только для разработки. Пароль seed-администратора по
+# умолчанию — admin12345, dev-mailbox включён, TLS не используется. Не выносите
+# порты за пределы loopback (они уже привязаны к 127.0.0.1) и не используйте
+# этот файл на сервере.
+
 services:
   admin:
     build:
       context: .
       dockerfile: docker/Dockerfile.admin
+      # Цель dev: toolchain + cargo-watch, без release-сборки.
+      target: dev
     image: awg-admin-dev
-    env_file:
-      - path: .env
-        required: false
+    # Значение по умолчанию — development; AWG_ENV из .env имеет приоритет,
+    # поэтому для dev не задавайте там production.
     environment:
+      AWG_ENV: ${AWG_ENV:-development}
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
       AWG_GRPC_TLS_CERT: ${AWG_GRPC_TLS_CERT:-}
       AWG_GRPC_TLS_KEY: ${AWG_GRPC_TLS_KEY:-}
       AWG_GRPC_TLS_CLIENT_CA: ${AWG_GRPC_TLS_CLIENT_CA:-}
       AWG_DB_PATH: /data/awg-admin.redb
+      # В dev Traefik не запускается: запросы приходят с loopback.
+      AWG_TRUSTED_PROXIES: ${AWG_TRUSTED_PROXIES:-127.0.0.1/32}
     volumes:
-      - .:/app
+      # Монтируются только исходники, нужные cargo: остальной репозиторий
+      # (android/, .git, docs, frontend/) в контейнер не попадает.
+      - ./backend:/app/backend
+      - ./Cargo.toml:/app/Cargo.toml:ro
+      - ./Cargo.lock:/app/Cargo.lock:ro
+      - ./.cargo:/app/.cargo:ro
       - awg-data:/data
       - cargo-registry:/usr/local/cargo/registry
       - cargo-git:/usr/local/cargo/git
     working_dir: /app
     command:
-      - sh
-      - -c
-      - cargo install cargo-watch --quiet 2>/dev/null || true; cargo watch -x 'run -p awg-admin'
-    ports:
-      - "8080:8080"
-      - "9090:9090"
+      - cargo
+      - watch
+      - -x
+      - run -p awg-admin
+    # Порты наследуются из docker-compose.yml и привязаны к 127.0.0.1.
+    # Не переопределяем их здесь, чтобы не дублировать публикацию.
+    restart: "no"
 
   frontend:
-    image: node:22-bookworm-slim
+    image: node:22-bookworm-slim@sha256:e9f565d32859f0cbfb52125eafe8be39390f24dac302dc3cdf566e8ba3ab21ee
     working_dir: /app/frontend
     volumes:
       - ./frontend:/app/frontend
     command:
       - sh
       - -c
-      - corepack enable && pnpm install && pnpm dev --host
+      # Версия pnpm берётся из packageManager в frontend/package.json.
+      - corepack enable && pnpm install --frozen-lockfile && pnpm dev --host
+    # Только loopback: dev-сервер Vite не публикуется в сеть.
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173"
+    restart: "no"
 
   worker:
     profiles: ["worker"]
@@ -54,9 +76,8 @@ services:
     volumes:
       - /lib/modules:/lib/modules:ro
       - /var/lib/awg-worker:/var/lib/awg-worker
-    env_file:
-      - path: .env
-        required: false
+    # Без env_file: worker получает только свои переменные и не видит секреты
+    # admin (AWG_MASTER_KEY, AWG_JWT_SECRET, SMTP, платёжные ключи).
     environment:
       AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
       AWG_GRPC_TLS_CA: ${AWG_GRPC_TLS_CA:-}
@@ -69,6 +90,7 @@ services:
       AWG_DRY_RUN: "true"
       AWG_COUNTERS_PATH: /var/lib/awg-worker/counters.json
       AWG_STATS_INTERVAL_SECS: ${AWG_STATS_INTERVAL_SECS:-2}
+    restart: "no"
 
 volumes:
   awg-data:

@@ -4,13 +4,20 @@ services:
       context: .
       dockerfile: docker/Dockerfile.admin
     image: awg-admin:latest
+    # Fail-closed по умолчанию: без AWG_ENV контейнер поднимается в production
+    # и требует AWG_MASTER_KEY, AWG_JWT_SECRET и сменённый пароль admin.
+    # Для локального запуска задайте AWG_ENV=development в .env или используйте
+    # docker-compose.dev.yml.
     env_file:
       - path: .env
         required: false
     environment:
+      AWG_ENV: ${AWG_ENV:-production}
       AWG_BIND: 0.0.0.0:8080
       AWG_GRPC_BIND: 0.0.0.0:9090
-      AWG_TRUSTED_PROXIES: ${AWG_TRUSTED_PROXIES:-}
+      # Подсеть docker-сети web: запросы от Traefik/nginx приходят из неё,
+      # поэтому X-Forwarded-For учитывается и лимиты считаются по реальному IP.
+      AWG_TRUSTED_PROXIES: ${AWG_TRUSTED_PROXIES:-172.30.0.0/24}
       AWG_DEV_MAIL_TOKEN: ${AWG_DEV_MAIL_TOKEN:-}
       AWG_GRPC_TLS_CERT: ${AWG_GRPC_TLS_CERT:-}
       AWG_GRPC_TLS_KEY: ${AWG_GRPC_TLS_KEY:-}
@@ -26,6 +33,12 @@ services:
       timeout: 5s
       retries: 10
       start_period: 10s
+    # Должен быть больше AWG_SHUTDOWN_GRACE_SECS (по умолчанию 10 с), иначе
+    # docker пришлёт SIGKILL до завершения in-flight запросов.
+    stop_grace_period: 30s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.admin-api.rule=Host(`${AWG_DOMAIN}`) && PathPrefix(`/api`)"
@@ -53,6 +66,9 @@ services:
         condition: service_healthy
     ports:
       - "${AWG_FRONTEND_BIND:-127.0.0.1}:8081:80"
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.frontend.rule=Host(`${AWG_DOMAIN}`) && PathPrefix(`/`)"
@@ -67,24 +83,78 @@ services:
     networks:
       - web
 
-  traefik:
-    image: ${TRAEFIK_IMAGE:-traefik:v3.6}
+  # Прокси к docker.sock с allowlist эндпоинтов: Traefik больше не монтирует
+  # сокет напрямую, поэтому компрометация Traefik не даёт полный доступ к API
+  # демона (нельзя создать privileged-контейнер, exec, смонтировать хост).
+  docker-socket-proxy:
+    image: ${DOCKER_SOCKET_PROXY_IMAGE:-tecnativa/docker-socket-proxy:v0.5.0@sha256:1f5038b54f06c3e18422902cf00ba21803d1c97805aae032e5e6673d532d3459}
     profiles: ["tls"]
+    environment:
+      # Только чтение тех разделов, которые нужны docker-провайдеру Traefik.
+      CONTAINERS: 1
+      EVENTS: 1
+      NETWORKS: 1
+      SERVICES: 1
+      TASKS: 1
+      PING: 1
+      VERSION: 1
+      # Всё остальное — запрещено (в т.ч. POST/EXEC/IMAGES/VOLUMES/SECRETS).
+      POST: 0
+      EXEC: 0
+      IMAGES: 0
+      VOLUMES: 0
+      INFO: 0
+      SWARM: 0
+      SECRETS: 0
+      CONFIGS: 0
+      SYSTEM: 0
+      PLUGINS: 0
+      NODES: 0
+      BUILD: 0
+      COMMIT: 0
+      DISTRIBUTION: 0
+      SESSION: 0
+      AUTH: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      # Отдельная internal-сеть: admin/frontend не имеют доступа к Docker API.
+      - docker-socket
+
+  traefik:
+    image: ${TRAEFIK_IMAGE:-traefik:v3.6@sha256:31267173a15b4944e797a76ffd9c419707c8d8b32fe5b610f80cd0cfa05f372d}
+    profiles: ["tls"]
+    depends_on:
+      docker-socket-proxy:
+        condition: service_started
     command:
       - sh
       - -c
       - 'if [ -n "$$TRAEFIK_ACME_EMAIL" ]; then exec traefik --configFile=/etc/traefik/traefik.yml --certificatesresolvers.letsencrypt.acme.email="$$TRAEFIK_ACME_EMAIL"; else exec traefik --configFile=/etc/traefik/traefik.yml; fi'
     ports:
+      # 80 нужен для redirect на HTTPS (entrypoint web в docker/traefik.yml).
+      # ACME работает по TLS-ALPN на 443, порт 80 для challenge не требуется.
+      - "${AWG_TRAEFIK_HTTP_BIND:-0.0.0.0}:80:80/tcp"
       - "443:443/tcp"
       - "443:443/udp"
     environment:
       TRAEFIK_ACME_EMAIL: ${TRAEFIK_ACME_EMAIL:-}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./docker/traefik.yml:/etc/traefik/traefik.yml:ro
       - traefik-letsencrypt:/letsencrypt
+    # Healthcheck не задан: образ Traefik не содержит curl/wget, а
+    # `traefik healthcheck` требует включённого ping-entrypoint и отдельного
+    # внутреннего порта. Работоспособность проверяется логами и внешним
+    # `curl -kI https://${AWG_DOMAIN}/`.
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     networks:
       - web
+      - docker-socket
 
   worker:
     build:
@@ -93,6 +163,8 @@ services:
     image: awg-worker:latest
     profiles: ["worker"]
     network_mode: host
+    # privileged нужен для netlink/tc/nft в host-сетевом стеке; no-new-privileges
+    # здесь не применяется, доступ и так полный.
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -100,9 +172,8 @@ services:
     volumes:
       - /lib/modules:/lib/modules:ro
       - /var/lib/awg-worker:/var/lib/awg-worker
-    env_file:
-      - path: .env
-        required: false
+    # env_file намеренно не используется: worker не должен видеть секреты admin
+    # (AWG_MASTER_KEY, AWG_JWT_SECRET, SMTP, платёжные ключи и т.п.).
     environment:
       AWG_GRPC_URL: ${AWG_GRPC_URL:-http://127.0.0.1:9090}
       AWG_GRPC_TLS_CA: ${AWG_GRPC_TLS_CA:-}
@@ -115,6 +186,7 @@ services:
       AWG_DRY_RUN: ${AWG_DRY_RUN:-false}
       AWG_COUNTERS_PATH: /var/lib/awg-worker/counters.json
       AWG_STATS_INTERVAL_SECS: ${AWG_STATS_INTERVAL_SECS:-2}
+    restart: unless-stopped
 
 volumes:
   awg-data:
@@ -122,3 +194,10 @@ volumes:
 
 networks:
   web:
+    # Фиксированная подсеть: на неё опираются AWG_TRUSTED_PROXIES и правила
+    # docker-сети. При смене подсети обновите AWG_TRUSTED_PROXIES.
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+  docker-socket:
+    internal: true

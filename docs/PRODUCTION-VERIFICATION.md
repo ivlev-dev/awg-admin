@@ -28,7 +28,7 @@ unprivileged user namespaces доступны (`unshare -rn`), root-only `unshar
 | Блокер | Проверено здесь | Осталось |
 |---|---|---|
 | 1. Ядро/SetDevice/счётчики | да: `verify-kernel.sh --apply --netns` — 0 провалов, включая ICMP и handshake между двумя AWG в netns; полоса и hairpin проверены живым стендом | физические клиенты |
-| 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | статистика в API/UI: netlink `GetDevice` падает с `EOPNOTSUPP` (см. «Фактический прогон» и п. 13 сводки) |
+| 1a. Worker e2e | dry-run: нода online, `worker applied state`, желаемое состояние в логах; live: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers и пиры применены, handshake с тестовым клиентом прошёл | на момент прогона статистика в API/UI не собиралась: netlink `GetDevice` уходил без `NLM_F_DUMP`; исправлено (п. 13), требуется повторная live-проверка |
 | 2. tc HTB + IFB + u32 и лимиты | да: структура, фильтры, квоты 1 kbit, счётчики классов, изоляция; живая полоса iperf3: 5/2 Mbit → 4.79/1.89, группа 6/3 → 5.62/2.73, снятие лимитов очищает tc; hairpin-пара клиентов на одном интерфейсе проверена | физические клиенты |
 | 3. nftables forwarding | да: таблица/цепь/правила, изоляция; live worker создаёт `fwd_<ifname>`; hairpin между двумя устройствами на одном `awgpanel0` проверен (ping ~2.4 Gbit/s iperf3), изоляция и stateful-ответы работают, в т.ч. при активном IFB | — |
 | 4. Docker build | да: образы `awg-admin`/`awg-worker`/`awg-frontend` есть, стек запущен, admin/frontend healthy | чистая пересборка на CI-хосте |
@@ -149,21 +149,24 @@ cat /var/lib/awg-worker/counters.json | jq .   # offset/last по ключу "<i
   `127.0.0.1:51830`). На `mvawg7` появились `latest handshake` и
   `transfer: 1.36 KiB received, 710 B sent`. ICMP-ответы не вернулись, но
   handshake и счётчики ядра подтверждены.
-- **статистика не работает:** `GET /api/v1/devices/{id}/stats` и
-  `/stats/overview` остаются нулевыми, worker каждые 2 с пишет
+- **статистика не работала на момент прогона:** `GET /api/v1/devices/{id}/stats` и
+  `/stats/overview` оставались нулевыми, worker каждые 2 с писал
   `failed to read counters ... kernel rejected request: Operation not supported
-  (os error 95)`. Причина: `read_interface` отправляет `WG_CMD_GET_DEVICE` без
+  (os error 95)`. Причина: `read_interface` отправлял `WG_CMD_GET_DEVICE` без
   `NLM_F_DUMP`, а в ядре команда зарегистрирована только как dump
   (`/usr/src/amneziawg-1.0.0/netlink.c`: `.start`/`.dumpit`, без `.doit`),
-  поэтому genl отвечает `EOPNOTSUPP`. В dry-run ошибка скрыта заглушкой.
-- **tc не переживает повторный reconcile:** на этом ядре второй
-  `tc qdisc replace ... root ... htb` возвращает
+  поэтому genl отвечал `EOPNOTSUPP`. В dry-run ошибка скрыта заглушкой.
+  **Исправлено:** запрос уходит с `NLM_F_REQUEST | NLM_F_DUMP`, ответ
+  собирается как multipart (см. `docs/WORKER.md`, «Статистика»).
+- **tc не переживал повторный reconcile (на момент прогона):** на этом ядре второй
+  `tc qdisc replace ... root ... htb` возвращал
   `Change operation not supported by specified qdisc`; `tc qdisc del` + `add`
-  работает. Worker вызывает `replace` при каждом применении, поэтому после
-  первого успешного reconcile следующее изменение состояния падает на
-  `apply tc`, а nft-цепь остаётся от предыдущей ревизии (наблюдалось
-  `worker failed to apply state ... apply tc ...`). `ingress replace`
-  идемпотентен.
+  работает. Worker вызывал `replace` при каждом применении, поэтому после
+  первого успешного reconcile следующее изменение состояния падало на
+  `apply tc`, а nft-цепь оставалась от предыдущей ревизии (наблюдалось
+  `worker failed to apply state ... apply tc ...`). **Исправлено:** root- и
+  ingress-qdisc пересоздаются через `del` + `add`, дальнейшие изменения
+  применяются диффом (п. 14).
 - предусловия, без которых live-проверка ничего не проверяет:
   пул без `gateway` даёт `configure <ifname> mtu ... addresses []` — у
   интерфейса нет адреса; устройства пользователя без тарифа не попадают в
@@ -192,8 +195,9 @@ docker compose --profile worker down
   статистика в UI не убывает.
 
 На 16.11.2026 первые три пункта выполнены, четвёртый — нет: handshake
-проходит, но счётчики в API нулевые из-за дефекта netlink (п. 13 сводки).
-Блокер не закрыт.
+проходит, но счётчики в API были нулевыми из-за дефекта netlink (п. 13
+сводки). Дефект исправлен, live-проверка счётчиков после исправления ещё
+требуется.
 
 ---
 
@@ -692,8 +696,9 @@ WebTransport в репозитории отсутствует: нет завис
 
 Дополнительно:
 
-- `docs/ARCHITECTURE.md` и `docs/SECURITY.md` содержат посторонние строки в конце
-  файлов (`Write.`, `Now write WORKER.md.`) — следы генерации, стоит вычистить.
+- Следы генерации в конце `docs/ARCHITECTURE.md` и `docs/SECURITY.md`
+  (`Write.`, `Now write WORKER.md.`) удалены; при ревью проверяйте, чтобы они
+  не вернулись.
 - `worker/src/infrastructure/netlink.rs: ensure_interface` игнорирует ошибку
   `ip link add` (`let _ = self.run(...)`) — при отсутствии модуля ошибка проявится
   позже и в другом месте. Для приёмки важно смотреть `docker compose logs worker`.
@@ -726,7 +731,7 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 | `scripts/verify-tls.sh --url https://localhost --self-signed --no-static --no-hsts-check` | 0 | живой стенд: redirect 301, h2, h3, health; 1 предупреждение — SAN/CN default-сертификата Traefik |
 | `docker compose ps` | 0 | admin и frontend `healthy`, traefik `Up` (порты 443/tcp, 443/udp) |
 | worker, `AWG_DRY_RUN=true` | 0 | нода `online`, `worker applied state`, `awg_worker_online 1`, в логах желаемые команды для `mvawg7` |
-| worker, `AWG_DRY_RUN=false` | 0 | первый reconcile: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers, 2 пира, nft-цепь, htb/IFB/u32; handshake с тестовым клиентом (1.36 KiB rx / 710 B tx). Статистика в API — нули; второй reconcile падает на `apply tc` |
+| worker, `AWG_DRY_RUN=false` | 0 | первый reconcile: интерфейс, H1–H4/S1–S4/HPK/RandomTrailers, 2 пира, nft-цепь, htb/IFB/u32; handshake с тестовым клиентом (1.36 KiB rx / 710 B tx). На момент прогона статистика в API — нули, второй reconcile падал на `apply tc`; оба дефекта позже исправлены (пп. 13–14) |
 
 `--apply` без `--netns` (root-путь) не запускался: `sudo -n true` требует пароль,
 а `sudo` без `-n` в этой сессии не запрашивается. `--apply --netns` выполняет
@@ -741,8 +746,8 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 - hairpin-трафик между двумя устройствами на одном AWG-интерфейсе
   (`iifname == oifname`) и ICMP в обе стороны; в live-прогоне ответы не вернулись.
 - живая полоса: iperf3 и соответствие `down_kbps`/`up_kbps` и групповым лимитам.
-- монотонность статистики после пересоздания интерфейса — недостижима, пока
-  worker не читает счётчики (п. 13 сводки).
+- монотонность статистики после пересоздания интерфейса — код dump-запроса
+  исправлен (п. 13), но повторный live-прогон с проверкой тоталов ещё нужен.
 - чистая пересборка образов без кеша и WebTransport.
 
 Состояние стенда после прогона: worker удалён, admin/frontend/traefik оставлены
@@ -756,7 +761,7 @@ Docker 29.9.3, uid 1000, `sudo -n` требует пароль, unprivileged use
 
 - [x] `verify-kernel.sh --apply --netns` — 0 провалов (16.11.2026)
 - [x] worker с `AWG_DRY_RUN=false` применяет состояние, `awg show` содержит H1–H4/S1–S4/HPK/RandomTrailers (16.11.2026)
-- [ ] реальный handshake и счётчики; после пересоздания интерфейса статистика не убывает — handshake есть, счётчики в API не собираются (п. 13)
+- [ ] реальный handshake и счётчики; после пересоздания интерфейса статистика не убывает — handshake есть, дефект dump-запроса исправлен, live-проверка счётчиков после фикса ещё нужна
 - [ ] `verify-dataplane.sh --apply` — 0 провалов: на проверочном ядре 1 провал (повторный `qdisc replace`, п. 14)
 - [ ] iperf3 подтверждает лимиты устройства и пользователя, квота 1 kbit
 - [ ] nftables: изоляция по умолчанию и разрешённые пары на реальном интерфейсе (цепь создаётся, hairpin-трафик не проверен)
