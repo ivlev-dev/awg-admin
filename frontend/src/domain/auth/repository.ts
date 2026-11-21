@@ -25,8 +25,8 @@ export interface AuthRepository {
   me(): Promise<User>;
   updateProfile(input: UpdateProfileInput): Promise<User>;
   changePassword(current: string | null, next: string): Promise<void>;
-  totpSetup(): Promise<TotpSetup>;
-  totpEnable(code: string): Promise<TotpToggleResult>;
+  totpSetup(password: string): Promise<TotpSetup>;
+  totpEnable(password: string, code: string): Promise<TotpToggleResult>;
   totpDisable(password: string, code: string): Promise<TotpToggleResult>;
   sessions(): Promise<AuthSessionInfo[]>;
   revokeSession(jti: string): Promise<void>;

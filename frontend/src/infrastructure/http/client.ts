@@ -88,11 +88,13 @@ export class HttpClient {
       const apiError =
         error instanceof ApiError
           ? error
-          : new ApiError(
-              0,
-              "network_error",
-              error instanceof Error ? error.message : "Network error",
-            );
+          : isAbortError(error, request.signal)
+            ? new ApiError(0, "aborted", "Request aborted")
+            : new ApiError(
+                0,
+                "network_error",
+                error instanceof Error ? error.message : "Network error",
+              );
       return {
         request,
         status: apiError.status,
@@ -130,4 +132,12 @@ function context(
     attempt: 0,
     ...(options.signal === undefined ? {} : { signal: options.signal }),
   };
+}
+
+function isAbortError(error: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted === true) return true;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException) {
+    return error.name === "AbortError";
+  }
+  return error instanceof Error && error.name === "AbortError";
 }

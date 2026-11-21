@@ -40,7 +40,7 @@ h3 { font-size: var(--type-title-lg); line-height: 28px; }
 .btn--danger { background: transparent; border-color: transparent; color: var(--md-error); }
 .btn--danger:hover { background: var(--md-error-container); border-color: transparent; color: var(--md-on-error-container); }
 .btn--sm { min-height: 32px; padding: 0 14px; font-size: var(--t-xs); }
-.btn--icon { width: 40px; min-width: 40px; padding: 0; border-radius: var(--shape-full); }
+.btn--icon { width: 44px; min-width: 44px; height: 44px; padding: 0; border-radius: var(--shape-full); }
 .btn--icon:not(.btn--primary):not(.btn--danger) { border-color: transparent; color: var(--md-on-surface-variant); }
 .btn--icon:not(.btn--primary):not(.btn--danger):hover { background: color-mix(in oklab, var(--md-on-surface) 8%, transparent); }
 .btn--danger.btn--icon { background: transparent; border-color: transparent; color: var(--md-error); }

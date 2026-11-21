@@ -1,6 +1,7 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
+import { invalidate } from "@/app/lookups";
 import { Session } from "@/app/session";
 import { compareBoolean, compareText, nextSort, sortIndicator, type SortState } from "@/domain/table-sort";
 import { ToastStore } from "@/app/toast";
@@ -18,6 +19,9 @@ import type { NodeInfo } from "@/domain/types";
 import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
+
+export const METRICS_LABEL_TICK_MS = 30_000;
+export const METRICS_REFRESH_MS = 60_000;
 
 export class NodesPageVM extends ViewModel {
   @reactive accessor nodes: NodeInfo[] = [];
@@ -40,6 +44,12 @@ export class NodesPageVM extends ViewModel {
   @reactive accessor bulkBusy = false;
   @reactive accessor sort: SortState<"name" | "status"> | null = { key: "name", direction: "asc" };
 
+  @reactive private accessor clock = Date.now();
+
+  private labelTimer: ReturnType<typeof setInterval> | null = null;
+
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
+
   constructor(
     private readonly nodesService: NodesService,
     private readonly session: Session,
@@ -49,7 +59,17 @@ export class NodesPageVM extends ViewModel {
   }
 
   override created(): void {
+    this.startTimers();
     void this.load();
+  }
+
+  override unmounted(): void {
+    this.stopTimers();
+  }
+
+  override dispose(): void {
+    this.stopTimers();
+    super.dispose();
   }
 
   get isAdmin(): boolean {
@@ -125,6 +145,7 @@ export class NodesPageVM extends ViewModel {
     this.bulkBusy = true;
     try {
       const result = await this.nodesService.bulk("delete", ids);
+      invalidate("nodes", this.nodesService);
       const failed = result.failed.length;
       this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
     } catch (error) {
@@ -150,14 +171,12 @@ export class NodesPageVM extends ViewModel {
     this.loading = true;
     this.error = null;
     try {
-      const nodes = await this.nodesService.listNodes();
-      this.nodes = [...nodes].sort(
-        (left, right) => Number(right.online) - Number(left.online) || left.name.localeCompare(right.name),
-      );
+      this.applyNodes(await this.nodesService.listNodes());
     } catch (error) {
       this.error = userMessage(error, t("nodes.error.load"));
     } finally {
       this.loading = false;
+      this.clock = Date.now();
     }
   }
 
@@ -195,6 +214,7 @@ export class NodesPageVM extends ViewModel {
     this.formError = null;
     try {
       const result = await this.nodesService.createNode(this.name.trim());
+      invalidate("nodes", this.nodesService);
       this.createdNode = result;
       this.createOpen = false;
       this.name = "";
@@ -244,6 +264,7 @@ export class NodesPageVM extends ViewModel {
     this.busy = true;
     try {
       const result = await this.nodesService.rotateNode(node.id);
+      invalidate("nodes", this.nodesService);
       this.rotatedNode = result;
       this.rotatedTokenCopied = false;
       this.toasts.success(t("nodes.toast.rotated", { name: result.node.name }));
@@ -266,6 +287,7 @@ export class NodesPageVM extends ViewModel {
     this.busy = true;
     try {
       await this.nodesService.deleteNode(node.id);
+      invalidate("nodes", this.nodesService);
       this.toasts.success(t("nodes.toast.deleted", { name: node.name }));
       await this.load();
     } catch (error) {
@@ -302,7 +324,9 @@ export class NodesPageVM extends ViewModel {
   }
 
   metricsUpdatedLabel(node: NodeInfo): string {
-    return t("nodes.metrics.updated", { value: formatMetricsUpdated(node.metrics_at) });
+    return t("nodes.metrics.updated", {
+      value: formatMetricsUpdated(node.metrics_at, this.clock),
+    });
   }
 
   workerVersionLabel(node: NodeInfo): string {
@@ -315,6 +339,46 @@ export class NodesPageVM extends ViewModel {
 
   tokenIssuedLabel(node: NodeInfo): string {
     return formatTokenIssuedAt(node.token_issued_at);
+  }
+
+  private applyNodes(nodes: readonly NodeInfo[]): void {
+    this.nodes = [...nodes].sort(
+      (left, right) => Number(right.online) - Number(left.online) || left.name.localeCompare(right.name),
+    );
+  }
+
+  private startTimers(): void {
+    if (this.labelTimer === null) {
+      this.labelTimer = setInterval(() => {
+        this.clock = Date.now();
+      }, METRICS_LABEL_TICK_MS);
+    }
+    if (this.refreshTimer === null) {
+      this.refreshTimer = setInterval(() => {
+        void this.refreshMetrics();
+      }, METRICS_REFRESH_MS);
+    }
+  }
+
+  private stopTimers(): void {
+    if (this.labelTimer !== null) {
+      clearInterval(this.labelTimer);
+      this.labelTimer = null;
+    }
+    if (this.refreshTimer !== null) {
+      clearInterval(this.refreshTimer);
+      this.refreshTimer = null;
+    }
+  }
+
+  private async refreshMetrics(): Promise<void> {
+    this.clock = Date.now();
+    if (this.loading || this.busy) return;
+    try {
+      this.applyNodes(await this.nodesService.listNodes());
+    } catch {
+      // Фоновое обновление не должно затирать уже показанные данные и ошибки.
+    }
   }
 }
 

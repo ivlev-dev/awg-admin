@@ -9,9 +9,11 @@ import {
   requireText,
   validateEmail,
   validatePassword,
+  validatePasswordForEmail,
   validateTotpCode,
 } from "@/application/guards";
 import { ValidationError, userMessage } from "@/application/errors";
+import { MAX_PASSWORD_LENGTH } from "@/domain/validation";
 
 const CYRILLIC = /[А-Яа-яЁё]/;
 
@@ -37,7 +39,8 @@ describe("guards: happy path", () => {
     expect(requirePort(51820, "error.label.endpointPort")).toBe(51820);
     expect(requireMtu(1420)).toBe(1420);
     expect(requireRate(100, "error.label.downRate")).toBe(100);
-    expect(validatePassword("secret123")).toBe("secret123");
+    expect(validatePassword("secret1234")).toBe("secret1234");
+    expect(validatePasswordForEmail("secret1234", "user@example.com")).toBe("secret1234");
     expect(validateEmail(" user@example.com ")).toBe("user@example.com");
     expect(validateTotpCode("123456")).toBe("123456");
   });
@@ -76,9 +79,17 @@ describe("guards: validation codes", () => {
     expect(catchValidation(() => validatePassword("short")).code).toBe(
       "error.validation.passwordShort",
     );
-    expect(catchValidation(() => validatePassword("x".repeat(257))).code).toBe(
+    expect(catchValidation(() => validatePassword("x".repeat(MAX_PASSWORD_LENGTH + 1))).code).toBe(
       "error.validation.passwordLong",
     );
+    expect(catchValidation(() => validatePassword("letmein123")).code).toBe(
+      "error.validation.passwordCommon",
+    );
+    expect(
+      catchValidation(() =>
+        validatePasswordForEmail("verylonglocal", "VeryLongLocal@example.com"),
+      ).code,
+    ).toBe("error.validation.passwordEmailLocal");
     expect(catchValidation(() => validateEmail("nope")).code).toBe(
       "error.validation.emailInvalid",
     );
@@ -103,7 +114,7 @@ describe("guards: localization", () => {
       catchValidation(() => requireMtu(1)),
       catchValidation(() => requireRate(-1, "error.label.upRate")),
       catchValidation(() => validatePassword("x")),
-      catchValidation(() => validatePassword("x".repeat(300))),
+      catchValidation(() => validatePassword("x".repeat(MAX_PASSWORD_LENGTH + 1))),
       catchValidation(() => validateEmail("nope")),
       catchValidation(() => validateTotpCode("nope")),
       catchValidation(() => requirePeerLabel("")),

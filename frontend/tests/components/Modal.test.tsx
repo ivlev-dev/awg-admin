@@ -81,6 +81,7 @@ async function ready(instance: MountedModal): Promise<void> {
 afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
   document.body.replaceChildren();
+  document.body.style.overflow = "";
 });
 
 describe("Modal a11y", () => {
@@ -267,5 +268,38 @@ describe("Modal a11y", () => {
     expect(parent.closeCalls()).toBe(1);
     expect(document.querySelectorAll(".modal")).toHaveLength(0);
     expect(parentRoot.isConnected).toBe(false);
+  });
+
+  it("блокирует прокрутку фона до закрытия последней модалки", async () => {
+    document.body.style.overflow = "auto";
+
+    const first = mountModal({ title: "Первая" });
+    await ready(first);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    const second = mountModal({ title: "Вторая" });
+    await ready(second);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    first.setOpen(false);
+    expect(document.querySelectorAll(".modal")).toHaveLength(1);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    second.setOpen(false);
+    expect(document.querySelectorAll(".modal")).toHaveLength(0);
+    expect(document.body.style.overflow).toBe("auto");
+  });
+
+  it("восстанавливает прокрутку при удалении модалки без закрытия", async () => {
+    document.body.style.overflow = "auto";
+
+    const instance = mountModal();
+    await ready(instance);
+    expect(document.body.style.overflow).toBe("hidden");
+
+    instance.result.dispose();
+    disposers.splice(disposers.indexOf(instance.result.dispose), 1);
+
+    expect(document.body.style.overflow).toBe("auto");
   });
 });

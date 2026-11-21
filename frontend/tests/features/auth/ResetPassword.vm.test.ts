@@ -110,9 +110,9 @@ describe("ResetPasswordVM", () => {
     expect(harness.vm.canSubmit).toBe(false);
 
     await harness.vm.submit(submitEvent());
-    expect(harness.vm.error).toBe("Пароль должен содержать минимум 8 символов");
+    expect(harness.vm.error).toBe("Пароль должен содержать минимум 10 символов");
 
-    harness.vm.setPassword(valueEvent("secret123"));
+    harness.vm.setPassword(valueEvent("secret1234"));
     harness.vm.setRepeatPassword(valueEvent("other123"));
     expect(harness.vm.repeatMismatch).toBe(true);
 
@@ -121,15 +121,45 @@ describe("ResetPasswordVM", () => {
     expect(harness.resetPassword).not.toHaveBeenCalled();
   });
 
+  it("requires a password of at least 10 characters", async () => {
+    const harness = makeHarness();
+    harness.vm.setPassword(valueEvent("123456789"));
+    harness.vm.setRepeatPassword(valueEvent("123456789"));
+
+    expect(harness.vm.passwordTooShort).toBe(true);
+    expect(harness.vm.canSubmit).toBe(false);
+    await harness.vm.submit(submitEvent());
+    expect(harness.vm.error).toBe("Пароль должен содержать минимум 10 символов");
+    expect(harness.resetPassword).not.toHaveBeenCalled();
+
+    harness.vm.setPassword(valueEvent("abcdefghij"));
+    harness.vm.setRepeatPassword(valueEvent("abcdefghij"));
+
+    expect(harness.vm.passwordTooShort).toBe(false);
+    expect(harness.vm.canSubmit).toBe(true);
+  });
+
+  it("rejects common passwords", async () => {
+    const harness = makeHarness();
+    harness.vm.setPassword(valueEvent("letmein123"));
+    harness.vm.setRepeatPassword(valueEvent("letmein123"));
+
+    expect(harness.vm.canSubmit).toBe(false);
+    await harness.vm.submit(submitEvent());
+
+    expect(harness.vm.error).toBe("Пароль слишком простой. Используйте более сложный пароль.");
+    expect(harness.resetPassword).not.toHaveBeenCalled();
+  });
+
   it("resets the password and clears the form", async () => {
     const harness = makeHarness();
-    harness.vm.setPassword(valueEvent("secret123"));
-    harness.vm.setRepeatPassword(valueEvent("secret123"));
+    harness.vm.setPassword(valueEvent("secret1234"));
+    harness.vm.setRepeatPassword(valueEvent("secret1234"));
 
     expect(harness.vm.canSubmit).toBe(true);
     await harness.vm.submit(submitEvent());
 
-    expect(harness.resetPassword).toHaveBeenCalledWith("reset-token", "secret123");
+    expect(harness.resetPassword).toHaveBeenCalledWith("reset-token", "secret1234");
     expect(harness.vm.status).toBe("success");
     expect(harness.vm.password).toBe("");
     expect(harness.vm.repeatPassword).toBe("");
@@ -139,8 +169,8 @@ describe("ResetPasswordVM", () => {
     const harness = makeHarness(async () => {
       throw new ApiError(400, "invalid_token", "invalid token");
     });
-    harness.vm.setPassword(valueEvent("secret123"));
-    harness.vm.setRepeatPassword(valueEvent("secret123"));
+    harness.vm.setPassword(valueEvent("secret1234"));
+    harness.vm.setRepeatPassword(valueEvent("secret1234"));
 
     await harness.vm.submit(submitEvent());
 
@@ -152,8 +182,8 @@ describe("ResetPasswordVM", () => {
     const harness = makeHarness(async () => {
       throw new ApiError(400, "token_expired", "expired");
     });
-    harness.vm.setPassword(valueEvent("secret123"));
-    harness.vm.setRepeatPassword(valueEvent("secret123"));
+    harness.vm.setPassword(valueEvent("secret1234"));
+    harness.vm.setRepeatPassword(valueEvent("secret1234"));
 
     await harness.vm.submit(submitEvent());
 
@@ -165,8 +195,8 @@ describe("ResetPasswordVM", () => {
     const harness = makeHarness(async () => {
       throw new Error("Сервис недоступен");
     });
-    harness.vm.setPassword(valueEvent("secret123"));
-    harness.vm.setRepeatPassword(valueEvent("secret123"));
+    harness.vm.setPassword(valueEvent("secret1234"));
+    harness.vm.setRepeatPassword(valueEvent("secret1234"));
 
     await harness.vm.submit(submitEvent());
 

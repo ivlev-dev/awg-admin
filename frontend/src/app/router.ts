@@ -9,6 +9,7 @@ import { computed, reactive } from "@ivlev-dev/silent-core";
 
 import { loadRoutePage, ROUTE_RECORDS } from "./router-records";
 import { matchRoute, normalize, type Match } from "./routes-def";
+import { confirmLeave, hasUnsavedChanges } from "./unsaved";
 
 export { matchRoute, normalize, NOT_FOUND_ROUTE, ROUTES } from "./routes-def";
 export type { Match, RouteDef } from "./routes-def";
@@ -59,13 +60,30 @@ export class Router {
   navigate(path: string, options: { replace?: boolean } = {}): void {
     const target = normalize(path);
     if (target === this.path) return;
-    this.path = target;
-    this.search = window.location.search;
-    void this.core.navigate(target, { replace: options.replace === true });
+    if (!hasUnsavedChanges()) {
+      this.commitNavigation(target, options);
+      return;
+    }
+    void this.guardedNavigate(target, options);
   }
 
   replace(path: string): void {
     this.navigate(path, { replace: true });
+  }
+
+  private async guardedNavigate(
+    target: string,
+    options: { replace?: boolean },
+  ): Promise<void> {
+    if (!(await confirmLeave())) return;
+    if (target === this.path) return;
+    this.commitNavigation(target, options);
+  }
+
+  private commitNavigation(target: string, options: { replace?: boolean }): void {
+    this.path = target;
+    this.search = window.location.search;
+    void this.core.navigate(target, { replace: options.replace === true });
   }
 
   prefetch(path: string): Promise<void> {

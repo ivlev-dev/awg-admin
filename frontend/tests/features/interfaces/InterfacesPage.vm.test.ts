@@ -665,7 +665,7 @@ describe("InterfacesPageVM", () => {
     await harness.vm.bulkDelete();
 
     expect(harness.toasts.items.some((item) => item.kind === "error" && item.message === "unreachable")).toBe(true);
-    expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls + 1);
+    expect(harness.interfacesRepo.listInterfaces.mock.calls.length).toBe(listCalls);
     expect(harness.vm.selectedIds).toEqual([]);
     expect(harness.vm.bulkBusy).toBe(false);
   });

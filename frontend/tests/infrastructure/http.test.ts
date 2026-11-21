@@ -178,18 +178,28 @@ describe("HTTP backend", () => {
       .mockResolvedValueOnce(mockResponse(200, { enabled: true }))
       .mockResolvedValueOnce(mockResponse(200, { enabled: false }));
 
-    await expect(backend.repositories.auth.totpSetup()).resolves.toEqual(setup);
-    await expect(backend.repositories.auth.totpEnable("123456")).resolves.toEqual({ enabled: true });
+    await expect(backend.repositories.auth.totpSetup("secret")).resolves.toEqual(setup);
+    await expect(backend.repositories.auth.totpEnable("secret", "123456")).resolves.toEqual({
+      enabled: true,
+    });
     await expect(backend.repositories.auth.totpDisable("secret", "654321")).resolves.toEqual({
       enabled: false,
     });
 
     expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/v1/auth/totp/setup",
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
+        body: JSON.stringify({ password: "secret" }),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/v1/auth/totp/enable",
       expect.objectContaining({
         headers: expect.objectContaining({ Authorization: "Bearer tok-123" }),
-        body: JSON.stringify({ code: "123456" }),
+        body: JSON.stringify({ password: "secret", code: "123456" }),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
@@ -424,12 +434,16 @@ describe("HTTP backend", () => {
   it("query stats series", async () => {
     store.set("tok", "ref");
     (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
-      mockResponse(200, [{ at: "2020-01-01T00:00:00Z", rx: 1, tx: 2 }]),
+      mockResponse(200, [
+        { at: "2020-01-01T00:00:00Z", rx: 1, tx: 2, rx_bps: 3, tx_bps: 4 },
+      ]),
     );
 
     const result = await backend.repositories.stats.series("device", "dev-1", 100, 200);
 
-    expect(result).toEqual([{ at: "2020-01-01T00:00:00Z", rx: 1, tx: 2 }]);
+    expect(result).toEqual([
+      { at: "2020-01-01T00:00:00Z", rx: 1, tx: 2, rx_bps: 3, tx_bps: 4 },
+    ]);
     expect(globalThis.fetch).toHaveBeenCalledWith(
       "/api/v1/stats/series?scope=device&from=100&to=200&id=dev-1",
       expect.anything(),

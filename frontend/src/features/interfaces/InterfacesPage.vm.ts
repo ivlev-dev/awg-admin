@@ -2,8 +2,10 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
 import { GROUPS_SECTION_ENABLED } from "@/app/features";
+import { invalidate, lookupInterfaces, lookupNodes } from "@/app/lookups";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
+import { SelectionModel } from "@/app/table-controller";
 import type { GroupsService } from "@/application/groups/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
@@ -255,9 +257,9 @@ export class InterfacesPageVM extends ViewModel {
     this.error = null;
     try {
       const [interfaces, groups, nodes] = await Promise.all([
-        this.interfacesService.listInterfaces(),
+        lookupInterfaces(this.interfacesService),
         this.groupsService.listGroups(),
-        this.nodesService.listNodes(),
+        lookupNodes(this.nodesService),
       ]);
       this.interfaces = interfaces;
       this.groups = groups;
@@ -390,6 +392,7 @@ export class InterfacesPageVM extends ViewModel {
     };
     try {
       const created = await this.interfacesService.createInterface(input);
+      invalidate("interfaces", this.interfacesService);
       this.interfaces = [...this.interfaces, created];
       this.createOpen = false;
       this.createSnapshot = this.formState();
@@ -489,6 +492,7 @@ export class InterfacesPageVM extends ViewModel {
         mtu: Number(this.editMtu),
         enabled: this.editEnabled,
       });
+      invalidate("interfaces", this.interfacesService);
       this.replace(updated);
       this.editSnapshot = this.editState();
       this.editing = null;
@@ -503,34 +507,41 @@ export class InterfacesPageVM extends ViewModel {
     }
   }
 
-  @reactive accessor selectedIds: string[] = [];
+  private readonly selection = new SelectionModel(() => this.visible);
+
   @reactive accessor bulkBusy = false;
+
+  get selectedIds(): string[] {
+    return this.selection.selectedIds;
+  }
+
+  set selectedIds(value: string[]) {
+    this.selection.selectedIds = value;
+  }
 
   @computed
   get selectedCount(): number {
-    return this.selectedIds.length;
+    return this.selection.selectedCount;
   }
 
   isSelected(id: string): boolean {
-    return this.selectedIds.includes(id);
+    return this.selection.isSelected(id);
   }
 
   toggleSelected(id: string): void {
-    this.selectedIds = this.isSelected(id)
-      ? this.selectedIds.filter((value) => value !== id)
-      : [...this.selectedIds, id];
+    this.selection.toggleSelected(id);
   }
 
   get allVisibleSelected(): boolean {
-    return this.visible.length > 0 && this.selectedIds.length === this.visible.length;
+    return this.selection.allSelected;
   }
 
   toggleSelectAll(): void {
-    this.selectedIds = this.allVisibleSelected ? [] : this.visible.map((item) => item.id);
+    this.selection.toggleSelectAll();
   }
 
   clearSelection(): void {
-    this.selectedIds = [];
+    this.selection.clearSelection();
   }
 
   async bulkSetEnabled(enabled: boolean): Promise<void> {
@@ -558,6 +569,7 @@ export class InterfacesPageVM extends ViewModel {
     this.bulkBusy = true;
     try {
       const result = await this.interfacesService.bulk(action, ids);
+      invalidate("interfaces", this.interfacesService);
       const failed = result.failed.length;
       this.toasts[failed > 0 ? "error" : "success"](t("bulk.done", { done: result.done, failed }));
     } catch (error) {
@@ -581,6 +593,7 @@ export class InterfacesPageVM extends ViewModel {
     this.busy = true;
     try {
       const updated = await this.interfacesService.rotateInterface(item.id);
+      invalidate("interfaces", this.interfacesService);
       this.replace(updated);
       this.rotated = updated;
       this.rotatedCopied = false;
@@ -620,6 +633,7 @@ export class InterfacesPageVM extends ViewModel {
     this.busy = true;
     try {
       await this.interfacesService.deleteInterface(item.id);
+      invalidate("interfaces", this.interfacesService);
       this.interfaces = this.interfaces.filter((current) => current.id !== item.id);
       this.toasts.success(t("interfaces.toast.deleted", { name: item.name }));
     } catch (error) {

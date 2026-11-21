@@ -73,4 +73,33 @@ describe("ThemeStore", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
     expect(theme.effective).toBe("light");
   });
+
+  it("обновляет effective при смене системной схемы в режиме system", () => {
+    const changeListeners: Array<(event: MediaQueryListEvent) => void> = [];
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-color-scheme: dark)",
+        addEventListener: vi.fn((_type: string, listener: (event: MediaQueryListEvent) => void) => {
+          changeListeners.push(listener);
+        }),
+        removeEventListener: vi.fn(),
+      })),
+    );
+    const theme = new ThemeStore();
+    expect(theme.effective).toBe("dark");
+
+    changeListeners[0]?.({ matches: false } as MediaQueryListEvent);
+
+    expect(theme.systemDark).toBe(false);
+    expect(theme.effective).toBe("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+
+    theme.set("dark");
+    changeListeners[0]?.({ matches: false } as MediaQueryListEvent);
+    expect(theme.mode).toBe("dark");
+    expect(theme.effective).toBe("dark");
+    expect(localStorage.getItem("awg.theme")).toBe("dark");
+  });
 });

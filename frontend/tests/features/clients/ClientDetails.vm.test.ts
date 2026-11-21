@@ -592,7 +592,10 @@ describe("ClientDetailsVM", () => {
     expect(repository.listProfiles).toHaveBeenCalledWith("d1");
     expect(repository.listShares).toHaveBeenCalledWith("d1");
     expect(repository.deviceStats).toHaveBeenCalledWith("d1");
-    expect(repository.listDevices).toHaveBeenCalledTimes(1);
+    expect(repository.pageDevices).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: DEVICE.user_id, offset: 0 }),
+    );
+    expect(repository.listDevices).not.toHaveBeenCalled();
 
     expect(vm.device?.name).toBe("laptop");
     expect(vm.profiles.map((profile) => profile.peer_id)).toEqual(["p1", "p2"]);
@@ -664,7 +667,10 @@ describe("ClientDetailsVM", () => {
 
     await vm.load();
 
-    expect(repository.listDevices).toHaveBeenCalledTimes(1);
+    expect(repository.pageDevices).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: DEVICE.user_id }),
+    );
+    expect(repository.listDevices).not.toHaveBeenCalled();
     expect(vm.isAdmin).toBe(false);
     expect(vm.interfaceLabel).toBe("wg0");
     expect(vm.nodeLabel).toBe("node-1");

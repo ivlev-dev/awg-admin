@@ -1,5 +1,6 @@
-import { NodesPageVM } from "@/features/nodes/NodesPage.vm";
+import { NodesPageVM, METRICS_REFRESH_MS } from "@/features/nodes/NodesPage.vm";
 import { createAppContainer } from "@/app/di";
+import { clearLookups, lookupNodes } from "@/app/lookups";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
 import { DefaultNodesService } from "@/application/nodes/service";
@@ -146,6 +147,7 @@ class MemoryNodesRepository {
 interface Harness {
   vm: NodesPageVM;
   repo: MemoryNodesRepository;
+  service: DefaultNodesService;
   session: Session;
   toasts: ToastStore;
 }
@@ -154,17 +156,35 @@ function makeVm(current: User = ADMIN): Harness {
   const repo = new MemoryNodesRepository();
   const session = makeSession(current);
   const toasts = new ToastStore();
-  return { vm: new NodesPageVM(new DefaultNodesService(repo), session, toasts), repo, session, toasts };
+  const service = new DefaultNodesService(repo);
+  return { vm: new NodesPageVM(service, session, toasts), repo, service, session, toasts };
 }
 
 function submit(): Event {
   return new Event("submit", { cancelable: true });
 }
 
+async function expectNodesLookupInvalidated(
+  harness: Harness,
+  mutate: () => Promise<void>,
+): Promise<void> {
+  await lookupNodes(harness.service);
+  await mutate();
+  const callsAfterMutation = harness.repo.listNodes.mock.calls.length;
+
+  await lookupNodes(harness.service);
+
+  expect(harness.repo.listNodes.mock.calls.length).toBe(callsAfterMutation + 1);
+}
+
 describe("NodesPageVM", () => {
   beforeEach(() => {
     confirmMock.askConfirm.mockClear();
     confirmMock.askConfirm.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    clearLookups();
   });
 
   it("loads and sorts online nodes first", async () => {
@@ -206,6 +226,29 @@ describe("NodesPageVM", () => {
     expect(harness.vm.name).toBe("");
     expect(harness.vm.nodes).toHaveLength(1);
     expect(harness.toasts.items.some((item) => item.message === "Нода «node-2» создана")).toBe(true);
+  });
+
+  it("invalidates the shared nodes lookup after create", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    harness.vm.name = "node-2";
+
+    await expectNodesLookupInvalidated(harness, () => harness.vm.submitCreate(submit()));
+
+    expect(harness.repo.createNode).toHaveBeenCalledWith("node-2");
+  });
+
+  it("invalidates the shared nodes lookup after rotate, delete and bulk delete", async () => {
+    const harness = makeVm();
+    harness.repo.items.set("n1", node({ id: "n1", name: "node-1" }));
+    harness.repo.items.set("n2", node({ id: "n2", name: "node-2" }));
+
+    await expectNodesLookupInvalidated(harness, () => harness.vm.rotate(node({ id: "n1", name: "node-1" })));
+    await expectNodesLookupInvalidated(harness, () => harness.vm.remove(node({ id: "n1", name: "node-1" })));
+    await expectNodesLookupInvalidated(harness, async () => {
+      harness.vm.toggleSelected("n2");
+      await harness.vm.bulkDelete();
+    });
   });
 
   it("requires a node name", async () => {
@@ -332,6 +375,29 @@ describe("NodesPageVM", () => {
     expect(harness.vm.workerVersionLabel(detailed)).toBe("0.3.0");
     expect(harness.vm.kernelVersionLabel(detailed)).toBe("6.8.0");
     expect(harness.vm.tokenIssuedLabel(detailed)).not.toBe("—");
+  });
+
+  it("ticks the metrics label and refreshes the list in the background", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:05:00Z"));
+    const harness = makeVm();
+    const stale = node({ metrics_at: "2026-01-01T00:00:00Z" });
+    harness.repo.items.set("n1", stale);
+    harness.vm.created();
+    await vi.advanceTimersByTimeAsync(0);
+    const callsAfterLoad = harness.repo.listNodes.mock.calls.length;
+    const initialLabel = harness.vm.metricsUpdatedLabel(stale);
+
+    await vi.advanceTimersByTimeAsync(METRICS_REFRESH_MS);
+
+    expect(harness.vm.metricsUpdatedLabel(stale)).not.toBe(initialLabel);
+    expect(harness.repo.listNodes.mock.calls.length).toBe(callsAfterLoad + 1);
+
+    harness.vm.dispose();
+    await vi.advanceTimersByTimeAsync(METRICS_REFRESH_MS);
+
+    expect(harness.repo.listNodes.mock.calls.length).toBe(callsAfterLoad + 1);
+    vi.useRealTimers();
   });
 
   it("deletes a confirmed node and reloads the list", async () => {

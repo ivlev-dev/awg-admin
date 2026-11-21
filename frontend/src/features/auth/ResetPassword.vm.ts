@@ -3,11 +3,12 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 import { Router } from "@/app/router";
 import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
+import { ApiError } from "@/domain/errors";
+import { passwordPolicyIssue } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export type ResetPasswordStatus = "form" | "success" | "invalid";
 
-const PASSWORD_MIN_LENGTH = 8;
 const INVALID_TOKEN_CODES: ReadonlySet<string> = new Set([
   "invalid_token",
   "token_expired",
@@ -53,7 +54,26 @@ export class ResetPasswordVM extends ViewModel {
 
   @computed
   get passwordTooShort(): boolean {
-    return this.password.length > 0 && this.password.length < PASSWORD_MIN_LENGTH;
+    return this.password.length > 0 && passwordPolicyIssue(this.password) === "short";
+  }
+
+  @computed
+  get passwordError(): string | null {
+    switch (passwordPolicyIssue(this.password)) {
+      case "short":
+        return t("auth.reset.error.password");
+      case "long":
+        return t("auth.reset.error.passwordTooLong");
+      case "common":
+        return t("auth.reset.error.passwordWeak");
+      default:
+        return null;
+    }
+  }
+
+  @computed
+  get passwordInvalid(): boolean {
+    return this.password.length > 0 && this.passwordError !== null;
   }
 
   @computed
@@ -66,7 +86,8 @@ export class ResetPasswordVM extends ViewModel {
     return (
       this.status === "form" &&
       !this.submitting &&
-      this.password.length >= PASSWORD_MIN_LENGTH &&
+      this.password.length > 0 &&
+      this.passwordError === null &&
       this.password === this.repeatPassword
     );
   }
@@ -92,8 +113,9 @@ export class ResetPasswordVM extends ViewModel {
       this.error = t("auth.reset.error.missing");
       return;
     }
-    if (this.password.length < PASSWORD_MIN_LENGTH) {
-      this.error = t("auth.reset.error.password");
+    const passwordError = this.passwordError;
+    if (passwordError !== null) {
+      this.error = passwordError;
       return;
     }
     if (this.password !== this.repeatPassword) {
@@ -111,6 +133,12 @@ export class ResetPasswordVM extends ViewModel {
       if (INVALID_TOKEN_CODES.has(errorCode(error))) {
         this.status = "invalid";
         this.error = t("auth.reset.error.invalidToken");
+      } else if (
+        error instanceof ApiError &&
+        error.code === "bad_request" &&
+        /password is too weak/i.test(error.message)
+      ) {
+        this.error = t("auth.reset.error.passwordWeak");
       } else {
         this.error = userMessage(error, t("auth.reset.error.failed"));
       }

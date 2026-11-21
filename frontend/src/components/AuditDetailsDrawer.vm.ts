@@ -1,7 +1,12 @@
 import { ViewModel, computed, createEffect, createRoot } from "@ivlev-dev/silent-core";
 
 import type { AuditRowView } from "@/features/audit/AuditPage.vm";
-import { focusableElements, trapTab } from "@/components/overlay";
+import {
+  focusableElements,
+  lockBodyScroll,
+  trapTab,
+  unlockBodyScroll,
+} from "@/components/overlay";
 
 export interface AuditDetailsDrawerProps {
   row: AuditRowView | null;
@@ -29,6 +34,7 @@ export class AuditDetailsDrawerVM extends ViewModel<AuditDetailsDrawerProps> {
   private root: HTMLElement | null = null;
   private stopEffect: (() => void) | null = null;
   private focusRetries = 0;
+  private scrollLocked = false;
 
   @computed
   get time(): string {
@@ -103,6 +109,7 @@ export class AuditDetailsDrawerVM extends ViewModel<AuditDetailsDrawerProps> {
     document.removeEventListener("keydown", this.onKeydown);
     this.stopEffect?.();
     this.stopEffect = null;
+    this.unlockScroll();
     if (this.open) {
       this.open = false;
       this.restoreFocus();
@@ -138,9 +145,23 @@ export class AuditDetailsDrawerVM extends ViewModel<AuditDetailsDrawerProps> {
       this.shouldFocus = true;
       this.focusRetries = 0;
       this.tryFocusInitial();
+      this.lockScroll();
       return;
     }
+    this.unlockScroll();
     this.restoreFocus();
+  }
+
+  private lockScroll(): void {
+    if (this.scrollLocked) return;
+    this.scrollLocked = true;
+    lockBodyScroll();
+  }
+
+  private unlockScroll(): void {
+    if (!this.scrollLocked) return;
+    this.scrollLocked = false;
+    unlockBodyScroll();
   }
 
   private tryFocusInitial(): void {

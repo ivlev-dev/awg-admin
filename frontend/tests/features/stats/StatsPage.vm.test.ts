@@ -202,6 +202,13 @@ class FakeWebSocket {
   }
 }
 
+async function nextSocket(index = 0): Promise<FakeWebSocket> {
+  await vi.waitFor(() => {
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(index);
+  });
+  return FakeWebSocket.instances[index]!;
+}
+
 function fakeAuth(user: User): AuthRepository {
   return {
     login: vi.fn(async () => {
@@ -231,17 +238,21 @@ function fakeAuth(user: User): AuthRepository {
 function statsHarness(points: StatsPoint[]): {
   repository: StatsRepository;
   series: ReturnType<typeof vi.fn>;
+  createWsTicket: ReturnType<typeof vi.fn>;
 } {
   const series = vi.fn(
     async (_scope: string, _id: string | null, _from: number, _to: number) => points,
   );
+  const createWsTicket = vi.fn(async () => "a".repeat(64));
   return {
     series,
+    createWsTicket,
     repository: {
       overview: vi.fn(async () => {
         throw new Error("overview is not used in this test");
       }),
       series,
+      createWsTicket,
     },
   };
 }
@@ -357,7 +368,7 @@ function setup(role: Role = "admin") {
   const groups = groupsHarness();
   const interfaces = interfacesHarness();
   const users = usersHarness();
-  const liveStats = new LiveStats(tokens);
+  const liveStats = new LiveStats(tokens, stats.repository);
   const router = new Router();
   const toasts = new ToastStore();
   const vm = new StatsVM(
@@ -566,16 +577,16 @@ describe("StatsPageVM", () => {
   });
 
   it("обновляет live-статистику через WebSocket", async () => {
-    const { vm, liveStats } = setup("admin");
+    const { vm, liveStats, stats } = setup("admin");
     await vm.created();
 
     vm.toggleLive();
 
     expect(vm.liveEnabled).toBe(true);
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    const socket = FakeWebSocket.instances[0]!;
-    expect(socket.url).toContain("scope=global");
-    expect(socket.url).toContain("token=access-token");
+    const socket = await nextSocket();
+    expect(socket.url).toContain("/api/v1/ws/stats?ticket=");
+    expect(socket.url).not.toContain("token=");
+    expect(stats.createWsTicket).toHaveBeenCalledWith("global", null, expect.anything());
 
     socket.open();
     expect(vm.liveConnected).toBe(true);
@@ -618,7 +629,7 @@ describe("StatsPageVM", () => {
     await vm.created();
 
     vm.toggleLive();
-    const socket = FakeWebSocket.instances[0]!;
+    const socket = await nextSocket();
     socket.fail();
 
     expect(vm.liveError).toBe("Нет соединения со статистикой");
@@ -643,24 +654,28 @@ describe("StatsPageVM", () => {
   });
 
   it("переподключает live при смене scope", async () => {
-    const { vm } = setup("admin");
+    const { vm, stats } = setup("admin");
     await vm.created();
     vm.toggleLive();
-    const first = FakeWebSocket.instances[0]!;
+    const first = await nextSocket();
     first.open();
 
     vm.setScope("interface");
 
-    expect(FakeWebSocket.instances).toHaveLength(2);
-    expect(FakeWebSocket.instances[1]!.url).toContain("scope=interface");
-    expect(FakeWebSocket.instances[1]!.url).toContain(`id=${INTERFACE.id}`);
+    const second = await nextSocket(1);
+    expect(stats.createWsTicket).toHaveBeenLastCalledWith(
+      "interface",
+      INTERFACE.id,
+      expect.anything(),
+    );
+    expect(second.url).not.toContain("token=");
   });
 
   it("отключает live при размонтировании", async () => {
     const { vm, liveStats } = setup("admin");
     await vm.created();
     vm.toggleLive();
-    const socket = FakeWebSocket.instances[0]!;
+    const socket = await nextSocket();
     socket.open();
 
     vm.unmounted();
@@ -767,16 +782,26 @@ describe("StatsPageVM", () => {
     const tokens = new MemoryTokenStore();
     tokens.set("di-access", "di-refresh");
     container.bind(LocalTokenStore, () => tokens);
+    const live = new LiveStats(tokens, {
+      overview: async () => {
+        throw new Error("overview is not used in this test");
+      },
+      series: async () => [],
+      createWsTicket: async () => "a".repeat(64),
+    });
+    container.bind(LiveStats, () => live);
 
     const vm = await container.resolve(StatsVM);
 
     expect(vm).toBeInstanceOf(StatsVM);
     expect(await container.resolve(StatsVM)).toBe(vm);
 
-    const live = await container.resolve<LiveStats>(LiveStats);
+    expect(await container.resolve<LiveStats>(LiveStats)).toBe(live);
     live.connect("global");
+    const socket = await nextSocket();
 
-    expect(FakeWebSocket.instances.at(-1)?.url).toContain("token=di-access");
+    expect(socket.url).toContain("ticket=");
+    expect(socket.url).not.toContain("token=");
   });
 });
 

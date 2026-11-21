@@ -4,8 +4,10 @@ import type { ImportService } from "@/application/import/service";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { UsersService } from "@/application/users/service";
+import { askConfirm } from "@/app/confirm";
 import { Router } from "@/app/router";
 import { ToastStore } from "@/app/toast";
+import { markClean, registerUnsaved, unregisterUnsaved } from "@/app/unsaved";
 import type { InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import type {
   ClientsApplyResult,
@@ -82,19 +84,62 @@ export class ImportVM extends ViewModel {
   ) {
     super();
     this.lookups = new ImportLookups(nodesService, usersService, interfacesService, toasts);
-    this.group = new GroupFlow(importService, router, toasts);
+    this.group = new GroupFlow(
+      importService,
+      router,
+      toasts,
+      () => this.lookups.defaultNodeId(),
+    );
     this.clients = new ClientsFlow(importService, router, toasts);
   }
 
   override async created(): Promise<void> {
-    await Promise.all([
-      this.lookups.loadNodes(),
-      this.lookups.loadOwners(),
-      this.lookups.loadInterfaces(),
-    ]);
+    window.addEventListener("beforeunload", this.handleBeforeUnload);
+    registerUnsaved("import", () => this.hasDraft);
+    await this.lookups.loadNodes();
     if (!this.group.nodeId) {
       this.group.nodeId = this.lookups.defaultNodeId();
     }
+    await Promise.all([
+      this.lookups.loadOwners(),
+      this.lookups.loadInterfaces(),
+    ]);
+  }
+
+  override dispose(): void {
+    window.removeEventListener("beforeunload", this.handleBeforeUnload);
+    unregisterUnsaved("import");
+    super.dispose();
+  }
+
+  private readonly handleBeforeUnload = (event: BeforeUnloadEvent): void => {
+    if (!this.hasDraft) return;
+    event.preventDefault();
+    event.returnValue = "";
+  };
+
+  @computed
+  get hasDraft(): boolean {
+    if (this.applied !== null) return false;
+    if (this.clientsApplied !== null) return false;
+    if (this.mode === "clients") {
+      return (
+        this.clientsImportText.trim().length > 0 ||
+        this.clientsImport.length > 0 ||
+        this.clientOwnerUserId.length > 0 ||
+        this.clientInterfaceId.length > 0
+      );
+    }
+    if (this.groupName.trim().length > 0) return true;
+    if (this.groupDescription.trim().length > 0) return true;
+    if (this.ownerUserId.length > 0) return true;
+    if (this.preview !== null) return true;
+    return this.interfaces.some(
+      (iface) =>
+        iface.serverConfig.trim().length > 0 ||
+        iface.clientsText.trim().length > 0 ||
+        iface.clients.length > 0,
+    );
   }
 
   get nodes(): NodeInfo[] { return this.lookups.nodes; }
@@ -141,7 +186,9 @@ export class ImportVM extends ViewModel {
   get baseCidr(): string { return this.group.baseCidr; }
   set baseCidr(value: string) { this.group.baseCidr = value; }
 
-  get nodeId(): string { return this.group.nodeId; }
+  get nodeId(): string {
+    return this.group.nodeId;
+  }
   set nodeId(value: string) { this.group.nodeId = value; }
 
   get ownerUserId(): string { return this.group.ownerUserId; }
@@ -483,7 +530,9 @@ export class ImportVM extends ViewModel {
 
   previewClientsNow(): Promise<void> { return this.clients.previewClientsNow(); }
 
-  applyClientsNow(): Promise<void> { return this.clients.applyClientsNow(); }
+  applyClientsNow(): Promise<void> {
+    return this.clients.applyClientsNow().then(() => markClean("import"));
+  }
 
   openClientsGroup(): void { this.clients.openClientsGroup(); }
 
@@ -567,7 +616,7 @@ export class ImportVM extends ViewModel {
 
   previewNow(): Promise<void> { return this.group.previewNow(); }
 
-  applyNow(): Promise<void> { return this.group.applyNow(); }
+  applyNow(): Promise<void> { return this.group.applyNow().then(() => markClean("import")); }
 
   openGroup(): void { this.group.openGroup(); }
 
@@ -575,7 +624,19 @@ export class ImportVM extends ViewModel {
 
   openNodes(): void { this.group.openNodes(); }
 
-  reset(): void { this.group.reset(); }
+  async reset(): Promise<void> {
+    if (this.hasDraft) {
+      const confirmed = await askConfirm({
+        title: t("import.reset.title"),
+        message: t("import.reset.message"),
+        confirmLabel: t("import.reset.action"),
+        tone: "danger",
+      });
+      if (!confirmed) return;
+    }
+    this.group.reset();
+    markClean("import");
+  }
 
   @watch((vm: ImportVM) => vm.formSignature)
   onFormChange(): void {

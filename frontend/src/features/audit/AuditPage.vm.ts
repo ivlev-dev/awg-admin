@@ -1,6 +1,7 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
+import { debounce } from "@/app/debounce";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
@@ -12,6 +13,8 @@ import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
 
 const PAGE_LIMIT = 50;
+const EXPORT_PAGE_LIMIT = PAGE_LIMIT;
+const EXPORT_ROW_LIMIT = 10_000;
 const DETAILS_PREVIEW = 120;
 const ID_PREVIEW = 8;
 
@@ -164,6 +167,8 @@ export class AuditPageVM extends ViewModel {
   @reactive accessor initialized = false;
   @reactive accessor loadingMore = false;
   @reactive accessor clearing = false;
+  @reactive accessor exporting = false;
+  @reactive accessor exportCount = 0;
   @reactive accessor error: string | null = null;
   @reactive accessor cursor: string | null = null;
   @reactive accessor detailsRow: AuditRowView | null = null;
@@ -179,6 +184,8 @@ export class AuditPageVM extends ViewModel {
   @reactive accessor presetFormOpen = false;
   @reactive accessor presetName = "";
   @reactive accessor presetMenuOpen = false;
+
+  private readonly persistDebounced = debounce(() => this.persistFilters(), 250);
 
   constructor(
     private readonly auditService: AuditService,
@@ -197,6 +204,11 @@ export class AuditPageVM extends ViewModel {
 
   override created(): void {
     void this.reload();
+  }
+
+  override dispose(): void {
+    this.persistDebounced.cancel();
+    super.dispose();
   }
 
   @computed
@@ -316,22 +328,22 @@ export class AuditPageVM extends ViewModel {
 
   setEntity(event: Event): void {
     this.entity = readInput(event);
-    this.persistFilters();
+    this.persistDebounced();
   }
 
   setActor(event: Event): void {
     this.actor = readInput(event);
-    this.persistFilters();
+    this.persistDebounced();
   }
 
   setFrom(event: Event): void {
     this.from = readInput(event);
-    this.persistFilters();
+    this.persistDebounced();
   }
 
   setTo(event: Event): void {
     this.to = readInput(event);
-    this.persistFilters();
+    this.persistDebounced();
   }
 
   setPresetName(event: Event): void {
@@ -388,6 +400,7 @@ export class AuditPageVM extends ViewModel {
     this.presetFormOpen = false;
     this.presetName = "";
     this.presetMenuOpen = false;
+    this.persistDebounced.cancel();
     this.persistFilters();
     await this.apply();
   }
@@ -406,11 +419,13 @@ export class AuditPageVM extends ViewModel {
       this.error = error;
       return;
     }
+    this.persistDebounced.cancel();
     this.persistFilters();
     await this.reload();
   }
 
   async reset(): Promise<void> {
+    this.persistDebounced.cancel();
     this.action = "";
     this.entity = "";
     this.actor = "";
@@ -495,32 +510,68 @@ export class AuditPageVM extends ViewModel {
   }
 
   exportCsv(): void {
-    if (this.entries.length === 0) return;
-    const lines = ["at,actor,action,entity,entity_id,status,ip,details"];
-    for (const entry of this.entries) {
-      lines.push(
-        [
-          csvCell(entry.at),
-          csvCell(auditActor(entry)),
-          csvCell(entry.action),
-          csvCell(entry.entity),
-          csvCell(entry.entity_id ?? ""),
-          String(entry.status),
-          csvCell(entry.ip ?? ""),
-          csvCell(entry.details ?? ""),
-        ].join(","),
-      );
+    void this.runExport();
+  }
+
+  async buildCsv(): Promise<string> {
+    const { entries } = await this.collectForExport();
+    this.exportCount = entries.length;
+    return csvContent(entries);
+  }
+
+  private async runExport(): Promise<void> {
+    if (this.exporting) return;
+    this.exporting = true;
+    this.exportCount = 0;
+    try {
+      const { entries, capped } = await this.collectForExport();
+      this.exportCount = entries.length;
+      if (entries.length === 0) {
+        this.toasts.error(t("audit.export.empty"));
+        return;
+      }
+      downloadCsv(csvContent(entries));
+      if (capped) {
+        this.toasts.push(t("audit.export.truncated", { count: entries.length }), "info");
+      } else {
+        this.toasts.success(t("audit.export.ready", { count: entries.length }));
+      }
+    } catch (error) {
+      this.toasts.error(userMessage(error, t("audit.export.error")));
+    } finally {
+      this.exporting = false;
     }
-    const blob = new Blob(["\uFEFF", lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "audit.csv";
-    link.rel = "noopener";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  private async collectForExport(): Promise<{ entries: AuditEntry[]; capped: boolean }> {
+    const entries: AuditEntry[] = [];
+    const seen = new Set<string>();
+    let before: string | null = null;
+    let capped = false;
+    for (;;) {
+      const remaining = EXPORT_ROW_LIMIT - entries.length;
+      if (remaining <= 0) {
+        capped = true;
+        break;
+      }
+      const result = await this.auditService.list({
+        ...this.filters(before),
+        limit: Math.min(EXPORT_PAGE_LIMIT, remaining),
+      });
+      for (const entry of result.items) {
+        if (seen.has(entry.id)) continue;
+        seen.add(entry.id);
+        entries.push(entry);
+      }
+      this.exportCount = entries.length;
+      if (result.next_cursor === null || result.items.length === 0) break;
+      if (entries.length >= EXPORT_ROW_LIMIT) {
+        capped = true;
+        break;
+      }
+      before = result.next_cursor;
+    }
+    return { entries, capped };
   }
 
   private async loadPage(before: string | null): Promise<void> {
@@ -644,4 +695,36 @@ function createPresetId(): string {
   }
   const random = Math.random().toString(36).slice(2, 10);
   return `preset-${Date.now().toString(36)}-${random}`;
+}
+
+function csvContent(entries: readonly AuditEntry[]): string {
+  const lines = ["at,actor,action,entity,entity_id,status,ip,details"];
+  for (const entry of entries) {
+    lines.push(
+      [
+        csvCell(entry.at),
+        csvCell(auditActor(entry)),
+        csvCell(entry.action),
+        csvCell(entry.entity),
+        csvCell(entry.entity_id ?? ""),
+        String(entry.status),
+        csvCell(entry.ip ?? ""),
+        csvCell(entry.details ?? ""),
+      ].join(","),
+    );
+  }
+  return lines.join("\n");
+}
+
+function downloadCsv(content: string): void {
+  const blob = new Blob(["\uFEFF", content], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "audit.csv";
+  link.rel = "noopener";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

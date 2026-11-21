@@ -69,6 +69,28 @@ export function trapTab(event: KeyboardEvent, root: Element | null): void {
   }
 }
 
+let scrollLockCount = 0;
+let savedBodyOverflow: string | null = null;
+
+/** Блокирует прокрутку фона с учётом вложенных оверлеев. */
+export function lockBodyScroll(): void {
+  if (typeof document === "undefined") return;
+  if (scrollLockCount === 0) {
+    savedBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+  }
+  scrollLockCount += 1;
+}
+
+/** Снимает блокировку только после закрытия последнего оверлея. */
+export function unlockBodyScroll(): void {
+  if (typeof document === "undefined" || scrollLockCount === 0) return;
+  scrollLockCount -= 1;
+  if (scrollLockCount > 0) return;
+  document.body.style.overflow = savedBodyOverflow ?? "";
+  savedBodyOverflow = null;
+}
+
 export interface BackgroundGuard {
   suppress(root: Element | null, exempt?: (element: Element) => boolean): void;
   restore(): void;

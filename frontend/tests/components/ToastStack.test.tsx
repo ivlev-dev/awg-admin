@@ -27,7 +27,10 @@ describe("ToastStack", () => {
     const assertive = query(result.node, "[role='alert']");
 
     expect(polite?.getAttribute("aria-live")).toBe("polite");
+    expect(polite?.getAttribute("aria-atomic")).toBe("true");
+    expect(polite?.hasAttribute("tabindex")).toBe(false);
     expect(assertive?.getAttribute("aria-live")).toBe("assertive");
+    expect(assertive?.getAttribute("aria-atomic")).toBe("true");
 
     expect(polite?.textContent).toContain("Информация");
     expect(polite?.textContent).toContain("Готово");

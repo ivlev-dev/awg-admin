@@ -36,7 +36,7 @@ function Toast(props: { readonly item: ToastItem; readonly onDismiss: (id: numbe
 export function ToastStack(props: ToastStackProps) {
   return (
     <div class="toast-stack">
-      <div class="toast-stack__region" role="status" aria-live="polite" aria-atomic="false">
+      <div class="toast-stack__region" role="status" aria-live="polite" aria-atomic="true">
         <For each={props.items}>
           {(item) => (
             <Show when={item.kind !== "error"}>

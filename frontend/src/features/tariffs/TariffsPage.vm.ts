@@ -1,7 +1,9 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
 import { askConfirm } from "@/app/confirm";
+import { invalidate, lookupInterfaces } from "@/app/lookups";
 import { ToastStore } from "@/app/toast";
+import { SelectionModel } from "@/app/table-controller";
 import { issueMessage, userMessage } from "@/application/errors";
 import type { InterfacesService } from "@/application/interfaces/service";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -28,8 +30,8 @@ export class TariffsPageVM extends ViewModel {
   @reactive accessor refreshing = false;
   @reactive accessor error: string | null = null;
   @reactive accessor search = "";
-  @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
+  private readonly selection = new SelectionModel(() => this.visible);
   @reactive accessor sort: SortState<TariffsSortKey> | null = { key: "name", direction: "asc" };
 
   @reactive accessor modalOpen = false;
@@ -70,7 +72,7 @@ export class TariffsPageVM extends ViewModel {
     try {
       const [tariffs, interfaces] = await Promise.all([
         this.tariffsService.listTariffs(),
-        this.interfacesService.listInterfaces(),
+        lookupInterfaces(this.interfacesService),
       ]);
       this.tariffs = tariffs;
       this.interfaces = interfaces;
@@ -165,37 +167,38 @@ export class TariffsPageVM extends ViewModel {
     return t("tariffs.search.found", { count: this.visible.length });
   }
 
+  get selectedIds(): string[] {
+    return this.selection.selectedIds;
+  }
+
+  set selectedIds(value: string[]) {
+    this.selection.selectedIds = value;
+  }
+
   @computed
   get selectedCount(): number {
-    return this.selectedIds.length;
+    return this.selection.selectedCount;
   }
 
   isSelected(id: string): boolean {
-    return this.selectedIds.includes(id);
+    return this.selection.isSelected(id);
   }
 
   toggleSelected(id: string): void {
-    this.selectedIds = this.isSelected(id)
-      ? this.selectedIds.filter((value) => value !== id)
-      : [...this.selectedIds, id];
+    this.selection.toggleSelected(id);
   }
 
   @computed
   get allVisibleSelected(): boolean {
-    return this.visible.length > 0
-      && this.visible.every((tariff) => this.selectedIds.includes(tariff.id));
+    return this.selection.allSelected;
   }
 
   toggleSelectAll(): void {
-    if (this.allVisibleSelected) {
-      this.clearSelection();
-      return;
-    }
-    this.selectedIds = this.visible.map((tariff) => tariff.id);
+    this.selection.toggleSelectAll();
   }
 
   clearSelection(): void {
-    this.selectedIds = [];
+    this.selection.clearSelection();
   }
 
   async bulkDelete(): Promise<void> {
@@ -215,6 +218,7 @@ export class TariffsPageVM extends ViewModel {
     this.bulkBusy = true;
     try {
       const result = await this.tariffsService.bulk("delete", ids);
+      invalidate("tariffs", this.tariffsService);
       this.toasts[result.failed.length > 0 ? "error" : "success"](
         t("bulk.done", { done: result.done, failed: result.failed.length }),
       );
@@ -379,9 +383,11 @@ export class TariffsPageVM extends ViewModel {
     try {
       if (this.editingId) {
         await this.tariffsService.updateTariff(this.editingId, input);
+        invalidate("tariffs", this.tariffsService);
         this.toasts.success(t("tariffs.toast.updated"));
       } else {
         await this.tariffsService.createTariff(input);
+        invalidate("tariffs", this.tariffsService);
         this.toasts.success(t("tariffs.toast.created"));
       }
       this.modalOpen = false;
@@ -407,6 +413,7 @@ export class TariffsPageVM extends ViewModel {
     if (!confirmed) return;
     try {
       await this.tariffsService.deleteTariff(id);
+      invalidate("tariffs", this.tariffsService);
       this.toasts.success(t("tariffs.toast.deleted"));
       await this.load();
     } catch (error) {

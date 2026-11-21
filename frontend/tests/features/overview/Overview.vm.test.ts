@@ -150,6 +150,13 @@ class FakeWebSocket {
   }
 }
 
+async function nextSocket(index = 0): Promise<FakeWebSocket> {
+  await vi.waitFor(() => {
+    expect(FakeWebSocket.instances.length).toBeGreaterThan(index);
+  });
+  return FakeWebSocket.instances[index]!;
+}
+
 function fakeAuth(user: User): AuthRepository {
   return {
     login: vi.fn(async () => {
@@ -180,15 +187,19 @@ function statsHarness(overview: Overview, points: StatsPoint[]): {
   repository: StatsRepository;
   overview: ReturnType<typeof vi.fn>;
   series: ReturnType<typeof vi.fn>;
+  createWsTicket: ReturnType<typeof vi.fn>;
 } {
   const overviewFn = vi.fn(async () => overview);
   const series = vi.fn(async () => points);
+  const createWsTicket = vi.fn(async () => "a".repeat(64));
   return {
     overview: overviewFn,
     series,
+    createWsTicket,
     repository: {
       overview: overviewFn,
       series,
+      createWsTicket,
     },
   };
 }
@@ -206,7 +217,7 @@ function setup(role: Role = "admin", quotaState: QuotaState = QUOTA) {
     me: quotaFn,
     users: vi.fn(async () => []),
   };
-  const liveStats = new LiveStats(tokens);
+  const liveStats = new LiveStats(tokens, stats.repository);
   const router = new Router();
   const vm = new OverviewVM(
     new DefaultStatsService(stats.repository),
@@ -288,11 +299,10 @@ describe("OverviewVM", () => {
     vm.created();
 
     expect(vm.isAdmin).toBe(false);
-    expect(FakeWebSocket.instances).toHaveLength(1);
-    const socket = FakeWebSocket.instances[0]!;
-    expect(socket.url).toContain("scope=user");
-    expect(socket.url).toContain(`id=${OWNER.id}`);
-    expect(socket.url).toContain("token=access-token");
+    const socket = await nextSocket();
+    expect(socket.url).toContain("/api/v1/ws/stats?ticket=");
+    expect(socket.url).not.toContain("token=");
+    expect(stats.createWsTicket).toHaveBeenCalledWith("user", OWNER.id, expect.anything());
 
     await vi.waitFor(() => expect(vm.loading).toBe(false));
     expect(stats.series).toHaveBeenCalledWith("user", OWNER.id, expect.any(Number), expect.any(Number));
@@ -302,7 +312,7 @@ describe("OverviewVM", () => {
     const { vm, liveStats } = setup("admin");
     await vm.load();
     vm.created();
-    const socket = FakeWebSocket.instances[0]!;
+    const socket = await nextSocket();
 
     socket.open();
     expect(vm.live).toBe(true);
@@ -467,7 +477,7 @@ describe("OverviewVM", () => {
   it("отключает live при размонтировании", async () => {
     const { vm, liveStats } = setup("admin");
     vm.created();
-    const socket = FakeWebSocket.instances[0]!;
+    const socket = await nextSocket();
     socket.open();
     expect(vm.live).toBe(true);
 

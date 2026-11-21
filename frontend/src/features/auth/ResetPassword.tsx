@@ -2,6 +2,7 @@ import { Show } from "@ivlev-dev/silent-core";
 
 import type { ResetPasswordVM } from "./ResetPassword.vm";
 import { Icon } from "@/components/Icon";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function ResetPassword(this: { vm: ResetPasswordVM }) {
@@ -49,9 +50,11 @@ export function ResetPassword(this: { vm: ResetPasswordVM }) {
                 <div class="auth__password">
                   <input
                     id="reset-password"
-                    class={`input ${this.vm.passwordTooShort ? "is-invalid" : ""}`}
+                    class={`input ${this.vm.passwordInvalid ? "is-invalid" : ""}`}
                     type={this.vm.showPassword ? "text" : "password"}
                     autocomplete="new-password"
+                    minlength={MIN_PASSWORD_LENGTH}
+                    maxlength={MAX_PASSWORD_LENGTH}
                     placeholder="••••••••"
                     value={this.vm.password}
                     onInput={(event: Event) => this.vm.setPassword(event)}
@@ -61,10 +64,10 @@ export function ResetPassword(this: { vm: ResetPasswordVM }) {
                   </button>
                 </div>
                 <Show
-                  when={this.vm.passwordTooShort}
+                  when={this.vm.passwordError}
                   fallback={<div class="hint">{t("auth.reset.passwordHint")}</div>}
                 >
-                  <div class="hint" style="color:var(--red)">{t("auth.reset.error.password")}</div>
+                  <div class="hint" style="color:var(--red)">{this.vm.passwordError}</div>
                 </Show>
               </div>
 
@@ -75,6 +78,7 @@ export function ResetPassword(this: { vm: ResetPasswordVM }) {
                   class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
                   type={this.vm.showPassword ? "text" : "password"}
                   autocomplete="new-password"
+                  maxlength={MAX_PASSWORD_LENGTH}
                   placeholder="••••••••"
                   value={this.vm.repeatPassword}
                   onInput={(event: Event) => this.vm.setRepeatPassword(event)}

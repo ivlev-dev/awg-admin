@@ -263,7 +263,7 @@ describe("HttpClient interceptors", () => {
     expect(tokens.current).toEqual({ access: null, refresh: null });
   });
 
-  it("notifies the forbidden handler for 403 responses except the session probe", async () => {
+  it("notifies the forbidden handler for account-block 403 responses except the session probe", async () => {
     const tokens = memoryTokens("tok-1", "ref-1");
     const transport = new HttpTransport({ baseUrl: "/api/v1", timeoutMs: 1_000 });
     const auth = new HttpAuthRepository(transport, tokens);
@@ -275,11 +275,38 @@ describe("HttpClient interceptors", () => {
     );
     registry.addResponse(new ForbiddenInterceptor(onForbidden));
     const client = new HttpClient(transport, registry);
-    installFetch(async () => mockResponse(403));
+    installFetch(async () =>
+      mockResponse(403, { error: { code: "account_disabled", message: "disabled" } }),
+    );
 
     await expect(client.get("/users")).rejects.toBeInstanceOf(ApiError);
     await expect(client.get("/auth/me", { source: "auth" })).rejects.toBeInstanceOf(ApiError);
 
     expect(onForbidden).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not clear the session or redirect on a plain 403", async () => {
+    const tokens = memoryTokens("tok-1", "ref-1");
+    const transport = new HttpTransport({ baseUrl: "/api/v1", timeoutMs: 1_000 });
+    const auth = new HttpAuthRepository(transport, tokens);
+    const session: AuthSessionState = { clear: () => tokens.clear() };
+    const onForbidden = vi.fn();
+    const registry = new InterceptorRegistry(
+      new AuthRequestInterceptor(tokens),
+      new AuthResponseInterceptor(auth, tokens, session),
+    );
+    registry.addResponse(new ForbiddenInterceptor(onForbidden));
+    const client = new HttpClient(transport, registry);
+    installFetch(async () => mockResponse(403, { error: { code: "forbidden", message: "denied" } }));
+    const pathBefore = window.location.pathname;
+
+    await expect(client.post("/devices", { name: "laptop" })).rejects.toMatchObject({
+      status: 403,
+      code: "forbidden",
+    });
+
+    expect(onForbidden).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe(pathBefore);
+    expect(tokens.current).toEqual({ access: "tok-1", refresh: "ref-1" });
   });
 });

@@ -135,20 +135,21 @@ export class HttpAuthRepository implements AuthRepository {
     );
   }
 
-  totpSetup(): Promise<TotpSetup> {
+  totpSetup(password: string): Promise<TotpSetup> {
     return this.authed(() =>
-      this.transport.post<TotpSetup>("/auth/totp/setup", undefined, {
-        source: "auth",
-        headers: this.authHeaders(),
-      }),
+      this.transport.post<TotpSetup>(
+        "/auth/totp/setup",
+        { password },
+        { source: "auth", headers: this.authHeaders() },
+      ),
     );
   }
 
-  totpEnable(code: string): Promise<TotpToggleResult> {
+  totpEnable(password: string, code: string): Promise<TotpToggleResult> {
     return this.authed(() =>
       this.transport.post<TotpToggleResult>(
         "/auth/totp/enable",
-        { code },
+        { password, code },
         { source: "auth", headers: this.authHeaders() },
       ),
     );

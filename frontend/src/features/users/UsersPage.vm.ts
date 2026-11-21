@@ -5,10 +5,16 @@ import { debounce } from "@/app/debounce";
 import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Session } from "@/app/session";
 import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
-import { PAGE_SIZES, currentPage, pageCount, pageWindow } from "@/app/table-pagination";
+import { invalidate, lookupNodes, lookupQuotas, lookupTariffs, lookupUsers } from "@/app/lookups";
+import { PAGE_SIZES, pageCount, pageWindow } from "@/app/table-pagination";
+import { TableController } from "@/app/table-controller";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
-import { normalizeOptionalFullName, validateEmail, validatePassword } from "@/application/guards";
+import {
+  normalizeOptionalFullName,
+  validateEmail,
+  validatePasswordForEmail,
+} from "@/application/guards";
 import type { QuotaService, UserQuotaSnapshot } from "@/application/quota/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -36,7 +42,6 @@ export interface UsersAdvancedFilters {
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
 const DEFAULT_PAGE_SIZE = 25;
-const ADMIN_ROSTER_LIMIT = 200;
 
 const EMPTY_FILTERS: UsersFilters = { tab: "active", query: "" };
 const EMPTY_ADVANCED_FILTERS: UsersAdvancedFilters = { role: "all", status: "all" };
@@ -73,18 +78,19 @@ export class UsersPageVM extends ViewModel {
   @reactive accessor appliedQuery = "";
   @reactive accessor roleFilter: "all" | Role = "all";
   @reactive accessor statusFilter: "all" | UserPageStatus = "all";
-  @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
-  @reactive accessor page = 1;
   @reactive accessor pendingPage = 1;
-  @reactive accessor pageSize = DEFAULT_PAGE_SIZE;
 
-  private hasLoaded = false;
+  private readonly table: TableController;
+
+  private activeLoaded = false;
+  private pendingLoaded = false;
   private requestSeq = 0;
   private controller: AbortController | null = null;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
+    this.persistFilters();
     void this.reload();
   }, SEARCH_DEBOUNCE_MS);
 
@@ -128,6 +134,15 @@ export class UsersPageVM extends ViewModel {
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.table = new TableController({
+      items: () => this.users,
+      total: () => this.activeTotal,
+      initialPageSize: DEFAULT_PAGE_SIZE,
+      onPageChange: () => {
+        this.syncLocation();
+        void this.reload();
+      },
+    });
     const stored = usersFiltersStorage.read();
     const advanced = usersAdvancedFiltersStorage.read();
     this.tab = stored.tab;
@@ -182,59 +197,60 @@ export class UsersPageVM extends ViewModel {
     const controller = new AbortController();
     this.controller = controller;
     const seq = ++this.requestSeq;
-    const firstLoad = !this.hasLoaded;
-    this.loading = firstLoad;
-    this.refreshing = !firstLoad;
-    this.pendingLoading = firstLoad;
+    const activeTab = this.tab === "active";
+    this.loading = activeTab && !this.activeLoaded;
+    this.pendingLoading = !activeTab && !this.pendingLoaded;
+    this.refreshing = activeTab && this.activeLoaded;
     this.error = null;
     this.pendingError = null;
     this.quotaError = null;
-    const [usersResult, pendingResult, rosterResult, tariffsResult, nodesResult, quotaResult] =
+    const [pageResult, tariffsResult, nodesResult, quotaResult, rosterResult] =
       await Promise.allSettled([
-        this.usersService.pageUsers(this.activeParams(controller.signal)),
-        this.usersService.pageUsers(this.pendingParams(controller.signal)),
-        this.usersService.pageUsers({
-          limit: ADMIN_ROSTER_LIMIT,
-          offset: 0,
-          role: "admin",
-          tab: "active",
-          signal: controller.signal,
-        }),
-        this.tariffsService.listTariffs(),
-        this.nodesService.listNodes(),
-        this.quotaService.users(),
+        this.usersService.pageUsers(
+          activeTab ? this.activeParams(controller.signal) : this.pendingParams(controller.signal),
+        ),
+        lookupTariffs(this.tariffsService),
+        lookupNodes(this.nodesService),
+        lookupQuotas(this.quotaService),
+        lookupUsers(this.usersService),
       ]);
     if (seq !== this.requestSeq || controller.signal.aborted) return;
-    this.quotas = quotaResult.status === "fulfilled" ? quotaResult.value : [];
-    if (quotaResult.status === "rejected") {
+    if (quotaResult.status === "fulfilled") {
+      this.quotas = quotaResult.value;
+    } else {
+      this.quotas = [];
       this.quotaError = userMessage(quotaResult.reason, t("quota.error.load"));
     }
-    if (pendingResult.status === "fulfilled") {
-      this.pending = pendingResult.value.items;
-      this.pendingTotal = pendingResult.value.total;
-    } else {
-      this.pendingError = userMessage(pendingResult.reason, t("users.pending.error.load"));
-    }
-    if (rosterResult.status === "fulfilled") {
-      this.adminRoster = rosterResult.value.items;
-    }
-    this.pendingLoading = false;
-    try {
-      if (usersResult.status === "rejected") throw usersResult.reason;
-      if (tariffsResult.status === "rejected") throw tariffsResult.reason;
-      if (nodesResult.status === "rejected") throw nodesResult.reason;
-      this.users = usersResult.value.items;
-      this.activeTotal = usersResult.value.total;
+    if (rosterResult.status === "fulfilled") this.adminRoster = rosterResult.value;
+    if (tariffsResult.status === "fulfilled") {
       this.tariffs = tariffsResult.value;
-      this.nodes = nodesResult.value;
-    } catch (error) {
-      this.error = userMessage(error, t("users.error.load"));
-    } finally {
-      this.loading = false;
-      this.refreshing = false;
-      this.hasLoaded = true;
-      this.clampPages();
+    } else if (activeTab) {
+      this.error = userMessage(tariffsResult.reason, t("users.error.load"));
     }
+    if (nodesResult.status === "fulfilled") {
+      this.nodes = nodesResult.value;
+    } else if (activeTab && this.error === null) {
+      this.error = userMessage(nodesResult.reason, t("users.error.load"));
+    }
+    if (pageResult.status === "fulfilled") {
+      if (activeTab) {
+        this.users = pageResult.value.items;
+        this.activeTotal = pageResult.value.total;
+        this.activeLoaded = true;
+      } else {
+        this.pending = pageResult.value.items;
+        this.pendingTotal = pageResult.value.total;
+        this.pendingLoaded = true;
+      }
+    } else if (activeTab) {
+      this.error = userMessage(pageResult.reason, t("users.error.load"));
+    } else {
+      this.pendingError = userMessage(pageResult.reason, t("users.pending.error.load"));
+    }
+    this.loading = false;
+    this.pendingLoading = false;
+    this.refreshing = false;
+    this.clampPages();
   }
 
   private reload(): Promise<void> {
@@ -266,8 +282,8 @@ export class UsersPageVM extends ViewModel {
   private clampPages(): void {
     const maxActive = pageCount(this.activeTotal, this.pageSize);
     const maxPending = pageCount(this.pendingTotal, this.pageSize);
-    const activeChanged = this.page > maxActive;
-    const pendingChanged = this.pendingPage > maxPending;
+    const activeChanged = this.tab === "active" && this.page > maxActive;
+    const pendingChanged = this.tab === "pending" && this.pendingPage > maxPending;
     if (!activeChanged && !pendingChanged) return;
     if (activeChanged) this.page = maxActive;
     if (pendingChanged) this.pendingPage = maxPending;
@@ -319,12 +335,28 @@ export class UsersPageVM extends ViewModel {
 
   @computed
   get pageCount(): number {
-    return pageCount(this.activeTotal, this.pageSize);
+    return this.table.pageCount;
   }
 
   @computed
   get currentPage(): number {
-    return currentPage(this.page, this.activeTotal, this.pageSize);
+    return this.table.currentPage;
+  }
+
+  get page(): number {
+    return this.table.page;
+  }
+
+  set page(value: number) {
+    this.table.page = value;
+  }
+
+  get pageSize(): number {
+    return this.table.pageSize;
+  }
+
+  set pageSize(value: number) {
+    this.table.pageSize = value;
   }
 
   @computed
@@ -349,7 +381,7 @@ export class UsersPageVM extends ViewModel {
 
   @computed
   get pendingCurrentPage(): number {
-    return currentPage(this.pendingPage, this.pendingTotal, this.pageSize);
+    return Math.min(Math.max(1, this.pendingPage), this.pendingPageCount);
   }
 
   @computed
@@ -368,12 +400,7 @@ export class UsersPageVM extends ViewModel {
   }
 
   goToPage(page: number): void {
-    const next = Math.min(Math.max(1, Math.round(page)), this.pageCount);
-    if (next === this.page) return;
-    this.page = next;
-    this.clearSelection();
-    this.syncLocation();
-    void this.reload();
+    this.table.goToPage(page);
   }
 
   goToPendingPage(page: number): void {
@@ -388,27 +415,29 @@ export class UsersPageVM extends ViewModel {
   setPageSize(value: string): void {
     const size = Number(value);
     if (!Number.isFinite(size) || size <= 0 || size === this.pageSize) return;
-    this.pageSize = Math.trunc(size);
-    this.page = 1;
     this.pendingPage = 1;
-    this.clearSelection();
-    this.syncLocation();
-    void this.reload();
+    this.table.setPageSize(value);
   }
 
   @computed
   get selectedCount(): number {
-    return this.selectedIds.length;
+    return this.table.selectedCount;
+  }
+
+  get selectedIds(): string[] {
+    return this.table.selectedIds;
+  }
+
+  set selectedIds(value: string[]) {
+    this.table.selectedIds = value;
   }
 
   isSelected(id: string): boolean {
-    return this.selectedIds.includes(id);
+    return this.table.isSelected(id);
   }
 
   toggleSelected(id: string): void {
-    this.selectedIds = this.isSelected(id)
-      ? this.selectedIds.filter((value) => value !== id)
-      : [...this.selectedIds, id];
+    this.table.toggleSelected(id);
   }
 
   selectAllFiltered(): void {
@@ -416,16 +445,15 @@ export class UsersPageVM extends ViewModel {
   }
 
   clearSelection(): void {
-    this.selectedIds = [];
+    this.table.clearSelection();
   }
 
   get allFilteredSelected(): boolean {
-    return this.users.length > 0 && this.users.every((user) => this.selectedIds.includes(user.id));
+    return this.table.allSelected;
   }
 
   toggleSelectAll(): void {
-    if (this.allFilteredSelected) this.clearSelection();
-    else this.selectAllFiltered();
+    this.table.toggleSelectAll();
   }
 
   async bulkSetDisabled(disabled: boolean): Promise<void> {
@@ -487,6 +515,8 @@ export class UsersPageVM extends ViewModel {
     this.bulkBusy = true;
     try {
       const result = await this.usersService.bulk(action, ids);
+      invalidate("users", this.usersService);
+      invalidate("quotas", this.quotaService);
       this.clearSelection();
       this.toasts[result.failed.length > 0 ? "error" : "success"](
         t("bulk.done", { done: result.done, failed: result.failed.length }),
@@ -507,6 +537,11 @@ export class UsersPageVM extends ViewModel {
       this.roleFilter !== "all" ||
       this.statusFilter !== "all"
     );
+  }
+
+  @computed
+  get hasPendingFilters(): boolean {
+    return this.appliedQuery.trim().length > 0;
   }
 
   @computed
@@ -534,7 +569,6 @@ export class UsersPageVM extends ViewModel {
     this.pendingPage = 1;
     this.clearSelection();
     this.applyQuery();
-    this.persistFilters();
   }
 
   setRoleFilter(value: string): void {
@@ -572,10 +606,6 @@ export class UsersPageVM extends ViewModel {
 
   userFullName(user: User): string {
     return user.full_name?.trim() || "—";
-  }
-
-  emailLabel(user: User): string {
-    return user.email;
   }
 
   resetTargetEmail(): string {
@@ -766,8 +796,9 @@ export class UsersPageVM extends ViewModel {
 
   async submit(): Promise<void> {
     if (this.saving) return;
+    let email = "";
     try {
-      validateEmail(this.email);
+      email = validateEmail(this.email);
     } catch (error) {
       this.emailError = userMessage(error, t("users.form.error.email"));
       this.formError = this.emailError;
@@ -795,7 +826,7 @@ export class UsersPageVM extends ViewModel {
     try {
       if (this.editingId) {
         await this.usersService.updateUser(this.editingId, {
-          email: this.email.trim(),
+          email,
           full_name: fullName,
           role: editingSelf ? this.session.user?.role ?? this.role : this.role,
           tariff_id: this.tariffId ? this.tariffId : null,
@@ -806,14 +837,14 @@ export class UsersPageVM extends ViewModel {
         if (editingSelf) await this.session.reload();
       } else {
         try {
-          validatePassword(this.password);
+          validatePasswordForEmail(this.password, email);
         } catch (error) {
           this.passwordError = userMessage(error, t("users.form.error.password"));
           this.formError = this.passwordError;
           return;
         }
         await this.usersService.createUser({
-          email: this.email.trim(),
+          email,
           full_name: fullName,
           password: this.password,
           role: this.role,
@@ -825,7 +856,7 @@ export class UsersPageVM extends ViewModel {
       this.modalOpen = false;
       this.password = "";
       this.formSnapshot = "";
-      await this.load();
+      await this.reloadAfterMutation();
     } catch (error) {
       const message = userMessage(error, t("users.form.error.save"));
       this.formError = message;
@@ -857,15 +888,15 @@ export class UsersPageVM extends ViewModel {
 
   async submitReset(): Promise<void> {
     if (!this.resetTarget || this.resetSaving) return;
+    const target = this.resetTarget;
     try {
-      validatePassword(this.resetPassword);
+      validatePasswordForEmail(this.resetPassword, target.email);
     } catch (error) {
       const message = userMessage(error, t("users.reset.error.password"));
       this.resetError = message;
       this.toasts.error(message);
       return;
     }
-    const target = this.resetTarget;
     this.resetSaving = true;
     this.resetError = null;
     try {
@@ -900,7 +931,7 @@ export class UsersPageVM extends ViewModel {
     }
     try {
       await this.usersService.updateUser(user.id, { disabled: !user.disabled });
-      await this.load();
+      await this.reloadAfterMutation();
     } catch (error) {
       this.toasts.error(userMessage(error, t("users.error.toggle")));
     }
@@ -926,7 +957,7 @@ export class UsersPageVM extends ViewModel {
     try {
       await this.usersService.deleteUser(user.id);
       this.toasts.success(t("users.toast.deleted"));
-      await this.load();
+      await this.reloadAfterMutation();
     } catch (error) {
       this.toasts.error(userMessage(error, t("users.error.delete")));
     }
@@ -972,7 +1003,7 @@ export class UsersPageVM extends ViewModel {
       this.toasts.success(t("users.pending.approved"));
       this.approveOpen = false;
       this.approveTarget = null;
-      await this.load();
+      await this.reloadAfterMutation();
     } catch (error) {
       const message = userMessage(error, t("users.pending.error.approve"));
       this.approveError = message;
@@ -994,10 +1025,16 @@ export class UsersPageVM extends ViewModel {
     try {
       await this.usersService.rejectUser(user.id);
       this.toasts.success(t("users.pending.rejected"));
-      await this.load();
+      await this.reloadAfterMutation();
     } catch (error) {
       this.toasts.error(userMessage(error, t("users.pending.error.reject")));
     }
+  }
+
+  private async reloadAfterMutation(): Promise<void> {
+    invalidate("users", this.usersService);
+    invalidate("quotas", this.quotaService);
+    await this.load();
   }
 
   private persistFilters(): void {
@@ -1015,7 +1052,7 @@ export class UsersPageVM extends ViewModel {
       ["tab", this.tab !== "active" ? this.tab : null],
       ["page", visiblePage > 1 ? String(visiblePage) : null],
       ["limit", this.pageSize !== DEFAULT_PAGE_SIZE ? String(this.pageSize) : null],
-      ["q", this.query.trim().length > 0 ? this.query : null],
+      ["q", this.appliedQuery.trim().length > 0 ? this.appliedQuery : null],
       ["role", this.roleFilter !== "all" ? this.roleFilter : null],
       ["status", this.statusFilter !== "all" ? this.statusFilter : null],
     ]);

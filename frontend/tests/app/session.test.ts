@@ -2,6 +2,7 @@ import { vi } from "vitest";
 
 import { Session } from "@/app/session";
 import type { AuthRepository } from "@/domain/auth/repository";
+import { ApiError } from "@/domain/errors";
 import type { AuthSession, User } from "@/domain/types";
 import { HttpAuthRepository } from "@/infrastructure/http/auth.repository";
 import { HttpTransport } from "@/infrastructure/http/transport";
@@ -97,9 +98,13 @@ describe("Session initialization", () => {
     expect(session.ready).toBe(true);
   });
 
-  it("clears the session when the boot refresh fails", async () => {
+  it("clears the session when the boot refresh fails with 401", async () => {
     const tokens = memoryTokens(null, "stored-refresh");
-    const auth = fakeAuth({ refresh: vi.fn(async () => Promise.reject(new Error("expired"))) });
+    const auth = fakeAuth({
+      refresh: vi.fn(async () =>
+        Promise.reject(new ApiError(401, "unauthorized", "expired")),
+      ),
+    });
     const session = new Session(auth, tokens);
 
     await session.init();
@@ -107,6 +112,55 @@ describe("Session initialization", () => {
     expect(session.user).toBeNull();
     expect(tokens.refresh()).toBeNull();
     expect(session.ready).toBe(true);
+  });
+
+  it("keeps tokens and reports a network error when /auth/me is unreachable", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () =>
+        Promise.reject(new ApiError(0, "network_error", "Failed to fetch")),
+      ),
+    });
+    const session = new Session(auth, tokens);
+
+    await session.init();
+
+    expect(session.user).toBeNull();
+    expect(session.ready).toBe(true);
+    expect(session.error).toBe("Нет связи с сервером. Проверьте соединение и повторите попытку.");
+    expect(tokens.access()).toBe("access-1");
+    expect(tokens.refresh()).toBe("refresh-1");
+  });
+
+  it("clears tokens and the user when /auth/me returns 401", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () => Promise.reject(new ApiError(401, "unauthorized", "expired"))),
+    });
+    const session = new Session(auth, tokens);
+
+    await session.init();
+
+    expect(session.user).toBeNull();
+    expect(tokens.access()).toBeNull();
+    expect(tokens.refresh()).toBeNull();
+  });
+
+  it("clears tokens and reports the block reason for account_disabled", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () =>
+        Promise.reject(new ApiError(403, "account_disabled", "account is disabled")),
+      ),
+    });
+    const session = new Session(auth, tokens);
+
+    await session.init();
+
+    expect(session.user).toBeNull();
+    expect(tokens.access()).toBeNull();
+    expect(tokens.refresh()).toBeNull();
+    expect(session.error).toBe("Учётная запись отключена");
   });
 
   it("boots as a guest without tokens", async () => {
@@ -119,6 +173,53 @@ describe("Session initialization", () => {
     expect(auth.refresh).not.toHaveBeenCalled();
     expect(auth.me).not.toHaveBeenCalled();
     expect(session.ready).toBe(true);
+  });
+});
+
+describe("Session reload", () => {
+  it("keeps the current user and tokens when the server returns 500", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () => Promise.reject(new ApiError(500, "internal", "boom"))),
+    });
+    const session = new Session(auth, tokens);
+    session.user = USER;
+
+    await session.reload();
+
+    expect(session.user).toEqual(USER);
+    expect(tokens.access()).toBe("access-1");
+    expect(tokens.refresh()).toBe("refresh-1");
+    expect(session.error).not.toBeNull();
+  });
+
+  it("clears the user and tokens on 401", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () => Promise.reject(new ApiError(401, "unauthorized", "expired"))),
+    });
+    const session = new Session(auth, tokens);
+    session.user = USER;
+
+    await session.reload();
+
+    expect(session.user).toBeNull();
+    expect(tokens.access()).toBeNull();
+    expect(tokens.refresh()).toBeNull();
+  });
+
+  it("keeps tokens but clears the user on a network error", async () => {
+    const tokens = memoryTokens("access-1", "refresh-1");
+    const auth = fakeAuth({
+      me: vi.fn(async () => Promise.reject(new ApiError(0, "network_error", "offline"))),
+    });
+    const session = new Session(auth, tokens);
+    session.user = USER;
+
+    await session.reload();
+
+    expect(session.user).toEqual(USER);
+    expect(tokens.access()).toBe("access-1");
   });
 });
 

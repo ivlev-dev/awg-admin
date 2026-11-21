@@ -76,6 +76,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                     options={[{ value: "", label: t("interfaces.filter.allGroups") }, ...this.vm.groups.map((group) => ({ value: group.id, label: group.name }))]}
                     onChange={(value) => this.vm.setGroupFilter(value)}
                     ariaLabel={t("interfaces.filter.group")}
+                    searchable
                   />
                 </div>
               </Show>
@@ -87,6 +88,7 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                   options={[{ value: "", label: t("interfaces.filter.allNodes") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
                   onChange={(value) => this.vm.setNodeFilter(value)}
                   ariaLabel={t("interfaces.filter.node")}
+                  searchable
                 />
               </div>
             </Show>

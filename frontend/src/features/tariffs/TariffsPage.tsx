@@ -318,6 +318,7 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
               options={this.vm.interfaceOptions}
               onChange={(value: string) => this.vm.setFormInterface(value)}
               ariaLabel={t("tariffs.form.interface")}
+              searchable
             />
             <div class="hint">{t("tariffs.form.interfaceHint")}</div>
           </div>

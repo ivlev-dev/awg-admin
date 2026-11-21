@@ -264,12 +264,12 @@ describe("AuthService", () => {
       service.register({
         email: " user@example.com ",
         full_name: " Иван Петров ",
-        password: "secret123",
+        password: "secret1234",
       }),
     ).resolves.toEqual({ status: "pending_email" });
     expect(repo.register).toHaveBeenCalledWith({
       email: "user@example.com",
-      password: "secret123",
+      password: "secret1234",
       full_name: "Иван Петров",
     });
   });
@@ -278,11 +278,11 @@ describe("AuthService", () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
-    await service.register({ email: "user@example.com", full_name: "  ", password: "secret123" });
+    await service.register({ email: "user@example.com", full_name: "  ", password: "secret1234" });
 
     expect(repo.register).toHaveBeenCalledWith({
       email: "user@example.com",
-      password: "secret123",
+      password: "secret1234",
     });
   });
 
@@ -292,7 +292,7 @@ describe("AuthService", () => {
       service.register({
         email: "user@example.com",
         full_name: "a".repeat(201),
-        password: "secret123",
+        password: "secret1234",
       }),
     ).rejects.toBeInstanceOf(ValidationError);
   });
@@ -300,7 +300,7 @@ describe("AuthService", () => {
   it("rejects an invalid email and a short password on registration", async () => {
     const service = new DefaultAuthService(makeAuth());
     await expect(
-      service.register({ email: "nope", password: "secret123" }),
+      service.register({ email: "nope", password: "secret1234" }),
     ).rejects.toBeInstanceOf(ValidationError);
     await expect(
       service.register({ email: "user@example.com", password: "short" }),
@@ -338,11 +338,11 @@ describe("AuthService", () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
-    await expect(service.resetPassword(" token ", "secret123")).resolves.toEqual({
+    await expect(service.resetPassword(" token ", "secret1234")).resolves.toEqual({
       status: "reset",
     });
-    expect(repo.resetPassword).toHaveBeenCalledWith("token", "secret123");
-    await expect(service.resetPassword(" ", "secret123")).rejects.toBeInstanceOf(ValidationError);
+    expect(repo.resetPassword).toHaveBeenCalledWith("token", "secret1234");
+    await expect(service.resetPassword(" ", "secret1234")).rejects.toBeInstanceOf(ValidationError);
     await expect(service.resetPassword("token", "short")).rejects.toBeInstanceOf(ValidationError);
   });
 
@@ -363,17 +363,19 @@ describe("AuthService", () => {
     const repo = makeAuth();
     const service = new DefaultAuthService(repo);
 
-    await expect(service.totpSetup()).resolves.toEqual({
+    await expect(service.totpSetup(" secret ")).resolves.toEqual({
       secret: "",
       otpauth_url: "",
       recovery_codes: [],
     });
-    await expect(service.totpEnable(" 123456 ")).resolves.toEqual({ enabled: true });
+    await expect(service.totpEnable(" secret ", " 123456 ")).resolves.toEqual({ enabled: true });
     await expect(service.totpDisable(" secret ", " 654321 ")).resolves.toEqual({ enabled: false });
 
-    expect(repo.totpEnable).toHaveBeenCalledWith("123456");
+    expect(repo.totpSetup).toHaveBeenCalledWith("secret");
+    expect(repo.totpEnable).toHaveBeenCalledWith("secret", "123456");
     expect(repo.totpDisable).toHaveBeenCalledWith("secret", "654321");
-    await expect(service.totpEnable("abc")).rejects.toBeInstanceOf(ValidationError);
+    await expect(service.totpEnable("secret", "abc")).rejects.toBeInstanceOf(ValidationError);
+    await expect(service.totpSetup("  ")).rejects.toBeInstanceOf(ValidationError);
   });
 
   it("delegates listing sessions and logout of all sessions", async () => {
@@ -435,14 +437,14 @@ describe("UsersService", () => {
 
     await service.createUser({
       email: " user@example.com ",
-      password: "secret123",
+      password: "secret1234",
       role: "user",
       tariff_id: null,
       node_id: null,
     });
     expect(repo.createUser).toHaveBeenCalledWith({
       email: "user@example.com",
-      password: "secret123",
+      password: "secret1234",
       role: "user",
       tariff_id: null,
       node_id: null,
@@ -457,7 +459,7 @@ describe("UsersService", () => {
     await expect(
       service.createUser({
         email: "nope",
-        password: "secret123",
+        password: "secret1234",
         role: "user",
         tariff_id: null,
         node_id: null,
@@ -885,6 +887,7 @@ describe("StatsService", () => {
         top_devices: [],
       })),
       series: vi.fn(async (): Promise<StatsPoint[]> => []),
+      createWsTicket: vi.fn(async (): Promise<string> => "a".repeat(64)),
     };
   }
 

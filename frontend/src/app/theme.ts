@@ -19,12 +19,14 @@ function prefersDark(): boolean {
 
 export class ThemeStore {
   @reactive accessor mode: ThemeMode = readMode();
+  @reactive accessor systemDark: boolean = prefersDark();
 
   constructor() {
     this.apply();
     const query = window.matchMedia("(prefers-color-scheme: dark)");
     if (typeof query.addEventListener === "function") {
-      query.addEventListener("change", () => {
+      query.addEventListener("change", (event: MediaQueryListEvent) => {
+        this.systemDark = event.matches;
         if (this.mode === "system") this.apply();
       });
     }
@@ -45,7 +47,7 @@ export class ThemeStore {
   }
 
   get effective(): "light" | "dark" {
-    if (this.mode === "system") return prefersDark() ? "dark" : "light";
+    if (this.mode === "system") return this.systemDark ? "dark" : "light";
     return this.mode;
   }
 

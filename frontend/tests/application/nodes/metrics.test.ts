@@ -39,9 +39,13 @@ describe("node metrics helpers", () => {
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
     expect(formatMetricsUpdated(fiveMinutesAgo)).toBe("5 минут назад");
 
+    const fixedNow = Date.parse("2026-01-01T00:10:00Z");
+    expect(formatMetricsUpdated("2026-01-01T00:00:00Z", fixedNow)).toBe("10 минут назад");
+
     setLocale("en");
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
     expect(formatMetricsUpdated(tenMinutesAgo)).toBe("10 minutes ago");
+    expect(formatMetricsUpdated("2026-01-01T00:00:00Z", fixedNow)).toBe("10 minutes ago");
   });
 
   it("handles missing and invalid metrics timestamps", () => {

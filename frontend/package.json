@@ -2,6 +2,7 @@
   "name": "awg-admin-frontend",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "pnpm@10.34.9",
   "type": "module",
   "scripts": {
     "arch:check": "depcruise src --config .dependency-cruiser.cjs --webpack-config .dependency-cruiser.webpack.cjs",

@@ -24,6 +24,10 @@ describe("userMessage", () => {
     );
   });
 
+  it("returns an empty message for aborted requests", () => {
+    expect(userMessage(new ApiError(0, "aborted", "Request aborted"), "Fallback")).toBe("");
+  });
+
   it("keeps plain error messages and falls back for unknown values", () => {
     expect(userMessage(new Error("boom"), "Fallback")).toBe("boom");
     expect(userMessage(new Error("   "), "Fallback")).toBe("Fallback");

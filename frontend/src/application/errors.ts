@@ -24,7 +24,10 @@ export function issueMessage(issue: ValidationIssue | null): string | null {
 
 export function userMessage(error: unknown, fallback: string): string {
   if (error instanceof ValidationError) return translate(error.code, error.params);
-  if (error instanceof ApiError && error.status !== 0) return fallback;
+  if (error instanceof ApiError) {
+    if (error.code === "aborted") return "";
+    if (error.status !== 0) return fallback;
+  }
   if (error instanceof Error) {
     const message = error.message.trim();
     if (message) return message;

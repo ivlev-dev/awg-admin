@@ -1,5 +1,6 @@
 import { createAppContainer } from "@/app/di";
 import { setDensity } from "@/app/density";
+import { hasUnsavedChanges } from "@/app/unsaved";
 import { ToastStore } from "@/app/toast";
 import { ValidationError } from "@/application/errors";
 import { DefaultSettingsService } from "@/application/settings/service";
@@ -564,6 +565,22 @@ describe("SettingsPageVM unsaved changes", () => {
 
     expect(harness.vm.dirty).toBe(true);
     expect(harness.vm.canSave).toBe(true);
+  });
+
+  it("регистрирует грязную форму для перехвата навигации", async () => {
+    const harness = makeHarness();
+    harness.vm.created();
+    await vi.waitFor(() => expect(harness.vm.loaded).toBe(true));
+
+    expect(hasUnsavedChanges()).toBe(false);
+
+    harness.vm.setNumeric("mtu", valueEvent("1500"));
+    expect(hasUnsavedChanges()).toBe(true);
+
+    await harness.vm.save();
+    expect(hasUnsavedChanges()).toBe(false);
+
+    harness.vm.dispose();
   });
 
   it("регистрирует и снимает обработчик beforeunload", () => {

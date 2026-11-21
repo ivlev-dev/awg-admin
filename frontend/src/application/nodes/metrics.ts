@@ -47,11 +47,14 @@ export function formatNodeMemoryPercent(
   return `${Math.min(100, Math.round((used / total) * 100))} %`;
 }
 
-export function formatMetricsUpdated(value: string | null | undefined): string {
+export function formatMetricsUpdated(
+  value: string | null | undefined,
+  now: number = Date.now(),
+): string {
   if (!value) return t("nodes.metrics.never");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return t("nodes.metrics.never");
-  const seconds = Math.round((date.getTime() - Date.now()) / 1000);
+  const seconds = Math.round((date.getTime() - now) / 1000);
   const formatter = relativeFormatter();
   const abs = Math.abs(seconds);
   if (abs < 60) return formatter.format(seconds, "second");

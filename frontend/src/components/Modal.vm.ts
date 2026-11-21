@@ -6,7 +6,9 @@ import {
   createBackgroundGuard,
   focusableElements,
   isFocusableElement,
+  lockBodyScroll,
   trapTab,
+  unlockBodyScroll,
 } from "./overlay";
 
 export interface ModalProps {
@@ -40,6 +42,7 @@ export class ModalVM extends ViewModel<ModalProps> {
   private readonly background = createBackgroundGuard();
   private focusRetries = 0;
   private listening = false;
+  private scrollLocked = false;
 
   override mounted(): void {
     this.stopEffect = createRoot((dispose) => {
@@ -56,6 +59,7 @@ export class ModalVM extends ViewModel<ModalProps> {
     this.stopEffect = null;
     removeFromStack(this);
     this.restoreBackground();
+    this.unlockScroll();
     if (this.open) {
       this.open = false;
       this.restoreFocus();
@@ -81,12 +85,26 @@ export class ModalVM extends ViewModel<ModalProps> {
       this.attachKeydown();
       this.tryFocusInitial();
       this.suppressBackground();
+      this.lockScroll();
       return;
     }
     this.detachKeydown();
     removeFromStack(this);
     this.restoreBackground();
+    this.unlockScroll();
     this.restoreFocus();
+  }
+
+  private lockScroll(): void {
+    if (this.scrollLocked) return;
+    this.scrollLocked = true;
+    lockBodyScroll();
+  }
+
+  private unlockScroll(): void {
+    if (!this.scrollLocked) return;
+    this.scrollLocked = false;
+    unlockBodyScroll();
   }
 
   private attachKeydown(): void {

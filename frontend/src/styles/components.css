@@ -139,7 +139,15 @@
 .matrix-table th:first-child,
 .matrix-table td:first-child { min-width: 168px; }
 .matrix-table .matrix-mode { min-height: 32px; font-size: var(--t-xs); padding: 4px var(--sp-2); }
-.matrix-table input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.matrix-table input[type="checkbox"] {
+  box-sizing: content-box;
+  width: 18px;
+  height: 18px;
+  padding: 13px;
+  margin: -13px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 .matrix-table input[type="checkbox"]:disabled { cursor: default; opacity: 0.65; }
 .forwarding-pairs { display: grid; gap: var(--sp-2); }
 
@@ -680,7 +688,8 @@
 .toast { align-items: center; }
 .toast__close {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; flex: none; padding: 0;
+  width: 44px; height: 44px; min-width: 44px; min-height: 44px; flex: none;
+  margin: -10px -8px -10px 0; padding: 0;
   border: 0; border-radius: var(--shape-sm); background: transparent;
   color: var(--md-on-surface-variant); cursor: pointer;
 }

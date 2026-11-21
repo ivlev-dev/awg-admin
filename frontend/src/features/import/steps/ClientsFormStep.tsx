@@ -35,6 +35,7 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
                 disabled={vm.owners.length === 0}
                 placeholder={t("import.owner.none")}
                 ariaLabel={t("import.clients.owner")}
+                searchable
               />
             </Show>
             <Show when={vm.ownersError}>
@@ -56,6 +57,7 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
                 disabled={vm.interfaceList.length === 0}
                 placeholder={t("import.clients.interfaceAuto")}
                 ariaLabel={t("import.clients.interface")}
+                searchable
               />
             </Show>
             <Show when={vm.interfacesError}>

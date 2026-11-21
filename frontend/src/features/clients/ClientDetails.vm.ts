@@ -7,6 +7,13 @@ import type { QuotaService, QuotaUsageView } from "@/application/quota/service";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
+import {
+  invalidate,
+  lookupInterfaces,
+  lookupOwnerDevices,
+  lookupQuotaForUser,
+  lookupQuotaMe,
+} from "@/app/lookups";
 import type { DevicePeer, DeviceStats } from "@/domain/devices/types";
 import type {
   Device,
@@ -380,38 +387,44 @@ export class ClientDetailsVM extends ViewModel {
       this.loading = false;
       return;
     }
-    this.loading = true;
+    const firstLoad = this.device === null;
+    this.loading = firstLoad;
     this.error = null;
-    this.device = null;
-    this.profiles = [];
-    this.shares = [];
-    this.stats = null;
-    this.allDevices = [];
-    this.interfaces = [];
-    this.forwardingSection.rows = [];
-    this.ownerQuota = null;
-    this.activePeerId = "";
-    this.shareInterfaceId = "";
-    this.shareSection.resetForm();
-    this.tunnelSection.resetUi();
     this.profileActions.resetQr();
+    if (firstLoad) {
+      this.profiles = [];
+      this.shares = [];
+      this.stats = null;
+      this.allDevices = [];
+      this.interfaces = [];
+      this.forwardingSection.rows = [];
+      this.ownerQuota = null;
+      this.activePeerId = "";
+      this.shareInterfaceId = "";
+      this.shareSection.resetForm();
+      this.tunnelSection.resetUi();
+    }
     try {
       const devicePromise: Promise<Device> = this.devicesService.getDevice(id);
       const profilesPromise: Promise<Profile[]> = this.devicesService.listProfiles(id);
       const sharesPromise: Promise<ShareLink[]> = this.devicesService.listShares(id);
       const statsPromise: Promise<DeviceStats> = this.devicesService.deviceStats(id);
-      const devicesPromise: Promise<Device[]> = this.devicesService.listDevices();
-      const interfacesPromise: Promise<InterfaceInfo[]> = this.interfacesService
-        .listInterfaces()
+      const interfacesPromise: Promise<InterfaceInfo[]> = lookupInterfaces(this.interfacesService)
         .catch(() => []);
-      const [device, profiles, shares, stats, devices, interfaces] = await Promise.all([
+      const [device, profiles, shares, stats, interfaces] = await Promise.all([
         devicePromise,
         profilesPromise,
         sharesPromise,
         statsPromise,
-        devicesPromise,
         interfacesPromise,
       ]);
+      if (generation !== this.loadGeneration) return;
+      const devicesPromise: Promise<Device[]> = lookupOwnerDevices(
+        this.devicesService,
+        device.user_id,
+      ).catch(() => [] as Device[]);
+      const quotaPromise = this.loadOwnerQuota(device);
+      const [devices, quota] = await Promise.all([devicesPromise, quotaPromise]);
       if (generation !== this.loadGeneration) return;
       this.device = device;
       this.profiles = profiles;
@@ -419,10 +432,9 @@ export class ClientDetailsVM extends ViewModel {
       this.stats = stats;
       this.allDevices = devices;
       this.interfaces = interfaces;
+      this.ownerQuota = quota;
       this.forwardingSection.buildRows(device);
       this.editSection.hydrate(device);
-      await this.loadOwnerQuota(device, generation);
-      if (generation !== this.loadGeneration) return;
       this.syncTunnelSelection();
     } catch (error) {
       if (generation !== this.loadGeneration) return;
@@ -462,14 +474,17 @@ export class ClientDetailsVM extends ViewModel {
 
   async setForwardingRowMode(rowId: string, value: string): Promise<void> {
     await this.forwardingSection.setRowMode(rowId, value);
+    this.invalidateDevices();
   }
 
   async toggleForwardingCell(rowId: string, targetId: string): Promise<void> {
     await this.forwardingSection.toggleCell(rowId, targetId);
+    this.invalidateDevices();
   }
 
   async toggleForwardingPair(aId: string, bId: string): Promise<void> {
     await this.forwardingSection.togglePair(aId, bId);
+    this.invalidateDevices();
   }
 
   selectProfile(peerId: string): void { this.activePeerId = peerId; }
@@ -488,7 +503,7 @@ export class ClientDetailsVM extends ViewModel {
 
   setAddTunnelLabel(event: Event): void { this.tunnelSection.setAddLabel(event); }
 
-  async addTunnel(): Promise<void> { await this.tunnelSection.add(); }
+  async addTunnel(): Promise<void> { await this.tunnelSection.add(); this.invalidateDevices(); }
 
   openRenameTunnel(tunnel: TunnelRow): void { this.tunnelSection.openRename(tunnel); }
 
@@ -496,9 +511,9 @@ export class ClientDetailsVM extends ViewModel {
 
   setRenameTunnelLabel(event: Event): void { this.tunnelSection.setRenameLabel(event); }
 
-  async renameTunnel(): Promise<void> { await this.tunnelSection.rename(); }
+  async renameTunnel(): Promise<void> { await this.tunnelSection.rename(); this.invalidateDevices(); }
 
-  async removeTunnel(peerId: string): Promise<void> { await this.tunnelSection.remove(peerId); }
+  async removeTunnel(peerId: string): Promise<void> { await this.tunnelSection.remove(peerId); this.invalidateDevices(); }
 
   setShareInterface(value: string): void { this.shareInterfaceId = value; }
 
@@ -512,9 +527,9 @@ export class ClientDetailsVM extends ViewModel {
 
   async cancelEdit(): Promise<void> { await this.editSection.cancel(); }
 
-  async save(): Promise<void> { await this.editSection.save(); }
-  async revoke(): Promise<void> { await this.lifecycle.revoke(); }
-  async remove(): Promise<void> { await this.lifecycle.remove(); }
+  async save(): Promise<void> { await this.editSection.save(); this.invalidateDevices(); }
+  async revoke(): Promise<void> { await this.lifecycle.revoke(); this.invalidateDevices(); }
+  async remove(): Promise<void> { await this.lifecycle.remove(); this.invalidateDevices(); }
   async createShare(): Promise<void> { await this.shareSection.create(); }
 
   async revokeShare(token: string): Promise<void> { await this.shareSection.revoke(token); }
@@ -579,16 +594,16 @@ export class ClientDetailsVM extends ViewModel {
     }
   }
 
-  private async loadOwnerQuota(device: Device, generation: number): Promise<void> {
-    try {
-      const quota = this.isAdmin
-        ? await this.quotaService.forUser(device.user_id)
-        : await this.quotaService.me();
-      if (generation !== this.loadGeneration) return;
-      this.ownerQuota = quota;
+  private invalidateDevices(): void {
+    invalidate("devices", this.devicesService);
+  }
+
+  private async loadOwnerQuota(device: Device): Promise<QuotaUsageView | null> {    try {
+      return this.isAdmin
+        ? await lookupQuotaForUser(this.quotaService, device.user_id)
+        : await lookupQuotaMe(this.quotaService);
     } catch {
-      if (generation !== this.loadGeneration) return;
-      this.ownerQuota = null;
+      return null;
     }
   }
 }

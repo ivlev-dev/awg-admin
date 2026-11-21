@@ -16,11 +16,11 @@ export class HttpNodesRepository implements NodesRepository {
   }
 
   rotateNode(id: string): Promise<NodeRotated> {
-    return this.client.post<NodeRotated>(`/nodes/${id}/rotate`);
+    return this.client.post<NodeRotated>(`/nodes/${encodeURIComponent(id)}/rotate`);
   }
 
   async deleteNode(id: string): Promise<void> {
-    await this.client.delete(`/nodes/${id}`);
+    await this.client.delete(`/nodes/${encodeURIComponent(id)}`);
   }
 
   bulk(action: NodeBulkAction, ids: readonly string[]): Promise<BulkResult> {

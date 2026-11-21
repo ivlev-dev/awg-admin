@@ -74,6 +74,7 @@ export function GroupStep(props: { vm: ImportVM }) {
                 disabled={vm.nodes.length === 0}
                 placeholder={t("import.nodes.empty")}
                 ariaLabel={t("import.field.node")}
+                searchable
               />
             </Show>
             <Show when={vm.nodesError}>
@@ -100,6 +101,7 @@ export function GroupStep(props: { vm: ImportVM }) {
                 disabled={vm.owners.length === 0}
                 placeholder={t("import.owner.none")}
                 ariaLabel={t("import.field.owner")}
+                searchable
               />
             </Show>
             <Show when={vm.ownersError}>

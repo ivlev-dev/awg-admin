@@ -20,6 +20,11 @@ import { pageUsersFromList } from "@/domain/users/query";
 import type { ImportResult, InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import { ImportVM } from "@/features/import/ImportPage.vm";
 
+const confirmMock = vi.hoisted(() => ({
+  askConfirm: vi.fn(async (_options: unknown) => true),
+}));
+vi.mock("@/app/confirm", () => confirmMock);
+
 const NODE_OFFLINE: NodeInfo = {
   id: "n1",
   name: "node-1",
@@ -491,6 +496,11 @@ function deferred<T>(): {
   });
   return { promise, resolve, reject };
 }
+
+beforeEach(() => {
+  confirmMock.askConfirm.mockClear();
+  confirmMock.askConfirm.mockResolvedValue(true);
+});
 
 describe("ImportPageVM", () => {
   it("загружает ноды и владельцев, выбирает онлайн-ноду", async () => {
@@ -1088,7 +1098,7 @@ describe("ImportPageVM", () => {
     vm.ownerUserId = OWNER.id;
     await vm.previewNow();
 
-    vm.reset();
+    await vm.reset();
 
     expect(vm.step).toBe(1);
     expect(vm.groupName).toBe("");
@@ -1105,6 +1115,22 @@ describe("ImportPageVM", () => {
     expect(vm.previewError).toBeNull();
     expect(vm.applyError).toBeNull();
     expect(vm.nodeId).toBe(NODE_ONLINE.id);
+  });
+
+  it("не сбрасывает черновик импорта при отказе в подтверждении", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.addInterface();
+    confirmMock.askConfirm.mockResolvedValueOnce(false);
+
+    await vm.reset();
+
+    expect(confirmMock.askConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({ title: "Сбросить импорт?" }),
+    );
+    expect(vm.groupName).toBe("Imported");
+    expect(vm.interfaces[0]?.clientsText).not.toBe("");
   });
 
   it("проверяет пулы и параметры интерфейса", async () => {

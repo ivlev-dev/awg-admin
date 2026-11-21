@@ -29,6 +29,7 @@ describe("ErrorState", () => {
 
     const button = find(result.node, "button.btn.btn--sm");
     if (!(button instanceof HTMLButtonElement)) throw new Error("Кнопка повтора не найдена");
+    expect(button.type).toBe("button");
     expect(button.textContent).toBe("Повторить");
 
     button.click();

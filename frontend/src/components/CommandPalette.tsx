@@ -3,7 +3,12 @@ import { For, Show, ViewModel, computed, createEffect, createRoot, onCleanup } f
 import { CommandStore, filterCommands, type CommandItem } from "@/app/command";
 import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
-import { createBackgroundGuard, trapTab } from "@/components/overlay";
+import {
+  createBackgroundGuard,
+  lockBodyScroll,
+  trapTab,
+  unlockBodyScroll,
+} from "@/components/overlay";
 
 export interface CommandPaletteProps {
   open: boolean;
@@ -34,6 +39,8 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
   private opener: HTMLElement | null = null;
 
   private readonly background = createBackgroundGuard();
+
+  private scrollLocked = false;
 
   @computed
   get visible(): CommandItem[] {
@@ -71,6 +78,7 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
     this.stopEffect?.();
     this.stopEffect = null;
     this.restoreBackground();
+    this.unlockScroll();
     if (this.openState) {
       this.openState = false;
       this.restoreFocus();
@@ -125,12 +133,26 @@ export class CommandPaletteVM extends ViewModel<CommandPaletteProps> {
       this.focusRetries = 0;
       this.suppressBackground();
       this.tryFocus();
+      this.lockScroll();
       return;
     }
     this.shouldFocus = false;
     this.store.close();
     this.restoreBackground();
+    this.unlockScroll();
     this.restoreFocus();
+  }
+
+  private lockScroll(): void {
+    if (this.scrollLocked) return;
+    this.scrollLocked = true;
+    lockBodyScroll();
+  }
+
+  private unlockScroll(): void {
+    if (!this.scrollLocked) return;
+    this.scrollLocked = false;
+    unlockBodyScroll();
   }
 
   private restoreFocus(): void {

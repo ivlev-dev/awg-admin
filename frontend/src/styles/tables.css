@@ -126,12 +126,13 @@
   }
 
   .table--cards .btn {
-    min-height: 40px;
+    min-height: 44px;
   }
 
   .table--cards .btn--icon {
-    width: 40px;
-    min-width: 40px;
+    width: 44px;
+    min-width: 44px;
+    height: 44px;
   }
 
   .table--cards .user-quota {
@@ -178,6 +179,11 @@
 .table tbody tr.is-selected:hover { background: color-mix(in oklab, var(--accent-soft) 80%, var(--surface)); }
 .cell-select { width: 44px; text-align: center; }
 .cell-select input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+.cell-select input[type="checkbox"] {
+  box-sizing: content-box;
+  padding: 13px;
+  margin: -13px;
+}
 .table thead th.is-sortable button {
   display: inline-flex; align-items: center; gap: 4px;
   border: 0; background: transparent; padding: 0; margin: 0;

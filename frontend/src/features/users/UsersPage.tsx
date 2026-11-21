@@ -9,6 +9,7 @@ import { Icon } from "@/components/Icon";
 import { Select } from "@/components/Select";
 import { SkeletonTable } from "@/components/Skeleton";
 import type { User } from "@/domain/types";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 function statusChipClass(user: User): string {
@@ -206,12 +207,12 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                             onChange={() => this.vm.toggleSelectAll()}
                           />
                         </th>
-                        <th class="col-user">{t("users.column.fullName")}</th>
-                        <th class="col-email">{t("users.column.email")}</th>
-                        <th class="col-role">{t("users.column.role")}</th>
-                        <th class="col-tariff">{t("users.column.tariffNode")}</th>
-                        <th class="col-quota">{t("users.column.quota")}</th>
-                        <th class="col-status">{t("users.column.status")}</th>
+                        <th class="col-user" aria-sort="none">{t("users.column.fullName")}</th>
+                        <th class="col-email" aria-sort="none">{t("users.column.email")}</th>
+                        <th class="col-role" aria-sort="none">{t("users.column.role")}</th>
+                        <th class="col-tariff" aria-sort="none">{t("users.column.tariffNode")}</th>
+                        <th class="col-quota" aria-sort="none">{t("users.column.quota")}</th>
+                        <th class="col-status" aria-sort="none">{t("users.column.status")}</th>
                         <th class="col-actions" aria-label={t("users.column.actions")}></th>
                       </tr>
                     </thead>
@@ -403,7 +404,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   onInput={(event: Event) => this.vm.setQuery(event)}
                 />
               </div>
-              <Show when={this.vm.hasActiveFilters}>
+              <Show when={this.vm.hasPendingFilters}>
                 <button class="btn btn--text btn--sm" type="button" onClick={() => this.vm.resetFilters()}>
                   <Icon name="close" size={14} class="" /> {t("filters.reset")}
                 </button>
@@ -456,9 +457,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   <table class="table table--cards table--users-pending table--desktop" aria-label={t("users.pending.title")}>
                     <thead>
                       <tr>
-                        <th class="col-user">{t("users.column.fullName")}</th>
-                        <th class="col-email">{t("users.column.email")}</th>
-                        <th class="col-created">{t("users.pending.createdAt")}</th>
+                        <th class="col-user" aria-sort="none">{t("users.column.fullName")}</th>
+                        <th class="col-email" aria-sort="none">{t("users.column.email")}</th>
+                        <th class="col-created" aria-sort="none">{t("users.pending.createdAt")}</th>
                         <th class="col-actions" aria-label={t("users.column.actions")}></th>
                       </tr>
                     </thead>
@@ -634,7 +635,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 class="input"
                 type="password"
                 autocomplete="new-password"
-                minlength={8}
+                minlength={MIN_PASSWORD_LENGTH}
+                maxlength={MAX_PASSWORD_LENGTH}
                 aria-invalid={this.vm.passwordError ? "true" : undefined}
                 aria-describedby={this.vm.passwordError ? "users-form-password-error" : "users-form-password-hint"}
                 value={this.vm.password}
@@ -658,6 +660,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 options={[{ value: "", label: t("users.form.tariffNone") }, ...this.vm.tariffs.map((tariff) => ({ value: tariff.id, label: tariff.name }))]}
                 onChange={(value) => this.vm.setTariff(value)}
                 ariaLabel={t("users.form.tariff")}
+                searchable
               />
             </div>
             <div class="field">
@@ -668,6 +671,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 options={[{ value: "", label: t("users.form.nodeOptional") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
                 onChange={(value) => this.vm.setNode(value)}
                 ariaLabel={t("users.form.node")}
+                searchable
               />
             </div>
           </div>
@@ -741,7 +745,8 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               class="input"
               type="password"
               autocomplete="new-password"
-              minlength={8}
+              minlength={MIN_PASSWORD_LENGTH}
+              maxlength={MAX_PASSWORD_LENGTH}
               required
               data-autofocus
               aria-invalid={this.vm.resetError ? "true" : undefined}
@@ -805,6 +810,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 ]}
                 onChange={(value) => this.vm.setApproveTariff(value)}
                 ariaLabel={t("users.pending.tariff")}
+                searchable
               />
             </div>
             <div class="field">
@@ -818,6 +824,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 ]}
                 onChange={(value) => this.vm.setApproveNode(value)}
                 ariaLabel={t("users.pending.node")}
+                searchable
               />
             </div>
           </div>

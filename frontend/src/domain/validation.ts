@@ -1,5 +1,47 @@
 import type { Tariff } from "./types";
 
+export const MIN_PASSWORD_LENGTH = 10;
+export const MAX_PASSWORD_LENGTH = 1024;
+
+const COMMON_PASSWORDS: ReadonlySet<string> = new Set([
+  "password",
+  "password1",
+  "qwerty123",
+  "1234567890",
+  "letmein123",
+]);
+
+export type PasswordPolicyIssue = "short" | "long" | "common" | "email";
+
+export function passwordLength(password: string): number {
+  return [...password].length;
+}
+
+export function isCommonPassword(password: string): boolean {
+  return COMMON_PASSWORDS.has(password.toLowerCase());
+}
+
+export function passwordMatchesEmailLocal(password: string, email: string): boolean {
+  const local = email.split("@")[0]?.trim() ?? "";
+  return local.length > 0 && password.toLowerCase() === local.toLowerCase();
+}
+
+/**
+ * Mirrors the backend password policy: length, common-password list and, when
+ * an email is known, a password that repeats the email local part.
+ */
+export function passwordPolicyIssue(password: string, email?: string): PasswordPolicyIssue | null {
+  if (passwordLength(password) < MIN_PASSWORD_LENGTH) return "short";
+  if (utf8Length(password) > MAX_PASSWORD_LENGTH) return "long";
+  if (isCommonPassword(password)) return "common";
+  if (email !== undefined && passwordMatchesEmailLocal(password, email)) return "email";
+  return null;
+}
+
+function utf8Length(value: string): number {
+  return typeof TextEncoder === "undefined" ? value.length : new TextEncoder().encode(value).length;
+}
+
 export type TariffValidationTarget = Pick<
   Tariff,
   | "name"

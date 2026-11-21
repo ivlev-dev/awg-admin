@@ -5,6 +5,7 @@ import { Icon } from "@/components/Icon";
 import { Modal } from "@/components/Modal";
 import { QrCode } from "@/components/QrCode";
 import { SkeletonTable } from "@/components/Skeleton";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function ProfilePage(this: { vm: ProfilePageVM }) {
@@ -459,18 +460,20 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               <label for="profile-next">{t("profile.password.next")}</label>
               <input
                 id="profile-next"
-                class={`input ${this.vm.nextTooShort ? "is-invalid" : ""}`}
+                class={`input ${this.vm.nextPasswordInvalid ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
+                minlength={MIN_PASSWORD_LENGTH}
+                maxlength={MAX_PASSWORD_LENGTH}
                 placeholder={t("profile.password.nextPlaceholder")}
                 value={this.vm.nextPassword}
                 onInput={(event: InputEvent) => this.vm.setNextPassword(event)}
               />
               <Show
-                when={this.vm.nextTooShort}
+                when={this.vm.nextPasswordError}
                 fallback={<div class="hint">{t("profile.password.hint")}</div>}
               >
-                <div class="hint" style="color:var(--red)">{t("profile.password.tooShort")}</div>
+                <div class="hint" style="color:var(--red)">{this.vm.nextPasswordError}</div>
               </Show>
             </div>
 
@@ -481,6 +484,7 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
+                maxlength={MAX_PASSWORD_LENGTH}
                 placeholder={t("profile.password.repeatPlaceholder")}
                 value={this.vm.repeatPassword}
                 onInput={(event: InputEvent) => this.vm.setRepeatPassword(event)}
@@ -514,89 +518,120 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
             <button class="btn" type="button" onClick={() => this.vm.closeTotpSetup()} disabled={this.vm.totpSaving}>
               {t("profile.totp.modal.cancel")}
             </button>
-            <button class="btn btn--primary" type="button" onClick={() => this.vm.submitTotpEnable()} disabled={!this.vm.canEnableTotp}>
-              <Show when={this.vm.totpSaving} fallback={<span>{t("profile.totp.modal.confirm")}</span>}>
-                <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
-                <span>{t("common.saving")}</span>
-              </Show>
-            </button>
+            <Show
+              when={this.vm.totpSetup === null}
+              fallback={
+                <button class="btn btn--primary" type="button" onClick={() => this.vm.submitTotpEnable()} disabled={!this.vm.canEnableTotp}>
+                  <Show when={this.vm.totpSaving} fallback={<span>{t("profile.totp.modal.confirm")}</span>}>
+                    <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                    <span>{t("common.saving")}</span>
+                  </Show>
+                </button>
+              }
+            >
+              <button class="btn btn--primary" type="button" onClick={() => { void this.vm.submitTotpSetup(); }} disabled={!this.vm.canSubmitTotpSetup}>
+                <Show when={this.vm.totpSetupLoading} fallback={<span>{t("profile.totp.modal.continue")}</span>}>
+                  <span class="spinner" style="width:16px;height:16px;border-color:rgba(255,255,255,.4);border-top-color:#fff"></span>
+                  <span>{t("common.saving")}</span>
+                </Show>
+              </button>
+            </Show>
           </div>
         }
       >
         <div class="stack">
-          <Show
-            when={!this.vm.totpSetupLoading}
-            fallback={
-              <div class="stack" style="align-items:center;gap:10px;padding:16px 0">
-                <div class="spinner"></div>
-                <div class="small muted">{t("profile.totp.loading")}</div>
-              </div>
-            }
-          >
-            <Show when={this.vm.totpSetupError}>
-              <div class="alert alert--error">{this.vm.totpSetupError}</div>
-            </Show>
-            <Show when={this.vm.totpSetup}>
-              <div class="stack" style="align-items:center;gap:10px">
-                <QrCode
-                  value={this.vm.totpSetup?.otpauth_url ?? ""}
-                  size={200}
-                  label={t("profile.totp.modal.qrAria")}
-                  loadingLabel={t("profile.totp.modal.qrLoading")}
-                  errorLabel={t("profile.totp.modal.qrError")}
-                  limitLabel={t("profile.totp.modal.qrLimit")}
-                />
-                <div class="hint" style="text-align:center">{t("profile.totp.modal.qrHint")}</div>
-              </div>
+          <Show when={this.vm.totpSetupError}>
+            <div class="alert alert--error" role="alert">{this.vm.totpSetupError}</div>
+          </Show>
+          <Show when={this.vm.totpSetup === null && !this.vm.totpSetupLoading}>
+            <form
+              class="stack"
+              onSubmit={(event: SubmitEvent) => {
+                event.preventDefault();
+                void this.vm.submitTotpSetup();
+              }}
+            >
               <div class="field">
-                <div class="row-between wrap">
-                  <label>{t("profile.totp.modal.secret")}</label>
-                  <button class="btn btn--sm" type="button" onClick={() => { void this.vm.copyTotpSecret(); }}>
-                    <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copySecret")}
-                  </button>
-                </div>
-                <div class="copy-row">
-                  <input class="input" type="text" readonly value={this.vm.totpSetup?.secret ?? ""} />
-                </div>
-                <div class="hint">{t("profile.totp.modal.secretHint")}</div>
-              </div>
-              <div class="field">
-                <label>{t("profile.totp.modal.uri")}</label>
-                <div class="copy-row">
-                  <input class="input" type="text" readonly value={this.vm.totpSetup?.otpauth_url ?? ""} />
-                </div>
-                <div class="hint">
-                  <a href={this.vm.totpSetup?.otpauth_url ?? "#"}>{t("profile.totp.modal.uriHint")}</a>
-                </div>
-              </div>
-              <div class="field">
-                <div class="row-between wrap">
-                  <label>{t("profile.totp.modal.recovery")}</label>
-                  <button class="btn btn--sm" type="button" onClick={() => this.vm.copyRecoveryCodes()}>
-                    <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copy")}
-                  </button>
-                </div>
-                <div class="stack-sm" style="font-family:ui-monospace,Menlo,Consolas,monospace">
-                  <For each={this.vm.totpSetup?.recovery_codes ?? []}>
-                    {(code) => <div class="small strong">{code}</div>}
-                  </For>
-                </div>
-                <div class="hint">{t("profile.totp.modal.recoveryHint")}</div>
-              </div>
-              <div class="field">
-                <label for="totp-enable-code">{t("profile.totp.modal.code")}</label>
+                <label for="totp-setup-password">{t("profile.totp.modal.password")}</label>
                 <input
-                  id="totp-enable-code"
+                  id="totp-setup-password"
                   class="input"
-                  type="text"
-                  inputmode="numeric"
-                  autocomplete="one-time-code"
-                  placeholder={t("profile.totp.modal.codePlaceholder")}
-                  value={this.vm.totpCode}
-                  onInput={(event: Event) => this.vm.setTotpCode(event)}
+                  type="password"
+                  autocomplete="current-password"
+                  placeholder="••••••••"
+                  value={this.vm.totpSetupPassword}
+                  onInput={(event: Event) => this.vm.setTotpSetupPassword(event)}
+                  aria-describedby="totp-setup-password-hint"
+                  data-autofocus
                 />
+                <div class="hint" id="totp-setup-password-hint">{t("profile.totp.modal.passwordHint")}</div>
               </div>
-            </Show>
+            </form>
+          </Show>
+          <Show when={this.vm.totpSetupLoading}>
+            <div class="stack" style="align-items:center;gap:10px;padding:16px 0">
+              <div class="spinner"></div>
+              <div class="small muted">{t("profile.totp.loading")}</div>
+            </div>
+          </Show>
+          <Show when={this.vm.totpSetup}>
+            <div class="stack" style="align-items:center;gap:10px">
+              <QrCode
+                value={this.vm.totpSetup?.otpauth_url ?? ""}
+                size={200}
+                label={t("profile.totp.modal.qrAria")}
+                loadingLabel={t("profile.totp.modal.qrLoading")}
+                errorLabel={t("profile.totp.modal.qrError")}
+                limitLabel={t("profile.totp.modal.qrLimit")}
+              />
+              <div class="hint" style="text-align:center">{t("profile.totp.modal.qrHint")}</div>
+            </div>
+            <div class="field">
+              <div class="row-between wrap">
+                <label>{t("profile.totp.modal.secret")}</label>
+                <button class="btn btn--sm" type="button" onClick={() => { void this.vm.copyTotpSecret(); }}>
+                  <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copySecret")}
+                </button>
+              </div>
+              <div class="copy-row">
+                <input class="input" type="text" readonly value={this.vm.totpSetup?.secret ?? ""} />
+              </div>
+              <div class="hint">{t("profile.totp.modal.secretHint")}</div>
+            </div>
+            <div class="field">
+              <label>{t("profile.totp.modal.uri")}</label>
+              <div class="copy-row">
+                <input class="input" type="text" readonly value={this.vm.totpSetup?.otpauth_url ?? ""} />
+              </div>
+              <div class="hint">{t("profile.totp.modal.uriHint")}</div>
+            </div>
+            <div class="field">
+              <div class="row-between wrap">
+                <label>{t("profile.totp.modal.recovery")}</label>
+                <button class="btn btn--sm" type="button" onClick={() => this.vm.copyRecoveryCodes()}>
+                  <Icon name="copy" size={14} class="" /> {t("profile.totp.modal.copy")}
+                </button>
+              </div>
+              <div class="stack-sm" style="font-family:ui-monospace,Menlo,Consolas,monospace">
+                <For each={this.vm.totpSetup?.recovery_codes ?? []}>
+                  {(code) => <div class="small strong">{code}</div>}
+                </For>
+              </div>
+              <div class="hint">{t("profile.totp.modal.recoveryHint")}</div>
+            </div>
+            <div class="field">
+              <label for="totp-enable-code">{t("profile.totp.modal.code")}</label>
+              <input
+                id="totp-enable-code"
+                class="input"
+                type="text"
+                inputmode="numeric"
+                autocomplete="one-time-code"
+                placeholder={t("profile.totp.modal.codePlaceholder")}
+                value={this.vm.totpCode}
+                onInput={(event: Event) => this.vm.setTotpCode(event)}
+              />
+            </div>
           </Show>
         </div>
       </Modal>

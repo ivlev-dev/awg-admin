@@ -20,6 +20,7 @@ import {
   validateEmail,
   validateFullName,
   validatePassword,
+  validatePasswordForEmail,
   validateTotpCode,
 } from "../guards";
 
@@ -35,8 +36,8 @@ export interface AuthService {
   me(): Promise<User>;
   updateProfile(input: UpdateProfileInput): Promise<User>;
   changePassword(current: string | null, next: string): Promise<void>;
-  totpSetup(): Promise<TotpSetup>;
-  totpEnable(code: string): Promise<TotpToggleResult>;
+  totpSetup(password: string): Promise<TotpSetup>;
+  totpEnable(password: string, code: string): Promise<TotpToggleResult>;
   totpDisable(password: string, code: string): Promise<TotpToggleResult>;
   sessions(): Promise<AuthSessionInfo[]>;
   revokeSession(jti: string): Promise<void>;
@@ -56,10 +57,11 @@ export class DefaultAuthService implements AuthService {
   }
 
   async register(input: RegisterInput): Promise<RegisterResult> {
+    const email = validateEmail(input.email);
     const fullName = input.full_name?.trim();
     return this.repository.register({
-      email: validateEmail(input.email),
-      password: validatePassword(input.password),
+      email,
+      password: validatePasswordForEmail(input.password, email),
       ...(fullName ? { full_name: validateFullName(fullName) } : {}),
     });
   }
@@ -109,12 +111,15 @@ export class DefaultAuthService implements AuthService {
     await this.repository.changePassword(current, validatePassword(next));
   }
 
-  totpSetup(): Promise<TotpSetup> {
-    return this.repository.totpSetup();
+  async totpSetup(password: string): Promise<TotpSetup> {
+    return this.repository.totpSetup(requireText(password, "error.label.password"));
   }
 
-  async totpEnable(code: string): Promise<TotpToggleResult> {
-    return this.repository.totpEnable(validateTotpCode(code));
+  async totpEnable(password: string, code: string): Promise<TotpToggleResult> {
+    return this.repository.totpEnable(
+      requireText(password, "error.label.password"),
+      validateTotpCode(code),
+    );
   }
 
   async totpDisable(password: string, code: string): Promise<TotpToggleResult> {

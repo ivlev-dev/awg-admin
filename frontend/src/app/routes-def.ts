@@ -63,7 +63,9 @@ function matchPath(pattern: string, path: string): Record<string, string> | null
     const expected = patternParts[i]!;
     const actual = pathParts[i]!;
     if (expected.startsWith(":")) {
-      params[expected.slice(1)] = decodeURIComponent(actual);
+      const decoded = decodeSegment(actual);
+      if (decoded === null) return null;
+      params[expected.slice(1)] = decoded;
     } else if (expected !== actual) {
       return null;
     }
@@ -75,5 +77,13 @@ export function normalize(path: string): string {
   if (!path || path === "/") return "/";
   const clean = path.replace(/\/+$/, "");
   return clean || "/";
+}
+
+function decodeSegment(value: string): string | null {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
+  }
 }
 

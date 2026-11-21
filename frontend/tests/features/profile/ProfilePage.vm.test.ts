@@ -9,6 +9,7 @@ import { DefaultAuthService } from "@/application/auth/service";
 import { DefaultQuotaService } from "@/application/quota/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import type { AuthSessionInfo, LogoutAllResult } from "@/domain/auth/types";
+import { ApiError } from "@/domain/errors";
 import type { QuotaRepository } from "@/domain/quota/repository";
 import type { QuotaState } from "@/domain/quota/types";
 import type { AuthSession, User } from "@/domain/types";
@@ -142,8 +143,8 @@ interface Harness {
   quotaMe: Mock<() => Promise<QuotaState>>;
   changePassword: Mock<(current: string | null, next: string) => Promise<void>>;
   logout: Mock<(refreshToken: string) => Promise<void>>;
-  totpSetup: Mock<() => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>>;
-  totpEnable: Mock<(code: string) => Promise<void>>;
+  totpSetup: Mock<(password: string) => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>>;
+  totpEnable: Mock<(password: string, code: string) => Promise<void>>;
   totpDisable: Mock<(password: string, code: string) => Promise<void>>;
   sessions: Mock<() => Promise<AuthSessionInfo[]>>;
   revokeSession: Mock<(jti: string) => Promise<void>>;
@@ -169,8 +170,8 @@ function makeHarness(
   handlers: {
     changePassword?: (current: string | null, next: string) => Promise<void>;
     logout?: (refreshToken: string) => Promise<void>;
-    totpSetup?: () => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>;
-    totpEnable?: (code: string) => Promise<void>;
+    totpSetup?: (password: string) => Promise<{ secret: string; otpauth_url: string; recovery_codes: string[] }>;
+    totpEnable?: (password: string, code: string) => Promise<void>;
     totpDisable?: (password: string, code: string) => Promise<void>;
     sessions?: () => Promise<AuthSessionInfo[]>;
     revokeSession?: (jti: string) => Promise<void>;
@@ -205,8 +206,8 @@ function makeHarness(
     verifyEmail: vi.fn(async () => ({ status: "pending_approval" as const })),
     resendVerification: vi.fn(async () => undefined),
     totpSetup,
-    totpEnable: vi.fn(async (code: string) => {
-      await totpEnable(code);
+    totpEnable: vi.fn(async (password: string, code: string) => {
+      await totpEnable(password, code);
       current = { ...current, totp_enabled: true };
       return { enabled: true };
     }),
@@ -809,8 +810,8 @@ describe("ProfilePageVM", () => {
   it("validates that the next password is long enough", async () => {
     const harness = makeHarness();
     harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "short";
-    harness.vm.repeatPassword = "short";
+    harness.vm.nextPassword = "123456789";
+    harness.vm.repeatPassword = "123456789";
 
     expect(harness.vm.nextTooShort).toBe(true);
     expect(harness.vm.canSave).toBe(false);
@@ -820,10 +821,27 @@ describe("ProfilePageVM", () => {
     expect(harness.changePassword).not.toHaveBeenCalled();
     expect(
       harness.toasts.items.some(
-        (item) => item.message === "Новый пароль должен содержать минимум 8 символов",
+        (item) => item.message === "Новый пароль должен содержать минимум 10 символов",
       ),
     ).toBe(true);
     expect(harness.vm.saving).toBe(false);
+  });
+
+  it("rejects a next password that equals the email local part", async () => {
+    const harness = makeHarness({ ...ADMIN, email: "VeryLongLocal@example.com" });
+    harness.vm.currentPassword = "old-password";
+    harness.vm.nextPassword = "verylonglocal";
+    harness.vm.repeatPassword = "verylonglocal";
+
+    expect(harness.vm.canSave).toBe(false);
+    await harness.vm.savePassword(submitEvent());
+
+    expect(harness.changePassword).not.toHaveBeenCalled();
+    expect(
+      harness.toasts.items.some(
+        (item) => item.message === "Пароль не должен совпадать с частью email до @",
+      ),
+    ).toBe(true);
   });
 
   it("requires the current password", async () => {
@@ -957,25 +975,55 @@ describe("ProfilePageVM", () => {
     expect(harness.router.path).toBe("/login");
   });
 
+  it("не запрашивает параметры 2FA без пароля", async () => {
+    const harness = makeHarness();
+
+    await harness.vm.openTotpSetup();
+    expect(harness.vm.totpOpen).toBe(true);
+    expect(harness.vm.totpSetup).toBeNull();
+
+    await harness.vm.submitTotpSetup();
+
+    expect(harness.totpSetup).not.toHaveBeenCalled();
+    expect(harness.vm.totpSetupError).toBe("Введите текущий пароль");
+    expect(harness.vm.totpSetupLoading).toBe(false);
+  });
+
+  it("запрашивает параметры 2FA с введённым паролем", async () => {
+    const harness = makeHarness();
+    await harness.vm.openTotpSetup();
+
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+
+    expect(harness.vm.canSubmitTotpSetup).toBe(true);
+    await harness.vm.submitTotpSetup();
+
+    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
+    expect(harness.totpSetup).toHaveBeenCalledWith("secret");
+    expect(harness.vm.totpSetup?.secret).toBe("SECRET");
+    expect(harness.vm.totpSetup?.recovery_codes).toEqual(["1111", "2222"]);
+    expect(harness.vm.totpSetupError).toBeNull();
+    expect(harness.vm.totpSetupLoading).toBe(false);
+  });
+
   it("включает двухфакторную аутентификацию через модалку", async () => {
     const harness = makeHarness();
     expect(harness.vm.totpEnabled).toBe(false);
     expect(harness.vm.totpStatusLabel).toBe("Отключена");
 
     await harness.vm.openTotpSetup();
-
-    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
-    expect(harness.vm.totpOpen).toBe(true);
-    expect(harness.vm.totpSetup?.secret).toBe("SECRET");
-    expect(harness.vm.totpSetup?.recovery_codes).toEqual(["1111", "2222"]);
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
 
     harness.vm.setTotpCode(valueEvent("123456"));
     expect(harness.vm.canEnableTotp).toBe(true);
 
     await harness.vm.submitTotpEnable();
 
-    expect(harness.totpEnable).toHaveBeenCalledWith("123456");
+    expect(harness.totpEnable).toHaveBeenCalledWith("secret", "123456");
     expect(harness.vm.totpOpen).toBe(false);
+    expect(harness.vm.totpSetupPassword).toBe("");
+    expect(harness.vm.totpCode).toBe("");
     expect(harness.vm.totpEnabled).toBe(true);
     expect(harness.vm.totpStatusLabel).toBe("Включена");
     expect(harness.toasts.items.some((item) => item.message === "Двухфакторная аутентификация включена")).toBe(true);
@@ -984,6 +1032,8 @@ describe("ProfilePageVM", () => {
   it("не включает 2FA с некорректным кодом", async () => {
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
     harness.vm.setTotpCode(valueEvent("12"));
 
     expect(harness.vm.canEnableTotp).toBe(false);
@@ -991,6 +1041,30 @@ describe("ProfilePageVM", () => {
 
     expect(harness.totpEnable).not.toHaveBeenCalled();
     expect(harness.toasts.items.some((item) => item.message === "Введите 6-значный код")).toBe(true);
+  });
+
+  it("не включает 2FA без пароля", async () => {
+    const harness = makeHarness();
+    harness.vm.totpSetup = { secret: "SECRET", otpauth_url: "otpauth://totp/test", recovery_codes: [] };
+    harness.vm.setTotpCode(valueEvent("123456"));
+
+    expect(harness.vm.canEnableTotp).toBe(false);
+    await harness.vm.submitTotpEnable();
+
+    expect(harness.totpEnable).not.toHaveBeenCalled();
+    expect(harness.toasts.items.some((item) => item.message === "Введите текущий пароль")).toBe(true);
+  });
+
+  it("очищает пароль при закрытии модалки 2FA", async () => {
+    const harness = makeHarness();
+    await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+
+    harness.vm.closeTotpSetup();
+
+    expect(harness.vm.totpOpen).toBe(false);
+    expect(harness.vm.totpSetupPassword).toBe("");
+    expect(harness.vm.totpSetupError).toBeNull();
   });
 
   it("показывает ошибку загрузки параметров 2FA", async () => {
@@ -1001,10 +1075,46 @@ describe("ProfilePageVM", () => {
     });
 
     await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
 
     expect(harness.vm.totpSetupError).toBe("Сервис недоступен");
     expect(harness.vm.totpSetup).toBeNull();
     expect(harness.vm.totpSetupLoading).toBe(false);
+  });
+
+  it("показывает ошибку 403 при неверном пароле", async () => {
+    const harness = makeHarness(ADMIN, {
+      totpSetup: async () => {
+        throw new ApiError(403, "forbidden", "Неверный пароль");
+      },
+    });
+
+    await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("wrong"));
+    await harness.vm.submitTotpSetup();
+
+    expect(harness.vm.totpSetupError).toBe("Неверный пароль");
+    expect(harness.vm.totpSetup).toBeNull();
+  });
+
+  it("показывает ошибку 403 при подтверждении 2FA", async () => {
+    const harness = makeHarness(ADMIN, {
+      totpEnable: async () => {
+        throw new ApiError(403, "forbidden", "Неверный пароль");
+      },
+    });
+    await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
+    harness.vm.setTotpCode(valueEvent("123456"));
+
+    await harness.vm.submitTotpEnable();
+
+    expect(harness.totpEnable).toHaveBeenCalledWith("secret", "123456");
+    expect(harness.toasts.items.some((item) => item.message === "Неверный пароль")).toBe(true);
+    expect(harness.vm.totpOpen).toBe(true);
+    expect(harness.vm.totpEnabled).toBe(false);
   });
 
   it("отключает двухфакторную аутентификацию по паролю и коду", async () => {
@@ -1041,6 +1151,8 @@ describe("ProfilePageVM", () => {
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
 
     await harness.vm.copyRecoveryCodes();
 
@@ -1053,6 +1165,8 @@ describe("ProfilePageVM", () => {
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
+    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    await harness.vm.submitTotpSetup();
 
     await harness.vm.copyTotpSecret();
 
@@ -1086,11 +1200,28 @@ describe("ProfilePageVM", () => {
     await vi.waitFor(() => {
       expect(document.body.textContent).toContain("Включение 2FA");
     });
-    expect(harness.totpSetup).toHaveBeenCalledTimes(1);
+    expect(harness.totpSetup).not.toHaveBeenCalled();
+
+    const passwordInput = document.querySelector<HTMLInputElement>("#totp-setup-password");
+    expect(passwordInput).not.toBeNull();
+    if (passwordInput === null) throw new Error("password input is missing");
+    expect(passwordInput.type).toBe("password");
+    expect(passwordInput.getAttribute("autocomplete")).toBe("current-password");
+    passwordInput.value = "secret";
+    passwordInput.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+
+    const continueButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Продолжить",
+    );
+    expect(continueButton).not.toBeUndefined();
+    continueButton?.click();
+    flushSync();
 
     await vi.waitFor(() => {
       expect(document.querySelector(".modal svg.qr-code__svg")).not.toBeNull();
     });
+    expect(harness.totpSetup).toHaveBeenCalledWith("secret");
 
     const svg = document.querySelector(".modal svg.qr-code__svg");
     expect(svg?.getAttribute("aria-label")).toBe(

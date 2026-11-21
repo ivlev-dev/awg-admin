@@ -69,6 +69,14 @@ class MemoryTokenStore {
   }
 }
 
+function liveStats(): LiveStats {
+  return new LiveStats(new MemoryTokenStore(), {
+    overview: async () => OVERVIEW,
+    series: async () => [],
+    createWsTicket: async () => "a".repeat(64),
+  });
+}
+
 function authRepository(): AuthRepository {
   return {
     login: vi.fn(async () => {
@@ -110,7 +118,7 @@ function makeVm(): OverviewVM {
   const session = new Session(authRepository(), new MemoryTokenStore());
   session.user = ADMIN;
   session.ready = true;
-  return new OverviewVM(STATS, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
+  return new OverviewVM(STATS, QUOTA_SERVICE, liveStats(), session, new Router());
 }
 
 describe("Overview states", () => {
@@ -126,7 +134,7 @@ describe("Overview states", () => {
     const session = new Session(authRepository(), new MemoryTokenStore());
     session.user = ADMIN;
     session.ready = true;
-    const vm = new OverviewVM(stats, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
+    const vm = new OverviewVM(stats, QUOTA_SERVICE, liveStats(), session, new Router());
     const container = new Container("overview-empty-nodes");
     container.bindValue(OverviewVM, vm);
 
@@ -151,7 +159,7 @@ describe("Overview states", () => {
     const session = new Session(authRepository(), new MemoryTokenStore());
     session.user = ADMIN;
     session.ready = true;
-    const vm = new OverviewVM(stats, QUOTA_SERVICE, new LiveStats(new MemoryTokenStore()), session, new Router());
+    const vm = new OverviewVM(stats, QUOTA_SERVICE, liveStats(), session, new Router());
     const container = new Container("overview-loading");
     container.bindValue(OverviewVM, vm);
 

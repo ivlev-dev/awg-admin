@@ -1,4 +1,4 @@
-import { createComponent } from "@ivlev-dev/silent-core";
+import { createComponent, flushSync } from "@ivlev-dev/silent-core";
 
 import { createAppContainer } from "@/app/di";
 import { Router } from "@/app/router";
@@ -283,6 +283,41 @@ describe("ProfilePage sessions", () => {
 
     expect(root.querySelector(".table--sessions")).toBeNull();
     expect(buttonByText(root, "Завершить все сессии")?.disabled).toBe(true);
+
+    harness.dispose();
+  });
+
+  it("shows the otpauth URI as text, not as a clickable link", async () => {
+    const harness = mount(authRepository());
+    const root = document.body;
+
+    await vi.waitFor(() => {
+      expect(buttonByText(root, "Включить")).not.toBeNull();
+    });
+    buttonByText(root, "Включить")?.click();
+
+    await vi.waitFor(() => expect(root.querySelector("#totp-setup-password")).not.toBeNull());
+    const password = root.querySelector<HTMLInputElement>("#totp-setup-password");
+    if (password === null) throw new Error("setup password input is missing");
+    password.value = "secret";
+    password.dispatchEvent(new Event("input", { bubbles: true }));
+    flushSync();
+    const continueButton = buttonByText(root, "Продолжить");
+    expect(continueButton?.disabled).toBe(false);
+    continueButton?.click();
+    flushSync();
+
+    await vi.waitFor(() => {
+      const uriInput = Array.from(root.querySelectorAll<HTMLInputElement>("input")).find(
+        (input) => input.value === "otpauth://totp/test",
+      );
+      expect(uriInput).toBeDefined();
+    });
+
+    const links = Array.from(root.querySelectorAll<HTMLAnchorElement>("a")).filter((link) =>
+      link.getAttribute("href")?.includes("otpauth"),
+    );
+    expect(links).toEqual([]);
 
     harness.dispose();
   });

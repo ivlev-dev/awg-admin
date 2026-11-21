@@ -65,6 +65,13 @@ describe("matchRoute", () => {
     expect(match.route.public).toBe(true);
     expect(match.params).toEqual({});
   });
+
+  it("returns not-found for a malformed percent-encoded param", () => {
+    expect(() => matchRoute("/clients/%E0%A4%A")).not.toThrow();
+    const match = matchRoute("/clients/%E0%A4%A");
+    expect(match.route.name).toBe("not-found");
+    expect(match.params).toEqual({});
+  });
 });
 
 describe("normalize", () => {

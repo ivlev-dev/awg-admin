@@ -2,6 +2,7 @@ import { Show } from "@ivlev-dev/silent-core";
 
 import type { RegisterVM } from "./Register.vm";
 import { Icon } from "@/components/Icon";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function Register(this: { vm: RegisterVM }) {
@@ -121,9 +122,11 @@ export function Register(this: { vm: RegisterVM }) {
                 <div class="auth__password">
                   <input
                     id="register-password"
-                    class={`input ${this.vm.passwordTooShort ? "is-invalid" : ""}`}
+                    class={`input ${this.vm.passwordInvalid ? "is-invalid" : ""}`}
                     type={this.vm.showPassword ? "text" : "password"}
                     autocomplete="new-password"
+                    minlength={MIN_PASSWORD_LENGTH}
+                    maxlength={MAX_PASSWORD_LENGTH}
                     placeholder={t("profile.password.nextPlaceholder")}
                     value={this.vm.password}
                     onInput={(event: Event) => this.vm.setPassword(event)}
@@ -133,10 +136,10 @@ export function Register(this: { vm: RegisterVM }) {
                   </button>
                 </div>
                 <Show
-                  when={this.vm.passwordTooShort}
+                  when={this.vm.passwordError}
                   fallback={<div class="hint">{t("auth.register.passwordHint")}</div>}
                 >
-                  <div class="hint" style="color:var(--red)">{t("auth.register.error.password")}</div>
+                  <div class="hint" style="color:var(--red)">{this.vm.passwordError}</div>
                 </Show>
               </div>
 
@@ -147,6 +150,7 @@ export function Register(this: { vm: RegisterVM }) {
                   class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
                   type={this.vm.showPassword ? "text" : "password"}
                   autocomplete="new-password"
+                  maxlength={MAX_PASSWORD_LENGTH}
                   placeholder={t("profile.password.repeatPlaceholder")}
                   value={this.vm.repeatPassword}
                   onInput={(event: Event) => this.vm.setRepeatPassword(event)}

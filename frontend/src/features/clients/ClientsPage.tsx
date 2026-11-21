@@ -89,6 +89,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   options={[{ value: "", label: t("clients.filter.allInterfaces") }, ...this.vm.interfaceOptions]}
                   onChange={(value) => this.vm.setInterfaceFilter(value)}
                   ariaLabel={t("clients.filter.interface")}
+                  searchable
                 />
               </div>
             </Show>
@@ -174,7 +175,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                         onChange={() => this.vm.toggleSelectAll()}
                       />
                     </th>
-                    <th class="is-sortable">
+                    <th class="is-sortable" aria-sort={this.vm.sort?.key === "name" ? (this.vm.sort.direction === "asc" ? "ascending" : "descending") : "none"}>
                       <button type="button" onClick={() => this.vm.sortBy("name")}>
                         {t("clients.column.device")} <span class="sort-indicator">{this.vm.sortMark("name")}</span>
                       </button>
@@ -383,6 +384,7 @@ export function ClientsPage(this: { vm: ClientsPageVM }) {
                   options={[{ value: "", label: t("clients.form.userPlaceholder") }, ...this.vm.users.map((user) => ({ value: user.id, label: user.email }))]}
                   onChange={(value) => this.vm.setFormUser(value)}
                   ariaLabel={t("clients.form.user")}
+                  searchable
                 />
               </div>
             </Show>

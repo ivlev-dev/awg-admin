@@ -34,4 +34,19 @@ describe("filter-url", () => {
     syncFilterQuery("/users", [["query", "ann"]]);
     expect(window.location.search).toBe("?range=week");
   });
+
+  it("matches only whole path segments", () => {
+    window.history.replaceState(null, "", "/users-archive?query=ann");
+    expect(readFilterQuery("/users")).toBeNull();
+
+    syncFilterQuery("/users", [["query", "bob"]]);
+    expect(window.location.search).toBe("?query=ann");
+  });
+
+  it("merges history state instead of dropping it", () => {
+    window.history.replaceState({ modal: "open" }, "", "/users");
+    syncFilterQuery("/users", [["query", "ann"]]);
+
+    expect(window.history.state).toEqual({ modal: "open" });
+  });
 });

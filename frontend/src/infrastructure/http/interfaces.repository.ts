@@ -17,15 +17,19 @@ export class HttpInterfacesRepository implements InterfacesRepository {
   }
 
   updateInterface(id: string, input: InterfaceUpdateInput): Promise<InterfaceInfo> {
-    return this.client.patch<unknown>(`/interfaces/${id}`, input).then(readInterfaceInfo);
+    return this.client
+      .patch<unknown>(`/interfaces/${encodeURIComponent(id)}`, input)
+      .then(readInterfaceInfo);
   }
 
   rotateInterface(id: string): Promise<InterfaceInfo> {
-    return this.client.post<unknown>(`/interfaces/${id}/rotate`).then(readInterfaceInfo);
+    return this.client
+      .post<unknown>(`/interfaces/${encodeURIComponent(id)}/rotate`)
+      .then(readInterfaceInfo);
   }
 
   async deleteInterface(id: string): Promise<void> {
-    await this.client.delete(`/interfaces/${id}`);
+    await this.client.delete(`/interfaces/${encodeURIComponent(id)}`);
   }
 
   bulk(action: InterfaceBulkAction, ids: readonly string[]): Promise<BulkResult> {

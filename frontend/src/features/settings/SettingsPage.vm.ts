@@ -3,6 +3,7 @@ import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 import { askConfirm } from "@/app/confirm";
 import { density, setDensity, type TableDensity } from "@/app/density";
 import { ToastStore } from "@/app/toast";
+import { registerUnsaved, unregisterUnsaved } from "@/app/unsaved";
 import type { SettingsService } from "@/application/settings/service";
 import { userMessage } from "@/application/errors";
 import type { ObfuscationSettings, Settings } from "@/domain/types";
@@ -137,11 +138,13 @@ export class SettingsPageVM extends ViewModel {
 
   override created(): void {
     window.addEventListener("beforeunload", this.handleBeforeUnload);
+    registerUnsaved("settings", () => this.dirty);
     void this.load();
   }
 
   override dispose(): void {
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
+    unregisterUnsaved("settings");
     super.dispose();
   }
 

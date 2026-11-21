@@ -38,11 +38,13 @@ export class HttpUsersRepository implements UsersRepository {
   }
 
   approveUser(id: string, input: ApproveUserInput): Promise<User> {
-    return this.client.post<unknown>(`/users/${id}/approve`, input).then(readUser);
+    return this.client
+      .post<unknown>(`/users/${encodeURIComponent(id)}/approve`, input)
+      .then(readUser);
   }
 
   rejectUser(id: string): Promise<User> {
-    return this.client.post<unknown>(`/users/${id}/reject`).then(readUser);
+    return this.client.post<unknown>(`/users/${encodeURIComponent(id)}/reject`).then(readUser);
   }
 
   createUser(input: CreateUserInput): Promise<User> {
@@ -50,15 +52,17 @@ export class HttpUsersRepository implements UsersRepository {
   }
 
   updateUser(id: string, input: UpdateUserInput): Promise<User> {
-    return this.client.patch<unknown>(`/users/${id}`, input).then(readUser);
+    return this.client.patch<unknown>(`/users/${encodeURIComponent(id)}`, input).then(readUser);
   }
 
   async deleteUser(id: string): Promise<void> {
-    await this.client.delete(`/users/${id}`);
+    await this.client.delete(`/users/${encodeURIComponent(id)}`);
   }
 
   async resetPassword(id: string, password: string): Promise<void> {
-    await this.client.post<void>(`/users/${id}/password`, { new_password: password });
+    await this.client.post<void>(`/users/${encodeURIComponent(id)}/password`, {
+      new_password: password,
+    });
   }
 
   bulk(action: UsersBulkAction, ids: readonly string[]): Promise<BulkResult> {

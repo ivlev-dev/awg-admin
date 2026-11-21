@@ -37,7 +37,7 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   getDevice(id: string): Promise<Device> {
-    return this.client.get<unknown>(`/devices/${id}`).then(readDevice);
+    return this.client.get<unknown>(`/devices/${encodeURIComponent(id)}`).then(readDevice);
   }
 
   createDevice(input: DeviceInput): Promise<Device> {
@@ -56,30 +56,32 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   updateDevice(id: string, input: DeviceUpdateInput): Promise<Device> {
-    return this.client.patch<unknown>(`/devices/${id}`, input).then(readDevice);
+    return this.client.patch<unknown>(`/devices/${encodeURIComponent(id)}`, input).then(readDevice);
   }
 
   async deleteDevice(id: string): Promise<void> {
-    await this.client.delete(`/devices/${id}`);
+    await this.client.delete(`/devices/${encodeURIComponent(id)}`);
   }
 
   listProfiles(id: string): Promise<Profile[]> {
-    return this.client.get<Profile[]>(`/devices/${id}/profiles`);
+    return this.client.get<Profile[]>(`/devices/${encodeURIComponent(id)}/profiles`);
   }
 
   getProfile(id: string, interfaceId: string): Promise<Profile> {
-    return this.client.get<Profile>(`/devices/${id}/profiles/${interfaceId}`);
+    return this.client.get<Profile>(
+      `/devices/${encodeURIComponent(id)}/profiles/${encodeURIComponent(interfaceId)}`,
+    );
   }
 
   profileByPeer(id: string, peerId: string): Promise<Profile> {
     return this.client.get<Profile>(
-      `/devices/${id}/profiles/by-peer/${encodeURIComponent(peerId)}`,
+      `/devices/${encodeURIComponent(id)}/profiles/by-peer/${encodeURIComponent(peerId)}`,
     );
   }
 
   addTunnel(id: string, input: TunnelInput): Promise<Device> {
     return this.client
-      .post<unknown>(`/devices/${id}/tunnels`, {
+      .post<unknown>(`/devices/${encodeURIComponent(id)}/tunnels`, {
         interface_id: input.interfaceId,
         ...(input.label === undefined ? {} : { label: input.label }),
       })
@@ -88,27 +90,32 @@ export class HttpDevicesRepository implements DevicesRepository {
 
   renameTunnel(id: string, peerId: string, label: string): Promise<Device> {
     return this.client
-      .patch<unknown>(`/devices/${id}/tunnels/${encodeURIComponent(peerId)}`, { label })
+      .patch<unknown>(
+        `/devices/${encodeURIComponent(id)}/tunnels/${encodeURIComponent(peerId)}`,
+        { label },
+      )
       .then(readDevice);
   }
 
   async deleteTunnel(id: string, peerId: string): Promise<void> {
-    await this.client.delete(`/devices/${id}/tunnels/${encodeURIComponent(peerId)}`);
+    await this.client.delete(
+      `/devices/${encodeURIComponent(id)}/tunnels/${encodeURIComponent(peerId)}`,
+    );
   }
 
   deviceStats(id: string, options: DeviceStatsQueryOptions = {}): Promise<DeviceStats> {
     return this.client.get<DeviceStats>(
-      `/devices/${id}/stats`,
+      `/devices/${encodeURIComponent(id)}/stats`,
       options.signal === undefined ? {} : { signal: options.signal },
     );
   }
 
   listShares(id: string): Promise<ShareLink[]> {
-    return this.client.get<unknown>(`/devices/${id}/shares`).then(readShareLinks);
+    return this.client.get<unknown>(`/devices/${encodeURIComponent(id)}/shares`).then(readShareLinks);
   }
 
   createShare(id: string, input: CreateShareInput): Promise<ShareLink> {
-    return this.client.post<unknown>(`/devices/${id}/shares`, {
+    return this.client.post<unknown>(`/devices/${encodeURIComponent(id)}/shares`, {
       interface_id: input.interfaceId,
       format: input.format,
       ttl_secs: input.ttlSecs ?? null,
@@ -118,11 +125,13 @@ export class HttpDevicesRepository implements DevicesRepository {
   }
 
   async revokeShare(token: string): Promise<void> {
-    await this.client.delete(`/shares/${token}`);
+    await this.client.delete(`/shares/${encodeURIComponent(token)}`);
   }
 
   async revokeAllShares(id: string): Promise<number> {
-    const result = await this.client.delete<{ revoked: number }>(`/devices/${id}/shares`);
+    const result = await this.client.delete<{ revoked: number }>(
+      `/devices/${encodeURIComponent(id)}/shares`,
+    );
     return result.revoked;
   }
 

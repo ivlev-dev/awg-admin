@@ -12,7 +12,9 @@ import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
 import type { AuthService } from "@/application/auth/service";
 import type { AuthSessionInfo, TotpSetup } from "@/domain/auth/types";
 import { copyText } from "@/domain/clipboard";
+import { ApiError } from "@/domain/errors";
 import { initials, userAgentLabel } from "@/domain/format";
+import { passwordPolicyIssue } from "@/domain/validation";
 import {
   languageOptions,
   isLocale,
@@ -131,6 +133,7 @@ export class ProfilePageVM extends ViewModel {
 
   @reactive accessor totpOpen = false;
   @reactive accessor totpSetup: TotpSetup | null = null;
+  @reactive accessor totpSetupPassword = "";
   @reactive accessor totpSetupLoading = false;
   @reactive accessor totpSetupError: string | null = null;
   @reactive accessor totpCode = "";
@@ -139,6 +142,9 @@ export class ProfilePageVM extends ViewModel {
   @reactive accessor totpDisablePassword = "";
   @reactive accessor totpDisableCode = "";
   @reactive accessor totpDisableSaving = false;
+
+  /** Invalidates an in-flight setup request when the modal is closed. */
+  private totpSetupRequest = 0;
 
   @reactive accessor sessions: AuthSessionInfo[] = [];
   @reactive accessor sessionsLoading = false;
@@ -448,8 +454,34 @@ export class ProfilePageVM extends ViewModel {
   }
 
   @computed
+  get nextPasswordIssue(): string | null {
+    return passwordPolicyIssue(this.nextPassword, this.session.user?.email ?? "");
+  }
+
+  @computed
   get nextTooShort(): boolean {
-    return this.nextPassword.length > 0 && this.nextPassword.length < 8;
+    return this.nextPassword.length > 0 && this.nextPasswordIssue === "short";
+  }
+
+  @computed
+  get nextPasswordError(): string | null {
+    switch (this.nextPasswordIssue) {
+      case "short":
+        return t("profile.password.error.tooShort");
+      case "long":
+        return t("profile.password.error.tooLong");
+      case "common":
+        return t("profile.password.error.weak");
+      case "email":
+        return t("profile.password.error.email");
+      default:
+        return null;
+    }
+  }
+
+  @computed
+  get nextPasswordInvalid(): boolean {
+    return this.nextPassword.length > 0 && this.nextPasswordError !== null;
   }
 
   @computed
@@ -462,7 +494,8 @@ export class ProfilePageVM extends ViewModel {
     return (
       !this.saving &&
       this.currentPassword.length > 0 &&
-      this.nextPassword.length >= 8 &&
+      this.nextPassword.length > 0 &&
+      this.nextPasswordIssue === null &&
       this.nextPassword === this.repeatPassword
     );
   }
@@ -545,8 +578,9 @@ export class ProfilePageVM extends ViewModel {
       this.toasts.error(t("profile.password.error.currentRequired"));
       return;
     }
-    if (this.nextPassword.length < 8) {
-      this.toasts.error(t("profile.password.error.tooShort"));
+    const passwordError = this.nextPasswordError;
+    if (passwordError !== null) {
+      this.toasts.error(passwordError);
       return;
     }
     if (this.nextPassword !== this.repeatPassword) {
@@ -586,8 +620,17 @@ export class ProfilePageVM extends ViewModel {
   }
 
   @computed
+  get canSubmitTotpSetup(): boolean {
+    return !this.totpSetupLoading && this.totpSetupPassword.length > 0;
+  }
+
+  @computed
   get canEnableTotp(): boolean {
-    return /^\d{6}$/.test(this.totpCode.trim()) && !this.totpSaving;
+    return (
+      !this.totpSaving &&
+      this.totpSetupPassword.length > 0 &&
+      /^\d{6}$/.test(this.totpCode.trim())
+    );
   }
 
   @computed
@@ -603,6 +646,11 @@ export class ProfilePageVM extends ViewModel {
     this.totpCode = (event.target as HTMLInputElement).value;
   }
 
+  setTotpSetupPassword(event: Event): void {
+    this.totpSetupPassword = (event.target as HTMLInputElement).value;
+    this.totpSetupError = null;
+  }
+
   setTotpDisablePassword(event: Event): void {
     this.totpDisablePassword = (event.target as HTMLInputElement).value;
   }
@@ -616,48 +664,78 @@ export class ProfilePageVM extends ViewModel {
       this.openTotpDisable();
       return;
     }
-    await this.openTotpSetup();
+    this.openTotpSetup();
   }
 
-  async openTotpSetup(): Promise<void> {
-    if (this.totpSetupLoading) return;
+  openTotpSetup(): void {
+    this.totpSetupRequest += 1;
     this.totpOpen = true;
+    this.totpSetup = null;
+    this.totpSetupPassword = "";
+    this.totpSetupLoading = false;
+    this.totpSetupError = null;
+    this.totpCode = "";
+  }
+
+  async submitTotpSetup(event?: Event): Promise<void> {
+    event?.preventDefault();
+    if (this.totpSetupLoading) return;
+    if (this.totpSetupPassword.length === 0) {
+      this.totpSetupError = t("profile.totp.error.passwordRequired");
+      return;
+    }
+    const password = this.totpSetupPassword;
+    const request = ++this.totpSetupRequest;
     this.totpSetupLoading = true;
     this.totpSetupError = null;
-    this.totpSetup = null;
-    this.totpCode = "";
     try {
-      this.totpSetup = await this.auth.totpSetup();
+      const setup = await this.auth.totpSetup(password);
+      if (request !== this.totpSetupRequest) return;
+      this.totpSetup = setup;
+      this.totpCode = "";
     } catch (error) {
-      this.totpSetupError = userMessage(error, t("profile.totp.error.setup"));
+      if (request !== this.totpSetupRequest) return;
+      this.totpSetup = null;
+      this.totpSetupError = this.totpErrorMessage(error, t("profile.totp.error.setup"));
     } finally {
-      this.totpSetupLoading = false;
+      if (request === this.totpSetupRequest) this.totpSetupLoading = false;
     }
   }
 
   closeTotpSetup(): void {
     if (this.totpSaving) return;
+    this.totpSetupRequest += 1;
     this.totpOpen = false;
     this.totpSetup = null;
+    this.totpSetupPassword = "";
     this.totpSetupError = null;
+    this.totpSetupLoading = false;
     this.totpCode = "";
   }
 
   async submitTotpEnable(): Promise<void> {
-    if (!this.canEnableTotp) {
+    if (this.totpSaving) return;
+    if (this.totpSetupPassword.length === 0) {
+      this.toasts.error(t("profile.totp.error.passwordRequired"));
+      return;
+    }
+    if (!/^\d{6}$/.test(this.totpCode.trim())) {
       this.toasts.error(t("profile.totp.error.invalidCode"));
       return;
     }
     this.totpSaving = true;
     try {
-      await this.auth.totpEnable(this.totpCode.trim());
+      await this.auth.totpEnable(this.totpSetupPassword, this.totpCode.trim());
+      this.totpSetupRequest += 1;
       this.totpOpen = false;
       this.totpSetup = null;
+      this.totpSetupPassword = "";
+      this.totpSetupError = null;
       this.totpCode = "";
       this.toasts.success(t("profile.totp.success.enabled"));
       await this.session.reload();
     } catch (error) {
-      this.toasts.error(userMessage(error, t("profile.totp.error.enable")));
+      this.toasts.error(this.totpErrorMessage(error, t("profile.totp.error.enable")));
     } finally {
       this.totpSaving = false;
     }
@@ -716,6 +794,14 @@ export class ProfilePageVM extends ViewModel {
     } catch {
       this.toasts.error(t("profile.totp.error.copy"));
     }
+  }
+
+  private totpErrorMessage(error: unknown, fallback: string): string {
+    if (error instanceof ApiError && (error.status === 403 || error.status === 422)) {
+      const message = error.message.trim();
+      if (message.length > 0 && message !== `HTTP ${error.status}`) return message;
+    }
+    return userMessage(error, fallback);
   }
 
   async logout(): Promise<void> {

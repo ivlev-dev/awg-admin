@@ -59,6 +59,8 @@ export class LoginVM extends ViewModel {
         return t("auth.login.error.rejected");
       case "totp_invalid":
         return t("auth.login.error.totpInvalid");
+      case "registration_disabled":
+        return t("auth.register.error.registrationDisabled");
       default:
         return this.session.error;
     }

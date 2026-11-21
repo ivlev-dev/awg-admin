@@ -6,6 +6,8 @@ import { Session } from "@/app/session";
 import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { FULL_NAME_MAX } from "@/application/guards";
+import { ApiError } from "@/domain/errors";
+import { passwordPolicyIssue } from "@/domain/validation";
 import { t } from "@/i18n";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
@@ -55,7 +57,28 @@ export class RegisterVM extends ViewModel {
 
   @computed
   get passwordTooShort(): boolean {
-    return this.password.length > 0 && this.password.length < 8;
+    return this.password.length > 0 && passwordPolicyIssue(this.password) === "short";
+  }
+
+  @computed
+  get passwordError(): string | null {
+    switch (passwordPolicyIssue(this.password, this.email)) {
+      case "short":
+        return t("auth.register.error.password");
+      case "long":
+        return t("auth.register.error.passwordTooLong");
+      case "common":
+        return t("auth.register.error.passwordWeak");
+      case "email":
+        return t("auth.register.error.passwordEmail");
+      default:
+        return null;
+    }
+  }
+
+  @computed
+  get passwordInvalid(): boolean {
+    return this.password.length > 0 && this.passwordError !== null;
   }
 
   @computed
@@ -74,7 +97,8 @@ export class RegisterVM extends ViewModel {
       !this.submitting &&
       this.emailValid &&
       !this.fullNameTooLong &&
-      this.password.length >= 8 &&
+      this.password.length > 0 &&
+      this.passwordError === null &&
       this.password === this.repeatPassword
     );
   }
@@ -113,8 +137,9 @@ export class RegisterVM extends ViewModel {
       this.error = t("auth.register.error.email");
       return;
     }
-    if (this.password.length < 8) {
-      this.error = t("auth.register.error.password");
+    const passwordError = this.passwordError;
+    if (passwordError !== null) {
+      this.error = passwordError;
       return;
     }
     if (this.password !== this.repeatPassword) {
@@ -141,7 +166,7 @@ export class RegisterVM extends ViewModel {
       this.repeatPassword = "";
       this.startCooldown();
     } catch (error) {
-      this.error = userMessage(error, t("auth.register.error.failed"));
+      this.error = registerErrorMessage(error);
     } finally {
       this.submitting = false;
     }
@@ -184,5 +209,17 @@ export class RegisterVM extends ViewModel {
   private stopCooldown(): void {
     this.clock.stop();
   }
+}
 
+function registerErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) {
+    if (error.code === "registration_disabled") {
+      return t("auth.register.error.registrationDisabled");
+    }
+    if (error.code === "bad_request" && /password is too weak/i.test(error.message)) {
+      return t("auth.register.error.passwordWeak");
+    }
+    return t("auth.register.error.failed");
+  }
+  return userMessage(error, t("auth.register.error.failed"));
 }

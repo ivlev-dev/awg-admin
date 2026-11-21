@@ -1,6 +1,14 @@
+import { passwordPolicyIssue, type PasswordPolicyIssue } from "@/domain/validation";
 import type { TranslationKey } from "@/i18n";
 
 import { ValidationError } from "./errors";
+
+const PASSWORD_ISSUE_CODES: Record<PasswordPolicyIssue, TranslationKey> = {
+  short: "error.validation.passwordShort",
+  long: "error.validation.passwordLong",
+  common: "error.validation.passwordCommon",
+  email: "error.validation.passwordEmailLocal",
+};
 
 export function requireId(value: string, label: TranslationKey): string {
   const trimmed = value.trim();
@@ -53,12 +61,14 @@ export function requireRate(value: number, label: TranslationKey): number {
 }
 
 export function validatePassword(value: string): string {
-  if (value.length < 8) {
-    throw new ValidationError("error.validation.passwordShort");
-  }
-  if (value.length > 256) {
-    throw new ValidationError("error.validation.passwordLong");
-  }
+  const issue = passwordPolicyIssue(value);
+  if (issue !== null) throw new ValidationError(PASSWORD_ISSUE_CODES[issue]);
+  return value;
+}
+
+export function validatePasswordForEmail(value: string, email: string): string {
+  const issue = passwordPolicyIssue(value, email);
+  if (issue !== null) throw new ValidationError(PASSWORD_ISSUE_CODES[issue]);
   return value;
 }
 

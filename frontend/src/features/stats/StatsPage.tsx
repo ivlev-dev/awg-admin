@@ -130,6 +130,7 @@ export function StatsPage(this: { vm: StatsVM }) {
                   disabled={this.vm.entitiesLoading || this.vm.entityOptions.length === 0}
                   placeholder={t("stats.entity.placeholder")}
                   ariaLabel={this.vm.entityLabel}
+                  searchable
                 />
               </div>
             </Show>

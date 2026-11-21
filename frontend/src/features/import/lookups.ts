@@ -4,6 +4,7 @@ import type { InterfacesService } from "@/application/interfaces/service";
 import { userMessage } from "@/application/errors";
 import type { NodesService } from "@/application/nodes/service";
 import type { UsersService } from "@/application/users/service";
+import { lookupInterfaces, lookupNodes, lookupUsers } from "@/app/lookups";
 import type { ToastStore } from "@/app/toast";
 import type { InterfaceInfo, NodeInfo, User } from "@/domain/types";
 import { t } from "@/i18n";
@@ -66,7 +67,7 @@ export class ImportLookups {
     this.nodesLoading = true;
     this.nodesError = null;
     try {
-      this.nodes = await this.nodesService.listNodes();
+      this.nodes = await lookupNodes(this.nodesService);
     } catch (error) {
       this.nodesError = userMessage(error, t("import.error.nodesLoad"));
       this.toasts.error(this.nodesError);
@@ -79,7 +80,7 @@ export class ImportLookups {
     this.ownersLoading = true;
     this.ownersError = null;
     try {
-      this.owners = await this.usersService.listUsers();
+      this.owners = await lookupUsers(this.usersService);
     } catch (error) {
       this.owners = [];
       this.ownersError = userMessage(error, t("import.error.usersLoad"));
@@ -93,7 +94,7 @@ export class ImportLookups {
     this.interfacesLoading = true;
     this.interfacesError = null;
     try {
-      this.interfaceList = await this.interfacesService.listInterfaces();
+      this.interfaceList = await lookupInterfaces(this.interfacesService);
     } catch (error) {
       this.interfaceList = [];
       this.interfacesError = userMessage(error, t("import.clients.error.interfaces"));

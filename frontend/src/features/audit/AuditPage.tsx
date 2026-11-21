@@ -57,10 +57,14 @@ export function AuditPage(this: { vm: AuditPageVM }) {
               <button
                 class="btn btn--sm"
                 type="button"
-                disabled={!this.vm.canExport}
+                disabled={!this.vm.canExport || this.vm.exporting}
+                aria-busy={this.vm.exporting ? "true" : "false"}
                 onClick={() => this.vm.exportCsv()}
               >
-                <Icon name="download" size={14} class="" /> {t("audit.export")}
+                <Icon name="download" size={14} class="" />{" "}
+                {this.vm.exporting
+                  ? t("audit.export.progress")
+                  : t("audit.export")}
               </button>
               <button
                 class="btn btn--sm"
@@ -284,13 +288,13 @@ export function AuditPage(this: { vm: AuditPageVM }) {
                 <table class="table table--cards table--audit table--fixed table--desktop">
                   <thead>
                     <tr>
-                      <th class="col-time">{t("audit.column.time")}</th>
-                      <th class="col-actor">{t("audit.column.actor")}</th>
-                      <th class="col-action">{t("audit.column.action")}</th>
-                      <th class="col-entity">{t("audit.column.entity")}</th>
-                      <th class="col-status">{t("audit.column.status")}</th>
-                      <th class="col-ip">{t("audit.column.ip")}</th>
-                      <th>{t("audit.column.details")}</th>
+                      <th class="col-time" aria-sort="none">{t("audit.column.time")}</th>
+                      <th class="col-actor" aria-sort="none">{t("audit.column.actor")}</th>
+                      <th class="col-action" aria-sort="none">{t("audit.column.action")}</th>
+                      <th class="col-entity" aria-sort="none">{t("audit.column.entity")}</th>
+                      <th class="col-status" aria-sort="none">{t("audit.column.status")}</th>
+                      <th class="col-ip" aria-sort="none">{t("audit.column.ip")}</th>
+                      <th aria-sort="none">{t("audit.column.details")}</th>
                     </tr>
                   </thead>
                   <tbody>

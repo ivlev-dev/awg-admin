@@ -963,7 +963,7 @@ describe("ClientsPageVM", () => {
     expect(vm.devices).toHaveLength(2);
   });
 
-  it("применяет поиск после debounce и сохраняет запрос сразу", async () => {
+  it("применяет поиск после debounce и сохраняет запрос", async () => {
     vi.useFakeTimers();
     try {
       const { vm, devices } = setup("admin", [DEVICE, PHONE]);
@@ -975,15 +975,17 @@ describe("ClientsPageVM", () => {
 
       expect(vm.query).toBe("phone");
       expect(page).not.toHaveBeenCalled();
-      expect(localStorage.getItem(clientsFiltersStorage.key)).toBe(
-        JSON.stringify({ query: "phone", interfaceFilter: "" }),
-      );
+      expect(localStorage.getItem(clientsFiltersStorage.key)).toBeNull();
 
       vi.advanceTimersByTime(249);
       expect(page).not.toHaveBeenCalled();
+      expect(localStorage.getItem(clientsFiltersStorage.key)).toBeNull();
 
       vi.advanceTimersByTime(1);
       expect(vm.appliedQuery).toBe("phone");
+      expect(localStorage.getItem(clientsFiltersStorage.key)).toBe(
+        JSON.stringify({ query: "phone", interfaceFilter: "" }),
+      );
       expect(page).toHaveBeenCalledWith(expect.objectContaining({ query: "phone", offset: 0 }));
 
       vi.useRealTimers();

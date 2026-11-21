@@ -137,8 +137,8 @@ describe("ResetPassword view", () => {
     const result = createComponent(ResetPassword, {}, { container });
     await result.ready;
 
-    vm.password = "secret123";
-    vm.repeatPassword = "secret123";
+    vm.password = "secret1234";
+    vm.repeatPassword = "secret1234";
     await vm.submit(submitEvent());
 
     await vi.waitFor(() => {

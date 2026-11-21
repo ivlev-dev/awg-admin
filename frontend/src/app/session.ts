@@ -9,6 +9,18 @@ import { t } from "@/i18n";
 
 const LOGOUT_TIMEOUT_MS = 1500;
 
+const ACCOUNT_BLOCK_CODES: ReadonlySet<string> = new Set([
+  "pending_approval",
+  "rejected",
+  "account_disabled",
+]);
+
+function shouldClearTokens(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  if (error.status === 401) return true;
+  return error.status === 403 && ACCOUNT_BLOCK_CODES.has(error.code);
+}
+
 export class Session implements AuthSessionState {
   @reactive accessor user: User | null = null;
   @reactive accessor ready = false;
@@ -43,12 +55,21 @@ export class Session implements AuthSessionState {
       this.ready = true;
       return;
     }
+    this.error = null;
+    this.errorCode = null;
     try {
       if (!access && refresh) await this.auth.refresh(refresh);
       this.user = await this.auth.me();
-    } catch {
-      this.tokens.clear();
+    } catch (error) {
       this.user = null;
+      if (shouldClearTokens(error)) {
+        this.tokens.clear();
+        this.errorCode = error instanceof ApiError ? error.code : null;
+        this.error = accountBlockMessage(error);
+      } else {
+        this.errorCode = error instanceof ApiError ? error.code : null;
+        this.error = bootErrorMessage(error);
+      }
     } finally {
       this.ready = true;
     }
@@ -94,8 +115,18 @@ export class Session implements AuthSessionState {
   async reload(): Promise<void> {
     try {
       this.user = await this.auth.me();
-    } catch {
-      this.user = null;
+      this.error = null;
+      this.errorCode = null;
+    } catch (error) {
+      if (shouldClearTokens(error)) {
+        this.tokens.clear();
+        this.user = null;
+        this.error = accountBlockMessage(error);
+        this.errorCode = error instanceof ApiError ? error.code : null;
+        return;
+      }
+      this.errorCode = error instanceof ApiError ? error.code : null;
+      this.error = bootErrorMessage(error);
     }
   }
 
@@ -105,6 +136,27 @@ export class Session implements AuthSessionState {
 
   get authenticated(): boolean {
     return this.user !== null;
+  }
+}
+
+function bootErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === "network_error") {
+    return t("app.error.network");
+  }
+  return t("app.error.unknown");
+}
+
+function accountBlockMessage(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.status !== 403) return null;
+  switch (error.code) {
+    case "pending_approval":
+      return t("auth.login.error.pendingApproval");
+    case "rejected":
+      return t("auth.login.error.rejected");
+    case "account_disabled":
+      return t("users.form.disabled");
+    default:
+      return null;
   }
 }
 

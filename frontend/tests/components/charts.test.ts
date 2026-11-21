@@ -1,4 +1,4 @@
-import { AreaChart, Sparkline } from "@/components/Charts";
+import { AreaChart, Bars, Sparkline } from "@/components/Charts";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 
@@ -102,5 +102,18 @@ describe("AreaChart", () => {
 
     expect(root.outerHTML).not.toContain("data:image");
     expect(root.outerHTML).not.toContain("mask");
+  });
+});
+
+describe("Bars", () => {
+  it("оставляет текстовые значения доступными, скрывая декоративные полосы", () => {
+    const root = asElement(Bars({ data: [{ label: "Устройства", value: 3 }] }));
+
+    expect(root.textContent).toContain("Устройства");
+    expect(root.textContent).toContain("3");
+
+    const progress = root.querySelector(".progress");
+    expect(progress?.getAttribute("aria-hidden")).toBe("true");
+    expect(progress?.querySelector(".progress__bar")?.getAttribute("style")).toContain("width:");
   });
 });

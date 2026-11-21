@@ -67,6 +67,34 @@ describe("NetworkErrorInterceptor", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  it("ignores aborted requests and reports a dedicated code", async () => {
+    const notify = vi.fn();
+    const client = harness(notify);
+    const controller = new AbortController();
+    controller.abort();
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException("Aborted", "AbortError")) as unknown as typeof fetch;
+
+    await expect(client.get("/users", { signal: controller.signal })).rejects.toMatchObject({
+      status: 0,
+      code: "aborted",
+    });
+
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it("treats an abort error without an aborted signal as aborted", async () => {
+    const notify = vi.fn();
+    const client = harness(notify);
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException("Aborted", "AbortError")) as unknown as typeof fetch;
+
+    await expect(client.get("/users")).rejects.toMatchObject({ code: "aborted" });
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("throttles repeated network notices", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

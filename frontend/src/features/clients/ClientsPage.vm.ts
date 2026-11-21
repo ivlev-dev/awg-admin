@@ -11,7 +11,9 @@ import { isRecord, persistedSignal, stringField } from "@/app/persisted";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { readFilterQuery, syncFilterQuery } from "@/app/filter-url";
-import { PAGE_SIZES, currentPage, pageCount, pageWindow } from "@/app/table-pagination";
+import { invalidate, lookupInterfaces, lookupUsers } from "@/app/lookups";
+import { PAGE_SIZES, pageCount, pageWindow } from "@/app/table-pagination";
+import { TableController } from "@/app/table-controller";
 import { ToastStore } from "@/app/toast";
 import type { DevicesBulkAction } from "@/domain/devices/repository";
 import type { DeviceSortField, DeviceStatusFilter } from "@/domain/devices/types";
@@ -78,6 +80,15 @@ export class ClientsPageVM extends ViewModel {
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.table = new TableController({
+      items: () => this.devices,
+      total: () => this.total,
+      initialPageSize: DEFAULT_PAGE_SIZE,
+      onPageChange: () => {
+        this.syncLocation();
+        void this.reload();
+      },
+    });
     const stored = clientsFiltersStorage.read();
     const extra = clientsExtraFiltersStorage.read();
     this.query = stored.query;
@@ -103,14 +114,14 @@ export class ClientsPageVM extends ViewModel {
   @reactive accessor appliedQuery = "";
   @reactive accessor interfaceFilter = "";
   @reactive accessor statusFilter: DeviceStatusFilter = "all";
-  @reactive accessor selectedIds: string[] = [];
   @reactive accessor bulkBusy = false;
-  @reactive accessor page = 1;
-  @reactive accessor pageSize = DEFAULT_PAGE_SIZE;
   @reactive accessor sort: SortState<DeviceSortField> | null = { key: "name", direction: "asc" };
+
+  private readonly table: TableController;
 
   private readonly applyQuery = debounce(() => {
     this.appliedQuery = this.query;
+    this.persistFilters();
     void this.reload();
   }, SEARCH_DEBOUNCE_MS);
 
@@ -248,29 +259,51 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get selectedCount(): number {
-    return this.selectedIds.length;
+    return this.table.selectedCount;
+  }
+
+  get selectedIds(): string[] {
+    return this.table.selectedIds;
+  }
+
+  set selectedIds(value: string[]) {
+    this.table.selectedIds = value;
+  }
+
+  get page(): number {
+    return this.table.page;
+  }
+
+  set page(value: number) {
+    this.table.page = value;
+  }
+
+  get pageSize(): number {
+    return this.table.pageSize;
+  }
+
+  set pageSize(value: number) {
+    this.table.pageSize = value;
   }
 
   isSelected(id: string): boolean {
-    return this.selectedIds.includes(id);
+    return this.table.isSelected(id);
   }
 
   toggleSelected(id: string): void {
-    this.selectedIds = this.isSelected(id)
-      ? this.selectedIds.filter((value) => value !== id)
-      : [...this.selectedIds, id];
+    this.table.toggleSelected(id);
   }
 
   get allFilteredSelected(): boolean {
-    return this.devices.length > 0 && this.devices.every((device) => this.isSelected(device.id));
+    return this.table.allSelected;
   }
 
   toggleSelectAll(): void {
-    this.selectedIds = this.allFilteredSelected ? [] : this.devices.map((device) => device.id);
+    this.table.toggleSelectAll();
   }
 
   clearSelection(): void {
-    this.selectedIds = [];
+    this.table.clearSelection();
   }
 
   async bulkDelete(): Promise<void> {
@@ -302,6 +335,7 @@ export class ClientsPageVM extends ViewModel {
     this.bulkBusy = true;
     try {
       const result = await this.devicesService.bulk(action, ids);
+      invalidate("devices", this.devicesService);
       this.clearSelection();
       this.toasts[result.failed.length > 0 ? "error" : "success"](
         t("bulk.done", { done: result.done, failed: result.failed.length }),
@@ -317,12 +351,12 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get pageCount(): number {
-    return pageCount(this.total, this.pageSize);
+    return this.table.pageCount;
   }
 
   @computed
   get currentPage(): number {
-    return currentPage(this.page, this.total, this.pageSize);
+    return this.table.currentPage;
   }
 
   @computed
@@ -342,22 +376,11 @@ export class ClientsPageVM extends ViewModel {
   }
 
   goToPage(page: number): void {
-    const next = Math.min(Math.max(1, Math.round(page)), this.pageCount);
-    if (next === this.page) return;
-    this.page = next;
-    this.clearSelection();
-    this.syncLocation();
-    void this.reload();
+    this.table.goToPage(page);
   }
 
   setPageSize(value: string): void {
-    const size = Number(value);
-    if (!Number.isFinite(size) || size <= 0 || size === this.pageSize) return;
-    this.pageSize = Math.trunc(size);
-    this.page = 1;
-    this.clearSelection();
-    this.syncLocation();
-    void this.reload();
+    this.table.setPageSize(value);
   }
 
   @computed
@@ -441,9 +464,11 @@ export class ClientsPageVM extends ViewModel {
     this.error = null;
     try {
       const interfacesPromise: Promise<InterfaceInfo[]> = this.isAdmin
-        ? this.interfacesService.listInterfaces()
-        : this.interfacesService.listInterfaces().catch(() => []);
-      const usersPromise = this.isAdmin ? this.usersService.listUsers() : Promise.resolve<User[]>([]);
+        ? lookupInterfaces(this.interfacesService)
+        : lookupInterfaces(this.interfacesService).catch(() => []);
+      const usersPromise = this.isAdmin
+        ? lookupUsers(this.usersService)
+        : Promise.resolve<User[]>([]);
       const [page, interfaces, users] = await Promise.all([
         this.devicesService.pageDevices(this.pageParams(controller.signal)),
         interfacesPromise,
@@ -507,7 +532,6 @@ export class ClientsPageVM extends ViewModel {
     this.page = 1;
     this.selectedIds = [];
     this.applyQuery();
-    this.persistFilters();
   }
 
   setInterfaceFilter(value: string): void {
@@ -619,6 +643,7 @@ export class ClientsPageVM extends ViewModel {
       });
       this.createOpen = false;
       this.formSnapshot = null;
+      invalidate("devices", this.devicesService);
       this.toasts.success(t("clients.toast.created", { name: device.name }));
       await this.load();
     } catch (error) {
@@ -712,7 +737,7 @@ export class ClientsPageVM extends ViewModel {
     syncFilterQuery("/clients", [
       ["page", this.page > 1 ? String(this.page) : null],
       ["limit", this.pageSize !== DEFAULT_PAGE_SIZE ? String(this.pageSize) : null],
-      ["q", this.query.trim().length > 0 ? this.query : null],
+      ["q", this.appliedQuery.trim().length > 0 ? this.appliedQuery : null],
       ["interface", this.interfaceFilter.length > 0 ? this.interfaceFilter : null],
       ["status", this.statusFilter !== "all" ? this.statusFilter : null],
     ]);

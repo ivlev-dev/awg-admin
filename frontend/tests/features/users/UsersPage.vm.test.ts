@@ -621,7 +621,7 @@ describe("UsersPageVM", () => {
     vm.openCreate();
     vm.email = "  bob@example.com  ";
     vm.fullName = "  Боб  ";
-    vm.password = "secret123";
+    vm.password = "secret1234";
     vm.role = "admin";
     vm.tariffId = "t1";
     vm.setNode("n1");
@@ -631,7 +631,7 @@ describe("UsersPageVM", () => {
     expect(createSpy).toHaveBeenCalledWith({
       email: "bob@example.com",
       full_name: "Боб",
-      password: "secret123",
+      password: "secret1234",
       role: "admin",
       tariff_id: "t1",
       node_id: "n1",
@@ -642,7 +642,7 @@ describe("UsersPageVM", () => {
       "bob@example.com",
     ]);
     expect(usersRepo.users.find((user) => user.email === "bob@example.com")?.node_id).toBe("n1");
-    expect(usersRepo.passwords.get("u3")).toBe("secret123");
+    expect(usersRepo.passwords.get("u3")).toBe("secret1234");
     expect(vm.modalOpen).toBe(false);
     expect(vm.formError).toBeNull();
     expect(toastMessages(toasts)).toContain("Пользователь создан");
@@ -653,14 +653,14 @@ describe("UsersPageVM", () => {
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
     vm.email = "bob@example.com";
-    vm.password = "secret123";
+    vm.password = "secret1234";
 
     await vm.submit();
 
     expect(createSpy).toHaveBeenCalledWith({
       email: "bob@example.com",
       full_name: null,
-      password: "secret123",
+      password: "secret1234",
       role: "user",
       tariff_id: null,
       node_id: null,
@@ -677,10 +677,36 @@ describe("UsersPageVM", () => {
 
     await vm.submit();
 
-    expect(vm.formError).toBe("Пароль должен содержать не менее 8 символов");
+    expect(vm.formError).toBe("Пароль должен содержать не менее 10 символов");
     expect(usersRepo.users).toHaveLength(2);
     expect(vm.modalOpen).toBe(true);
     expect(toastMessages(toasts)).toEqual([]);
+  });
+
+  it("accepts a password of exactly 10 characters", async () => {
+    const { vm, usersRepo } = setup();
+    vm.openCreate();
+    vm.email = "bob@example.com";
+    vm.password = "abcdefghij";
+
+    await vm.submit();
+
+    expect(usersRepo.users.some((user) => user.email === "bob@example.com")).toBe(true);
+    expect(usersRepo.passwords.get("u3")).toBe("abcdefghij");
+    expect(vm.modalOpen).toBe(false);
+  });
+
+  it("rejects a password that equals the email local part", async () => {
+    const { vm, usersRepo } = setup();
+    vm.openCreate();
+    vm.email = "VeryLongLocal@example.com";
+    vm.password = "verylonglocal";
+
+    await vm.submit();
+
+    expect(vm.passwordError).toBe("Пароль не должен совпадать с частью email до @");
+    expect(usersRepo.users.some((user) => user.email === "VeryLongLocal@example.com")).toBe(false);
+    expect(vm.modalOpen).toBe(true);
   });
 
   it("updates a user", async () => {
@@ -719,7 +745,7 @@ describe("UsersPageVM", () => {
     usersRepo.failure = new Error("Сервер недоступен");
     vm.openCreate();
     vm.email = "bob@example.com";
-    vm.password = "secret123";
+    vm.password = "secret1234";
 
     await vm.submit();
 
@@ -751,7 +777,7 @@ describe("UsersPageVM", () => {
 
     expect(usersRepo.passwords.has(ALICE.id)).toBe(false);
     expect(vm.resetOpen).toBe(true);
-    expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 8 символов");
+    expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 10 символов");
   });
 
   it("deletes another user after confirmation", async () => {
@@ -797,11 +823,13 @@ describe("UsersPageVM", () => {
     const { vm } = setup([ADMIN, ALICE, PENDING]);
 
     await vm.load();
+    vm.tab = "pending";
+    await vm.load();
 
     expect(vm.activeUsers.map((user) => user.email)).toEqual(["admin@example.com", "alice@example.com"]);
     expect(vm.pending.map((user) => user.email)).toEqual(["newbie@example.com"]);
     expect(vm.pendingCount).toBe(1);
-    expect(vm.emailLabel(PENDING)).toBe("newbie@example.com");
+    expect(vm.userEmail(PENDING)).toBe("newbie@example.com");
     expect(vm.userFullName(PENDING)).toBe("—");
     expect(vm.userFullName({ ...ALICE, full_name: "Алиса Иванова" })).toBe("Алиса Иванова");
     expect(vm.requestDateLabel(PENDING)).not.toBe("—");
@@ -924,7 +952,7 @@ describe("UsersPageVM", () => {
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
     vm.email = "not-an-email";
-    vm.password = "secret123";
+    vm.password = "secret1234";
 
     await vm.submit();
 
@@ -943,24 +971,31 @@ describe("UsersPageVM", () => {
   });
 
   it("сбрасывает поиск и очищает storage", async () => {
-    const { vm } = setup();
-    await vm.load();
+    vi.useFakeTimers();
+    try {
+      const { vm } = setup();
+      await vm.load();
 
-    vm.setQuery({ target: { value: "admin" } } as unknown as Event);
-    expect(localStorage.getItem(usersFiltersStorage.key)).not.toBeNull();
+      vm.setQuery({ target: { value: "admin" } } as unknown as Event);
+      expect(localStorage.getItem(usersFiltersStorage.key)).toBeNull();
+      vi.advanceTimersByTime(250);
+      expect(localStorage.getItem(usersFiltersStorage.key)).not.toBeNull();
 
-    vm.resetFilters();
+      vm.resetFilters();
 
-    expect(vm.query).toBe("");
-    expect(vm.appliedQuery).toBe("");
-    expect(vm.hasActiveFilters).toBe(false);
-    expect(JSON.parse(localStorage.getItem(usersFiltersStorage.key) ?? "{}")).toEqual({
-      tab: "active",
-      query: "",
-    });
-    await vi.waitFor(() => {
-      expect(vm.users).toHaveLength(2);
-    });
+      expect(vm.query).toBe("");
+      expect(vm.appliedQuery).toBe("");
+      expect(vm.hasActiveFilters).toBe(false);
+      expect(JSON.parse(localStorage.getItem(usersFiltersStorage.key) ?? "{}")).toEqual({
+        tab: "active",
+        query: "",
+      });
+      await vi.waitFor(() => {
+        expect(vm.users).toHaveLength(2);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("не сохраняет пароли и данные форм", () => {
@@ -968,13 +1003,13 @@ describe("UsersPageVM", () => {
 
     vm.setTab("active");
     vm.openCreate();
-    vm.setPassword({ target: { value: "secret123" } } as unknown as Event);
+    vm.setPassword({ target: { value: "secret1234" } } as unknown as Event);
     vm.setEmail({ target: { value: "bob@example.com" } } as unknown as Event);
 
     const raw = localStorage.getItem(usersFiltersStorage.key);
     expect(raw).not.toBeNull();
     expect(Object.keys(JSON.parse(raw ?? "{}")).sort()).toEqual(["query", "tab"]);
-    expect(raw).not.toContain("secret123");
+    expect(raw).not.toContain("secret1234");
     expect(raw).not.toContain("bob@example.com");
   });
 
@@ -1066,9 +1101,10 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, toasts } = setup();
     usersRepo.failure = new Error("Заявки недоступны");
 
+    vm.tab = "pending";
     await vm.load();
 
-    expect(vm.error).toBe("Заявки недоступны");
+    expect(vm.error).toBeNull();
     expect(vm.pendingError).toBe("Заявки недоступны");
     expect(toastMessages(toasts)).toEqual([]);
   });
@@ -1095,7 +1131,7 @@ describe("UsersPageVM", () => {
       expect(bulk).toHaveBeenCalledWith("disable", [ALICE.id]);
       expect(usersRepo.users.find((user) => user.id === ALICE.id)?.disabled).toBe(true);
       expect(usersRepo.users.find((user) => user.id === CAROL.id)?.disabled).toBe(true);
-      expect(pageUsers).toHaveBeenCalledTimes(6);
+      expect(pageUsers).toHaveBeenCalledTimes(2);
       expect(vm.selectedIds).toEqual([]);
       expect(vm.bulkBusy).toBe(false);
       expect(toasts.items.at(-1)).toMatchObject({
@@ -1300,9 +1336,9 @@ describe("UsersPageVM UX-состояния", () => {
 
     await vm.submitReset();
 
-    expect(vm.resetError).toBe("Пароль должен содержать не менее 8 символов");
+    expect(vm.resetError).toBe("Пароль должен содержать не менее 10 символов");
     expect(vm.resetOpen).toBe(true);
-    expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 8 символов");
+    expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 10 символов");
 
     const gate: { release: () => void } = { release: () => undefined };
     usersRepo.resetPassword = vi.fn(

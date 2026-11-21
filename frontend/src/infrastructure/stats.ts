@@ -1,5 +1,6 @@
 import { reactive } from "@ivlev-dev/silent-core";
 
+import type { StatsRepository } from "@/domain/stats/repository";
 import type { TrafficTotals } from "@/domain/types";
 import type { TokenStore } from "./storage";
 
@@ -42,10 +43,14 @@ export class LiveStats {
   private scope: { scope: string; id: string | null } | null = null;
   private attempt = 0;
   private timer: number | null = null;
+  private ticketAbort: AbortController | null = null;
   private closedByUser = false;
   private generation = 0;
 
-  constructor(private readonly tokens: TokenStore) {
+  constructor(
+    private readonly tokens: TokenStore,
+    private readonly tickets: StatsRepository,
+  ) {
   }
 
   connect(scope: string, id: string | null = null): void {
@@ -56,7 +61,8 @@ export class LiveStats {
     const changed = this.scope?.scope !== scope || this.scope?.id !== id;
     this.scope = { scope, id };
     this.closedByUser = false;
-    if (!changed && this.socket !== null && this.socket.readyState <= WebSocket.OPEN) return;
+    const reusing = this.socket !== null && this.socket.readyState <= WebSocket.OPEN;
+    if (!changed && (this.ticketAbort !== null || reusing)) return;
     this.open();
   }
 
@@ -64,6 +70,7 @@ export class LiveStats {
     this.closedByUser = true;
     this.generation += 1;
     this.clearTimer();
+    this.abortTicket();
     const socket = this.socket;
     this.socket = null;
     socket?.close();
@@ -76,9 +83,8 @@ export class LiveStats {
 
   private open(): void {
     this.clearTimer();
-    const token = this.tokens.access();
     const scope = this.scope;
-    if (!token || !scope) return;
+    if (!scope || !this.tokens.access()) return;
 
     this.generation += 1;
     const generation = this.generation;
@@ -86,11 +92,40 @@ export class LiveStats {
     this.socket = null;
     this.connected = false;
     previous?.close();
+    this.abortTicket();
+
+    const controller = new AbortController();
+    this.ticketAbort = controller;
+    void this.requestTicket(scope, generation, controller);
+  }
+
+  private async requestTicket(
+    scope: { scope: string; id: string | null },
+    generation: number,
+    controller: AbortController,
+  ): Promise<void> {
+    let ticket: string;
+    try {
+      ticket = await this.tickets.createWsTicket(scope.scope, scope.id, {
+        signal: controller.signal,
+      });
+    } catch {
+      if (generation !== this.generation || this.closedByUser) return;
+      this.ticketAbort = null;
+      this.error = "live_stats_unavailable";
+      this.scheduleReconnect(generation);
+      return;
+    }
+    if (generation !== this.generation || this.closedByUser) return;
+    this.ticketAbort = null;
+    this.openSocket(ticket, generation);
+  }
+
+  private openSocket(ticket: string, generation: number): void {
+    if (generation !== this.generation || this.closedByUser) return;
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const params = new URLSearchParams({ token, scope: scope.scope });
-    if (scope.id) params.set("id", scope.id);
-    const url = `${protocol}//${window.location.host}/api/v1/ws/stats?${params.toString()}`;
+    const url = `${protocol}//${window.location.host}/api/v1/ws/stats?ticket=${encodeURIComponent(ticket)}`;
     const socket = new WebSocket(url);
     this.socket = socket;
     const isCurrent = (): boolean =>
@@ -119,6 +154,12 @@ export class LiveStats {
       if (!isCurrent()) return;
       this.error = "live_stats_unavailable";
     });
+  }
+
+  private abortTicket(): void {
+    const controller = this.ticketAbort;
+    this.ticketAbort = null;
+    controller?.abort();
   }
 
   private handle(payload: Payload): void {

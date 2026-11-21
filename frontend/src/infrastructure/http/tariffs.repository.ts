@@ -16,11 +16,11 @@ export class HttpTariffsRepository implements TariffsRepository {
   }
 
   updateTariff(id: string, input: Partial<TariffInput>): Promise<Tariff> {
-    return this.client.patch<Tariff>(`/tariffs/${id}`, input);
+    return this.client.patch<Tariff>(`/tariffs/${encodeURIComponent(id)}`, input);
   }
 
   async deleteTariff(id: string): Promise<void> {
-    await this.client.delete(`/tariffs/${id}`);
+    await this.client.delete(`/tariffs/${encodeURIComponent(id)}`);
   }
 
   bulk(action: "delete", ids: readonly string[]): Promise<BulkResult> {

@@ -2,15 +2,26 @@ import { ApiError } from "@/domain/errors";
 import { userMessage } from "@/application/errors";
 import type { HttpClient } from "@/infrastructure/http/client";
 import { HttpDevicesRepository } from "@/infrastructure/http/devices.repository";
+import { HttpGroupsRepository } from "@/infrastructure/http/groups.repository";
 import { HttpInterfacesRepository } from "@/infrastructure/http/interfaces.repository";
+import { HttpQuotaRepository } from "@/infrastructure/http/quota.repository";
+import { HttpStatsRepository } from "@/infrastructure/http/stats.repository";
 import { HttpUsersRepository } from "@/infrastructure/http/users.repository";
 import {
   readDevice,
   readDevices,
+  readGroup,
+  readGroups,
   readInterfaceInfo,
+  readPool,
+  readPools,
+  readQuotaState,
   readShareLink,
+  readStatsOverview,
+  readStatsSeries,
   readUser,
   readUsers,
+  readUserQuotas,
 } from "@/infrastructure/http/response";
 
 const DEVICE = {
@@ -90,6 +101,69 @@ const SHARE = {
   url: "https://example.com/s/tok",
 };
 
+const OVERVIEW = {
+  today: { rx: 1, tx: 2 },
+  month: { rx: 3, tx: 4 },
+  rx_bps: 5.5,
+  tx_bps: 6.5,
+  nodes_online: 1,
+  nodes_total: 2,
+  interfaces: 3,
+  groups: 4,
+  devices: 5,
+  users: 6,
+  top_devices: [
+    { device_id: "d1", name: "laptop", user_id: "u1", rx: 7, tx: 8, online: true },
+  ],
+  unexpected: "игнорируется",
+};
+
+const SERIES = [
+  { at: "2024-01-01T00:00:00Z", rx: 1, tx: 2, rx_bps: 3.5, tx_bps: 4.5, extra: true },
+];
+
+const QUOTA = {
+  used_bytes: 10,
+  quota_bytes: 100,
+  exceeded: false,
+  remaining_bytes: 90,
+  percent: 10,
+  period_start: "2024-01-01T00:00:00Z",
+  period_end: "2024-02-01T00:00:00Z",
+  reset_at: "2024-02-01T00:00:00Z",
+};
+
+const USER_QUOTA = {
+  user_id: "u1",
+  email: "user@example.com",
+  used_bytes: 10,
+  quota_bytes: null,
+  exceeded: false,
+  percent: null,
+};
+
+const GROUP = {
+  id: "g1",
+  name: "main",
+  description: "",
+  base_cidr: "10.0.0.0/24",
+  forwarding_default: false,
+  created_at: "2020-01-01T00:00:00Z",
+  updated_at: "2020-01-01T00:00:00Z",
+  interfaces: 0,
+  devices: 0,
+};
+
+const POOL = {
+  id: "p1",
+  group_id: "g1",
+  name: "pool",
+  cidr: "10.0.0.0/25",
+  mode: "auto",
+  gateway: null,
+  enabled: true,
+};
+
 function expectInvalidResponse(run: () => unknown): ApiError {
   try {
     run();
@@ -111,6 +185,65 @@ describe("runtime-валидация ответов", () => {
     expect(readUsers([USER])).toHaveLength(1);
     expect(readInterfaceInfo(INTERFACE)).toEqual(INTERFACE);
     expect(readShareLink(SHARE)).toEqual(SHARE);
+    expect(readStatsOverview(OVERVIEW)).toEqual(OVERVIEW);
+    expect(readStatsSeries(SERIES)).toEqual(SERIES);
+    expect(readQuotaState(QUOTA)).toEqual(QUOTA);
+    expect(readUserQuotas([USER_QUOTA])).toEqual([USER_QUOTA]);
+    expect(readGroup(GROUP)).toEqual(GROUP);
+    expect(readGroups([GROUP, GROUP])).toHaveLength(2);
+    expect(readPool(POOL)).toEqual(POOL);
+    expect(readPools([POOL])).toEqual([POOL]);
+  });
+
+  it("игнорирует лишние поля в ответах статистики, квот и групп", () => {
+    expect(readStatsOverview(OVERVIEW)).toMatchObject({ devices: 5, users: 6 });
+    expect(readStatsSeries(SERIES)[0]).toMatchObject({ rx: 1, tx: 2 });
+    expect(readUserQuotas([{ ...USER_QUOTA, full_name: "Иван" }])[0]).toMatchObject({
+      email: "user@example.com",
+    });
+    expect(readGroup({ ...GROUP, extra: true })).toMatchObject({ name: "main" });
+    expect(readPool({ ...POOL, extra: true })).toMatchObject({ mode: "auto" });
+  });
+
+  it("отклоняет StatsOverview без обязательных полей", () => {
+    const missedTodayRx = expectInvalidResponse(() =>
+      readStatsOverview({ ...OVERVIEW, today: { tx: 2 } }),
+    );
+    expect(missedTodayRx.message).toContain("stats.today.rx");
+    expectInvalidResponse(() => readStatsOverview({ ...OVERVIEW, top_devices: null }));
+    expectInvalidResponse(() =>
+      readStatsOverview({
+        ...OVERVIEW,
+        top_devices: [{ device_id: "d1", name: "laptop", user_id: "u1", rx: 1, tx: 2, online: "yes" }],
+      }),
+    );
+  });
+
+  it("отклоняет StatsSeries без rx_bps", () => {
+    const error = expectInvalidResponse(() =>
+      readStatsSeries([{ at: "2024-01-01T00:00:00Z", rx: 1, tx: 2, tx_bps: 3 }]),
+    );
+    expect(error.message).toContain("stats.series[0].rx_bps");
+    expectInvalidResponse(() => readStatsSeries({ points: [] }));
+  });
+
+  it("отклоняет квоты без обязательных полей", () => {
+    expectInvalidResponse(() => readQuotaState({ ...QUOTA, used_bytes: "10" }));
+    expectInvalidResponse(() => readQuotaState({ ...QUOTA, quota_bytes: "100" }));
+    expectInvalidResponse(() => readUserQuotas([{ ...USER_QUOTA, email: null }]));
+    expectInvalidResponse(() => readUserQuotas([{ ...USER_QUOTA, full_name: 42 }]));
+  });
+
+  it("отклоняет Group и Pool с неверными полями", () => {
+    expectInvalidResponse(() => readGroup({ ...GROUP, devices: "0" }));
+    const poolError = expectInvalidResponse(() => readPool({ ...POOL, mode: "manual" }));
+    expect(poolError.message).toContain("pool.mode");
+    expectInvalidResponse(() => readPool({ ...POOL, gateway: 10 }));
+  });
+
+  it("отклоняет InterfaceInfo без ключа обфускации", () => {
+    const obf = { ...INTERFACE.obf, header_protection_key: undefined };
+    expectInvalidResponse(() => readInterfaceInfo({ ...INTERFACE, obf }));
   });
 
   it("отклоняет Device без обязательных полей", () => {
@@ -175,6 +308,42 @@ describe("репозитории проверяют ответы", () => {
   it("interfaces repository отклоняет битый ответ", async () => {
     const repository = new HttpInterfacesRepository(clientWith([{ id: "i1" }]));
     await expect(repository.listInterfaces()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("stats repository проверяет overview и series", async () => {
+    const valid = new HttpStatsRepository(clientWith(OVERVIEW));
+    await expect(valid.overview()).resolves.toMatchObject({ today: OVERVIEW.today });
+
+    const brokenOverview = new HttpStatsRepository(clientWith({ today: { rx: 1 } }));
+    await expect(brokenOverview.overview()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+
+    const brokenSeries = new HttpStatsRepository(clientWith([{ at: "2024-01-01T00:00:00Z" }]));
+    await expect(brokenSeries.series("global", null, 0, 1)).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+  });
+
+  it("quota repository отклоняет битый ответ", async () => {
+    const repository = new HttpQuotaRepository(clientWith({ used_bytes: 1 }));
+    await expect(repository.me()).rejects.toMatchObject({ code: "invalid_response" });
+    await expect(repository.users()).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("groups repository проверяет группы и пулы", async () => {
+    const valid = new HttpGroupsRepository(clientWith([GROUP]));
+    await expect(valid.listGroups()).resolves.toEqual([GROUP]);
+
+    const brokenGroups = new HttpGroupsRepository(clientWith([{ id: "g1" }]));
+    await expect(brokenGroups.listGroups()).rejects.toMatchObject({
+      code: "invalid_response",
+    });
+
+    const brokenPools = new HttpGroupsRepository(clientWith([{ ...POOL, mode: "manual" }]));
+    await expect(brokenPools.listPools("g1")).rejects.toMatchObject({
       code: "invalid_response",
     });
   });

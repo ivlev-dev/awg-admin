@@ -43,6 +43,7 @@ export class GroupFlow {
     private readonly importService: ImportService,
     private readonly router: Router,
     private readonly toasts: ToastStore,
+    private readonly defaultNodeId: () => string = () => "",
   ) {
     const self = this;
     this.drafts = new InterfaceDrafts(toasts);
@@ -445,6 +446,10 @@ export class GroupFlow {
 
   async previewNow(): Promise<void> {
     if (this.previewing) return;
+    if (!this.nodeId) {
+      const fallback = this.defaultNodeId();
+      if (fallback.length > 0) this.nodeId = fallback;
+    }
     if (!this.valid) {
       this.toasts.error(t("import.toast.fillRequired"));
       return;

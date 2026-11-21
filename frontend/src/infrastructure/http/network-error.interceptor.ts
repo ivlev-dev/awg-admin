@@ -12,11 +12,17 @@ export class NetworkErrorInterceptor implements ResponseInterceptor {
   ) {}
 
   interceptResponse(context: ResponseContext): Promise<ResponseContext> {
-    if (context.error?.code !== "network_error") return Promise.resolve(context);
+    const error = context.error;
+    if (error === null) return Promise.resolve(context);
+    if (error.code === "aborted") return Promise.resolve(context);
+    if (error.code !== "network_error") return Promise.resolve(context);
+    // Live statistics retries in the background and reports its state in the
+    // UI on its own; a global toast per reconnect would be noise.
+    if (context.request.path.startsWith("/ws/ticket")) return Promise.resolve(context);
     const now = Date.now();
     if (now - this.lastNotifiedAt >= this.cooldownMs) {
       this.lastNotifiedAt = now;
-      this.notify(context.error);
+      this.notify(error);
     }
     return Promise.resolve(context);
   }

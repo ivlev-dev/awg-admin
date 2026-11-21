@@ -174,7 +174,7 @@ export function Bars(props: { data: Array<{ label: string; value: number }> }) {
       {props.data.map((item) => (
         <div class="row" style="gap:10px">
           <div class="xs muted truncate" style="width:90px;flex:none">{item.label}</div>
-          <div class="progress grow">
+          <div class="progress grow" aria-hidden="true">
             <div class="progress__bar" style={`width:${Math.max(2, (item.value / max) * 100)}%`}></div>
           </div>
           <div class="xs mono" style="width:70px;text-align:right">{item.value}</div>

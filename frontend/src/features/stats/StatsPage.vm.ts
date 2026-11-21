@@ -1,5 +1,6 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
 
+import { lookupInterfaces, lookupUsers } from "@/app/lookups";
 import { Router } from "@/app/router";
 import { Session } from "@/app/session";
 import { ToastStore } from "@/app/toast";
@@ -483,9 +484,9 @@ export class StatsVM extends ViewModel {
     try {
       if (this.isAdmin) {
         const [users, groups, interfaces, devices] = await Promise.all([
-          this.usersService.listUsers(),
+          lookupUsers(this.usersService),
           this.groupsService.listGroups(),
-          this.interfacesService.listInterfaces(),
+          lookupInterfaces(this.interfacesService),
           this.devicesService.listDevices(),
         ]);
         this.users = users;

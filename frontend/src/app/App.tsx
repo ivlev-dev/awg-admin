@@ -285,7 +285,9 @@ export function App(this: { vm: AppVM }) {
       </Show>
 
       <Show when={this.vm.showPublic}>
-        <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>{pageView(this.vm)}</main>
+        <AppErrorBoundary onHome={() => this.vm.go("/login")}>
+          {() => <main class="page-slot" id={MAIN_CONTENT_ID} tabindex={-1}>{pageView(this.vm)}</main>}
+        </AppErrorBoundary>
       </Show>
 
       <Show when={this.vm.showShell}>

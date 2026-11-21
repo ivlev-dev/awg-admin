@@ -14,6 +14,7 @@ import { DefaultTariffsService } from "@/application/tariffs/service";
 import { DefaultUsersService } from "@/application/users/service";
 import { Router } from "@/app/router";
 import { rootContainer } from "@/app/root-container";
+import { createForbiddenHandler } from "@/app/errors";
 import { Session } from "@/app/session";
 import { ThemeStore } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
@@ -27,28 +28,17 @@ const toasts = new ToastStore();
 const router = new Router({ container: rootContainer });
 export const appRouter = router;
 const theme = new ThemeStore();
+const forbidden = createForbiddenHandler(
+  {
+    logout: () => services.session.logout(),
+  },
+  toasts,
+);
 const services = createAppServices({
   onNetworkError: () => toasts.error(t("app.error.network")),
-  onForbidden: () => {
-    void handleForbidden();
-  },
+  onForbidden: forbidden,
 });
-const liveStats = new LiveStats(services.tokens);
-
-let forbiddenPending = false;
-
-async function handleForbidden(): Promise<void> {
-  if (forbiddenPending) return;
-  forbiddenPending = true;
-  try {
-    await services.session.reload();
-    if (services.session.authenticated && appRouter.path !== "/") {
-      appRouter.replace("/");
-    }
-  } finally {
-    forbiddenPending = false;
-  }
-}
+const liveStats = new LiveStats(services.tokens, services.repositories.stats);
 
 export function bindAppServices(container: Container): void {
   container.bindValue(LocalTokenStore, services.tokens);

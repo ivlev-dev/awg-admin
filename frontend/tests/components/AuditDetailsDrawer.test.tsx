@@ -96,6 +96,7 @@ afterEach(() => {
   setLocale("ru");
   for (const dispose of disposers.splice(0)) dispose();
   document.body.replaceChildren();
+  document.body.style.overflow = "";
 });
 
 describe("AuditDetailsDrawer", () => {
@@ -184,5 +185,17 @@ describe("AuditDetailsDrawer", () => {
 
     mounted.setRow(null);
     expect(drawer()).toBeNull();
+  });
+
+  it("блокирует прокрутку фона, пока панель открыта", async () => {
+    document.body.style.overflow = "auto";
+    const mounted = await mountDrawer(row());
+
+    expect(document.body.style.overflow).toBe("hidden");
+
+    mounted.setRow(null);
+
+    expect(drawer()).toBeNull();
+    expect(document.body.style.overflow).toBe("auto");
   });
 });
