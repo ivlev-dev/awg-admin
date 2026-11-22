@@ -1,8 +1,9 @@
 # Замечания по frontend-фреймворку (silent)
 
-Приложение обновлено до `@ivlev-dev/*` 0.11.21, включая
-`@ivlev-dev/silent-router`. Ниже — история багов, текущие ограничения и
-диагностика для разработчика фреймворка.
+Приложение обновлено до `@ivlev-dev/*` 0.13.1, включая
+`@ivlev-dev/silent-router`, `@ivlev-dev/silent-form` и
+`@ivlev-dev/silent-validation`. Ниже — история багов, текущие ограничения,
+правила работы с формами и диагностика для разработчика фреймворка.
 
 ## Исправлено
 
@@ -39,25 +40,135 @@
 | 4 | Тема `system` не следовала за ОС | `ThemeMode = "system" \| "light" \| "dark"`, `matchMedia("(prefers-color-scheme: dark)")` и подписка на изменения; `system` — значение по умолчанию |
 | 5 | Access-токен в query WebSocket попадал в логи | Клиент получает одноразовый тикет `POST /api/v1/ws/ticket` и подключается с `?ticket=`; токен в query остался только за `AWG_ALLOW_WS_TOKEN` |
 
-## Открытые проблемы 0.11.21
+## Валидация и формы (0.13)
+
+Формы вынесены из ViewModel в отдельные `*.form.ts` и собраны на
+`@ivlev-dev/silent-form` (MVVM: форма — модель, VM — сценарий, `.tsx` — View).
+Правила проверки — из `@ivlev-dev/silent-validation`; пакет `silent-form`
+реэкспортирует их и добавляет `Form`, `@Field`, `FormField`, `Optional`,
+`ValidateIf`, `setFieldErrors`, `isReady` и жизненный цикл.
+
+Пакеты (все `0.13.1`):
+
+- `@ivlev-dev/silent-form` — базовый класс `Form` и декораторы полей;
+- `@ivlev-dev/silent-validation` — правила (`Required`, `Min`, `Matches`,
+  `Custom`, …) и `configureValidation`;
+- `@ivlev-dev/silent-validation-vite` (dev) — плагин `validation()`,
+  генерирующий схемы типов из TS-аннотаций `accessor`-полей.
+
+### Схема формы
+
+```ts
+export class LoginForm extends Form {
+  @Field()
+  @Required({ message: () => t("auth.register.error.email") })
+  @Matches(EMAIL_PATTERN, { message: () => t("auth.register.error.email") })
+  public accessor email: string = "";
+
+  constructor() {
+    super({ formId: "login", validateOnInput: true });
+  }
+}
+```
+
+- `class XForm extends Form`; поля — только `accessor` с `@Field()` (поле без
+  декоратора не попадает в `values`, ошибки и `isReady`).
+- View берёт стабильный объект через `form.getFieldProps("email")` и биндит
+  `value`, `onInput`, `onBlur`, `error`/`errors`, `aria-invalid`.
+- Отправка — `await form.onSubmit(async (submitted) => { ... })`: `preventDefault`,
+  проверка формы, колбэк только при `isReady`, `isSubmitting` сбрасывается в
+  `finally`. Серверные ошибки — `submitted.setFieldErrors("name", [message])`;
+  они снимаются при изменении значения.
+- VM освобождает форму в `dispose()` (рекурсивно освобождает вложенные формы и
+  массивы). Экземпляр формы живёт столько же, сколько VM/модалка.
+- `formId` задаёт префикс DOM-`id` (`login-email` вместо
+  `LoginForm-email`): нужен для стабильных `label for`, нескольких экземпляров
+  одной формы и e2e-селекторов.
+
+### Локаль сообщений
+
+Встроенные сообщения `silent-validation` переключаются через
+`configureValidation({ locale })`. В приложении это делает
+`app/validation.ts` (`syncValidationLocale`): он вызывается при старте
+контейнера и из `setLocale()` при смене языка. Импорт идёт напрямую из
+`@/i18n/store`, чтобы не замкнуть цикл `i18n/index.ts` → `app/validation.ts`
+→ `i18n/index.ts`. Сообщения предметных правил задаются явно:
+`message: () => t("...")` или `message: ({ value, instance }) => ...`.
+
+### Подводные камни
+
+- `Optional` и `ValidateIf` импортируйте **только** из `@ivlev-dev/silent-form`:
+  версии из `silent-validation` форма не видит, и поле остаётся обязательным.
+- `@IsEmail` требует TLD, а бэкенд допускает `admin@local`. Поэтому в формах
+  используется `Matches(/^[^\s@]+@[^\s@]+$/)`, а не `@IsEmail`.
+- `setValue()`/прямое присваивание не запускают валидацию: они только меняют
+  значение, `dirty` и снимают внешние ошибки. Проверку запускают `validate()`,
+  `validateField()` или `onSubmit()`.
+- `isReady` учитывает накопленные validation- и external-ошибки. После
+  неудачной отправки форма с уже исправленными полями может остаться
+  неготовой, пока ошибки не сняты; поэтому submit идёт через `onSubmit` /
+  `validate`, а не через проверку `isReady` вручную.
+- `types: false` нужен там, где числовое поле получает строку из пустого
+  `input` (интерфейсы): `InterfaceForm` переопределяет `validate` и
+  `validateField` и отключает схемную проверку типов, оставляя явные
+  `@IsInt`/`@Min`/`@Max` с локализованными сообщениями.
+- Плагин `validation()` строит схему по TS-аннотации, поэтому у новых
+  `@Field`-полей тип должен быть указан явно (`accessor mtu: number = 1420`),
+  а не выведен из литерала.
+- Служебные флаги формы (`adminMode`, `creating`, `mode`) помечаются
+  `@reactive`, а не `@Field`: они управляют `ValidateIf`, но не входят в
+  `values` и не отправляются на сервер.
+
+### Что осталось ручным
+
+- Динамические массивы импорта (интерфейсы и CIDR-пулы,
+  `features/import/interface-drafts.ts`): состав, добавление/удаление и
+  перекрёстные проверки живут в собственном реактивном состоянии, а не в
+  `FormArray`.
+- Матрица forwarding (`features/clients/details/edit.ts`): пары
+  «источник × назначение» и проверки самоссылки/пустого выбора считаются в VM.
+- Файловые и потоковые сценарии импорта: `FileReader`, разбор нескольких
+  конфигов (`splitClientConfigs`), server-конфиг и предпросмотр остаются вне
+  формы; форма валидирует только итоговый текст/поля.
+
+## Открытые проблемы 0.13.1
 
 **A. `@watch` вызывает селектор до инициализации `props`.**
 `@watch((vm) => vm.props.value)` на первом запуске падает с
 `Cannot read properties of undefined (reading 'value')`. Обход в `QrCodeVm`:
-подписка через `createEffect` в `mounted`, где `props` уже задан. Пожелание:
-не запускать `@watch` до монтирования VM или дать доступ к `props` в
-конструкторе.
-
-**B. DI-индекс сканирует тестовые файлы.**
-Если тесты лежат в `src`, их фейковые реализации попадают в индекс и дают
-«найдено несколько реализаций» при сборке. Тесты вынесены в `frontend/tests`.
-Ожидание: опция `exclude` для сканера, а не перенос тестов.
+подписка через `createEffect` в `mounted`, где `props` уже задан. Опция
+`defer` откладывает `immediate`-вызов, но не даёт `props` в конструкторе.
+Пожелание: не запускать `@watch` до монтирования VM или дать доступ к `props`
+в конструкторе.
 
 **C. `Router.start()` бросает `RouterNavigationError` при `no-match`.**
 `navigate()` не бросает (0.11.16), но `start()` на неизвестном URL отклоняет
 промис, хотя `state.error` уже заполнен и `RouterView` готов показать
 `notFound`. В фасаде `start()` обёрнут в `try/catch`. Ожидание: `start()`
 ведёт себя как `navigate()`.
+
+Закрыто в 0.13.1: **DI-индекс сканирует тестовые файлы.** Сканер индекса
+учитывает `include`/`exclude` плагина `silent()`, поэтому фейковые реализации
+из тестов можно исключить. Тесты приложения по-прежнему лежат в
+`frontend/tests` — это не требование фреймворка, а сложившаяся структура.
+
+## Миграция на 0.13.1
+
+- все `@ivlev-dev/*` подняты до 0.13.1; добавлены `@ivlev-dev/silent-form`,
+  `@ivlev-dev/silent-validation` и dev-зависимость
+  `@ivlev-dev/silent-validation-vite`, версии внесены в
+  `minimumReleaseAgeExclude` в `pnpm-workspace.yaml` (supply-chain политика);
+- в `vite.config.ts` подключён плагин `validation()`. Он требует stage-3
+  accessor-декораторы (`experimentalDecorators: false`) и генерирует схемы
+  типов для классов-потомков `ValidationModel`; `Form` наследует его, поэтому
+  формы получают проверку типов из TS-аннотаций;
+- формы auth, clients, users, tariffs, interfaces, nodes, profile, settings и
+  import переведены на `Form` + `*.form.ts`; проверки и тексты ошибок — в
+  правилах, View использует `getFieldProps`, отправка — `onSubmit`;
+- локаль встроенных сообщений синхронизируется через `app/validation.ts` при
+  старте и при переключении языка;
+- проверки после обновления: unit-тесты, typecheck, arch:check, build; точное
+  число тестов — в выводе `pnpm test` и в CI.
 
 ## Миграция на 0.11.21
 
@@ -113,7 +224,6 @@
 ## Пожелания по фреймворку
 
 - `@watch` с инициализированными `props` (пункт A).
-- `exclude` для DI-сканера (пункт B).
 - `start()` без исключения при `no-match` (пункт C).
 - Devtools: события навигации и граф DI-резолва.
 

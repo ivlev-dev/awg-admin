@@ -22,6 +22,25 @@
 коммита к коммиту, источник истины — вывод `cargo test --workspace` и
 `pnpm test` в CI.
 
+### Frontend: формы и `validation()`
+
+`pnpm build` (`vite build`) включает плагин `validation()` из
+`@ivlev-dev/silent-validation-vite`. Плагин читает TS-аннотации
+`accessor`-полей и генерирует статическую схему типов для классов-потомков
+`ValidationModel` (`Form` — один из них). Поэтому:
+
+- проект обязан собираться на stage-3 accessor-декораторах
+  (`experimentalDecorators: false`); старый `experimentalDecorators: true`
+  ломает и декораторы формы, и схему;
+- новое поле формы добавляется через `@Field()` с **явной** TS-аннотацией
+  (`accessor mtu: number = 1420`), иначе плагину нечего проверять и схема для
+  поля не генерируется;
+- схемная проверка отключается на вызов: `validate({ types: false })`, если
+  поле получает из `input` строку вместо числа.
+
+Ошибки плагина видны на сборке и в `pnpm dev`; отдельного шага CI не нужно —
+это часть существующего `Frontend` job'а.
+
 ### `cargo deny`
 
 Job `Dependencies policy` запускает `cargo deny check` (action

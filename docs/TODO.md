@@ -20,11 +20,15 @@
   `vpn://` кодек, временные share-ссылки.
 - Worker: gRPC-сессия, dry-run, netlink SetDevice, tc (HTB + IFB), nftables
   forwarding, персистентные монотонные счётчики (переживают reload интерфейса).
-- Frontend: silent 0.11.17 + Vite + vitest, MVVM, DDD-слои (domain/application/
+- Frontend: silent 0.13.1 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, Select, темы, графики, статические
-  SVG-иконки, 758 тестов.
-- Роутинг на `@ivlev-dev/silent-router` 0.11.17: route-записи с метаданными,
+  SVG-иконки, формы на silent-form, 1513 тестов.
+- Формы — `@ivlev-dev/silent-form` (`*.form.ts`, `@Field`, `onSubmit`,
+  `setFieldErrors`), валидация — `@ivlev-dev/silent-validation`; локаль
+  встроенных сообщений синхронизируется в `app/validation.ts`, схема типов
+  генерируется плагином `validation()` из `@ivlev-dev/silent-validation-vite`.
+- Роутинг на `@ivlev-dev/silent-router` 0.13.1: route-записи с метаданными,
   общий `load` страниц, история, `resolve`, `prefetch`, восстановление скролла.
   Страницы рендерит `RouterView` с DI-контейнером, слотами `error`/`notFound` и
   переиспользованием view; фасад `src/app/router.ts` сохраняет API для VM.
@@ -60,15 +64,17 @@
 
 - `cargo test --workspace` — 378 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 758 тестов, зелёные.
+- `cd frontend && pnpm test` — 1513 тестов, зелёные (121 файл).
+- Формы и валидация: покрыты отдельными тестами в `tests/features/**`
+  (`*.form.test.ts`, `*Form*.test.ts`), включая `InterfaceForm` с
+  `types:false` для числовых полей, приходящих строками.
 - `cd frontend && pnpm e2e` — 26/26 (Chromium + Firefox).
 - Дизайн-система: `docs/DESIGN-SYSTEM.md`, живой прототип
   `frontend/public/design-preview.html`.
-- Фреймворк `@ivlev-dev/*` 0.11.17: `RouterView` с DI-контейнером, общий
-  `load` страниц, `navigate()` без unhandled rejection; обход `insertBefore`
-  на аудите снят, `Switch`/`Match` работают после фикса issue #1 в 0.11.17.
-  Строгий DI проверяется сборкой (`di: "error"`). Открытые вопросы фреймворка —
-  `docs/FRAMEWORK-NOTES.md`.
+- Фреймворк `@ivlev-dev/*` 0.13.1: `RouterView` с DI-контейнером, общий
+  `load` страниц, `navigate()` без unhandled rejection; формы на `silent-form`,
+  `validation()` в сборке, строгий DI (`di: "error"`). Открытые вопросы
+  фреймворка — `docs/FRAMEWORK-NOTES.md`.
 - Смоук API (17.11.2026): checkout идемпотентен, webhook processed/duplicate,
   неверная подпись — 400, подписка переходит в `active`, способ оплаты сохранён;
   ротация токена ноды, `rx_bps` в overview; одноразовая share-ссылка отдаётся
@@ -469,7 +475,7 @@ UI-этап закрыт.
   сводные уведомления об обновлении и удалении/отзыве туннеля.
 - Серверная пагинация: `/devices/page`, `/users/page`, `/app/devices/page` с индексами
   redb (schema 9), фильтрами/поиском/сортировкой; панель и Android грузят страницы.
-- Unit-тесты Android (342), мобильного API (33) и панели (1240), сборка `assembleFdroidDebug`.
+- Unit-тесты Android (342), мобильного API (33) и панели (1513), сборка `assembleFdroidDebug`.
 
 Осталось:
 

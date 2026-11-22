@@ -153,6 +153,21 @@ repository -> HttpClient -> RequestInterceptor[] -> HttpTransport -> fetch
 - DI-индекс не разрешает alias `@/` для type-импортов интерфейсов — в конструкторах используйте относительные пути.
 - `lazy` + `Suspense` внутри `Show` требует обёртки с единственным корнем (`PageSlot`), иначе при смене маршрута остаётся осиротевший DOM.
 
+### Формы и валидация
+
+Формы вынесены из ViewModel в `features/**/*.form.ts` и построены на
+`@ivlev-dev/silent-form`: класс наследует `Form`, поля объявляются
+`@Field()`-accessor-свойствами, правила (`Required`, `Matches`, `Min`, `Custom`
+и т.д.) приходят из `@ivlev-dev/silent-validation`. View получает привязки
+через `getFieldProps`, VM вызывает `validate`/`validateField`/`onSubmit` и
+передаёт серверные ошибки в `setFieldErrors`; `dispose()` освобождает форму
+вместе с VM. Схему типов для формы генерирует Vite-плагин `validation()`
+(`@ivlev-dev/silent-validation-vite`) из TS-аннотаций полей, поэтому
+`experimentalDecorators` выключен, а у `@Field`-полей тип указывается явно.
+Встроенные сообщения валидации локализуются через `configureValidation`;
+`app/validation.ts` держит их на языке интерфейса и вызывается при старте
+контейнера и из `setLocale()`.
+
 ### Production-сборка и кеширование
 
 Карты исходников управляются `VITE_SOURCEMAP` (`frontend/vite.config.ts`):
