@@ -25,7 +25,7 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
-genetlink = "0.2.6"
+genetlink = "0.3.1"
 netlink-packet-core = "0.8"
 netlink-packet-generic = "0.4"
 netlink-packet-amnezia-wireguard = { git = "https://github.com/frkn-dev/netlink-packet-amnezia-wireguard" }
