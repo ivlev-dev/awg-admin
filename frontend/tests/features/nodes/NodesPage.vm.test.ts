@@ -164,6 +164,14 @@ function submit(): Event {
   return new Event("submit", { cancelable: true });
 }
 
+function typeName(vm: NodesPageVM, value: string): void {
+  vm.createForm.getFieldProps("name").onInput({ currentTarget: { value } });
+}
+
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 async function expectNodesLookupInvalidated(
   harness: Harness,
   mutate: () => Promise<void>,
@@ -215,7 +223,8 @@ describe("NodesPageVM", () => {
     const harness = makeVm();
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.name = " node-2 ";
+    typeName(harness.vm, " node-2 ");
+    await settle();
 
     await harness.vm.submitCreate(submit());
 
@@ -223,7 +232,7 @@ describe("NodesPageVM", () => {
     expect(harness.vm.createdNode?.token).toBe("token-n1");
     expect(harness.vm.createdNode?.node.name).toBe("node-2");
     expect(harness.vm.createOpen).toBe(false);
-    expect(harness.vm.name).toBe("");
+    expect(harness.vm.createForm.name).toBe("");
     expect(harness.vm.nodes).toHaveLength(1);
     expect(harness.toasts.items.some((item) => item.message === "Нода «node-2» создана")).toBe(true);
   });
@@ -231,7 +240,8 @@ describe("NodesPageVM", () => {
   it("invalidates the shared nodes lookup after create", async () => {
     const harness = makeVm();
     harness.vm.openCreate();
-    harness.vm.name = "node-2";
+    typeName(harness.vm, "node-2");
+    await settle();
 
     await expectNodesLookupInvalidated(harness, () => harness.vm.submitCreate(submit()));
 
@@ -254,18 +264,44 @@ describe("NodesPageVM", () => {
   it("requires a node name", async () => {
     const harness = makeVm();
     harness.vm.openCreate();
+    const name = harness.vm.createForm.getFieldProps("name");
 
     expect(harness.vm.canCreate).toBe(false);
     await harness.vm.submitCreate(submit());
 
     expect(harness.repo.createNode).not.toHaveBeenCalled();
+    expect(name.error).toBe("Имя ноды обязательно");
+    expect(name.touched).toBe(true);
+  });
+
+  it("rejects a whitespace-only node name", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    typeName(harness.vm, "   ");
+    await settle();
+
+    expect(harness.vm.createForm.getFieldProps("name").error).toBe("Имя ноды обязательно");
+    expect(harness.vm.canCreate).toBe(false);
+  });
+
+  it("rejects a node name longer than 64 characters", async () => {
+    const harness = makeVm();
+    harness.vm.openCreate();
+    typeName(harness.vm, "n".repeat(65));
+    await settle();
+
+    expect(harness.vm.createForm.getFieldProps("name").error).toBe(
+      "Имя ноды — не более 64 символов",
+    );
+    expect(harness.vm.canCreate).toBe(false);
   });
 
   it("shows a service error when creation fails", async () => {
     const harness = makeVm();
     harness.repo.createNode.mockRejectedValueOnce(new Error("duplicate"));
     harness.vm.openCreate();
-    harness.vm.name = "node-2";
+    typeName(harness.vm, "node-2");
+    await settle();
 
     await harness.vm.submitCreate(submit());
 

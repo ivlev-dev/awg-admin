@@ -37,6 +37,7 @@ export function ClientQrDialog(props: { vm: ClientDetailsVM }) {
 
 export function ClientAddTunnelDialog(props: { vm: ClientDetailsVM }) {
   const vm = props.vm;
+  const labelField = vm.tunnelForm.getFieldProps("addLabel");
   return (
     <Modal
       open={vm.addTunnelOpen}
@@ -96,9 +97,10 @@ export function ClientAddTunnelDialog(props: { vm: ClientDetailsVM }) {
             type="text"
             maxlength={64}
             autocomplete="off"
-            value={vm.addTunnelLabel}
+            value={labelField.value}
             aria-invalid={vm.addTunnelLabelError !== null}
             onInput={(event: Event) => vm.setAddTunnelLabel(event)}
+            onBlur={labelField.onBlur}
           />
           <div class={vm.addTunnelLabelError ? "hint hint--error" : "hint"}>
             {vm.addTunnelLabelError ?? t("clients.details.tunnels.labelHint")}
@@ -111,6 +113,7 @@ export function ClientAddTunnelDialog(props: { vm: ClientDetailsVM }) {
 
 export function ClientRenameTunnelDialog(props: { vm: ClientDetailsVM }) {
   const vm = props.vm;
+  const labelField = vm.tunnelForm.getFieldProps("renameLabel");
   return (
     <Modal
       open={vm.renameTunnelOpen}
@@ -155,9 +158,10 @@ export function ClientRenameTunnelDialog(props: { vm: ClientDetailsVM }) {
             type="text"
             maxlength={64}
             autocomplete="off"
-            value={vm.renameTunnelLabel}
+            value={labelField.value}
             aria-invalid={vm.renameTunnelLabelError !== null}
             onInput={(event: Event) => vm.setRenameTunnelLabel(event)}
+            onBlur={labelField.onBlur}
           />
           <div class={vm.renameTunnelLabelError ? "hint hint--error" : "hint"}>
             {vm.renameTunnelLabelError ?? t("clients.details.tunnels.labelHint")}

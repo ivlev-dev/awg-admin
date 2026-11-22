@@ -6,6 +6,12 @@ import { t } from "@/i18n";
 
 export function GroupStep(props: { vm: ImportVM }) {
   const vm = props.vm;
+  const form = vm.groupForm;
+  const groupName = form.getFieldProps("groupName");
+  const groupDescription = form.getFieldProps("groupDescription");
+  const baseCidr = form.getFieldProps("baseCidr");
+  const node = form.getFieldProps("nodeId");
+  const owner = form.getFieldProps("ownerUserId");
   return (
     <section class="card card--elevated">
       <div class="card__head">
@@ -24,25 +30,45 @@ export function GroupStep(props: { vm: ImportVM }) {
             <label for="import-group-name">{t("import.field.groupName")}</label>
             <input
               id="import-group-name"
-              class="input"
+              class={`input ${groupName.error ? "is-invalid" : ""}`}
               type="text"
               placeholder={t("import.field.groupNamePlaceholder")}
-              value={vm.groupName}
-              onInput={(event: Event) => vm.setGroupName(event)}
+              value={groupName.value}
+              aria-invalid={groupName.error !== undefined}
+              onInput={groupName.onInput}
+              onBlur={groupName.onBlur}
             />
+            <Show when={groupName.error}>
+              <div class="hint" style="color:var(--md-error)">{groupName.error}</div>
+            </Show>
           </div>
           <div class="field">
             <label for="import-base-cidr">{t("import.field.baseCidr")}</label>
             <input
               id="import-base-cidr"
-              class="input mono"
+              class={`input mono ${baseCidr.error ? "is-invalid" : ""}`}
               type="text"
               placeholder="10.8.0.0/24"
-              value={vm.baseCidr}
-              onInput={(event: Event) => vm.setBaseCidr(event)}
+              value={baseCidr.value}
+              aria-invalid={
+                baseCidr.error !== undefined ||
+                (vm.baseCidr.trim().length > 0 && vm.baseCidrError !== null)
+              }
+              onInput={baseCidr.onInput}
+              onBlur={(event: Event) => {
+                vm.normalizeBaseCidr();
+                baseCidr.onBlur(event);
+              }}
             />
-            <Show when={vm.baseCidr.trim().length > 0 && vm.baseCidrError !== null}>
-              <div class="hint" style="color:var(--md-error)">{vm.baseCidrError}</div>
+            <Show
+              when={
+                baseCidr.error ??
+                (vm.baseCidr.trim().length > 0 ? vm.baseCidrError : null)
+              }
+            >
+              <div class="hint" style="color:var(--md-error)">
+                {baseCidr.error ?? vm.baseCidrError}
+              </div>
             </Show>
           </div>
         </div>
@@ -51,12 +77,17 @@ export function GroupStep(props: { vm: ImportVM }) {
           <label for="import-group-description">{t("import.field.groupDescription")}</label>
           <input
             id="import-group-description"
-            class="input"
+            class={`input ${groupDescription.error ? "is-invalid" : ""}`}
             type="text"
             placeholder={t("import.field.groupDescriptionPlaceholder")}
-            value={vm.groupDescription}
-            onInput={(event: Event) => vm.setGroupDescription(event)}
+            value={groupDescription.value}
+            aria-invalid={groupDescription.error !== undefined}
+            onInput={groupDescription.onInput}
+            onBlur={groupDescription.onBlur}
           />
+          <Show when={groupDescription.error}>
+            <div class="hint" style="color:var(--md-error)">{groupDescription.error}</div>
+          </Show>
         </div>
 
         <div class="list-toolbar">
@@ -68,7 +99,7 @@ export function GroupStep(props: { vm: ImportVM }) {
             >
               <Select
                 id="import-node"
-                value={vm.nodeId}
+                value={node.value}
                 options={vm.nodeOptions}
                 onChange={(value) => vm.setNode(value)}
                 disabled={vm.nodes.length === 0}
@@ -76,6 +107,9 @@ export function GroupStep(props: { vm: ImportVM }) {
                 ariaLabel={t("import.field.node")}
                 searchable
               />
+            </Show>
+            <Show when={node.error}>
+              <div class="hint" style="color:var(--md-error)">{node.error}</div>
             </Show>
             <Show when={vm.nodesError}>
               <div class="hint" style="color:var(--md-error)">{vm.nodesError}</div>
@@ -95,7 +129,7 @@ export function GroupStep(props: { vm: ImportVM }) {
             >
               <Select
                 id="import-owner"
-                value={vm.ownerUserId}
+                value={owner.value}
                 options={vm.ownerOptions}
                 onChange={(value) => vm.setOwner(value)}
                 disabled={vm.owners.length === 0}
@@ -103,6 +137,9 @@ export function GroupStep(props: { vm: ImportVM }) {
                 ariaLabel={t("import.field.owner")}
                 searchable
               />
+            </Show>
+            <Show when={owner.error}>
+              <div class="hint" style="color:var(--md-error)">{owner.error}</div>
             </Show>
             <Show when={vm.ownersError}>
               <div class="hint" style="color:var(--md-error)">{vm.ownersError}</div>

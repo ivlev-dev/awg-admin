@@ -10,22 +10,13 @@ import { ApiError } from "@/domain/errors";
 import { passwordPolicyIssue } from "@/domain/validation";
 import { t } from "@/i18n";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
+import { EMAIL_PATTERN, RegisterForm } from "./Register.form";
+
 const COOLDOWN_SECONDS = 60;
 
 export class RegisterVM extends ViewModel {
-  constructor(
-    private readonly auth: AuthService,
-    private readonly session: Session,
-    private readonly router: Router,
-  ) {
-    super();
-  }
+  readonly form = new RegisterForm();
 
-  @reactive accessor email = "";
-  @reactive accessor fullName = "";
-  @reactive accessor password = "";
-  @reactive accessor repeatPassword = "";
   @reactive accessor showPassword = false;
   @reactive accessor submitting = false;
   @reactive accessor error: string | null = null;
@@ -40,6 +31,14 @@ export class RegisterVM extends ViewModel {
     this.cooldown = remaining;
   });
 
+  constructor(
+    private readonly auth: AuthService,
+    private readonly session: Session,
+    private readonly router: Router,
+  ) {
+    super();
+  }
+
   override created(): void {
     if (this.session.authenticated) {
       this.router.replace("/");
@@ -48,58 +47,20 @@ export class RegisterVM extends ViewModel {
 
   override unmounted(): void {
     this.stopCooldown();
-  }
-
-  @computed
-  get emailValid(): boolean {
-    return EMAIL_PATTERN.test(this.email.trim());
-  }
-
-  @computed
-  get passwordTooShort(): boolean {
-    return this.password.length > 0 && passwordPolicyIssue(this.password) === "short";
-  }
-
-  @computed
-  get passwordError(): string | null {
-    switch (passwordPolicyIssue(this.password, this.email)) {
-      case "short":
-        return t("auth.register.error.password");
-      case "long":
-        return t("auth.register.error.passwordTooLong");
-      case "common":
-        return t("auth.register.error.passwordWeak");
-      case "email":
-        return t("auth.register.error.passwordEmail");
-      default:
-        return null;
-    }
-  }
-
-  @computed
-  get passwordInvalid(): boolean {
-    return this.password.length > 0 && this.passwordError !== null;
-  }
-
-  @computed
-  get fullNameTooLong(): boolean {
-    return [...this.fullName.trim()].length > FULL_NAME_MAX;
-  }
-
-  @computed
-  get repeatMismatch(): boolean {
-    return this.repeatPassword.length > 0 && this.password !== this.repeatPassword;
+    this.form.dispose();
   }
 
   @computed
   get canSubmit(): boolean {
+    if (this.submitting) return false;
+    const email = this.form.email.trim();
+    const password = this.form.password;
     return (
-      !this.submitting &&
-      this.emailValid &&
-      !this.fullNameTooLong &&
-      this.password.length > 0 &&
-      this.passwordError === null &&
-      this.password === this.repeatPassword
+      EMAIL_PATTERN.test(email) &&
+      [...this.form.fullName.trim()].length <= FULL_NAME_MAX &&
+      password.length > 0 &&
+      passwordPolicyIssue(password, email) === null &&
+      password === this.form.repeatPassword
     );
   }
 
@@ -108,68 +69,39 @@ export class RegisterVM extends ViewModel {
     return this.sent && this.cooldown === 0 && !this.resending;
   }
 
-  setEmail(event: Event): void {
-    this.email = (event.target as HTMLInputElement).value;
-    this.error = null;
-  }
-
-  setFullName(event: Event): void {
-    this.fullName = (event.target as HTMLInputElement).value;
-    this.error = null;
-  }
-
-  setPassword(event: Event): void {
-    this.password = (event.target as HTMLInputElement).value;
-  }
-
-  setRepeatPassword(event: Event): void {
-    this.repeatPassword = (event.target as HTMLInputElement).value;
-  }
-
   togglePassword(): void {
     this.showPassword = !this.showPassword;
   }
 
   async submit(event: Event): Promise<void> {
-    event.preventDefault();
-    if (this.submitting) return;
-    if (!this.emailValid) {
-      this.error = t("auth.register.error.email");
-      return;
-    }
-    const passwordError = this.passwordError;
-    if (passwordError !== null) {
-      this.error = passwordError;
-      return;
-    }
-    if (this.password !== this.repeatPassword) {
-      this.error = t("auth.register.error.mismatch");
-      return;
-    }
-    const fullName = this.fullName.trim();
-    if ([...fullName].length > FULL_NAME_MAX) {
-      this.error = t("auth.register.error.fullName");
-      return;
-    }
-    this.error = null;
-    this.submitting = true;
-    try {
-      await this.auth.register({
-        email: this.email.trim(),
-        password: this.password,
-        ...(fullName.length > 0 ? { full_name: fullName } : {}),
-      });
-      this.registeredEmail = this.email.trim();
-      this.sent = true;
-      this.fullName = "";
-      this.password = "";
-      this.repeatPassword = "";
-      this.startCooldown();
-    } catch (error) {
-      this.error = registerErrorMessage(error);
-    } finally {
-      this.submitting = false;
-    }
+    const emailField = this.form.getFieldProps("email");
+    emailField.setValue(emailField.value.trim());
+    const fullNameField = this.form.getFieldProps("fullName");
+    fullNameField.setValue(fullNameField.value.trim());
+
+    await this.form.onSubmit(async () => {
+      this.error = null;
+      this.submitting = true;
+      try {
+        await this.auth.register({
+          email: this.form.email.trim(),
+          password: this.form.password,
+          ...(this.form.fullName.trim().length > 0
+            ? { full_name: this.form.fullName.trim() }
+            : {}),
+        });
+        this.registeredEmail = this.form.email.trim();
+        this.sent = true;
+        fullNameField.setValue("");
+        this.form.getFieldProps("password").setValue("");
+        this.form.getFieldProps("repeatPassword").setValue("");
+        this.startCooldown();
+      } catch (error) {
+        this.error = registerErrorMessage(error);
+      } finally {
+        this.submitting = false;
+      }
+    })(event);
   }
 
   async resend(): Promise<void> {

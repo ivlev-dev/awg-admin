@@ -18,6 +18,17 @@ function ariaSort(sort: SortState<TariffsSortKey> | null, key: TariffsSortKey): 
 }
 
 export function TariffsPage(this: { vm: TariffsPageVM }) {
+  const form = this.vm.tariffForm;
+  const name = form.getFieldProps("name");
+  const description = form.getFieldProps("description");
+  const maxDevices = form.getFieldProps("maxDevices");
+  const interfaceId = form.getFieldProps("interfaceId");
+  const deviceDown = form.getFieldProps("deviceDownKbps");
+  const deviceUp = form.getFieldProps("deviceUpKbps");
+  const groupDown = form.getFieldProps("groupDownKbps");
+  const groupUp = form.getFieldProps("groupUpKbps");
+  const quotaGb = form.getFieldProps("quotaGb");
+
   return (
     <div class="stack">
       <div class="page-head">
@@ -294,9 +305,14 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                 type="text"
                 required
                 data-autofocus
-                value={this.vm.name}
-                onInput={(event: Event) => this.vm.setName(event)}
+                aria-invalid={name.error ? "true" : undefined}
+                aria-describedby={name.error ? "tariff-name-error" : undefined}
+                value={name.value}
+                onInput={name.onInput}
               />
+              <Show when={name.error}>
+                <span class="field-error" id="tariff-name-error" role="alert">{name.error}</span>
+              </Show>
             </div>
             <div class="field">
               <label for="tariff-max-devices">{t("tariffs.form.maxDevices")}</label>
@@ -305,22 +321,33 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
                 class="input"
                 type="number"
                 min="1"
-                value={this.vm.max_devices}
-                onInput={(event: Event) => this.vm.setMaxDevices(event)}
+                max="1000"
+                aria-invalid={maxDevices.error ? "true" : undefined}
+                aria-describedby={maxDevices.error ? "tariff-max-devices-error" : undefined}
+                value={maxDevices.value}
+                onInput={maxDevices.onInput}
               />
+              <Show when={maxDevices.error}>
+                <span class="field-error" id="tariff-max-devices-error" role="alert">{maxDevices.error}</span>
+              </Show>
             </div>
           </div>
           <div class="field">
             <label for="tariff-interface">{t("tariffs.form.interface")}</label>
             <Select
               id="tariff-interface"
-              value={this.vm.formInterfaceId}
+              value={interfaceId.value}
               options={this.vm.interfaceOptions}
-              onChange={(value: string) => this.vm.setFormInterface(value)}
+              onChange={(value: string) => interfaceId.setValue(value)}
               ariaLabel={t("tariffs.form.interface")}
               searchable
             />
-            <div class="hint">{t("tariffs.form.interfaceHint")}</div>
+            <Show
+              when={interfaceId.error}
+              fallback={<div class="hint">{t("tariffs.form.interfaceHint")}</div>}
+            >
+              <span class="field-error" id="tariff-interface-error" role="alert">{interfaceId.error}</span>
+            </Show>
           </div>
           <div class="field">
             <label for="tariff-description">{t("tariffs.form.description")}</label>
@@ -328,38 +355,44 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
               id="tariff-description"
               class="input"
               rows={2}
-              value={this.vm.description}
-              onInput={(event: Event) => this.vm.setDescription(event)}
+              maxlength={500}
+              aria-invalid={description.error ? "true" : undefined}
+              aria-describedby={description.error ? "tariff-description-error" : undefined}
+              value={description.value}
+              onInput={description.onInput}
             ></textarea>
+            <Show when={description.error}>
+              <span class="field-error" id="tariff-description-error" role="alert">{description.error}</span>
+            </Show>
           </div>
           <div class="grid grid--2">
             <RateField
               id="tariff-device-down"
               label={t("tariffs.form.deviceDown")}
-              value={this.vm.device_down_kbps}
+              value={deviceDown.value}
               hint={t("tariffs.form.rateUnlimited")}
-              onChange={(kbps) => this.vm.setDeviceDownKbps(kbps)}
+              onChange={(kbps) => deviceDown.setValue(kbps)}
             />
             <RateField
               id="tariff-device-up"
               label={t("tariffs.form.deviceUp")}
-              value={this.vm.device_up_kbps}
+              value={deviceUp.value}
               hint={t("tariffs.form.rateUnlimited")}
-              onChange={(kbps) => this.vm.setDeviceUpKbps(kbps)}
+              onChange={(kbps) => deviceUp.setValue(kbps)}
             />
             <RateField
               id="tariff-group-down"
               label={t("tariffs.form.groupDown")}
-              value={this.vm.group_down_kbps}
+              value={groupDown.value}
               hint={t("tariffs.form.rateUnlimited")}
-              onChange={(kbps) => this.vm.setGroupDownKbps(kbps)}
+              onChange={(kbps) => groupDown.setValue(kbps)}
             />
             <RateField
               id="tariff-group-up"
               label={t("tariffs.form.groupUp")}
-              value={this.vm.group_up_kbps}
+              value={groupUp.value}
               hint={t("tariffs.form.rateUnlimited")}
-              onChange={(kbps) => this.vm.setGroupUpKbps(kbps)}
+              onChange={(kbps) => groupUp.setValue(kbps)}
             />
           </div>
           <div class="field">
@@ -370,11 +403,17 @@ export function TariffsPage(this: { vm: TariffsPageVM }) {
               type="number"
               min="0"
               step="0.1"
-              value={this.vm.quotaGb}
-              aria-describedby="tariff-quota-hint"
-              onInput={(event: Event) => this.vm.setQuota(event)}
+              value={quotaGb.value}
+              aria-invalid={quotaGb.error ? "true" : undefined}
+              aria-describedby={quotaGb.error ? "tariff-quota-error" : "tariff-quota-hint"}
+              onInput={quotaGb.onInput}
             />
-            <span class="hint" id="tariff-quota-hint">{t("tariffs.form.quotaHint")}</span>
+            <Show
+              when={quotaGb.error}
+              fallback={<span class="hint" id="tariff-quota-hint">{t("tariffs.form.quotaHint")}</span>}
+            >
+              <span class="field-error" id="tariff-quota-error" role="alert">{quotaGb.error}</span>
+            </Show>
           </div>
           <Show when={this.vm.formError}>
             <div class="alert alert--error" id="tariffs-form-error" role="alert">{this.vm.formError}</div>

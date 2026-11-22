@@ -6,20 +6,19 @@ import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { t } from "@/i18n";
 
+import { EMAIL_PATTERN, LoginForm, TOTP_PATTERN } from "./Login.form";
+
 export type LoginStep = "credentials" | "totp";
 
-const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+$/;
-
-function validEmail(value: string): boolean {
-  return EMAIL_PATTERN.test(value.trim());
-}
-
-function validTotpCode(value: string): boolean {
-  const code = value.trim();
-  return /^\d{6}$/.test(code) || /^[A-Za-z0-9-]{6,}$/.test(code);
-}
-
 export class LoginVM extends ViewModel {
+  readonly form = new LoginForm();
+
+  @reactive accessor step: LoginStep = "credentials";
+  @reactive accessor showPassword = false;
+  @reactive accessor resending = false;
+  @reactive accessor resendNotice: string | null = null;
+  @reactive accessor resendError: string | null = null;
+
   constructor(
     private readonly session: Session,
     private readonly router: Router,
@@ -28,19 +27,14 @@ export class LoginVM extends ViewModel {
     super();
   }
 
-  @reactive accessor email = "";
-  @reactive accessor password = "";
-  @reactive accessor totpCode = "";
-  @reactive accessor step: LoginStep = "credentials";
-  @reactive accessor showPassword = false;
-  @reactive accessor resending = false;
-  @reactive accessor resendNotice: string | null = null;
-  @reactive accessor resendError: string | null = null;
-
   override created(): void {
     if (this.session.authenticated) {
       this.router.replace("/");
     }
+  }
+
+  override unmounted(): void {
+    this.form.dispose();
   }
 
   @computed
@@ -67,20 +61,12 @@ export class LoginVM extends ViewModel {
   }
 
   @computed
-  get emailValid(): boolean {
-    return validEmail(this.email);
-  }
-
-  @computed
-  get emailInvalid(): boolean {
-    return this.email.trim().length > 0 && !this.emailValid;
-  }
-
-  @computed
   get canSubmit(): boolean {
     if (this.busy) return false;
-    if (this.step === "totp") return validTotpCode(this.totpCode);
-    return this.emailValid && this.password.length > 0;
+    if (this.step === "totp") {
+      return TOTP_PATTERN.test(this.form.totpCode.trim());
+    }
+    return EMAIL_PATTERN.test(this.form.email.trim()) && this.form.password.length > 0;
   }
 
   @computed
@@ -93,42 +79,37 @@ export class LoginVM extends ViewModel {
     return this.session.errorCode === "email_not_verified";
   }
 
-  setEmail(event: Event): void {
-    this.email = (event.target as HTMLInputElement).value;
-    this.resendNotice = null;
-    this.resendError = null;
-  }
-
-  setPassword(event: Event): void {
-    this.password = (event.target as HTMLInputElement).value;
-  }
-
-  setTotpCode(event: Event): void {
-    this.totpCode = (event.target as HTMLInputElement).value;
-  }
-
   togglePassword(): void {
     this.showPassword = !this.showPassword;
   }
 
   async submit(event: Event): Promise<void> {
-    event.preventDefault();
-    if (!this.canSubmit) return;
-    const code = this.step === "totp" ? this.totpCode.trim() : undefined;
-    const success = await this.session.login(this.email.trim(), this.password, code);
-    if (success) {
-      this.router.replace("/");
-      return;
-    }
-    if (this.session.totpRequired) {
-      this.step = "totp";
-      this.session.clearError();
-    }
+    const emailField = this.form.getFieldProps("email");
+    emailField.setValue(emailField.value.trim());
+    const totpField = this.form.getFieldProps("totpCode");
+    if (this.step === "totp") totpField.setValue(totpField.value.trim());
+
+    await this.form.onSubmit(async () => {
+      this.resendNotice = null;
+      this.resendError = null;
+      const code = this.step === "totp" ? this.form.totpCode : undefined;
+      const success = await this.session.login(this.form.email, this.form.password, code);
+      if (success) {
+        this.router.replace("/");
+        return;
+      }
+      if (this.session.totpRequired) {
+        this.form.totpRequired = true;
+        this.step = "totp";
+        this.session.clearError();
+      }
+    })(event);
   }
 
   backToCredentials(): void {
     this.step = "credentials";
-    this.totpCode = "";
+    this.form.totpRequired = false;
+    this.form.getFieldProps("totpCode").setValue("");
     this.session.clearError();
     this.resendNotice = null;
     this.resendError = null;
@@ -140,7 +121,7 @@ export class LoginVM extends ViewModel {
     this.resendNotice = null;
     this.resendError = null;
     try {
-      await this.auth.resendVerification(this.email.trim());
+      await this.auth.resendVerification(this.form.email.trim());
       this.resendNotice = t("auth.login.resend.sent");
     } catch (error) {
       this.resendError = userMessage(error, t("auth.login.resend.failed"));

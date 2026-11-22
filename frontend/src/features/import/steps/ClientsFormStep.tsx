@@ -7,6 +7,10 @@ import { t } from "@/i18n";
 
 export function ClientsFormStep(props: { vm: ImportVM }) {
   const vm = props.vm;
+  const form = vm.clientsForm;
+  const owner = form.getFieldProps("clientOwnerUserId");
+  const iface = form.getFieldProps("clientInterfaceId");
+  const clientsText = form.getFieldProps("clientsImportText");
   return (
     <section class="card card--elevated">
       <div class="card__head">
@@ -29,7 +33,7 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
             >
               <Select
                 id="import-client-owner"
-                value={vm.clientOwnerUserId}
+                value={owner.value}
                 options={vm.ownerOptions}
                 onChange={(value) => vm.setClientOwner(value)}
                 disabled={vm.owners.length === 0}
@@ -37,6 +41,9 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
                 ariaLabel={t("import.clients.owner")}
                 searchable
               />
+            </Show>
+            <Show when={owner.error}>
+              <div class="hint" style="color:var(--md-error)">{owner.error}</div>
             </Show>
             <Show when={vm.ownersError}>
               <div class="hint" style="color:var(--md-error)">{vm.ownersError}</div>
@@ -51,7 +58,7 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
             >
               <Select
                 id="import-client-interface"
-                value={vm.clientInterfaceId}
+                value={iface.value}
                 options={vm.interfaceOptions}
                 onChange={(value) => vm.setClientInterface(value)}
                 disabled={vm.interfaceList.length === 0}
@@ -59,6 +66,9 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
                 ariaLabel={t("import.clients.interface")}
                 searchable
               />
+            </Show>
+            <Show when={iface.error}>
+              <div class="hint" style="color:var(--md-error)">{iface.error}</div>
             </Show>
             <Show when={vm.interfacesError}>
               <div class="hint" style="color:var(--md-error)">{vm.interfacesError}</div>
@@ -76,12 +86,17 @@ export function ClientsFormStep(props: { vm: ImportVM }) {
 
         <div class="field">
           <textarea
-            class="textarea"
+            class={`textarea ${clientsText.error ? "is-invalid" : ""}`}
             rows={10}
             placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.8.0.2/24&#10;...&#10;---&#10;[Interface]&#10;..."
-            value={vm.clientsImportText}
+            value={clientsText.value}
+            aria-invalid={clientsText.error !== undefined}
             onInput={(event: Event) => vm.setClientsImportText(event)}
+            onBlur={clientsText.onBlur}
           ></textarea>
+          <Show when={clientsText.error}>
+            <div class="hint" style="color:var(--md-error)">{clientsText.error}</div>
+          </Show>
         </div>
 
         <div class="actions-bar">

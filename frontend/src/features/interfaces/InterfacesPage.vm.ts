@@ -24,17 +24,9 @@ import {
   sortIndicator,
   type SortState,
 } from "@/domain/table-sort";
-
-const DEFAULT_ENDPOINT_PORT = "443";
-const DEFAULT_LISTEN_PORT = "51820";
-const DEFAULT_MTU = "1420";
-
-const NAME_MAX_LENGTH = 15;
-const NAME_PATTERN = /^[A-Za-z0-9_-]+$/;
+import { InterfaceEditForm, InterfaceForm } from "./interface.form";
 
 export type InterfacesSortKey = "name" | "group" | "node" | "endpoint" | "peers" | "status";
-export type CreateField = "name" | "endpointHost" | "endpointPort" | "listenPort" | "mtu";
-export type EditField = "host" | "endpointPort" | "listenPort" | "mtu";
 
 export class InterfacesPageVM extends ViewModel {
   @reactive accessor interfaces: InterfaceInfo[] = [];
@@ -50,27 +42,12 @@ export class InterfacesPageVM extends ViewModel {
   @reactive accessor sort: SortState<InterfacesSortKey> | null = { key: "group", direction: "asc" };
 
   @reactive accessor createOpen = false;
-  @reactive accessor formGroupId = "";
-  @reactive accessor formNodeId = "";
-  @reactive accessor formName = "";
-  @reactive accessor formLabel = "";
-  @reactive accessor formEndpointHost = "";
-  @reactive accessor formEndpointPort = DEFAULT_ENDPOINT_PORT;
-  @reactive accessor formListenPort = DEFAULT_LISTEN_PORT;
-  @reactive accessor formMtu = DEFAULT_MTU;
   @reactive accessor formError: string | null = null;
 
-  @reactive accessor touchedFields: string[] = [];
-  @reactive accessor createSubmitted = false;
-  @reactive accessor editSubmitted = false;
+  readonly createForm = new InterfaceForm();
+  readonly editForm = new InterfaceEditForm();
 
   @reactive accessor editing: InterfaceInfo | null = null;
-  @reactive accessor editLabel = "";
-  @reactive accessor editHost = "";
-  @reactive accessor editEndpointPort = "";
-  @reactive accessor editListenPort = "";
-  @reactive accessor editMtu = "";
-  @reactive accessor editEnabled = true;
   @reactive accessor editError: string | null = null;
 
   @reactive accessor rotated: InterfaceInfo | null = null;
@@ -91,6 +68,20 @@ export class InterfacesPageVM extends ViewModel {
 
   override created(): void {
     void this.load();
+  }
+
+  override unmounted(): void {
+    this.disposeForms();
+  }
+
+  override dispose(): void {
+    this.disposeForms();
+    super.dispose();
+  }
+
+  private disposeForms(): void {
+    this.createForm.dispose();
+    this.editForm.dispose();
   }
 
   get isAdmin(): boolean {
@@ -159,97 +150,13 @@ export class InterfacesPageVM extends ViewModel {
   }
 
   @computed
-  get nameError(): string | null {
-    return nameProblem(this.formName);
-  }
-
-  @computed
-  get endpointHostError(): string | null {
-    return hostProblem(this.formEndpointHost);
-  }
-
-  @computed
-  get endpointPortError(): string | null {
-    return isPort(this.formEndpointPort) ? null : t("interfaces.error.port");
-  }
-
-  @computed
-  get listenPortError(): string | null {
-    return isPort(this.formListenPort) ? null : t("interfaces.error.port");
-  }
-
-  @computed
-  get mtuError(): string | null {
-    return isMtu(this.formMtu) ? null : t("interfaces.error.mtu");
-  }
-
-  @computed
-  get editHostError(): string | null {
-    return hostProblem(this.editHost);
-  }
-
-  @computed
-  get editEndpointPortError(): string | null {
-    return isPort(this.editEndpointPort) ? null : t("interfaces.error.port");
-  }
-
-  @computed
-  get editListenPortError(): string | null {
-    return isPort(this.editListenPort) ? null : t("interfaces.error.port");
-  }
-
-  @computed
-  get editMtuError(): string | null {
-    return isMtu(this.editMtu) ? null : t("interfaces.error.mtu");
-  }
-
-  @computed
   get canCreate(): boolean {
-    return (
-      this.formGroupId.length > 0 &&
-      this.formNodeId.length > 0 &&
-      this.nameError === null &&
-      this.endpointHostError === null &&
-      this.endpointPortError === null &&
-      this.listenPortError === null &&
-      this.mtuError === null &&
-      !this.busy
-    );
+    return this.createForm.isReady && !this.busy;
   }
 
   @computed
   get canSaveEdit(): boolean {
-    return (
-      this.editing !== null &&
-      this.editHostError === null &&
-      this.editEndpointPortError === null &&
-      this.editListenPortError === null &&
-      this.editMtuError === null &&
-      !this.busy
-    );
-  }
-
-  markTouched(field: string): void {
-    if (this.touchedFields.includes(field)) return;
-    this.touchedFields = [...this.touchedFields, field];
-  }
-
-  isTouched(field: string): boolean {
-    return this.touchedFields.includes(field);
-  }
-
-  showCreateError(field: CreateField): boolean {
-    return this.createSubmitted || this.isTouched(field);
-  }
-
-  showEditError(field: EditField): boolean {
-    return this.editSubmitted || this.isTouched(`edit.${field}`);
-  }
-
-  private resetValidation(): void {
-    this.touchedFields = [];
-    this.createSubmitted = false;
-    this.editSubmitted = false;
+    return this.editing !== null && this.editForm.isReady && !this.busy;
   }
 
   async load(): Promise<void> {
@@ -292,33 +199,18 @@ export class InterfacesPageVM extends ViewModel {
   }
 
   openCreate(): void {
-    this.createOpen = true;
+    this.createForm.reset();
     this.formError = null;
-    this.resetValidation();
-    this.formGroupId = this.isAdmin
+    this.createForm.groupId = this.isAdmin
       ? this.groupFilter || this.groups[0]?.id || ""
       : this.ownGroupId ?? "";
-    this.formNodeId = this.nodeFilter || this.nodes[0]?.id || "";
-    this.formName = "";
-    this.formLabel = "";
-    this.formEndpointHost = "";
-    this.formEndpointPort = DEFAULT_ENDPOINT_PORT;
-    this.formListenPort = DEFAULT_LISTEN_PORT;
-    this.formMtu = DEFAULT_MTU;
+    this.createForm.nodeId = this.nodeFilter || this.nodes[0]?.id || "";
     this.createSnapshot = this.formState();
+    this.createOpen = true;
   }
 
   formState(): string {
-    return JSON.stringify([
-      this.formGroupId,
-      this.formNodeId,
-      this.formName,
-      this.formLabel,
-      this.formEndpointHost,
-      this.formEndpointPort,
-      this.formListenPort,
-      this.formMtu,
-    ]);
+    return JSON.stringify(this.createForm.values);
   }
 
   @computed
@@ -339,96 +231,54 @@ export class InterfacesPageVM extends ViewModel {
     }
     this.createOpen = false;
     this.formError = null;
-    this.resetValidation();
-  }
-
-  setFormGroup(value: string): void {
-    this.formGroupId = value;
-  }
-
-  setFormNode(value: string): void {
-    this.formNodeId = value;
-  }
-
-  setFormName(event: Event): void {
-    this.formName = (event.target as HTMLInputElement).value;
-  }
-
-  setFormLabel(event: Event): void {
-    this.formLabel = (event.target as HTMLInputElement).value;
-  }
-
-  setFormEndpointHost(event: Event): void {
-    this.formEndpointHost = (event.target as HTMLInputElement).value;
-  }
-
-  setFormEndpointPort(event: Event): void {
-    this.formEndpointPort = (event.target as HTMLInputElement).value;
-  }
-
-  setFormListenPort(event: Event): void {
-    this.formListenPort = (event.target as HTMLInputElement).value;
-  }
-
-  setFormMtu(event: Event): void {
-    this.formMtu = (event.target as HTMLInputElement).value;
   }
 
   async submitCreate(event: Event): Promise<void> {
-    event.preventDefault();
-    this.createSubmitted = true;
-    if (!this.canCreate) return;
-    this.busy = true;
-    this.formError = null;
-    const input: InterfaceInput = {
-      group_id: this.formGroupId,
-      node_id: this.formNodeId,
-      name: this.formName.trim(),
-      label: this.formLabel.trim(),
-      endpoint_host: this.formEndpointHost.trim(),
-      endpoint_port: Number(this.formEndpointPort),
-      listen_port: Number(this.formListenPort),
-      mtu: Number(this.formMtu),
-    };
-    try {
-      const created = await this.interfacesService.createInterface(input);
-      invalidate("interfaces", this.interfacesService);
-      this.interfaces = [...this.interfaces, created];
-      this.createOpen = false;
-      this.createSnapshot = this.formState();
-      this.resetValidation();
-      this.toasts.success(t("interfaces.toast.created", { name: created.name }));
-    } catch (error) {
-      const message = userMessage(error, t("interfaces.error.create"));
-      this.formError = message;
-      this.toasts.error(message);
-    } finally {
-      this.busy = false;
-    }
+    await this.createForm.onSubmit(async (form) => {
+      this.busy = true;
+      this.formError = null;
+      const input: InterfaceInput = {
+        group_id: form.groupId,
+        node_id: form.nodeId,
+        name: form.name.trim(),
+        label: form.label.trim(),
+        endpoint_host: form.endpointHost.trim(),
+        endpoint_port: form.endpointPort,
+        listen_port: form.listenPort,
+        mtu: form.mtu,
+      };
+      try {
+        const created = await this.interfacesService.createInterface(input);
+        invalidate("interfaces", this.interfacesService);
+        this.interfaces = [...this.interfaces, created];
+        this.createOpen = false;
+        this.createSnapshot = this.formState();
+        this.toasts.success(t("interfaces.toast.created", { name: created.name }));
+      } catch (error) {
+        const message = userMessage(error, t("interfaces.error.create"));
+        this.formError = message;
+        this.toasts.error(message);
+      } finally {
+        this.busy = false;
+      }
+    })(event);
   }
 
   openEdit(item: InterfaceInfo): void {
-    this.editing = item;
+    this.editForm.reset();
     this.editError = null;
-    this.resetValidation();
-    this.editLabel = item.label;
-    this.editHost = item.endpoint_host;
-    this.editEndpointPort = String(item.endpoint_port);
-    this.editListenPort = String(item.listen_port);
-    this.editMtu = String(item.mtu);
-    this.editEnabled = item.enabled;
+    this.editForm.label = item.label;
+    this.editForm.endpointHost = item.endpoint_host;
+    this.editForm.endpointPort = item.endpoint_port;
+    this.editForm.listenPort = item.listen_port;
+    this.editForm.mtu = item.mtu;
+    this.editForm.enabled = item.enabled;
     this.editSnapshot = this.editState();
+    this.editing = item;
   }
 
   editState(): string {
-    return JSON.stringify([
-      this.editLabel,
-      this.editHost,
-      this.editEndpointPort,
-      this.editListenPort,
-      this.editMtu,
-      this.editEnabled,
-    ]);
+    return JSON.stringify(this.editForm.values);
   }
 
   @computed
@@ -449,62 +299,36 @@ export class InterfacesPageVM extends ViewModel {
     }
     this.editing = null;
     this.editError = null;
-    this.resetValidation();
-  }
-
-  setEditLabel(event: Event): void {
-    this.editLabel = (event.target as HTMLInputElement).value;
-  }
-
-  setEditHost(event: Event): void {
-    this.editHost = (event.target as HTMLInputElement).value;
-  }
-
-  setEditEndpointPort(event: Event): void {
-    this.editEndpointPort = (event.target as HTMLInputElement).value;
-  }
-
-  setEditListenPort(event: Event): void {
-    this.editListenPort = (event.target as HTMLInputElement).value;
-  }
-
-  setEditMtu(event: Event): void {
-    this.editMtu = (event.target as HTMLInputElement).value;
-  }
-
-  setEditEnabled(event: Event): void {
-    this.editEnabled = (event.target as HTMLInputElement).checked;
   }
 
   async submitEdit(event: Event): Promise<void> {
-    event.preventDefault();
-    this.editSubmitted = true;
-    const current = this.editing;
-    if (!current || !this.canSaveEdit) return;
-    this.busy = true;
-    this.editError = null;
-    try {
-      const updated = await this.interfacesService.updateInterface(current.id, {
-        label: this.editLabel.trim(),
-        endpoint_host: this.editHost.trim(),
-        endpoint_port: Number(this.editEndpointPort),
-        listen_port: Number(this.editListenPort),
-        mtu: Number(this.editMtu),
-        enabled: this.editEnabled,
-      });
-      invalidate("interfaces", this.interfacesService);
-      this.replace(updated);
-      this.editSnapshot = this.editState();
-      this.editing = null;
-      this.resetValidation();
-      this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
-    } catch (error) {
-      const message = userMessage(error, t("interfaces.error.update"));
-      this.editError = message;
-      this.toasts.error(message);
-    } finally {
-      this.busy = false;
-    }
+    await this.editForm.onSubmit(async (form) => {
+      const current = this.editing;
+      if (!current) return;
+      this.busy = true;
+      this.editError = null;
+      try {
+        const updated = await this.interfacesService.updateInterface(current.id, {
+          label: form.label.trim(),
+          endpoint_host: form.endpointHost.trim(),
+          endpoint_port: form.endpointPort,
+          listen_port: form.listenPort,
+          mtu: form.mtu,
+          enabled: form.enabled,
+        });
+        invalidate("interfaces", this.interfacesService);
+        this.replace(updated);
+        this.editSnapshot = this.editState();
+        this.editing = null;
+        this.toasts.success(t("interfaces.toast.updated", { name: updated.name }));
+      } catch (error) {
+        const message = userMessage(error, t("interfaces.error.update"));
+        this.editError = message;
+        this.toasts.error(message);
+      } finally {
+        this.busy = false;
+      }
+    })(event);
   }
 
   private readonly selection = new SelectionModel(() => this.visible);
@@ -696,31 +520,5 @@ export class InterfacesPageVM extends ViewModel {
   private replace(item: InterfaceInfo): void {
     this.interfaces = this.interfaces.map((current) => (current.id === item.id ? item : current));
   }
-}
-
-function isPort(value: string): boolean {
-  if (!/^\d+$/.test(value.trim())) return false;
-  const port = Number(value);
-  return port >= 1 && port <= 65535;
-}
-
-function isMtu(value: string): boolean {
-  if (!/^\d+$/.test(value.trim())) return false;
-  const mtu = Number(value);
-  return mtu >= 576 && mtu <= 9000;
-}
-
-function nameProblem(value: string): string | null {
-  const name = value.trim();
-  if (name.length === 0) return t("interfaces.error.name");
-  if (name.length > NAME_MAX_LENGTH) return t("interfaces.error.nameLength");
-  if (!NAME_PATTERN.test(name)) return t("interfaces.error.name");
-  return null;
-}
-
-function hostProblem(value: string): string | null {
-  const host = value.trim();
-  if (host.length === 0 || /\s/.test(host)) return t("interfaces.error.host");
-  return null;
 }
 

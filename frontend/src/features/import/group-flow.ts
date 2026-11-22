@@ -27,6 +27,12 @@ import {
   type ImportStep,
   type InterfaceDraft,
 } from "./drafts";
+import {
+  GROUP_DESCRIPTION_MAX_LENGTH,
+  GROUP_NAME_MAX_LENGTH,
+  GroupImportForm,
+  isBaseCidr,
+} from "./group.form";
 import { groupIssueMessage } from "./interface-issues";
 import { InterfaceDrafts } from "./interface-drafts";
 
@@ -38,6 +44,8 @@ const EMPTY_SERVER_PEER_COUNTS: ImportServerPeerCounts = {
 
 export class GroupFlow {
   private readonly drafts: InterfaceDrafts;
+
+  readonly form = new GroupImportForm();
 
   constructor(
     private readonly importService: ImportService,
@@ -59,11 +67,21 @@ export class GroupFlow {
   }
 
   @reactive accessor step: ImportStep = DEFAULT_STEP;
-  @reactive accessor groupName = "";
-  @reactive accessor groupDescription = "";
-  @reactive accessor baseCidr = DEFAULT_BASE_CIDR;
-  @reactive accessor nodeId = "";
-  @reactive accessor ownerUserId = "";
+
+  get groupName(): string { return this.form.groupName; }
+  set groupName(value: string) { this.form.groupName = value; }
+
+  get groupDescription(): string { return this.form.groupDescription; }
+  set groupDescription(value: string) { this.form.groupDescription = value; }
+
+  get baseCidr(): string { return this.form.baseCidr; }
+  set baseCidr(value: string) { this.form.baseCidr = value; }
+
+  get nodeId(): string { return this.form.nodeId; }
+  set nodeId(value: string) { this.form.nodeId = value; }
+
+  get ownerUserId(): string { return this.form.ownerUserId; }
+  set ownerUserId(value: string) { this.form.ownerUserId = value; }
 
   get interfaces(): InterfaceDraft[] { return this.drafts.interfaces; }
 
@@ -126,7 +144,7 @@ export class GroupFlow {
 
   @computed
   get valid(): boolean {
-    return this.validation.valid;
+    return this.groupValid && this.validation.valid;
   }
 
   @computed
@@ -253,9 +271,7 @@ export class GroupFlow {
 
   @computed
   get baseCidrError(): string | null {
-    return this.validation.group.some((issue) => issue.code === "base_cidr.invalid")
-      ? t("import.error.baseCidr")
-      : null;
+    return isBaseCidr(this.baseCidr) ? null : t("import.error.baseCidr");
   }
 
   @computed
@@ -265,7 +281,13 @@ export class GroupFlow {
 
   @computed
   get groupValid(): boolean {
-    return this.groupName.trim().length > 0 && this.baseCidrError === null && this.nodeId.length > 0;
+    return (
+      this.groupName.trim().length > 0 &&
+      this.groupName.length <= GROUP_NAME_MAX_LENGTH &&
+      this.groupDescription.length <= GROUP_DESCRIPTION_MAX_LENGTH &&
+      isBaseCidr(this.baseCidr) &&
+      this.nodeId.length > 0
+    );
   }
 
   isStepDone(step: ImportStep): boolean {
@@ -308,11 +330,17 @@ export class GroupFlow {
     switch (this.step) {
       case 1:
         if (this.groupValid) this.step = 2;
-        else this.toasts.error(t("import.toast.fillRequired"));
+        else {
+          void this.form.validate();
+          this.toasts.error(t("import.toast.fillRequired"));
+        }
         return;
       case 2:
         if (this.canPreview) void this.previewNow();
-        else this.toasts.error(t("import.toast.fillRequired"));
+        else {
+          void this.form.validate();
+          this.toasts.error(t("import.toast.fillRequired"));
+        }
         return;
       case 3:
         if (this.canApply) void this.applyNow();
@@ -328,22 +356,29 @@ export class GroupFlow {
   }
 
   setGroupName(event: Event): void {
-    this.groupName = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("groupName").onInput(event);
     this.touch();
   }
 
   setGroupDescription(event: Event): void {
-    this.groupDescription = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("groupDescription").onInput(event);
     this.touch();
   }
 
   setBaseCidr(event: Event): void {
-    this.baseCidr = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("baseCidr").onInput(event);
     this.touch();
+  }
+
+  /** Убирает пробелы по краям CIDR, чтобы `@Matches` видел уже нормализованное значение. */
+  normalizeBaseCidr(): void {
+    const trimmed = this.baseCidr.trim();
+    if (trimmed !== this.baseCidr) this.baseCidr = trimmed;
   }
 
   setNode(value: string): void {
     this.nodeId = value;
+    void this.form.validateField("nodeId");
     this.touch();
   }
 
@@ -450,10 +485,13 @@ export class GroupFlow {
       const fallback = this.defaultNodeId();
       if (fallback.length > 0) this.nodeId = fallback;
     }
+    this.normalizeBaseCidr();
+    await this.form.validate();
     if (!this.valid) {
       this.toasts.error(t("import.toast.fillRequired"));
       return;
     }
+    if (this.previewing) return;
     const signature = this.formSignature;
     const payload = this.payload;
     this.previewing = true;
@@ -493,10 +531,17 @@ export class GroupFlow {
 
   async applyNow(): Promise<void> {
     if (this.applying) return;
+    this.normalizeBaseCidr();
+    await this.form.validate();
+    if (!this.valid) {
+      this.toasts.error(t("import.toast.fillRequired"));
+      return;
+    }
     if (!this.preview) {
       this.toasts.error(t("import.toast.previewRequired"));
       return;
     }
+    if (this.applying) return;
     this.applying = true;
     this.applyError = null;
     try {
@@ -540,11 +585,10 @@ export class GroupFlow {
   }
 
   reset(): void {
+    const nodeId = this.nodeId;
     this.step = DEFAULT_STEP;
-    this.groupName = "";
-    this.groupDescription = "";
-    this.baseCidr = DEFAULT_BASE_CIDR;
-    this.ownerUserId = "";
+    this.form.reset();
+    this.nodeId = nodeId;
     this.interfaces = [createInterface("awg0", DEFAULT_BASE_CIDR)];
     this.preview = null;
     this.applied = null;
@@ -552,6 +596,10 @@ export class GroupFlow {
     this.applyError = null;
     this.previewSignature = "";
     this.planInvalidated = false;
+  }
+
+  dispose(): void {
+    this.form.dispose();
   }
 
   invalidatePlan(): void {

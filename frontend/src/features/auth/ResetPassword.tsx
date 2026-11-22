@@ -6,6 +6,9 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function ResetPassword(this: { vm: ResetPasswordVM }) {
+  const password = this.vm.form.getFieldProps("password");
+  const repeatPassword = this.vm.form.getFieldProps("repeatPassword");
+
   return (
     <div class="auth">
       <section class="auth__brand">
@@ -50,24 +53,26 @@ export function ResetPassword(this: { vm: ResetPasswordVM }) {
                 <div class="auth__password">
                   <input
                     id="reset-password"
-                    class={`input ${this.vm.passwordInvalid ? "is-invalid" : ""}`}
+                    class={`input ${password.error ? "is-invalid" : ""}`}
                     type={this.vm.showPassword ? "text" : "password"}
                     autocomplete="new-password"
                     minlength={MIN_PASSWORD_LENGTH}
                     maxlength={MAX_PASSWORD_LENGTH}
                     placeholder="••••••••"
-                    value={this.vm.password}
-                    onInput={(event: Event) => this.vm.setPassword(event)}
+                    value={password.value}
+                    aria-invalid={password.error !== undefined}
+                    onInput={password.onInput}
+                    onBlur={password.onBlur}
                   />
                   <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")} title={t("auth.login.showPassword")}>
                     <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
                   </button>
                 </div>
                 <Show
-                  when={this.vm.passwordError}
+                  when={password.error}
                   fallback={<div class="hint">{t("auth.reset.passwordHint")}</div>}
                 >
-                  <div class="hint" style="color:var(--red)">{this.vm.passwordError}</div>
+                  <div class="hint" style="color:var(--red)">{password.error}</div>
                 </Show>
               </div>
 
@@ -75,16 +80,18 @@ export function ResetPassword(this: { vm: ResetPasswordVM }) {
                 <label for="reset-repeat">{t("auth.reset.repeat")}</label>
                 <input
                   id="reset-repeat"
-                  class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
+                  class={`input ${repeatPassword.error ? "is-invalid" : ""}`}
                   type={this.vm.showPassword ? "text" : "password"}
                   autocomplete="new-password"
                   maxlength={MAX_PASSWORD_LENGTH}
                   placeholder="••••••••"
-                  value={this.vm.repeatPassword}
-                  onInput={(event: Event) => this.vm.setRepeatPassword(event)}
+                  value={repeatPassword.value}
+                  aria-invalid={repeatPassword.error !== undefined}
+                  onInput={repeatPassword.onInput}
+                  onBlur={repeatPassword.onBlur}
                 />
-                <Show when={this.vm.repeatMismatch}>
-                  <div class="hint" style="color:var(--red)">{t("auth.reset.error.mismatch")}</div>
+                <Show when={repeatPassword.error}>
+                  <div class="hint" style="color:var(--red)">{repeatPassword.error}</div>
                 </Show>
               </div>
 

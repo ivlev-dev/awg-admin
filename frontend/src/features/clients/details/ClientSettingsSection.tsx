@@ -6,6 +6,10 @@ import { t } from "@/i18n";
 
 export function ClientSettingsSection(props: { vm: ClientDetailsVM }) {
   const vm = props.vm;
+  const form = vm.editForm;
+  const nameField = form.getFieldProps("name");
+  const downField = form.getFieldProps("downKbps");
+  const upField = form.getFieldProps("upKbps");
   return (
     <section class="card client-section" id="client-settings" tabindex={-1}>
       <div class="card__head">
@@ -31,26 +35,47 @@ export function ClientSettingsSection(props: { vm: ClientDetailsVM }) {
             id="device-name"
             class="input"
             type="text"
-            value={vm.editName}
-            onInput={(event: Event) => vm.setEditName(event)}
+            value={nameField.value}
+            aria-invalid={nameField.error !== undefined}
+            onInput={nameField.onInput}
+            onBlur={nameField.onBlur}
           />
+          <Show when={nameField.error}>
+            <div class="hint hint--error">{nameField.error}</div>
+          </Show>
         </div>
 
         <div class="grid grid--2">
-          <RateField
-            id="device-down"
-            label={t("clients.form.down")}
-            value={vm.editDownKbps}
-            hint={t("clients.form.limitHint")}
-            onChange={(kbps) => vm.setEditDownKbps(kbps)}
-          />
-          <RateField
-            id="device-up"
-            label={t("clients.form.up")}
-            value={vm.editUpKbps}
-            hint={t("clients.form.limitHint")}
-            onChange={(kbps) => vm.setEditUpKbps(kbps)}
-          />
+          <div class="stack-sm">
+            <RateField
+              id="device-down"
+              label={t("clients.form.down")}
+              value={downField.value}
+              hint={t("clients.form.limitHint")}
+              onChange={(kbps) => {
+                downField.setValue(kbps);
+                void downField.validate();
+              }}
+            />
+            <Show when={downField.error}>
+              <div class="hint hint--error">{downField.error}</div>
+            </Show>
+          </div>
+          <div class="stack-sm">
+            <RateField
+              id="device-up"
+              label={t("clients.form.up")}
+              value={upField.value}
+              hint={t("clients.form.limitHint")}
+              onChange={(kbps) => {
+                upField.setValue(kbps);
+                void upField.validate();
+              }}
+            />
+            <Show when={upField.error}>
+              <div class="hint hint--error">{upField.error}</div>
+            </Show>
+          </div>
         </div>
 
         <Show when={vm.rateLimitHint}>

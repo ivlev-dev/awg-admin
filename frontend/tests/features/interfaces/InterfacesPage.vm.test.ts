@@ -27,6 +27,7 @@ import type {
   User,
 } from "@/domain/types";
 import type { TokenStore } from "@/infrastructure/storage";
+import type { InterfaceEditForm, InterfaceForm } from "@/features/interfaces/interface.form";
 
 const ADMIN: User = {
   id: "u1",
@@ -298,6 +299,41 @@ function submit(): Event {
   return new Event("submit", { cancelable: true });
 }
 
+type InterfaceFormField =
+  | "name"
+  | "label"
+  | "endpointHost"
+  | "endpointPort"
+  | "listenPort"
+  | "mtu";
+
+type InterfaceEditFormField =
+  | "label"
+  | "endpointHost"
+  | "endpointPort"
+  | "listenPort"
+  | "mtu";
+
+function fillCreate(form: InterfaceForm, values: Partial<Record<InterfaceFormField, string>>): void {
+  for (const [field, value] of Object.entries(values)) {
+    if (value !== undefined) {
+      form.getFieldProps(field as InterfaceFormField).onInput({ currentTarget: { value } });
+    }
+  }
+}
+
+function fillEdit(form: InterfaceEditForm, values: Partial<Record<InterfaceEditFormField, string>>): void {
+  for (const [field, value] of Object.entries(values)) {
+    if (value !== undefined) {
+      form.getFieldProps(field as InterfaceEditFormField).onInput({ currentTarget: { value } });
+    }
+  }
+}
+
+async function settle(): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
 describe("InterfacesPageVM", () => {
   beforeEach(() => {
     confirmMock.askConfirm.mockClear();
@@ -370,9 +406,12 @@ describe("InterfacesPageVM", () => {
     harness.nodesRepo.items.set("n1", NODE);
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.formName = " wg0 ";
-    harness.vm.formLabel = " Основной ";
-    harness.vm.formEndpointHost = "vpn.example.com";
+    fillCreate(harness.vm.createForm, {
+      name: " wg0 ",
+      label: " Основной ",
+      endpointHost: "vpn.example.com",
+    });
+    await settle();
 
     await harness.vm.submitCreate(submit());
 
@@ -397,9 +436,12 @@ describe("InterfacesPageVM", () => {
     harness.nodesRepo.items.set("n1", NODE);
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formEndpointPort = "70000";
+    fillCreate(harness.vm.createForm, {
+      name: "wg0",
+      endpointHost: "vpn.example.com",
+      endpointPort: "70000",
+    });
+    await settle();
 
     expect(harness.vm.canCreate).toBe(false);
     await harness.vm.submitCreate(submit());
@@ -413,9 +455,12 @@ describe("InterfacesPageVM", () => {
     harness.nodesRepo.items.set("n1", NODE);
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formListenPort = "0";
+    fillCreate(harness.vm.createForm, {
+      name: "wg0",
+      endpointHost: "vpn.example.com",
+      listenPort: "0",
+    });
+    await settle();
 
     expect(harness.vm.canCreate).toBe(false);
     await harness.vm.submitCreate(submit());
@@ -429,9 +474,12 @@ describe("InterfacesPageVM", () => {
     harness.nodesRepo.items.set("n1", NODE);
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formMtu = "100";
+    fillCreate(harness.vm.createForm, {
+      name: "wg0",
+      endpointHost: "vpn.example.com",
+      mtu: "100",
+    });
+    await settle();
 
     expect(harness.vm.canCreate).toBe(false);
     await harness.vm.submitCreate(submit());
@@ -446,8 +494,8 @@ describe("InterfacesPageVM", () => {
     await harness.vm.load();
     harness.interfacesRepo.createInterface.mockRejectedValueOnce(new Error("name exists"));
     harness.vm.openCreate();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    await settle();
 
     await harness.vm.submitCreate(submit());
 
@@ -461,12 +509,17 @@ describe("InterfacesPageVM", () => {
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
     harness.vm.openEdit(iface());
-    harness.vm.editLabel = "Новый";
-    harness.vm.editHost = "new.example.com";
-    harness.vm.editEndpointPort = "8443";
-    harness.vm.editListenPort = "51821";
-    harness.vm.editMtu = "1380";
-    harness.vm.editEnabled = false;
+    fillEdit(harness.vm.editForm, {
+      label: "Новый",
+      endpointHost: "new.example.com",
+      endpointPort: "8443",
+      listenPort: "51821",
+      mtu: "1380",
+    });
+    harness.vm.editForm.getFieldProps("enabled").onChange({
+      currentTarget: { checked: false, type: "checkbox" },
+    });
+    await settle();
 
     await harness.vm.submitEdit(submit());
 
@@ -487,7 +540,8 @@ describe("InterfacesPageVM", () => {
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
     harness.vm.openEdit(iface());
-    harness.vm.editMtu = "9001";
+    fillEdit(harness.vm.editForm, { mtu: "65536" });
+    await settle();
 
     expect(harness.vm.canSaveEdit).toBe(false);
     await harness.vm.submitEdit(submit());
@@ -694,7 +748,7 @@ describe("InterfacesPageVM", () => {
     expect(harness.vm.visible.map((item) => item.id)).toEqual(["i2"]);
 
     harness.vm.openCreate();
-    expect(harness.vm.formGroupId).toBe("g2");
+    expect(harness.vm.createForm.groupId).toBe("g2");
   });
 
   it("lets an admin see every interface and filter by node", async () => {
@@ -751,7 +805,7 @@ describe("InterfacesPageVM", () => {
   });
 });
 
-describe("InterfacesPageVM inline validation", () => {
+describe("InterfacesPageVM форма создания", () => {
   beforeEach(() => {
     confirmMock.askConfirm.mockReset();
     confirmMock.askConfirm.mockResolvedValue(true);
@@ -766,218 +820,210 @@ describe("InterfacesPageVM inline validation", () => {
     return harness;
   }
 
-  it("reports an empty interface name", async () => {
+  it("требует имя интерфейса", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "";
+    const name = harness.vm.createForm.getFieldProps("name");
 
-    expect(harness.vm.nameError).toBe("Имя: латиница, цифры, _ и -");
+    expect(await harness.vm.createForm.validate()).toBe(false);
+    expect(name.error).toBe("Имя: латиница, цифры, _ и -");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it("reports a name longer than 15 characters", async () => {
+  it("отклоняет имя длиннее 15 символов", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "abcdefghijklmnop";
+    const name = harness.vm.createForm.getFieldProps("name");
+    name.setValue("abcdefghijklmnop");
 
-    expect(harness.vm.nameError).toBe("Имя — не более 15 символов");
+    expect(await harness.vm.createForm.validate()).toBe(false);
+    expect(name.error).toBe("Имя — не более 15 символов");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it("reports a name with characters outside the allowed set", async () => {
+  it("отклоняет имя с пробелом внутри", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "awg 0";
+    const name = harness.vm.createForm.getFieldProps("name");
+    name.onInput({ currentTarget: { value: "awg 0" } });
+    await settle();
 
-    expect(harness.vm.nameError).toBe("Имя: латиница, цифры, _ и -");
+    expect(name.error).toBe("Имя: латиница, цифры, _ и -");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it("accepts a valid name with spaces around it", async () => {
+  it("принимает имя с пробелами по краям", async () => {
     const harness = await readyVm();
-    harness.vm.formName = " wg0_1-a ";
+    const name = harness.vm.createForm.getFieldProps("name");
+    name.setValue(" wg0_1-a ");
 
-    expect(harness.vm.nameError).toBeNull();
+    expect(await harness.vm.createForm.validateField("name")).toBe(true);
+    expect(name.error).toBeUndefined();
   });
 
-  it("reports an empty endpoint host", async () => {
+  it("требует endpoint host", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "   ";
+    harness.vm.createForm.getFieldProps("name").setValue("wg0");
+    const host = harness.vm.createForm.getFieldProps("endpointHost");
+    host.setValue("   ");
 
-    expect(harness.vm.endpointHostError).toBe("Укажите host без пробелов");
+    expect(await harness.vm.createForm.validate()).toBe(false);
+    expect(host.error).toBe("Укажите host без пробелов");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it("reports an endpoint host with inner spaces", async () => {
+  it("отклоняет endpoint host с пробелом внутри", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn example.com";
+    harness.vm.createForm.getFieldProps("name").setValue("wg0");
+    const host = harness.vm.createForm.getFieldProps("endpointHost");
+    host.onInput({ currentTarget: { value: "vpn example.com" } });
+    await settle();
 
-    expect(harness.vm.endpointHostError).toBe("Укажите host без пробелов");
+    expect(host.error).toBe("Укажите host без пробелов");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it.each(["0", "70000", "", "-1", "1.5"])("reports the endpoint port %s", async (value) => {
-    const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formEndpointPort = value;
+  it.each(["0", "65536", "-1", "1.5"])(
+    "отклоняет endpoint port %s",
+    async (value) => {
+      const harness = await readyVm();
+      fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+      const port = harness.vm.createForm.getFieldProps("endpointPort");
+      port.onInput({ currentTarget: { value } });
+      await settle();
 
-    expect(harness.vm.endpointPortError).toBe("Порт — целое число от 1 до 65535");
+      expect(port.error).toBe("Порт — целое число от 1 до 65535");
+      expect(harness.vm.canCreate).toBe(false);
+    },
+  );
+
+  it.each(["", "abc"])("ловит нечисловой endpoint port %s", async (value) => {
+    const harness = await readyVm();
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    const port = harness.vm.createForm.getFieldProps("endpointPort");
+    port.onInput({ currentTarget: { value } });
+    await settle();
+
+    expect(port.error).toBeDefined();
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it.each(["0", "70000", "", "abc"])("reports the listen port %s", async (value) => {
+  it.each(["0", "65536"])("отклоняет listen port %s", async (value) => {
     const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formListenPort = value;
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    const port = harness.vm.createForm.getFieldProps("listenPort");
+    port.onInput({ currentTarget: { value } });
+    await settle();
 
-    expect(harness.vm.listenPortError).toBe("Порт — целое число от 1 до 65535");
+    expect(port.error).toBe("Порт — целое число от 1 до 65535");
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it.each(["100", "10000", ""])("reports the MTU %s", async (value) => {
+  it.each(["", "abc"])("ловит нечисловой listen port %s", async (value) => {
     const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formMtu = value;
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    const port = harness.vm.createForm.getFieldProps("listenPort");
+    port.onInput({ currentTarget: { value } });
+    await settle();
 
-    expect(harness.vm.mtuError).toBe("MTU — от 576 до 9000");
+    expect(port.error).toBeDefined();
     expect(harness.vm.canCreate).toBe(false);
   });
 
-  it("has no errors for valid create values", async () => {
+  it.each(["575", "65536"])("отклоняет MTU %s", async (value) => {
     const harness = await readyVm();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    harness.vm.formEndpointPort = "443";
-    harness.vm.formListenPort = "51820";
-    harness.vm.formMtu = "1420";
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    const mtu = harness.vm.createForm.getFieldProps("mtu");
+    mtu.onInput({ currentTarget: { value } });
+    await settle();
 
-    expect(harness.vm.nameError).toBeNull();
-    expect(harness.vm.endpointHostError).toBeNull();
-    expect(harness.vm.endpointPortError).toBeNull();
-    expect(harness.vm.listenPortError).toBeNull();
-    expect(harness.vm.mtuError).toBeNull();
+    expect(mtu.error).toBe("MTU — от 576 до 65535");
+    expect(harness.vm.canCreate).toBe(false);
+  });
+
+  it.each(["", "abc"])("ловит нечисловой MTU %s", async (value) => {
+    const harness = await readyVm();
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    const mtu = harness.vm.createForm.getFieldProps("mtu");
+    mtu.onInput({ currentTarget: { value } });
+    await settle();
+
+    expect(mtu.error).toBeDefined();
+    expect(harness.vm.canCreate).toBe(false);
+  });
+
+  it("разрешает создание с корректными значениями", async () => {
+    const harness = await readyVm();
+    fillCreate(harness.vm.createForm, {
+      name: "wg0",
+      endpointHost: "vpn.example.com",
+      endpointPort: "443",
+      listenPort: "51820",
+      mtu: "1420",
+    });
+
+    expect(await harness.vm.createForm.validate()).toBe(true);
     expect(harness.vm.canCreate).toBe(true);
   });
 
-  it("reports edit field errors and blocks the save", async () => {
-    const harness = makeVm();
-    harness.interfacesRepo.items.set("i1", iface());
-    await harness.vm.load();
-    harness.vm.openEdit(iface());
-    harness.vm.editHost = "";
-    harness.vm.editEndpointPort = "0";
-    harness.vm.editListenPort = "70000";
-    harness.vm.editMtu = "10000";
-
-    expect(harness.vm.editHostError).toBe("Укажите host без пробелов");
-    expect(harness.vm.editEndpointPortError).toBe("Порт — целое число от 1 до 65535");
-    expect(harness.vm.editListenPortError).toBe("Порт — целое число от 1 до 65535");
-    expect(harness.vm.editMtuError).toBe("MTU — от 576 до 9000");
-    expect(harness.vm.canSaveEdit).toBe(false);
-  });
-
-  it("has no edit errors for valid values", async () => {
-    const harness = makeVm();
-    harness.interfacesRepo.items.set("i1", iface());
-    await harness.vm.load();
-    harness.vm.openEdit(iface());
-
-    expect(harness.vm.editHostError).toBeNull();
-    expect(harness.vm.editEndpointPortError).toBeNull();
-    expect(harness.vm.editListenPortError).toBeNull();
-    expect(harness.vm.editMtuError).toBeNull();
-    expect(harness.vm.canSaveEdit).toBe(true);
-  });
-
-  it("keeps errors hidden until the field is touched or the form is submitted", async () => {
+  it("показывает ошибку только после blur или submit", async () => {
     const harness = await readyVm();
-    harness.vm.formName = "";
+    const name = harness.vm.createForm.getFieldProps("name");
+    name.onInput({ currentTarget: { value: "awg 0" } });
+    await settle();
 
-    expect(harness.vm.showCreateError("name")).toBe(false);
+    expect(name.error).toBeDefined();
+    expect(name.touched).toBe(false);
 
-    harness.vm.markTouched("name");
-    expect(harness.vm.showCreateError("name")).toBe(true);
-
-    harness.vm.closeCreate();
-    harness.vm.openCreate();
-    expect(harness.vm.showCreateError("name")).toBe(false);
+    name.onBlur();
+    expect(name.touched).toBe(true);
 
     await harness.vm.submitCreate(submit());
-    expect(harness.vm.showCreateError("name")).toBe(true);
+    expect(harness.interfacesRepo.createInterface).not.toHaveBeenCalled();
+    expect(name.touched).toBe(true);
   });
 
-  it("marks every field once and resets the touched set when the create form opens", async () => {
+  it("сбрасывает touched и ошибки при повторном открытии формы", async () => {
     const harness = await readyVm();
-    harness.vm.markTouched("name");
-    harness.vm.markTouched("name");
-    harness.vm.markTouched("mtu");
+    const name = harness.vm.createForm.getFieldProps("name");
+    name.onBlur();
+    expect(name.touched).toBe(true);
 
-    expect(harness.vm.touchedFields).toEqual(["name", "mtu"]);
-    expect(harness.vm.isTouched("name")).toBe(true);
-    expect(harness.vm.isTouched("endpointHost")).toBe(false);
-
-    harness.vm.closeCreate();
-    expect(harness.vm.touchedFields).toEqual([]);
-
-    harness.vm.markTouched("endpointPort");
+    await harness.vm.closeCreate();
     harness.vm.openCreate();
-    expect(harness.vm.touchedFields).toEqual([]);
+
+    expect(name.touched).toBe(false);
+    expect(name.error).toBeUndefined();
+    expect(harness.vm.createForm.isDirty).toBe(false);
   });
 
-  it("resets the touched set when the edit form opens and closes", async () => {
+  it("проверяет поля редактирования", async () => {
     const harness = makeVm();
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
     harness.vm.openEdit(iface());
-    harness.vm.markTouched("edit.host");
+    const form = harness.vm.editForm;
+    form.getFieldProps("endpointHost").setValue("");
+    form.getFieldProps("endpointPort").setValue(0);
+    form.getFieldProps("listenPort").setValue(70000);
+    form.getFieldProps("mtu").setValue(65536);
 
-    expect(harness.vm.showEditError("host")).toBe(true);
-
-    harness.vm.closeEdit();
-    expect(harness.vm.touchedFields).toEqual([]);
-    expect(harness.vm.editing).toBeNull();
-
-    harness.vm.openEdit(iface());
-    expect(harness.vm.touchedFields).toEqual([]);
-    expect(harness.vm.showEditError("host")).toBe(false);
+    expect(await form.validate()).toBe(false);
+    expect(form.getFieldProps("endpointHost").error).toBe("Укажите host без пробелов");
+    expect(form.getFieldProps("endpointPort").error).toBe("Порт — целое число от 1 до 65535");
+    expect(form.getFieldProps("listenPort").error).toBe("Порт — целое число от 1 до 65535");
+    expect(form.getFieldProps("mtu").error).toBe("MTU — от 576 до 65535");
+    expect(harness.vm.canSaveEdit).toBe(false);
   });
 
-  it("keeps canCreate in sync with the absence of errors", async () => {
-    const harness = await readyVm();
-
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
-    expect(harness.vm.canCreate).toBe(true);
-
-    harness.vm.formMtu = "100";
-    expect(harness.vm.canCreate).toBe(false);
-
-    harness.vm.formMtu = "1420";
-    expect(harness.vm.canCreate).toBe(true);
-  });
-
-  it("keeps canSaveEdit in sync with the absence of errors", async () => {
+  it("принимает корректные значения редактирования", async () => {
     const harness = makeVm();
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
     harness.vm.openEdit(iface());
 
-    expect(harness.vm.canSaveEdit).toBe(true);
-
-    harness.vm.editHost = "";
-    expect(harness.vm.canSaveEdit).toBe(false);
-
-    harness.vm.editHost = "vpn.example.com";
-    harness.vm.editListenPort = "70000";
-    expect(harness.vm.canSaveEdit).toBe(false);
-
-    harness.vm.editListenPort = "51820";
+    expect(await harness.vm.editForm.validate()).toBe(true);
+    expect(harness.vm.editForm.getFieldProps("endpointHost").error).toBeUndefined();
     expect(harness.vm.canSaveEdit).toBe(true);
   });
 });
-
 describe("InterfacesPageVM discard guard", () => {
   beforeEach(() => {
     confirmMock.askConfirm.mockReset();
@@ -985,12 +1031,12 @@ describe("InterfacesPageVM discard guard", () => {
   });
 
   it.each<[string, (vm: InterfacesPageVM) => void]>([
-    ["name", (vm) => { vm.formName = "wg1"; }],
-    ["label", (vm) => { vm.formLabel = "Основной"; }],
-    ["host", (vm) => { vm.formEndpointHost = "vpn.example.com"; }],
-    ["endpoint port", (vm) => { vm.formEndpointPort = "8443"; }],
-    ["listen port", (vm) => { vm.formListenPort = "51821"; }],
-    ["mtu", (vm) => { vm.formMtu = "1380"; }],
+    ["name", (vm) => { vm.createForm.getFieldProps("name").onInput({ currentTarget: { value: "wg1" } }); }],
+    ["label", (vm) => { vm.createForm.getFieldProps("label").onInput({ currentTarget: { value: "Основной" } }); }],
+    ["host", (vm) => { vm.createForm.getFieldProps("endpointHost").onInput({ currentTarget: { value: "vpn.example.com" } }); }],
+    ["endpoint port", (vm) => { vm.createForm.getFieldProps("endpointPort").onInput({ currentTarget: { value: "8443" } }); }],
+    ["listen port", (vm) => { vm.createForm.getFieldProps("listenPort").onInput({ currentTarget: { value: "51821" } }); }],
+    ["mtu", (vm) => { vm.createForm.getFieldProps("mtu").onInput({ currentTarget: { value: "1380" } }); }],
   ])("tracks create changes of %s", (_field, mutate) => {
     const harness = makeVm();
     harness.vm.openCreate();
@@ -1006,7 +1052,7 @@ describe("InterfacesPageVM discard guard", () => {
     harness.vm.openEdit(iface());
     expect(harness.vm.editDirty).toBe(false);
 
-    harness.vm.editLabel = "Новый";
+    harness.vm.editForm.getFieldProps("label").onInput({ currentTarget: { value: "Новый" } });
     expect(harness.vm.editDirty).toBe(true);
   });
 
@@ -1023,7 +1069,7 @@ describe("InterfacesPageVM discard guard", () => {
   it("asks before discarding the create form", async () => {
     const harness = makeVm();
     harness.vm.openCreate();
-    harness.vm.formName = "wg1";
+    harness.vm.createForm.getFieldProps("name").onInput({ currentTarget: { value: "wg1" } });
 
     await harness.vm.closeCreate();
 
@@ -1040,19 +1086,21 @@ describe("InterfacesPageVM discard guard", () => {
     confirmMock.askConfirm.mockResolvedValueOnce(false);
     const harness = makeVm();
     harness.vm.openCreate();
-    harness.vm.formName = "wg1";
+    harness.vm.createForm.getFieldProps("name").onInput({ currentTarget: { value: "wg1" } });
 
     await harness.vm.closeCreate();
 
     expect(harness.vm.createOpen).toBe(true);
-    expect(harness.vm.formName).toBe("wg1");
+    expect(harness.vm.createForm.name).toBe("wg1");
     expect(harness.vm.createDirty).toBe(true);
   });
 
   it("asks before discarding the edit form", async () => {
     const harness = makeVm();
     harness.vm.openEdit(iface());
-    harness.vm.editHost = "new.example.com";
+    harness.vm.editForm.getFieldProps("endpointHost").onInput({
+      currentTarget: { value: "new.example.com" },
+    });
 
     await harness.vm.closeEdit();
 
@@ -1069,19 +1117,21 @@ describe("InterfacesPageVM discard guard", () => {
     confirmMock.askConfirm.mockResolvedValueOnce(false);
     const harness = makeVm();
     harness.vm.openEdit(iface());
-    harness.vm.editHost = "new.example.com";
+    harness.vm.editForm.getFieldProps("endpointHost").onInput({
+      currentTarget: { value: "new.example.com" },
+    });
 
     await harness.vm.closeEdit();
 
     expect(harness.vm.editing).not.toBeNull();
-    expect(harness.vm.editHost).toBe("new.example.com");
+    expect(harness.vm.editForm.endpointHost).toBe("new.example.com");
     expect(harness.vm.editDirty).toBe(true);
   });
 
   it("does not ask while the create request is running", async () => {
     const harness = makeVm();
     harness.vm.openCreate();
-    harness.vm.formName = "wg1";
+    harness.vm.createForm.getFieldProps("name").onInput({ currentTarget: { value: "wg1" } });
     harness.vm.busy = true;
 
     await harness.vm.closeCreate();
@@ -1096,15 +1146,15 @@ describe("InterfacesPageVM discard guard", () => {
     harness.nodesRepo.items.set("n1", NODE);
     await harness.vm.load();
     harness.vm.openCreate();
-    harness.vm.formName = "wg0";
-    harness.vm.formEndpointHost = "vpn.example.com";
+    fillCreate(harness.vm.createForm, { name: "wg0", endpointHost: "vpn.example.com" });
+    await settle();
 
     await harness.vm.submitCreate(submit());
 
     expect(harness.vm.createOpen).toBe(false);
     expect(harness.vm.createDirty).toBe(false);
 
-    harness.vm.formName = "wg0";
+    harness.vm.openCreate();
     await harness.vm.closeCreate();
 
     expect(confirmMock.askConfirm).not.toHaveBeenCalled();
@@ -1115,7 +1165,10 @@ describe("InterfacesPageVM discard guard", () => {
     harness.interfacesRepo.items.set("i1", iface());
     await harness.vm.load();
     harness.vm.openEdit(iface());
-    harness.vm.editHost = "new.example.com";
+    harness.vm.editForm.getFieldProps("endpointHost").onInput({
+      currentTarget: { value: "new.example.com" },
+    });
+    await settle();
 
     await harness.vm.submitEdit(submit());
 

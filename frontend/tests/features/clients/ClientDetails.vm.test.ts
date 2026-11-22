@@ -874,6 +874,33 @@ describe("ClientDetailsVM", () => {
     expect(vm.editDirty).toBe(false);
   });
 
+  it("не сохраняет имя длиннее 64 символов", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    vm.setEditName({ target: { value: "x".repeat(65) } } as unknown as Event);
+
+    expect(vm.canSave).toBe(false);
+    await vm.editForm.validateField("name");
+    expect(vm.editForm.getFieldProps("name").error).toBe(
+      "Имя устройства: не длиннее 64 символов",
+    );
+
+    await vm.save();
+    expect(repository.updateDevice).not.toHaveBeenCalled();
+  });
+
+  it("не сохраняет пустое имя устройства", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    vm.setEditName({ target: { value: "   " } } as unknown as Event);
+
+    expect(vm.canSave).toBe(false);
+    await vm.save();
+    expect(repository.updateDevice).not.toHaveBeenCalled();
+  });
+
   it("не отмечает форму изменённой после сохранения", async () => {
     const { vm } = setup("admin");
     await vm.load();
@@ -1225,22 +1252,25 @@ describe("ClientDetailsVM", () => {
     });
   });
 
-  it("нормализует лимиты скорости в кбит/с", async () => {
+  it("валидирует целые неотрицательные лимиты скорости", async () => {
     const { vm, repository } = setup("admin");
     await vm.load();
 
     vm.setEditDownKbps(1500.6);
     vm.setEditUpKbps(-3);
 
-    expect(vm.editDownKbps).toBe(1501);
-    expect(vm.editUpKbps).toBe(0);
+    expect(vm.editDownKbps).toBe(1500.6);
+    expect(vm.editUpKbps).toBe(-3);
+    expect(vm.canSave).toBe(false);
+
+    await vm.editForm.validateField("downKbps");
+    await vm.editForm.validateField("upKbps");
+    expect(vm.editForm.getFieldProps("downKbps").error).toBe("Лимит должен быть целым числом");
+    expect(vm.editForm.getFieldProps("upKbps").error).toBe("Лимит не может быть отрицательным");
 
     await vm.save();
 
-    expect(repository.updateDevice).toHaveBeenCalledWith(
-      "d1",
-      expect.objectContaining({ down_kbps: 1501, up_kbps: 0 }),
-    );
+    expect(repository.updateDevice).not.toHaveBeenCalled();
   });
 
   it("не отзывает все ссылки при отказе от подтверждения", async () => {
@@ -1343,13 +1373,68 @@ describe("ClientDetailsVM", () => {
     });
   });
 
+  it("не создаёт ссылку с лимитом использований 0, нечислом или больше 1000", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    vm.setShareMaxUses("0");
+    await vm.shareForm.validateField("maxUses");
+    expect(vm.shareMaxUsesInvalid).toBe(true);
+    expect(vm.canCreateShare).toBe(false);
+    expect(vm.shareForm.getFieldProps("maxUses").error).toBe(
+      "Лимит использований должен быть от 1 до 1000",
+    );
+
+    vm.setShareMaxUses("abc");
+    await vm.shareForm.validateField("maxUses");
+    expect(vm.shareMaxUsesInvalid).toBe(true);
+    expect(vm.canCreateShare).toBe(false);
+    expect(vm.shareForm.getFieldProps("maxUses").error).toBe(
+      "Лимит использований должен быть целым числом",
+    );
+
+    vm.setShareMaxUses("1001");
+    await vm.shareForm.validateField("maxUses");
+    expect(vm.shareMaxUsesInvalid).toBe(true);
+    expect(vm.canCreateShare).toBe(false);
+    expect(vm.shareForm.getFieldProps("maxUses").error).toBe(
+      "Лимит использований должен быть от 1 до 1000",
+    );
+
+    vm.setShareMaxUses("1000");
+    await vm.shareForm.validateField("maxUses");
+    expect(vm.shareMaxUsesInvalid).toBe(false);
+    expect(vm.canCreateShare).toBe(true);
+    expect(vm.shareForm.getFieldProps("maxUses").error).toBeUndefined();
+
+    await vm.createShare();
+    expect(repository.createShare).toHaveBeenCalledWith(
+      "d1",
+      expect.objectContaining({ maxUses: 1000 }),
+    );
+  });
+
+  it("не создаёт ссылку с недопустимым ttl", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+
+    vm.setShareTtl("123");
+    await vm.shareForm.validateField("ttl");
+    expect(vm.canCreateShare).toBe(false);
+    expect(vm.shareForm.getFieldProps("ttl").error).toBe(
+      "Срок жизни ссылки должен быть положительным числом секунд",
+    );
+
+    await vm.createShare();
+    expect(repository.createShare).not.toHaveBeenCalled();
+  });
+
   it("создаёт временную ссылку", async () => {
     const { vm, repository, toasts } = setup("admin");
     await vm.load();
 
     vm.setShareFormat("vpn");
     vm.setShareTtl("604800");
-
     await vm.createShare();
 
     expect(repository.createShare).toHaveBeenCalledWith("d1", {
@@ -1814,22 +1899,25 @@ describe("ClientDetailsVM: туннели и несколько пиров", () 
     expect(vm.addTunnelLabel).toBe("custom");
   });
 
-  it("блокирует добавление при пустой или слишком длинной метке", async () => {
+  it("блокирует добавление при слишком длинной метке и допускает пустую", async () => {
     const { vm, repository } = setup("admin");
     await vm.load();
     vm.openAddTunnel();
 
     vm.setAddTunnelLabel({ target: { value: "   " } } as unknown as Event);
-    expect(vm.addTunnelLabelError).toBe("Укажите метку туннеля");
+    await vm.tunnelForm.validateField("addLabel");
+    expect(vm.addTunnelLabelError).toBeNull();
+    expect(vm.canAddTunnel).toBe(true);
+
+    vm.setAddTunnelLabel({ target: { value: "a".repeat(65) } } as unknown as Event);
+    await vm.tunnelForm.validateField("addLabel");
+    expect(vm.addTunnelLabelError).toBe("Не длиннее 64 символов");
     expect(vm.canAddTunnel).toBe(false);
     await vm.addTunnel();
     expect(repository.addTunnel).not.toHaveBeenCalled();
 
-    vm.setAddTunnelLabel({ target: { value: "a".repeat(65) } } as unknown as Event);
-    expect(vm.addTunnelLabelError).toBe("Не длиннее 64 символов");
-    expect(vm.canAddTunnel).toBe(false);
-
     vm.setAddTunnelLabel({ target: { value: "ok" } } as unknown as Event);
+    await vm.tunnelForm.validateField("addLabel");
     expect(vm.addTunnelLabelError).toBeNull();
     expect(vm.canAddTunnel).toBe(true);
   });
@@ -1866,8 +1954,25 @@ describe("ClientDetailsVM: туннели и несколько пиров", () 
 
     vm.openRenameTunnel(tunnel);
     vm.setRenameTunnelLabel({ target: { value: "" } } as unknown as Event);
+    await vm.tunnelForm.validateField("renameLabel");
 
     expect(vm.renameTunnelLabelError).toBe("Укажите метку туннеля");
+    expect(vm.canRenameTunnel).toBe(false);
+    await vm.renameTunnel();
+    expect(repository.renameTunnel).not.toHaveBeenCalled();
+  });
+
+  it("не переименовывает туннель с меткой длиннее 64 символов", async () => {
+    const { vm, repository } = setup("admin");
+    await vm.load();
+    const tunnel = vm.tunnels[0];
+    if (!tunnel) throw new Error("tunnel fixture is missing");
+
+    vm.openRenameTunnel(tunnel);
+    vm.setRenameTunnelLabel({ target: { value: "a".repeat(65) } } as unknown as Event);
+    await vm.tunnelForm.validateField("renameLabel");
+
+    expect(vm.renameTunnelLabelError).toBe("Не длиннее 64 символов");
     expect(vm.canRenameTunnel).toBe(false);
     await vm.renameTunnel();
     expect(repository.renameTunnel).not.toHaveBeenCalled();

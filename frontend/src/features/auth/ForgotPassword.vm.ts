@@ -6,18 +6,13 @@ import type { AuthService } from "@/application/auth/service";
 import { userMessage } from "@/application/errors";
 import { t } from "@/i18n";
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+$/;
+import { EMAIL_PATTERN, ForgotPasswordForm } from "./ForgotPassword.form";
+
 const COOLDOWN_SECONDS = 60;
 
 export class ForgotPasswordVM extends ViewModel {
-  constructor(
-    private readonly auth: AuthService,
-    private readonly router: Router,
-  ) {
-    super();
-  }
+  readonly form = new ForgotPasswordForm();
 
-  @reactive accessor email = "";
   @reactive accessor submitting = false;
   @reactive accessor resending = false;
   @reactive accessor sent = false;
@@ -29,18 +24,21 @@ export class ForgotPasswordVM extends ViewModel {
     this.cooldown = remaining;
   });
 
-  override unmounted(): void {
-    this.stopCooldown();
+  constructor(
+    private readonly auth: AuthService,
+    private readonly router: Router,
+  ) {
+    super();
   }
 
-  @computed
-  get emailValid(): boolean {
-    return EMAIL_PATTERN.test(this.email.trim());
+  override unmounted(): void {
+    this.stopCooldown();
+    this.form.dispose();
   }
 
   @computed
   get canSubmit(): boolean {
-    return !this.submitting && this.emailValid;
+    return !this.submitting && EMAIL_PATTERN.test(this.form.email.trim());
   }
 
   @computed
@@ -48,31 +46,24 @@ export class ForgotPasswordVM extends ViewModel {
     return this.sent && this.cooldown === 0 && !this.resending;
   }
 
-  setEmail(event: Event): void {
-    this.email = (event.target as HTMLInputElement).value;
-    this.error = null;
-  }
-
   async submit(event: Event): Promise<void> {
-    event.preventDefault();
-    if (this.submitting) return;
-    if (!this.emailValid) {
-      this.error = t("auth.forgot.error.email");
-      return;
-    }
-    this.error = null;
-    this.resendError = null;
-    this.submitting = true;
-    try {
-      await this.auth.forgotPassword(this.email.trim());
-      this.email = this.email.trim();
-      this.sent = true;
-      this.startCooldown();
-    } catch (error) {
-      this.error = userMessage(error, t("auth.forgot.error.failed"));
-    } finally {
-      this.submitting = false;
-    }
+    const emailField = this.form.getFieldProps("email");
+    emailField.setValue(emailField.value.trim());
+
+    await this.form.onSubmit(async () => {
+      this.error = null;
+      this.resendError = null;
+      this.submitting = true;
+      try {
+        await this.auth.forgotPassword(this.form.email);
+        this.sent = true;
+        this.startCooldown();
+      } catch (error) {
+        this.error = userMessage(error, t("auth.forgot.error.failed"));
+      } finally {
+        this.submitting = false;
+      }
+    })(event);
   }
 
   async resend(): Promise<void> {
@@ -80,7 +71,7 @@ export class ForgotPasswordVM extends ViewModel {
     this.resending = true;
     this.resendError = null;
     try {
-      await this.auth.forgotPassword(this.email);
+      await this.auth.forgotPassword(this.form.email);
       this.startCooldown();
     } catch (error) {
       this.resendError = userMessage(error, t("auth.forgot.error.failed"));
@@ -101,5 +92,4 @@ export class ForgotPasswordVM extends ViewModel {
   private stopCooldown(): void {
     this.clock.stop();
   }
-
 }

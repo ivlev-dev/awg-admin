@@ -34,6 +34,7 @@ import type {
 import { t } from "@/i18n";
 
 import { ClientsFlow } from "./clients-flow";
+import type { ClientsImportForm } from "./clients.form";
 import type {
   ClientsResultFailure,
   ClientsStep,
@@ -45,6 +46,7 @@ import type {
   PoolDraft,
 } from "./drafts";
 import { GroupFlow } from "./group-flow";
+import type { GroupImportForm } from "./group.form";
 import {
   previewKey,
   previewStatusClass,
@@ -109,6 +111,8 @@ export class ImportVM extends ViewModel {
   override dispose(): void {
     window.removeEventListener("beforeunload", this.handleBeforeUnload);
     unregisterUnsaved("import");
+    this.group.dispose();
+    this.clients.dispose();
     super.dispose();
   }
 
@@ -176,6 +180,10 @@ export class ImportVM extends ViewModel {
 
   get step(): ImportStep { return this.group.step; }
   set step(value: ImportStep) { this.group.step = value; }
+
+  get groupForm(): GroupImportForm { return this.group.form; }
+
+  get clientsForm(): ClientsImportForm { return this.clients.form; }
 
   get groupName(): string { return this.group.groupName; }
   set groupName(value: string) { this.group.groupName = value; }
@@ -431,6 +439,8 @@ export class ImportVM extends ViewModel {
   setGroupDescription(event: Event): void { this.group.setGroupDescription(event); }
 
   setBaseCidr(event: Event): void { this.group.setBaseCidr(event); }
+
+  normalizeBaseCidr(): void { this.group.normalizeBaseCidr(); }
 
   setNode(value: string): void { this.group.setNode(value); }
 

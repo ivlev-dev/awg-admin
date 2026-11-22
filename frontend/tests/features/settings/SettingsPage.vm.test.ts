@@ -75,12 +75,16 @@ interface Harness {
   toasts: ToastStore;
 }
 
+const activeVms: SettingsPageVM[] = [];
+
 function makeHarness(seed: Settings = SETTINGS): Harness {
   const repo = new MemorySettingsRepository();
   repo.settings = cloneSettings(seed);
   const service = new DefaultSettingsService(repo);
   const toasts = new ToastStore();
-  return { vm: new SettingsPageVM(service, toasts), repo, service, toasts };
+  const vm = new SettingsPageVM(service, toasts);
+  activeVms.push(vm);
+  return { vm, repo, service, toasts };
 }
 
 function valueEvent(value: string): Event {
@@ -127,6 +131,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  for (const vm of activeVms.splice(0)) vm.dispose();
   setLocale("ru");
   vi.unstubAllGlobals();
 });
@@ -141,23 +146,23 @@ describe("SettingsPageVM", () => {
     expect(harness.vm.loaded).toBe(true);
     expect(harness.vm.loading).toBe(false);
     expect(harness.vm.error).toBeNull();
-    expect(harness.vm.profile).toBe("tls");
-    expect(harness.vm.intensity).toBe("high");
-    expect(harness.vm.browser).toBe("firefox");
-    expect(harness.vm.mtu).toBe("1420");
-    expect(harness.vm.jcMin).toBe("4");
-    expect(harness.vm.jcMax).toBe("12");
-    expect(harness.vm.jminMin).toBe("60");
-    expect(harness.vm.jminMax).toBe("240");
-    expect(harness.vm.jmaxExtraMin).toBe("5");
-    expect(harness.vm.jmaxExtraMax).toBe("120");
-    expect(harness.vm.sMin).toBe("16");
-    expect(harness.vm.sMax).toBe("72");
-    expect(harness.vm.randomTrailers).toBe(true);
-    expect(harness.vm.disableCookies).toBe(true);
-    expect(harness.vm.hosts).toBe("example.com\ngoogle.com");
+    expect(harness.vm.form.profile).toBe("tls");
+    expect(harness.vm.form.intensity).toBe("high");
+    expect(harness.vm.form.browser).toBe("firefox");
+    expect(harness.vm.form.mtu).toBe(1420);
+    expect(harness.vm.form.jcMin).toBe(4);
+    expect(harness.vm.form.jcMax).toBe(12);
+    expect(harness.vm.form.jminMin).toBe(60);
+    expect(harness.vm.form.jminMax).toBe(240);
+    expect(harness.vm.form.jmaxExtraMin).toBe(5);
+    expect(harness.vm.form.jmaxExtraMax).toBe(120);
+    expect(harness.vm.form.sMin).toBe(16);
+    expect(harness.vm.form.sMax).toBe(72);
+    expect(harness.vm.form.randomTrailers).toBe(true);
+    expect(harness.vm.form.disableCookies).toBe(true);
+    expect(harness.vm.form.hosts).toBe("example.com\ngoogle.com");
     expect(harness.vm.hostsCount).toBe(2);
-    expect(harness.vm.ttlHours).toBe("2");
+    expect(harness.vm.form.ttlHours).toBe(2);
     expect(harness.vm.ttlSeconds).toBe(7200);
     expect(harness.vm.dirty).toBe(false);
     expect(harness.vm.canSave).toBe(false);
@@ -258,68 +263,57 @@ describe("SettingsPageVM", () => {
     });
     expect(harness.vm.loaded).toBe(true);
     expect(harness.vm.saving).toBe(false);
-    expect(harness.vm.profile).toBe("random");
-    expect(harness.vm.hosts).toBe("a.example.com\nb.example.com");
-    expect(harness.vm.ttlHours).toBe("1.5");
+    expect(harness.vm.form.profile).toBe("random");
+    expect(harness.vm.form.hosts).toBe("a.example.com\nb.example.com");
+    expect(harness.vm.form.ttlHours).toBe(1.5);
     expect(harness.toasts.items.some((item) => item.message === "Настройки сохранены")).toBe(
       true,
     );
   });
 
-  it("clamps out-of-range numeric values before saving", async () => {
+  it("blocks out-of-range numeric values before saving", async () => {
     const harness = makeHarness();
     await harness.vm.load();
 
     harness.vm.setNumeric("mtu", valueEvent("100"));
     harness.vm.setNumeric("jcMin", valueEvent("0"));
-    harness.vm.setNumeric("jcMax", valueEvent("0"));
-    harness.vm.setNumeric("jminMin", valueEvent("-5"));
-    harness.vm.setNumeric("jminMax", valueEvent("-10"));
-    harness.vm.setNumeric("jmaxExtraMin", valueEvent("-1"));
-    harness.vm.setNumeric("jmaxExtraMax", valueEvent("-2"));
     harness.vm.setNumeric("sMin", valueEvent("3"));
-    harness.vm.setNumeric("sMax", valueEvent("1"));
-    harness.vm.setNumeric("keepaliveMin", valueEvent("0"));
-    harness.vm.setNumeric("keepaliveMax", valueEvent(""))
+    harness.vm.setNumeric("keepaliveMax", valueEvent("200"));
 
     await harness.vm.save();
 
-    expect(harness.repo.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        obfuscation: expect.objectContaining({
-          mtu: 576,
-          jc_min: 1,
-          jc_max: 1,
-          jmin_min: 0,
-          jmin_max: 0,
-          jmax_extra_min: 0,
-          jmax_extra_max: 0,
-          s_min: 12,
-          s_max: 12,
-          keepalive_min: 1,
-          keepalive_max: 25,
-        }),
-      }),
-    );
-    expect(harness.vm.mtu).toBe("576");
-    expect(harness.vm.sMin).toBe("12");
+    expect(harness.repo.updateSettings).not.toHaveBeenCalled();
+    expect(harness.vm.form.getFieldProps("mtu").error).toBeDefined();
+    expect(harness.vm.form.getFieldProps("jcMin").error).toBeDefined();
+    expect(harness.vm.form.getFieldProps("sMin").error).toBeDefined();
+    expect(harness.vm.form.getFieldProps("keepaliveMax").error).toBeDefined();
+    expect(harness.vm.dirty).toBe(true);
+    expect(harness.vm.saving).toBe(false);
   });
 
-  it("falls back to defaults for non-numeric input and clamps the share TTL", async () => {
+  it("blocks non-numeric input before saving", async () => {
     const harness = makeHarness();
     await harness.vm.load();
 
     harness.vm.setNumeric("mtu", valueEvent("abc"));
+
+    await harness.vm.save();
+
+    expect(harness.repo.updateSettings).not.toHaveBeenCalled();
+    expect(harness.vm.form.getFieldProps("mtu").error).toBeDefined();
+  });
+
+  it("passes the zero share TTL through the service clamp", async () => {
+    const harness = makeHarness();
+    await harness.vm.load();
+
     harness.vm.setTtlHours(valueEvent("0"));
 
     expect(harness.vm.ttlSeconds).toBe(0);
     await harness.vm.save();
 
     expect(harness.repo.updateSettings).toHaveBeenCalledWith(
-      expect.objectContaining({
-        obfuscation: expect.objectContaining({ mtu: 1280 }),
-        share_default_ttl_secs: 60,
-      }),
+      expect.objectContaining({ share_default_ttl_secs: 60 }),
     );
   });
 
@@ -356,9 +350,9 @@ describe("SettingsPageVM", () => {
     harness.vm.setIntensity("unknown");
     harness.vm.setBrowser("unknown");
 
-    expect(harness.vm.profile).toBe("tls");
-    expect(harness.vm.intensity).toBe("high");
-    expect(harness.vm.browser).toBe("firefox");
+    expect(harness.vm.form.profile).toBe("tls");
+    expect(harness.vm.form.intensity).toBe("high");
+    expect(harness.vm.form.browser).toBe("firefox");
   });
 
   it("переключает язык интерфейса и переводит подписи опций", async () => {
@@ -452,7 +446,7 @@ describe("SettingsPageVM", () => {
 
     expect(vm).toBeInstanceOf(SettingsPageVM);
     expect(await container.resolve(SettingsPageVM)).toBe(vm);
-    expect(vm.profile).toBe("tls");
+    expect(vm.form.profile).toBe("tls");
     expect(harness.repo.getSettings).toHaveBeenCalledTimes(1);
   });
 
@@ -514,7 +508,7 @@ describe("SettingsPageVM unsaved changes", () => {
       tone: "danger",
     });
     expect(harness.repo.getSettings).toHaveBeenCalledTimes(2);
-    expect(harness.vm.profile).toBe("tls");
+    expect(harness.vm.form.profile).toBe("tls");
     expect(harness.vm.dirty).toBe(false);
     expect(harness.vm.canSave).toBe(false);
   });
@@ -528,7 +522,7 @@ describe("SettingsPageVM unsaved changes", () => {
     await harness.vm.reset();
 
     expect(harness.repo.getSettings).toHaveBeenCalledTimes(1);
-    expect(harness.vm.profile).toBe("random");
+    expect(harness.vm.form.profile).toBe("random");
     expect(harness.vm.dirty).toBe(true);
   });
 
@@ -583,12 +577,20 @@ describe("SettingsPageVM unsaved changes", () => {
     harness.vm.dispose();
   });
 
-  it("регистрирует и снимает обработчик beforeunload", () => {
+  it("регистрирует и снимает обработчик beforeunload только при изменениях", async () => {
     const addSpy = vi.spyOn(window, "addEventListener");
     const removeSpy = vi.spyOn(window, "removeEventListener");
     const harness = makeHarness();
 
     harness.vm.created();
+    await vi.waitFor(() => expect(harness.vm.loaded).toBe(true));
+
+    expect(
+      addSpy.mock.calls.some((call) => call[0] === "beforeunload"),
+    ).toBe(false);
+
+    harness.vm.setNumeric("mtu", valueEvent("1500"));
+    await vi.waitFor(() => expect(harness.vm.dirty).toBe(true));
 
     const registered = addSpy.mock.calls.find((call) => call[0] === "beforeunload")?.[1];
     expect(registered).toBeDefined();
@@ -617,6 +619,8 @@ describe("SettingsPageVM unsaved changes", () => {
     expect(clean.defaultPrevented).toBe(false);
 
     harness.vm.setNumeric("mtu", valueEvent("1500"));
+    await vi.waitFor(() => expect(harness.vm.dirty).toBe(true));
+
     const dirty = new Event("beforeunload", { cancelable: true });
     window.dispatchEvent(dirty);
     expect(dirty.defaultPrevented).toBe(true);

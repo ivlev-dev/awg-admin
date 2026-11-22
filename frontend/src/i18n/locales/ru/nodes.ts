@@ -50,6 +50,8 @@ export const ruNodes = {
   "nodes.rotated.notice": "Старый токен больше не работает. Скопируйте новый токен и обновите переменную AWG_NODE_TOKEN у воркера — после этого он переподключится.",
   "nodes.rotated.token": "Новый токен воркера",
   "nodes.error.load": "Не удалось загрузить ноды",
+  "nodes.error.name": "Имя ноды обязательно",
+  "nodes.error.nameLength": "Имя ноды — не более 64 символов",
   "nodes.error.create": "Не удалось создать ноду",
   "nodes.error.rotate": "Не удалось перевыпустить токен",
   "nodes.error.delete": "Не удалось удалить ноду",

@@ -5,6 +5,10 @@ import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
 
 export function Login(this: { vm: LoginVM }) {
+  const email = this.vm.form.getFieldProps("email");
+  const password = this.vm.form.getFieldProps("password");
+  const totpCode = this.vm.form.getFieldProps("totpCode");
+
   return (
     <div class="auth">
       <section class="auth__brand">
@@ -48,15 +52,17 @@ export function Login(this: { vm: LoginVM }) {
                 <label for="email">{t("auth.login.identifier")}</label>
                 <input
                   id="email"
-                  class={`input ${this.vm.emailInvalid ? "is-invalid" : ""}`}
+                  class={`input ${email.error ? "is-invalid" : ""}`}
                   type="email"
                   autocomplete="email"
                   placeholder={t("auth.login.identifierPlaceholder")}
-                  value={this.vm.email}
-                  onInput={(event: Event) => this.vm.setEmail(event)}
+                  value={email.value}
+                  aria-invalid={email.error !== undefined}
+                  onInput={email.onInput}
+                  onBlur={email.onBlur}
                 />
-                <Show when={this.vm.emailInvalid}>
-                  <div class="hint" style="color:var(--red)">{t("auth.register.error.email")}</div>
+                <Show when={email.error}>
+                  <div class="hint" style="color:var(--red)">{email.error}</div>
                 </Show>
               </div>
               <div class="field">
@@ -68,8 +74,9 @@ export function Login(this: { vm: LoginVM }) {
                     type={this.vm.showPassword ? "text" : "password"}
                     autocomplete="current-password"
                     placeholder="••••••••"
-                    value={this.vm.password}
-                    onInput={(event: Event) => this.vm.setPassword(event)}
+                    value={password.value}
+                    onInput={password.onInput}
+                    onBlur={password.onBlur}
                   />
                   <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")} title={t("auth.login.showPassword")}>
                     <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
@@ -94,10 +101,14 @@ export function Login(this: { vm: LoginVM }) {
                   inputmode="numeric"
                   autocomplete="one-time-code"
                   placeholder={t("auth.login.totp.placeholder")}
-                  value={this.vm.totpCode}
-                  onInput={(event: Event) => this.vm.setTotpCode(event)}
+                  value={totpCode.value}
+                  aria-invalid={totpCode.error !== undefined}
+                  onInput={totpCode.onInput}
+                  onBlur={totpCode.onBlur}
                 />
-                <div class="hint">{t("auth.login.totp.hint")}</div>
+                <Show when={totpCode.error} fallback={<div class="hint">{t("auth.login.totp.hint")}</div>}>
+                  <div class="hint" style="color:var(--red)">{totpCode.error}</div>
+                </Show>
               </div>
             </Show>
 

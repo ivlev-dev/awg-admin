@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { silent } from "@ivlev-dev/silent-vite";
+import { validation } from "@ivlev-dev/silent-validation-vite";
 import { fileURLToPath } from "node:url";
 
 const apiTarget = process.env.VITE_API_PROXY ?? "http://127.0.0.1:8080";
@@ -35,7 +36,7 @@ function resolveSourcemap(raw: string | undefined): SourcemapMode {
 const sourcemap = resolveSourcemap(process.env.VITE_SOURCEMAP);
 
 export default defineConfig({
-  plugins: [silent({ di: "error" })],
+  plugins: [silent({ di: "error" }), validation()],
   resolve: {
     alias: {
       "@": fileURLToPath(new URL("./src", import.meta.url)),

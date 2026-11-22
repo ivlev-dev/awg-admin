@@ -21,6 +21,23 @@ function ariaSort(
 }
 
 export function InterfacesPage(this: { vm: InterfacesPageVM }) {
+  const create = this.vm.createForm;
+  const edit = this.vm.editForm;
+  const createGroup = create.getFieldProps("groupId");
+  const createNode = create.getFieldProps("nodeId");
+  const createName = create.getFieldProps("name");
+  const createLabel = create.getFieldProps("label");
+  const createHost = create.getFieldProps("endpointHost");
+  const createEndpointPort = create.getFieldProps("endpointPort");
+  const createListenPort = create.getFieldProps("listenPort");
+  const createMtu = create.getFieldProps("mtu");
+  const editLabel = edit.getFieldProps("label");
+  const editHost = edit.getFieldProps("endpointHost");
+  const editEndpointPort = edit.getFieldProps("endpointPort");
+  const editListenPort = edit.getFieldProps("listenPort");
+  const editMtu = edit.getFieldProps("mtu");
+  const editEnabled = edit.getFieldProps("enabled");
+
   return (
     <div class="stack">
       <div class="page-head">
@@ -419,9 +436,9 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 <label for="iface-form-group">{t("interfaces.form.group")}</label>
                 <Select
                   id="iface-form-group"
-                  value={this.vm.formGroupId}
+                  value={createGroup.value}
                   options={this.vm.groups.map((group) => ({ value: group.id, label: group.name }))}
-                  onChange={(value) => this.vm.setFormGroup(value)}
+                  onChange={(value) => createGroup.onChange({ currentTarget: { value } })}
                   ariaLabel={t("interfaces.form.group")}
                 />
               </Show>
@@ -430,9 +447,9 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
               <label for="iface-form-node">{t("interfaces.form.node")}</label>
               <Select
                 id="iface-form-node"
-                value={this.vm.formNodeId}
+                value={createNode.value}
                 options={this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))}
-                onChange={(value) => this.vm.setFormNode(value)}
+                onChange={(value) => createNode.onChange({ currentTarget: { value } })}
                 ariaLabel={t("interfaces.form.node")}
               />
             </div>
@@ -443,14 +460,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 class="input"
                 type="text"
                 placeholder={t("interfaces.form.namePlaceholder")}
-                value={this.vm.formName}
-                aria-invalid={this.vm.nameError !== null && this.vm.showCreateError("name") ? "true" : "false"}
-                aria-describedby={this.vm.nameError !== null && this.vm.showCreateError("name") ? "name-error" : undefined}
-                onInput={(event: Event) => this.vm.setFormName(event)}
-                onBlur={() => this.vm.markTouched("name")}
+                value={createName.value}
+                aria-invalid={createName.touched && createName.error ? "true" : "false"}
+                aria-describedby={createName.touched && createName.error ? "name-error" : undefined}
+                onInput={(event: Event) => createName.onInput(event)}
+                onBlur={() => createName.onBlur()}
               />
-              <Show when={this.vm.nameError !== null && this.vm.showCreateError("name")}>
-                <span class="hint" id="name-error" style="color:var(--md-error)">{this.vm.nameError ?? ""}</span>
+              <Show when={createName.touched && createName.error}>
+                <span class="hint" id="name-error" style="color:var(--md-error)">{createName.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -460,9 +477,15 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 class="input"
                 type="text"
                 placeholder={t("interfaces.form.labelPlaceholder")}
-                value={this.vm.formLabel}
-                onInput={(event: Event) => this.vm.setFormLabel(event)}
+                value={createLabel.value}
+                aria-invalid={createLabel.touched && createLabel.error ? "true" : "false"}
+                aria-describedby={createLabel.touched && createLabel.error ? "label-error" : undefined}
+                onInput={(event: Event) => createLabel.onInput(event)}
+                onBlur={() => createLabel.onBlur()}
               />
+              <Show when={createLabel.touched && createLabel.error}>
+                <span class="hint" id="label-error" style="color:var(--md-error)">{createLabel.error ?? ""}</span>
+              </Show>
             </div>
             <div class="field">
               <label for="iface-form-host">{t("interfaces.form.host")}</label>
@@ -471,14 +494,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 class="input"
                 type="text"
                 placeholder="vpn.example.com"
-                value={this.vm.formEndpointHost}
-                aria-invalid={this.vm.endpointHostError !== null && this.vm.showCreateError("endpointHost") ? "true" : "false"}
-                aria-describedby={this.vm.endpointHostError !== null && this.vm.showCreateError("endpointHost") ? "endpoint-host-error" : undefined}
-                onInput={(event: Event) => this.vm.setFormEndpointHost(event)}
-                onBlur={() => this.vm.markTouched("endpointHost")}
+                value={createHost.value}
+                aria-invalid={createHost.touched && createHost.error ? "true" : "false"}
+                aria-describedby={createHost.touched && createHost.error ? "endpoint-host-error" : undefined}
+                onInput={(event: Event) => createHost.onInput(event)}
+                onBlur={() => createHost.onBlur()}
               />
-              <Show when={this.vm.endpointHostError !== null && this.vm.showCreateError("endpointHost")}>
-                <span class="hint" id="endpoint-host-error" style="color:var(--md-error)">{this.vm.endpointHostError ?? ""}</span>
+              <Show when={createHost.touched && createHost.error}>
+                <span class="hint" id="endpoint-host-error" style="color:var(--md-error)">{createHost.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -489,14 +512,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 type="number"
                 min="1"
                 max="65535"
-                value={this.vm.formEndpointPort}
-                aria-invalid={this.vm.endpointPortError !== null && this.vm.showCreateError("endpointPort") ? "true" : "false"}
-                aria-describedby={this.vm.endpointPortError !== null && this.vm.showCreateError("endpointPort") ? "endpoint-port-error" : undefined}
-                onInput={(event: Event) => this.vm.setFormEndpointPort(event)}
-                onBlur={() => this.vm.markTouched("endpointPort")}
+                value={createEndpointPort.value}
+                aria-invalid={createEndpointPort.touched && createEndpointPort.error ? "true" : "false"}
+                aria-describedby={createEndpointPort.touched && createEndpointPort.error ? "endpoint-port-error" : undefined}
+                onInput={(event: Event) => createEndpointPort.onInput(event)}
+                onBlur={() => createEndpointPort.onBlur()}
               />
-              <Show when={this.vm.endpointPortError !== null && this.vm.showCreateError("endpointPort")}>
-                <span class="hint" id="endpoint-port-error" style="color:var(--md-error)">{this.vm.endpointPortError ?? ""}</span>
+              <Show when={createEndpointPort.touched && createEndpointPort.error}>
+                <span class="hint" id="endpoint-port-error" style="color:var(--md-error)">{createEndpointPort.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -507,14 +530,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 type="number"
                 min="1"
                 max="65535"
-                value={this.vm.formListenPort}
-                aria-invalid={this.vm.listenPortError !== null && this.vm.showCreateError("listenPort") ? "true" : "false"}
-                aria-describedby={this.vm.listenPortError !== null && this.vm.showCreateError("listenPort") ? "listen-port-error" : undefined}
-                onInput={(event: Event) => this.vm.setFormListenPort(event)}
-                onBlur={() => this.vm.markTouched("listenPort")}
+                value={createListenPort.value}
+                aria-invalid={createListenPort.touched && createListenPort.error ? "true" : "false"}
+                aria-describedby={createListenPort.touched && createListenPort.error ? "listen-port-error" : undefined}
+                onInput={(event: Event) => createListenPort.onInput(event)}
+                onBlur={() => createListenPort.onBlur()}
               />
-              <Show when={this.vm.listenPortError !== null && this.vm.showCreateError("listenPort")}>
-                <span class="hint" id="listen-port-error" style="color:var(--md-error)">{this.vm.listenPortError ?? ""}</span>
+              <Show when={createListenPort.touched && createListenPort.error}>
+                <span class="hint" id="listen-port-error" style="color:var(--md-error)">{createListenPort.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -524,15 +547,15 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 class="input"
                 type="number"
                 min="576"
-                max="9000"
-                value={this.vm.formMtu}
-                aria-invalid={this.vm.mtuError !== null && this.vm.showCreateError("mtu") ? "true" : "false"}
-                aria-describedby={this.vm.mtuError !== null && this.vm.showCreateError("mtu") ? "mtu-error" : undefined}
-                onInput={(event: Event) => this.vm.setFormMtu(event)}
-                onBlur={() => this.vm.markTouched("mtu")}
+                max="65535"
+                value={createMtu.value}
+                aria-invalid={createMtu.touched && createMtu.error ? "true" : "false"}
+                aria-describedby={createMtu.touched && createMtu.error ? "mtu-error" : undefined}
+                onInput={(event: Event) => createMtu.onInput(event)}
+                onBlur={() => createMtu.onBlur()}
               />
-              <Show when={this.vm.mtuError !== null && this.vm.showCreateError("mtu")}>
-                <span class="hint" id="mtu-error" style="color:var(--md-error)">{this.vm.mtuError ?? ""}</span>
+              <Show when={createMtu.touched && createMtu.error}>
+                <span class="hint" id="mtu-error" style="color:var(--md-error)">{createMtu.error ?? ""}</span>
               </Show>
             </div>
           </div>
@@ -569,9 +592,15 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 id="iface-edit-label"
                 class="input"
                 type="text"
-                value={this.vm.editLabel}
-                onInput={(event: Event) => this.vm.setEditLabel(event)}
+                value={editLabel.value}
+                aria-invalid={editLabel.touched && editLabel.error ? "true" : "false"}
+                aria-describedby={editLabel.touched && editLabel.error ? "edit-label-error" : undefined}
+                onInput={(event: Event) => editLabel.onInput(event)}
+                onBlur={() => editLabel.onBlur()}
               />
+              <Show when={editLabel.touched && editLabel.error}>
+                <span class="hint" id="edit-label-error" style="color:var(--md-error)">{editLabel.error ?? ""}</span>
+              </Show>
             </div>
             <div class="field">
               <label for="iface-edit-host">{t("interfaces.form.host")}</label>
@@ -579,14 +608,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 id="iface-edit-host"
                 class="input"
                 type="text"
-                value={this.vm.editHost}
-                aria-invalid={this.vm.editHostError !== null && this.vm.showEditError("host") ? "true" : "false"}
-                aria-describedby={this.vm.editHostError !== null && this.vm.showEditError("host") ? "edit-host-error" : undefined}
-                onInput={(event: Event) => this.vm.setEditHost(event)}
-                onBlur={() => this.vm.markTouched("edit.host")}
+                value={editHost.value}
+                aria-invalid={editHost.touched && editHost.error ? "true" : "false"}
+                aria-describedby={editHost.touched && editHost.error ? "edit-host-error" : undefined}
+                onInput={(event: Event) => editHost.onInput(event)}
+                onBlur={() => editHost.onBlur()}
               />
-              <Show when={this.vm.editHostError !== null && this.vm.showEditError("host")}>
-                <span class="hint" id="edit-host-error" style="color:var(--md-error)">{this.vm.editHostError ?? ""}</span>
+              <Show when={editHost.touched && editHost.error}>
+                <span class="hint" id="edit-host-error" style="color:var(--md-error)">{editHost.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -597,14 +626,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 type="number"
                 min="1"
                 max="65535"
-                value={this.vm.editEndpointPort}
-                aria-invalid={this.vm.editEndpointPortError !== null && this.vm.showEditError("endpointPort") ? "true" : "false"}
-                aria-describedby={this.vm.editEndpointPortError !== null && this.vm.showEditError("endpointPort") ? "edit-endpoint-port-error" : undefined}
-                onInput={(event: Event) => this.vm.setEditEndpointPort(event)}
-                onBlur={() => this.vm.markTouched("edit.endpointPort")}
+                value={editEndpointPort.value}
+                aria-invalid={editEndpointPort.touched && editEndpointPort.error ? "true" : "false"}
+                aria-describedby={editEndpointPort.touched && editEndpointPort.error ? "edit-endpoint-port-error" : undefined}
+                onInput={(event: Event) => editEndpointPort.onInput(event)}
+                onBlur={() => editEndpointPort.onBlur()}
               />
-              <Show when={this.vm.editEndpointPortError !== null && this.vm.showEditError("endpointPort")}>
-                <span class="hint" id="edit-endpoint-port-error" style="color:var(--md-error)">{this.vm.editEndpointPortError ?? ""}</span>
+              <Show when={editEndpointPort.touched && editEndpointPort.error}>
+                <span class="hint" id="edit-endpoint-port-error" style="color:var(--md-error)">{editEndpointPort.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -615,14 +644,14 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 type="number"
                 min="1"
                 max="65535"
-                value={this.vm.editListenPort}
-                aria-invalid={this.vm.editListenPortError !== null && this.vm.showEditError("listenPort") ? "true" : "false"}
-                aria-describedby={this.vm.editListenPortError !== null && this.vm.showEditError("listenPort") ? "edit-listen-port-error" : undefined}
-                onInput={(event: Event) => this.vm.setEditListenPort(event)}
-                onBlur={() => this.vm.markTouched("edit.listenPort")}
+                value={editListenPort.value}
+                aria-invalid={editListenPort.touched && editListenPort.error ? "true" : "false"}
+                aria-describedby={editListenPort.touched && editListenPort.error ? "edit-listen-port-error" : undefined}
+                onInput={(event: Event) => editListenPort.onInput(event)}
+                onBlur={() => editListenPort.onBlur()}
               />
-              <Show when={this.vm.editListenPortError !== null && this.vm.showEditError("listenPort")}>
-                <span class="hint" id="edit-listen-port-error" style="color:var(--md-error)">{this.vm.editListenPortError ?? ""}</span>
+              <Show when={editListenPort.touched && editListenPort.error}>
+                <span class="hint" id="edit-listen-port-error" style="color:var(--md-error)">{editListenPort.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -632,15 +661,15 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
                 class="input"
                 type="number"
                 min="576"
-                max="9000"
-                value={this.vm.editMtu}
-                aria-invalid={this.vm.editMtuError !== null && this.vm.showEditError("mtu") ? "true" : "false"}
-                aria-describedby={this.vm.editMtuError !== null && this.vm.showEditError("mtu") ? "edit-mtu-error" : undefined}
-                onInput={(event: Event) => this.vm.setEditMtu(event)}
-                onBlur={() => this.vm.markTouched("edit.mtu")}
+                max="65535"
+                value={editMtu.value}
+                aria-invalid={editMtu.touched && editMtu.error ? "true" : "false"}
+                aria-describedby={editMtu.touched && editMtu.error ? "edit-mtu-error" : undefined}
+                onInput={(event: Event) => editMtu.onInput(event)}
+                onBlur={() => editMtu.onBlur()}
               />
-              <Show when={this.vm.editMtuError !== null && this.vm.showEditError("mtu")}>
-                <span class="hint" id="edit-mtu-error" style="color:var(--md-error)">{this.vm.editMtuError ?? ""}</span>
+              <Show when={editMtu.touched && editMtu.error}>
+                <span class="hint" id="edit-mtu-error" style="color:var(--md-error)">{editMtu.error ?? ""}</span>
               </Show>
             </div>
             <div class="field">
@@ -648,11 +677,11 @@ export function InterfacesPage(this: { vm: InterfacesPageVM }) {
               <label class="switch">
                 <input
                   type="checkbox"
-                  checked={this.vm.editEnabled}
-                  onChange={(event: Event) => this.vm.setEditEnabled(event)}
+                  checked={editEnabled.value}
+                  onChange={(event: Event) => editEnabled.onChange(event)}
                 />
                 <span class="track"></span>
-                <span>{this.vm.editEnabled ? t("interfaces.edit.on") : t("interfaces.edit.off")}</span>
+                <span>{editEnabled.value ? t("interfaces.edit.on") : t("interfaces.edit.off")}</span>
               </label>
             </div>
           </div>

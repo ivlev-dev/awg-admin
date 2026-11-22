@@ -411,6 +411,8 @@ describe("ImportPageVM constructor DI", () => {
     });
 
     vm.mode = "clients";
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(INTERFACE.id);
     vm.setClientsImportText({
       target: {
         value: "[Interface]\nAddress = 10.8.0.2/24\n\n[Peer]\nPublicKey = peer-a",

@@ -811,6 +811,54 @@ describe("ImportPageVM", () => {
     });
   });
 
+  it("не проверяет группу с некорректным CIDR", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    fillValid(vm);
+    vm.baseCidr = "999.1.1.1/24";
+
+    await vm.previewNow();
+
+    expect(imports.preview).not.toHaveBeenCalled();
+    expect(vm.groupForm.getFieldProps("baseCidr").error).toBe("Некорректный CIDR");
+    expect(vm.groupValid).toBe(false);
+  });
+
+  it("проверяет клиентов без выбранного интерфейса", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+
+    await vm.previewClientsNow();
+
+    expect(imports.previewClients).toHaveBeenCalledWith({
+      interface_id: null,
+      owner_user_id: null,
+      clients: [{ name: "client-1", config: CLIENT_ONE }],
+    });
+    expect(vm.clientsForm.getFieldProps("clientInterfaceId").error).toBeUndefined();
+    expect(vm.canPreviewClients).toBe(true);
+    expect(vm.clientsPreview).not.toBeNull();
+  });
+
+  it("проверяет клиентов без выбранного владельца", async () => {
+    const { vm, imports } = setup();
+    await vm.created();
+    vm.setClientInterface(EXISTING_INTERFACE.id);
+    vm.setClientsImportText(inputEvent(CLIENT_ONE));
+
+    await vm.previewClientsNow();
+
+    expect(imports.previewClients).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interface_id: EXISTING_INTERFACE.id,
+        owner_user_id: null,
+      }),
+    );
+    expect(vm.clientsForm.getFieldProps("clientOwnerUserId").error).toBeUndefined();
+    expect(vm.clientsPreview).not.toBeNull();
+  });
+
   it("сбрасывает план проверки при изменении формы", async () => {
     const { vm } = setup();
     await vm.created();
@@ -826,6 +874,23 @@ describe("ImportPageVM", () => {
     expect(vm.canApply).toBe(false);
     expect(vm.step).toBe(2);
     expect(vm.planInvalidated).toBe(true);
+  });
+
+  it("сбрасывает план при вводе в поля формы шага группы", async () => {
+    const { vm } = setup();
+    await vm.created();
+    fillValid(vm);
+    await vm.previewNow();
+
+    vm.groupForm
+      .getFieldProps("groupName")
+      .onInput({ currentTarget: { value: "Renamed" } } as unknown as Event);
+
+    await vi.waitFor(() => {
+      expect(vm.preview).toBeNull();
+      expect(vm.planInvalidated).toBe(true);
+    });
+    expect(vm.step).toBe(2);
   });
 
   it("не применяет импорт без проверки", async () => {
@@ -928,6 +993,8 @@ describe("ImportPageVM", () => {
   it("показывает diff unchanged/update и применяет обновления", async () => {
     const { vm, imports, toasts } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
     vi.mocked(imports.previewClients).mockResolvedValueOnce(CLIENTS_DIFF_PREVIEW);
     vi.mocked(imports.applyClients).mockResolvedValueOnce(CLIENTS_DIFF_APPLIED);
@@ -1033,6 +1100,9 @@ describe("ImportPageVM", () => {
     vi.mocked(imports.preview).mockReturnValueOnce(pending.promise);
 
     const request = vm.previewNow();
+    await vi.waitFor(() => {
+      expect(imports.preview).toHaveBeenCalledTimes(1);
+    });
     vm.setGroupName(inputEvent("Changed"));
     pending.resolve(PREVIEW);
     await request;
@@ -1080,9 +1150,9 @@ describe("ImportPageVM", () => {
 
     vm.next();
     await vi.waitFor(() => {
+      expect(vm.step).toBe(3);
       expect(vm.preview).not.toBeNull();
     });
-    expect(vm.step).toBe(3);
 
     vm.next();
     await vi.waitFor(() => {
@@ -1204,16 +1274,17 @@ describe("ImportPageVM", () => {
     });
   });
 
-  it("проверяет клиентов с автоопределением интерфейса", async () => {
+  it("проверяет клиентов с выбранным интерфейсом", async () => {
     const { vm, imports, toasts } = setup();
     await vm.created();
     vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
 
     await vm.previewClientsNow();
 
     expect(imports.previewClients).toHaveBeenCalledWith({
-      interface_id: null,
+      interface_id: EXISTING_INTERFACE.id,
       owner_user_id: OWNER.id,
       clients: [
         { name: "client-1", config: CLIENT_ONE },
@@ -1240,6 +1311,7 @@ describe("ImportPageVM", () => {
   it("передаёт выбранный интерфейс при проверке клиентов", async () => {
     const { vm, imports } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
     vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
 
@@ -1253,11 +1325,13 @@ describe("ImportPageVM", () => {
   it("сбрасывает план клиентов при изменении формы", async () => {
     const { vm } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
     await vm.previewClientsNow();
 
     expect(vm.clientsPreview).not.toBeNull();
-    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface("i2");
 
     expect(vm.clientsPreview).toBeNull();
     expect(vm.clientsStep).toBe(1);
@@ -1267,6 +1341,8 @@ describe("ImportPageVM", () => {
 
   it("не применяет клиентов без проверки", async () => {
     const { vm, imports, toasts } = setup();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
 
     await vm.applyClientsNow();
@@ -1281,6 +1357,8 @@ describe("ImportPageVM", () => {
   it("применяет клиентов и показывает результат с ошибками", async () => {
     const { vm, imports, router } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(`${CLIENT_ONE}\n---\n${CLIENT_TWO}`));
     await vm.previewClientsNow();
 
@@ -1288,8 +1366,8 @@ describe("ImportPageVM", () => {
 
     expect(imports.applyClients).toHaveBeenCalledTimes(1);
     expect(imports.applyClients).toHaveBeenCalledWith({
-      interface_id: null,
-      owner_user_id: null,
+      interface_id: EXISTING_INTERFACE.id,
+      owner_user_id: OWNER.id,
       clients: [
         { name: "client-1", config: CLIENT_ONE },
         { name: "client-2", config: CLIENT_TWO },
@@ -1324,6 +1402,8 @@ describe("ImportPageVM", () => {
   it("показывает фатальную ошибку импорта клиентов", async () => {
     const { vm, imports, toasts } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
     await vm.previewClientsNow();
     vi.mocked(imports.applyClients).mockRejectedValueOnce(new Error("Транзакция прервана"));
@@ -1343,6 +1423,8 @@ describe("ImportPageVM", () => {
   it("показывает ошибку проверки клиентов", async () => {
     const { vm, imports, toasts } = setup();
     await vm.created();
+    vm.setClientOwner(OWNER.id);
+    vm.setClientInterface(EXISTING_INTERFACE.id);
     vm.setClientsImportText(inputEvent(CLIENT_ONE));
     vi.mocked(imports.previewClients).mockRejectedValueOnce(new Error("Нет интерфейсов"));
 

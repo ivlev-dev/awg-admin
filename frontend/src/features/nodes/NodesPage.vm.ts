@@ -19,6 +19,7 @@ import type { NodeInfo } from "@/domain/types";
 import { copyText } from "@/domain/clipboard";
 import { t } from "@/i18n";
 import { formatDateTimeI18n, pluralI18n } from "@/i18n/format";
+import { NodeForm } from "./node.form";
 
 export const METRICS_LABEL_TICK_MS = 30_000;
 export const METRICS_REFRESH_MS = 60_000;
@@ -30,7 +31,7 @@ export class NodesPageVM extends ViewModel {
   @reactive accessor error: string | null = null;
 
   @reactive accessor createOpen = false;
-  @reactive accessor name = "";
+  readonly createForm = new NodeForm();
   @reactive accessor formError: string | null = null;
 
   @reactive accessor createdNode: NodeCreated | null = null;
@@ -65,10 +66,12 @@ export class NodesPageVM extends ViewModel {
 
   override unmounted(): void {
     this.stopTimers();
+    this.createForm.dispose();
   }
 
   override dispose(): void {
     this.stopTimers();
+    this.createForm.dispose();
     super.dispose();
   }
 
@@ -164,7 +167,7 @@ export class NodesPageVM extends ViewModel {
 
   @computed
   get canCreate(): boolean {
-    return this.name.trim().length > 0 && !this.busy;
+    return this.createForm.isReady && !this.busy;
   }
 
   async load(): Promise<void> {
@@ -181,8 +184,8 @@ export class NodesPageVM extends ViewModel {
   }
 
   openCreate(): void {
+    this.createForm.reset();
     this.createOpen = true;
-    this.name = "";
     this.formError = null;
     this.tokenCopied = false;
   }
@@ -203,30 +206,26 @@ export class NodesPageVM extends ViewModel {
     this.rotatedTokenCopied = false;
   }
 
-  setName(event: Event): void {
-    this.name = (event.target as HTMLInputElement).value;
-  }
-
   async submitCreate(event: Event): Promise<void> {
-    event.preventDefault();
-    if (!this.canCreate) return;
-    this.busy = true;
-    this.formError = null;
-    try {
-      const result = await this.nodesService.createNode(this.name.trim());
-      invalidate("nodes", this.nodesService);
-      this.createdNode = result;
-      this.createOpen = false;
-      this.name = "";
-      this.toasts.success(t("nodes.toast.created", { name: result.node.name }));
-      await this.load();
-    } catch (error) {
-      const message = userMessage(error, t("nodes.error.create"));
-      this.formError = message;
-      this.toasts.error(message);
-    } finally {
-      this.busy = false;
-    }
+    await this.createForm.onSubmit(async (form) => {
+      this.busy = true;
+      this.formError = null;
+      try {
+        const result = await this.nodesService.createNode(form.name.trim());
+        invalidate("nodes", this.nodesService);
+        this.createdNode = result;
+        this.createOpen = false;
+        this.createForm.reset();
+        this.toasts.success(t("nodes.toast.created", { name: result.node.name }));
+        await this.load();
+      } catch (error) {
+        const message = userMessage(error, t("nodes.error.create"));
+        this.formError = message;
+        this.toasts.error(message);
+      } finally {
+        this.busy = false;
+      }
+    })(event);
   }
 
   async copyToken(): Promise<void> {

@@ -50,6 +50,8 @@ export const enNodes = {
   "nodes.rotated.notice": "The old token no longer works. Copy the new token and update the AWG_NODE_TOKEN variable on the worker; it will reconnect afterwards.",
   "nodes.rotated.token": "New worker token",
   "nodes.error.load": "Failed to load nodes",
+  "nodes.error.name": "Node name is required",
+  "nodes.error.nameLength": "Node name must be at most 64 characters",
   "nodes.error.create": "Failed to create the node",
   "nodes.error.rotate": "Failed to rotate the token",
   "nodes.error.delete": "Failed to delete the node",

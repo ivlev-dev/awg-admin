@@ -7,7 +7,8 @@ import type { ToastStore } from "@/app/toast";
 import type { Device, ShareFormat, ShareLink, ShareLinkState } from "@/domain/types";
 import { t } from "@/i18n";
 
-import { SHARE_MAX_USES_LIMIT, SHARE_STATE_KEYS } from "./types";
+import { SHARE_FORMAT_VALUES, SHARE_TTL_VALUES, ShareForm } from "./share.form";
+import { MAX_SHARE_USES, SHARE_STATE_KEYS } from "./types";
 
 type ShareHost = {
   readonly device: Device | null;
@@ -15,19 +16,35 @@ type ShareHost = {
   readonly devicesService: DevicesService;
   readonly toasts: ToastStore;
   shares: ShareLink[];
-}
+};
 
 export class ShareSection {
   private host!: ShareHost;
+
+  readonly form = new ShareForm({ formId: "share-create", validateOnInput: true });
 
   attach(host: ShareHost): void {
     this.host = host;
   }
 
-  @reactive accessor format: ShareFormat = "conf";
-  @reactive accessor ttl = 86400;
-  @reactive accessor oneTime = false;
-  @reactive accessor maxUses = "";
+  get format(): ShareFormat {
+    return this.form.format;
+  }
+
+  get ttl(): number {
+    return this.form.ttl;
+  }
+
+  get oneTime(): boolean {
+    return this.form.oneTime;
+  }
+
+  get maxUses(): string {
+    if (this.form.maxUsesEmpty) return "";
+    const value = this.form.maxUses;
+    return typeof value === "number" && Number.isFinite(value) ? String(value) : "";
+  }
+
   @reactive accessor busy = false;
 
   @computed
@@ -36,25 +53,27 @@ export class ShareSection {
       this.host.device !== null &&
       this.host.shareInterfaceId.length > 0 &&
       !this.busy &&
-      !this.maxUsesInvalid
+      !this.maxUsesInvalid &&
+      isTtlValid(this.form.ttl) &&
+      isFormatValid(this.form.format)
     );
   }
 
   @computed
   get maxUsesInvalid(): boolean {
-    if (this.oneTime) return false;
-    const raw = this.maxUses.trim();
-    if (raw.length === 0) return false;
-    const parsed = Number(raw);
-    return !Number.isInteger(parsed) || parsed < 1 || parsed > SHARE_MAX_USES_LIMIT;
+    if (this.form.oneTime || this.form.maxUsesEmpty) return false;
+    const raw = this.form.maxUses;
+    if (raw === "" || raw === null || raw === undefined) return false;
+    if (typeof raw !== "number") return true;
+    return !Number.isInteger(raw) || raw < 1 || raw > MAX_SHARE_USES;
   }
 
   @computed
   get maxUsesValue(): number | undefined {
-    if (this.oneTime || this.maxUsesInvalid) return undefined;
-    const raw = this.maxUses.trim();
-    if (raw.length === 0) return undefined;
-    return Number(raw);
+    if (this.form.oneTime || this.form.maxUsesEmpty || this.maxUsesInvalid) return undefined;
+    const raw = this.form.maxUses;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return undefined;
+    return raw;
   }
 
   @computed
@@ -80,25 +99,39 @@ export class ShareSection {
   }
 
   resetForm(): void {
-    this.oneTime = false;
-    this.maxUses = "";
+    const format = this.form.format;
+    const ttl = this.form.ttl;
+    this.form.reset();
+    this.form.maxUsesEmpty = true;
+    this.form.format = format;
+    this.form.ttl = ttl;
   }
 
   setFormat(value: string): void {
-    this.format = value === "vpn" ? "vpn" : "conf";
+    this.form.format = value === "vpn" ? "vpn" : "conf";
+    void this.form.validateField("format");
   }
 
   setTtl(value: string): void {
     const parsed = Number(value);
-    this.ttl = Number.isFinite(parsed) && parsed > 0 ? parsed : 3600;
+    this.form.ttl = Number.isFinite(parsed) ? parsed : 0;
+    void this.form.validateField("ttl");
   }
 
   setOneTime(event: Event): void {
-    this.oneTime = (event.target as HTMLInputElement).checked;
+    this.form.getFieldProps("oneTime").onChange(event);
   }
 
   setMaxUses(value: string): void {
-    this.maxUses = value;
+    const raw = value.trim();
+    this.form.maxUsesEmpty = raw.length === 0;
+    if (raw.length === 0) {
+      this.form.maxUses = 0;
+    } else {
+      const parsed = Number(raw);
+      this.form.maxUses = Number.isFinite(parsed) ? parsed : raw;
+    }
+    void this.form.validateField("maxUses");
   }
 
   stateLabel(state: ShareLinkState): string {
@@ -122,26 +155,35 @@ export class ShareSection {
     });
   }
 
+  dispose(): void {
+    this.form.dispose();
+  }
+
   async create(): Promise<void> {
     const device = this.host.device;
-    if (!device || !this.canCreate) return;
-    this.busy = true;
-    try {
-      const maxUses = this.maxUsesValue;
-      const share = await this.host.devicesService.createShare(device.id, {
-        interfaceId: this.host.shareInterfaceId,
-        format: this.format,
-        ttlSecs: this.ttl,
-        ...(this.oneTime ? { oneTime: true } : {}),
-        ...(!this.oneTime && maxUses !== undefined ? { maxUses } : {}),
-      });
-      this.host.shares = [share, ...this.host.shares];
-      this.host.toasts.success(t("clients.details.toast.shareCreated"));
-    } catch (error) {
-      this.host.toasts.error(userMessage(error, t("clients.details.error.shareCreate")));
-    } finally {
-      this.busy = false;
-    }
+    if (!device || this.busy) return;
+    await this.form.onSubmit(async (submitted) => {
+      if (!submitted.isValid || !this.canCreate) return;
+      this.busy = true;
+      try {
+        const maxUses = this.maxUsesValue;
+        const share = await this.host.devicesService.createShare(device.id, {
+          interfaceId: this.host.shareInterfaceId,
+          format: submitted.format,
+          ttlSecs: submitted.ttl,
+          ...(submitted.oneTime ? { oneTime: true } : {}),
+          ...(!submitted.oneTime && maxUses !== undefined ? { maxUses } : {}),
+        });
+        this.host.shares = [share, ...this.host.shares];
+        this.host.toasts.success(t("clients.details.toast.shareCreated"));
+      } catch (error) {
+        const message = userMessage(error, t("clients.details.error.shareCreate"));
+        if (isShareValidationError(error)) submitted.setFieldErrors("maxUses", [message]);
+        this.host.toasts.error(message);
+      } finally {
+        this.busy = false;
+      }
+    })();
   }
 
   async revoke(token: string): Promise<void> {
@@ -191,4 +233,18 @@ export class ShareSection {
       this.busy = false;
     }
   }
+}
+
+function isTtlValid(value: number): boolean {
+  return (SHARE_TTL_VALUES as readonly number[]).includes(value);
+}
+
+function isFormatValid(value: string): boolean {
+  return (SHARE_FORMAT_VALUES as readonly string[]).includes(value);
+}
+
+function isShareValidationError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const status = Reflect.get(error, "status");
+  return status === 400 || status === 409 || status === 422;
 }

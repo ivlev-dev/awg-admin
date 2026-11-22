@@ -9,12 +9,8 @@ import { invalidate, lookupNodes, lookupQuotas, lookupTariffs, lookupUsers } fro
 import { PAGE_SIZES, pageCount, pageWindow } from "@/app/table-pagination";
 import { TableController } from "@/app/table-controller";
 import { ToastStore } from "@/app/toast";
-import { userMessage } from "@/application/errors";
-import {
-  normalizeOptionalFullName,
-  validateEmail,
-  validatePasswordForEmail,
-} from "@/application/guards";
+import { userMessage, ValidationError } from "@/application/errors";
+import { normalizeOptionalFullName } from "@/application/guards";
 import type { QuotaService, UserQuotaSnapshot } from "@/application/quota/service";
 import type { NodesService } from "@/application/nodes/service";
 import type { TariffsService } from "@/application/tariffs/service";
@@ -26,6 +22,9 @@ import type { UsersBulkAction } from "@/domain/users/repository";
 import type { UserPageParams, UserPageStatus, UserPageTab } from "@/domain/users/types";
 import { t } from "@/i18n";
 import { formatBytesI18n, formatDateI18n } from "@/i18n/format";
+
+import { ResetPasswordForm } from "./reset-password.form";
+import { UserForm } from "./user.form";
 
 export type UsersTab = UserPageTab;
 
@@ -98,23 +97,14 @@ export class UsersPageVM extends ViewModel {
   @reactive accessor editingId: string | null = null;
   @reactive accessor saving = false;
   @reactive accessor formError: string | null = null;
-  @reactive accessor emailError: string | null = null;
-  @reactive accessor fullNameError: string | null = null;
-  @reactive accessor passwordError: string | null = null;
 
-  @reactive accessor email = "";
-  @reactive accessor fullName = "";
-  @reactive accessor password = "";
-  @reactive accessor role: Role = "user";
-  @reactive accessor tariffId = "";
-  @reactive accessor nodeId = "";
-  @reactive accessor disabled = false;
+  readonly userForm: UserForm;
 
   @reactive accessor resetOpen = false;
   @reactive accessor resetTarget: User | null = null;
-  @reactive accessor resetPassword = "";
   @reactive accessor resetSaving = false;
-  @reactive accessor resetError: string | null = null;
+
+  readonly resetForm: ResetPasswordForm;
 
   @reactive accessor approveOpen = false;
   @reactive accessor approveTarget: User | null = null;
@@ -134,6 +124,8 @@ export class UsersPageVM extends ViewModel {
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.userForm = new UserForm();
+    this.resetForm = new ResetPasswordForm();
     this.table = new TableController({
       items: () => this.users,
       total: () => this.activeTotal,
@@ -170,6 +162,8 @@ export class UsersPageVM extends ViewModel {
 
   override unmounted(): void {
     this.detachPopstate();
+    this.userForm.dispose();
+    this.resetForm.dispose();
   }
 
   override dispose(): void {
@@ -177,6 +171,8 @@ export class UsersPageVM extends ViewModel {
     this.detachPopstate();
     this.controller?.abort();
     this.controller = null;
+    this.userForm.dispose();
+    this.resetForm.dispose();
     super.dispose();
   }
 
@@ -696,15 +692,7 @@ export class UsersPageVM extends ViewModel {
   }
 
   formState(): string {
-    return JSON.stringify([
-      this.email,
-      this.fullName,
-      this.password,
-      this.role,
-      this.tariffId,
-      this.nodeId,
-      this.disabled,
-    ]);
+    return JSON.stringify(this.userForm.values);
   }
 
   @computed
@@ -714,34 +702,36 @@ export class UsersPageVM extends ViewModel {
 
   openCreate(): void {
     this.editingId = null;
-    this.email = "";
-    this.fullName = "";
-    this.password = "";
-    this.role = "user";
-    this.tariffId = "";
-    this.nodeId = "";
-    this.disabled = false;
+    this.userForm.reset();
+    this.userForm.creating = true;
+    this.userForm.setValues({
+      email: "",
+      fullName: "",
+      password: "",
+      role: "user",
+      tariffId: "",
+      nodeId: "",
+      disabled: false,
+    });
     this.formError = null;
-    this.emailError = null;
-    this.fullNameError = null;
-    this.passwordError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
   }
 
   openEdit(user: User): void {
     this.editingId = user.id;
-    this.email = this.userEmail(user);
-    this.fullName = user.full_name ?? "";
-    this.password = "";
-    this.role = user.role;
-    this.tariffId = user.tariff_id ?? "";
-    this.nodeId = user.node_id ?? "";
-    this.disabled = user.disabled;
+    this.userForm.reset();
+    this.userForm.creating = false;
+    this.userForm.setValues({
+      email: this.userEmail(user),
+      fullName: user.full_name ?? "",
+      password: "",
+      role: user.role,
+      tariffId: user.tariff_id ?? "",
+      nodeId: user.node_id ?? "",
+      disabled: user.disabled,
+    });
     this.formError = null;
-    this.emailError = null;
-    this.fullNameError = null;
-    this.passwordError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
   }
@@ -758,118 +748,84 @@ export class UsersPageVM extends ViewModel {
       if (!confirmed) return;
     }
     this.modalOpen = false;
-    this.password = "";
+    this.userForm.password = "";
     this.formSnapshot = "";
-  }
-
-  setEmail(event: Event): void {
-    this.email = (event.target as HTMLInputElement).value;
-    this.emailError = null;
-  }
-
-  setFullName(event: Event): void {
-    this.fullName = (event.target as HTMLInputElement).value;
-    this.fullNameError = null;
-  }
-
-  setPassword(event: Event): void {
-    this.password = (event.target as HTMLInputElement).value;
-    this.passwordError = null;
   }
 
   setRole(value: string): void {
     if (this.roleLocked) return;
-    this.role = value === "admin" ? "admin" : "user";
-  }
-
-  setTariff(value: string): void {
-    this.tariffId = value;
-  }
-
-  setNode(value: string): void {
-    this.nodeId = value;
-  }
-
-  setDisabled(event: Event): void {
-    this.disabled = (event.target as HTMLInputElement).checked;
+    this.userForm.role = value === "admin" ? "admin" : "user";
   }
 
   async submit(): Promise<void> {
     if (this.saving) return;
-    let email = "";
-    try {
-      email = validateEmail(this.email);
-    } catch (error) {
-      this.emailError = userMessage(error, t("users.form.error.email"));
-      this.formError = this.emailError;
-      return;
-    }
-    let fullName: string | null = null;
-    try {
-      fullName = normalizeOptionalFullName(this.fullName) ?? null;
-    } catch (error) {
-      this.fullNameError = userMessage(error, t("users.form.error.fullName"));
-      this.formError = this.fullNameError;
-      return;
-    }
-    const editingSelf = this.isEditingSelf;
-    if (this.editingId && this.disabled && !editingSelf) {
-      const target = this.users.find((user) => user.id === this.editingId);
-      if (target !== undefined && this.isLastAdmin(target)) {
-        this.formError = t("users.error.lastAdmin");
-        this.toasts.error(t("users.error.lastAdmin"));
-        return;
-      }
-    }
     this.saving = true;
     this.formError = null;
+    let submitted = false;
     try {
-      if (this.editingId) {
-        await this.usersService.updateUser(this.editingId, {
-          email,
-          full_name: fullName,
-          role: editingSelf ? this.session.user?.role ?? this.role : this.role,
-          tariff_id: this.tariffId ? this.tariffId : null,
-          node_id: this.nodeId ? this.nodeId : null,
-          disabled: this.disabled,
-        });
-        this.toasts.success(t("users.toast.updated"));
-        if (editingSelf) await this.session.reload();
-      } else {
-        try {
-          validatePasswordForEmail(this.password, email);
-        } catch (error) {
-          this.passwordError = userMessage(error, t("users.form.error.password"));
-          this.formError = this.passwordError;
-          return;
+      await this.userForm.onSubmit(async (form) => {
+        submitted = true;
+        const editingSelf = this.isEditingSelf;
+        if (this.editingId && form.disabled && !editingSelf) {
+          const target = this.users.find((user) => user.id === this.editingId);
+          if (target !== undefined && this.isLastAdmin(target)) {
+            this.formError = t("users.error.lastAdmin");
+            this.toasts.error(t("users.error.lastAdmin"));
+            return;
+          }
         }
-        await this.usersService.createUser({
-          email,
-          full_name: fullName,
-          password: this.password,
-          role: this.role,
-          tariff_id: this.tariffId ? this.tariffId : null,
-          node_id: this.nodeId ? this.nodeId : null,
-        });
-        this.toasts.success(t("users.toast.created"));
-      }
-      this.modalOpen = false;
-      this.password = "";
-      this.formSnapshot = "";
-      await this.reloadAfterMutation();
-    } catch (error) {
-      const message = userMessage(error, t("users.form.error.save"));
-      this.formError = message;
-      this.toasts.error(message);
+        try {
+          const email = form.email.trim();
+          const fullName = normalizeOptionalFullName(form.fullName) ?? null;
+          if (this.editingId) {
+            await this.usersService.updateUser(this.editingId, {
+              email,
+              full_name: fullName,
+              role: editingSelf ? this.session.user?.role ?? form.role : form.role,
+              tariff_id: form.tariffId ? form.tariffId : null,
+              node_id: form.nodeId ? form.nodeId : null,
+              disabled: form.disabled,
+            });
+            this.toasts.success(t("users.toast.updated"));
+            if (editingSelf) await this.session.reload();
+          } else {
+            await this.usersService.createUser({
+              email,
+              full_name: fullName,
+              password: form.password,
+              role: form.role,
+              tariff_id: form.tariffId ? form.tariffId : null,
+              node_id: form.nodeId ? form.nodeId : null,
+            });
+            this.toasts.success(t("users.toast.created"));
+          }
+          this.modalOpen = false;
+          this.userForm.password = "";
+          this.formSnapshot = "";
+          await this.reloadAfterMutation();
+        } catch (error) {
+          const message = userMessage(error, t("users.form.error.save"));
+          this.formError = message;
+          this.applyUserServerError(error, message);
+          this.toasts.error(message);
+        }
+      })();
+      if (!submitted) this.formError = firstFieldError(this.userForm.errors);
     } finally {
       this.saving = false;
     }
   }
 
+  private applyUserServerError(error: unknown, message: string): void {
+    if (!(error instanceof ValidationError)) return;
+    const field = userErrorField(error.code);
+    if (field !== null) this.userForm.setFieldErrors(field, message);
+  }
+
   openReset(user: User): void {
     this.resetTarget = user;
-    this.resetPassword = "";
-    this.resetError = null;
+    this.resetForm.reset();
+    this.resetForm.targetEmail = this.userEmail(user);
     this.resetOpen = true;
   }
 
@@ -877,38 +833,33 @@ export class UsersPageVM extends ViewModel {
     if (this.resetSaving) return;
     this.resetOpen = false;
     this.resetTarget = null;
-    this.resetPassword = "";
-    this.resetError = null;
-  }
-
-  setResetPassword(event: Event): void {
-    this.resetPassword = (event.target as HTMLInputElement).value;
-    if (this.resetError !== null) this.resetError = null;
+    this.resetForm.reset();
   }
 
   async submitReset(): Promise<void> {
     if (!this.resetTarget || this.resetSaving) return;
     const target = this.resetTarget;
-    try {
-      validatePasswordForEmail(this.resetPassword, target.email);
-    } catch (error) {
-      const message = userMessage(error, t("users.reset.error.password"));
-      this.resetError = message;
-      this.toasts.error(message);
-      return;
-    }
     this.resetSaving = true;
-    this.resetError = null;
     try {
-      await this.usersService.resetPassword(target.id, this.resetPassword);
-      this.toasts.success(t("users.reset.done"));
-      this.resetOpen = false;
-      this.resetTarget = null;
-      this.resetPassword = "";
-    } catch (error) {
-      const message = userMessage(error, t("users.reset.error.save"));
-      this.resetError = message;
-      this.toasts.error(message);
+      let submitted = false;
+      await this.resetForm.onSubmit(async (form) => {
+        submitted = true;
+        try {
+          await this.usersService.resetPassword(target.id, form.newPassword);
+          this.toasts.success(t("users.reset.done"));
+          this.resetOpen = false;
+          this.resetTarget = null;
+          this.resetForm.reset();
+        } catch (error) {
+          const message = userMessage(error, t("users.reset.error.save"));
+          this.resetForm.setFieldErrors("newPassword", message);
+          this.toasts.error(message);
+        }
+      })();
+      if (!submitted) {
+        const message = firstFieldError(this.resetForm.errors);
+        if (message !== null) this.toasts.error(message);
+      }
     } finally {
       this.resetSaving = false;
     }
@@ -1089,6 +1040,31 @@ export class UsersPageVM extends ViewModel {
     this.clearSelection();
     void this.reload();
   };
+}
+
+function firstFieldError(errors: Readonly<Record<string, readonly string[]>>): string | null {
+  for (const messages of Object.values(errors)) {
+    const first = messages[0];
+    if (first !== undefined) return first;
+  }
+  return null;
+}
+
+function userErrorField(code: string): "email" | "fullName" | "password" | null {
+  switch (code) {
+    case "error.validation.emailInvalid":
+      return "email";
+    case "error.validation.fullNameRequired":
+    case "error.validation.fullNameTooLong":
+      return "fullName";
+    case "error.validation.passwordShort":
+    case "error.validation.passwordLong":
+    case "error.validation.passwordCommon":
+    case "error.validation.passwordEmailLocal":
+      return "password";
+    default:
+      return null;
+  }
 }
 
 function validateUsersFilters(value: unknown): UsersFilters | null {

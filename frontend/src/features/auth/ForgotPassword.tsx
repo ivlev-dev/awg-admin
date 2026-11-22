@@ -5,6 +5,8 @@ import { Icon } from "@/components/Icon";
 import { t } from "@/i18n";
 
 export function ForgotPassword(this: { vm: ForgotPasswordVM }) {
+  const email = this.vm.form.getFieldProps("email");
+
   return (
     <div class="auth">
       <section class="auth__brand">
@@ -81,15 +83,17 @@ export function ForgotPassword(this: { vm: ForgotPasswordVM }) {
                 <label for="forgot-email">{t("auth.forgot.email")}</label>
                 <input
                   id="forgot-email"
-                  class={`input ${this.vm.email.length > 0 && !this.vm.emailValid ? "is-invalid" : ""}`}
+                  class={`input ${email.error ? "is-invalid" : ""}`}
                   type="email"
                   autocomplete="email"
                   placeholder={t("auth.forgot.emailPlaceholder")}
-                  value={this.vm.email}
-                  onInput={(event: Event) => this.vm.setEmail(event)}
+                  value={email.value}
+                  aria-invalid={email.error !== undefined}
+                  onInput={email.onInput}
+                  onBlur={email.onBlur}
                 />
-                <Show when={this.vm.email.length > 0 && !this.vm.emailValid}>
-                  <div class="hint" style="color:var(--red)">{t("auth.forgot.error.email")}</div>
+                <Show when={email.error}>
+                  <div class="hint" style="color:var(--red)">{email.error}</div>
                 </Show>
               </div>
 

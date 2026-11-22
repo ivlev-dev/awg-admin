@@ -1,3 +1,4 @@
+import { syncValidationLocale } from "@/app/validation";
 import { ru, type Dictionary, type TranslationKey } from "./ru";
 import { DEFAULT_LOCALE, i18n, isLocale } from "./store";
 import type { Locale, Params } from "./types";
@@ -66,10 +67,14 @@ export function locale(): Locale {
 export function setLocale(next: Locale): void | Promise<void> {
   if (DICTIONARIES[next] !== undefined) {
     i18n.set(next);
+    syncValidationLocale(next);
     return;
   }
   return loadLocale(next).then(() => {
-    if (DICTIONARIES[next] !== undefined) i18n.set(next);
+    if (DICTIONARIES[next] !== undefined) {
+      i18n.set(next);
+      syncValidationLocale(next);
+    }
   });
 }
 

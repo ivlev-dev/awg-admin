@@ -6,6 +6,11 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function Register(this: { vm: RegisterVM }) {
+  const email = this.vm.form.getFieldProps("email");
+  const fullName = this.vm.form.getFieldProps("fullName");
+  const password = this.vm.form.getFieldProps("password");
+  const repeatPassword = this.vm.form.getFieldProps("repeatPassword");
+
   return (
     <div class="auth">
       <section class="auth__brand">
@@ -88,32 +93,39 @@ export function Register(this: { vm: RegisterVM }) {
                 <label for="register-email">{t("auth.register.email")}</label>
                 <input
                   id="register-email"
-                  class={`input ${this.vm.email.length > 0 && !this.vm.emailValid ? "is-invalid" : ""}`}
+                  class={`input ${email.error ? "is-invalid" : ""}`}
                   type="email"
                   autocomplete="email"
                   placeholder={t("auth.register.emailPlaceholder")}
-                  value={this.vm.email}
-                  onInput={(event: Event) => this.vm.setEmail(event)}
+                  value={email.value}
+                  aria-invalid={email.error !== undefined}
+                  onInput={email.onInput}
+                  onBlur={email.onBlur}
                 />
+                <Show when={email.error}>
+                  <div class="hint" style="color:var(--red)">{email.error}</div>
+                </Show>
               </div>
 
               <div class="field">
                 <label for="register-full-name">{t("auth.register.fullName")}</label>
                 <input
                   id="register-full-name"
-                  class={`input ${this.vm.fullNameTooLong ? "is-invalid" : ""}`}
+                  class={`input ${fullName.error ? "is-invalid" : ""}`}
                   type="text"
                   autocomplete="name"
                   maxlength={200}
                   placeholder={t("auth.register.fullNamePlaceholder")}
-                  value={this.vm.fullName}
-                  onInput={(event: Event) => this.vm.setFullName(event)}
+                  value={fullName.value}
+                  aria-invalid={fullName.error !== undefined}
+                  onInput={fullName.onInput}
+                  onBlur={fullName.onBlur}
                 />
                 <Show
-                  when={this.vm.fullNameTooLong}
+                  when={fullName.error}
                   fallback={<div class="hint">{t("auth.register.fullNameHint")}</div>}
                 >
-                  <div class="hint" style="color:var(--red)">{t("auth.register.error.fullName")}</div>
+                  <div class="hint" style="color:var(--red)">{fullName.error}</div>
                 </Show>
               </div>
 
@@ -122,24 +134,26 @@ export function Register(this: { vm: RegisterVM }) {
                 <div class="auth__password">
                   <input
                     id="register-password"
-                    class={`input ${this.vm.passwordInvalid ? "is-invalid" : ""}`}
+                    class={`input ${password.error ? "is-invalid" : ""}`}
                     type={this.vm.showPassword ? "text" : "password"}
                     autocomplete="new-password"
                     minlength={MIN_PASSWORD_LENGTH}
                     maxlength={MAX_PASSWORD_LENGTH}
                     placeholder={t("profile.password.nextPlaceholder")}
-                    value={this.vm.password}
-                    onInput={(event: Event) => this.vm.setPassword(event)}
+                    value={password.value}
+                    aria-invalid={password.error !== undefined}
+                    onInput={password.onInput}
+                    onBlur={password.onBlur}
                   />
                   <button class="btn btn--ghost btn--icon" type="button" onClick={() => this.vm.togglePassword()} aria-label={t("auth.login.showPassword")} title={t("auth.login.showPassword")}>
                     <Icon name={this.vm.showPassword ? "shield" : "search"} size={16} class="" />
                   </button>
                 </div>
                 <Show
-                  when={this.vm.passwordError}
+                  when={password.error}
                   fallback={<div class="hint">{t("auth.register.passwordHint")}</div>}
                 >
-                  <div class="hint" style="color:var(--red)">{this.vm.passwordError}</div>
+                  <div class="hint" style="color:var(--red)">{password.error}</div>
                 </Show>
               </div>
 
@@ -147,16 +161,18 @@ export function Register(this: { vm: RegisterVM }) {
                 <label for="register-repeat">{t("auth.register.repeat")}</label>
                 <input
                   id="register-repeat"
-                  class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
+                  class={`input ${repeatPassword.error ? "is-invalid" : ""}`}
                   type={this.vm.showPassword ? "text" : "password"}
                   autocomplete="new-password"
                   maxlength={MAX_PASSWORD_LENGTH}
                   placeholder={t("profile.password.repeatPlaceholder")}
-                  value={this.vm.repeatPassword}
-                  onInput={(event: Event) => this.vm.setRepeatPassword(event)}
+                  value={repeatPassword.value}
+                  aria-invalid={repeatPassword.error !== undefined}
+                  onInput={repeatPassword.onInput}
+                  onBlur={repeatPassword.onBlur}
                 />
-                <Show when={this.vm.repeatMismatch}>
-                  <div class="hint" style="color:var(--red)">{t("auth.register.error.mismatch")}</div>
+                <Show when={repeatPassword.error}>
+                  <div class="hint" style="color:var(--red)">{repeatPassword.error}</div>
                 </Show>
               </div>
 

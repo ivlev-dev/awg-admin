@@ -76,6 +76,8 @@ function ariaSort(vm: NodesPageVM, key: "name" | "status"): "ascending" | "desce
 }
 
 export function NodesPage(this: { vm: NodesPageVM }) {
+  const createName = this.vm.createForm.getFieldProps("name");
+
   return (
     <div class="stack">
       <Show when={this.vm.error}>
@@ -465,10 +467,15 @@ export function NodesPage(this: { vm: NodesPageVM }) {
               class="input"
               type="text"
               placeholder={t("nodes.form.namePlaceholder")}
-              value={this.vm.name}
-              onInput={(event: Event) => this.vm.setName(event)}
+              value={createName.value}
+              aria-invalid={createName.touched && createName.error ? "true" : "false"}
+              aria-describedby={createName.touched && createName.error ? "node-name-error" : undefined}
+              onInput={(event: Event) => createName.onInput(event)}
+              onBlur={() => createName.onBlur()}
             />
-            <div class="hint">{t("nodes.form.nameHint")}</div>
+            <Show when={createName.touched && createName.error} fallback={<div class="hint">{t("nodes.form.nameHint")}</div>}>
+              <div class="hint" id="node-name-error" style="color:var(--md-error)">{createName.error ?? ""}</div>
+            </Show>
           </div>
           <Show when={this.vm.formError}>
             <div class="alert alert--error">{this.vm.formError}</div>

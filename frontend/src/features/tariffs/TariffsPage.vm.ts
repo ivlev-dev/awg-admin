@@ -13,6 +13,8 @@ import type { InterfaceInfo, Tariff } from "@/domain/types";
 import { validateTariff } from "@/domain/validation";
 import { t } from "@/i18n";
 
+import { TariffForm } from "./tariff.form";
+
 export type TariffsSortKey =
   | "name"
   | "interface_name"
@@ -39,15 +41,7 @@ export class TariffsPageVM extends ViewModel {
   @reactive accessor saving = false;
   @reactive accessor formError: string | null = null;
 
-  @reactive accessor name = "";
-  @reactive accessor description = "";
-  @reactive accessor max_devices = 1;
-  @reactive accessor device_down_kbps = 0;
-  @reactive accessor device_up_kbps = 0;
-  @reactive accessor group_down_kbps = 0;
-  @reactive accessor group_up_kbps = 0;
-  @reactive accessor quotaGb = "";
-  @reactive accessor formInterfaceId = "";
+  readonly tariffForm: TariffForm;
 
   private formSnapshot = "";
 
@@ -59,10 +53,20 @@ export class TariffsPageVM extends ViewModel {
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.tariffForm = new TariffForm();
   }
 
   override created(): void {
     void this.load();
+  }
+
+  override unmounted(): void {
+    this.tariffForm.dispose();
+  }
+
+  override dispose(): void {
+    this.tariffForm.dispose();
+    super.dispose();
   }
 
   async load(): Promise<void> {
@@ -233,15 +237,18 @@ export class TariffsPageVM extends ViewModel {
 
   openCreate(): void {
     this.editingId = null;
-    this.name = "";
-    this.description = "";
-    this.max_devices = 1;
-    this.device_down_kbps = 0;
-    this.device_up_kbps = 0;
-    this.group_down_kbps = 0;
-    this.group_up_kbps = 0;
-    this.quotaGb = "";
-    this.formInterfaceId = "";
+    this.tariffForm.reset();
+    this.tariffForm.setValues({
+      name: "",
+      description: "",
+      maxDevices: 1,
+      deviceDownKbps: 0,
+      deviceUpKbps: 0,
+      groupDownKbps: 0,
+      groupUpKbps: 0,
+      quotaGb: 0,
+      interfaceId: "",
+    });
     this.formError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
@@ -249,35 +256,28 @@ export class TariffsPageVM extends ViewModel {
 
   openEdit(tariff: Tariff): void {
     this.editingId = tariff.id;
-    this.name = tariff.name;
-    this.description = tariff.description;
-    this.max_devices = tariff.max_devices;
-    this.device_down_kbps = tariff.device_down_kbps;
-    this.device_up_kbps = tariff.device_up_kbps;
-    this.group_down_kbps = tariff.group_down_kbps;
-    this.group_up_kbps = tariff.group_up_kbps;
-    this.quotaGb =
-      tariff.traffic_quota_bytes === null
-        ? ""
-        : String(tariff.traffic_quota_bytes / 1024 / 1024 / 1024);
-    this.formInterfaceId = tariff.interface_id ?? "";
+    this.tariffForm.reset();
+    this.tariffForm.setValues({
+      name: tariff.name,
+      description: tariff.description,
+      maxDevices: tariff.max_devices,
+      deviceDownKbps: tariff.device_down_kbps,
+      deviceUpKbps: tariff.device_up_kbps,
+      groupDownKbps: tariff.group_down_kbps,
+      groupUpKbps: tariff.group_up_kbps,
+      quotaGb:
+        tariff.traffic_quota_bytes === null
+          ? 0
+          : tariff.traffic_quota_bytes / 1024 / 1024 / 1024,
+      interfaceId: tariff.interface_id ?? "",
+    });
     this.formError = null;
     this.modalOpen = true;
     this.formSnapshot = this.formState();
   }
 
   formState(): string {
-    return JSON.stringify([
-      this.name,
-      this.description,
-      this.max_devices,
-      this.device_down_kbps,
-      this.device_up_kbps,
-      this.group_down_kbps,
-      this.group_up_kbps,
-      this.quotaGb,
-      this.formInterfaceId,
-    ]);
+    return JSON.stringify(this.tariffForm.values);
   }
 
   @computed
@@ -299,104 +299,74 @@ export class TariffsPageVM extends ViewModel {
     this.modalOpen = false;
   }
 
-  setName(event: Event): void {
-    this.name = (event.target as HTMLInputElement).value;
-  }
-
-  setDescription(event: Event): void {
-    this.description = (event.target as HTMLTextAreaElement).value;
-  }
-
-  setMaxDevices(event: Event): void {
-    const value = Number((event.target as HTMLInputElement).value);
-    this.max_devices = Number.isFinite(value) ? value : 0;
-  }
-
-  setDeviceDownKbps(value: number): void {
-    this.device_down_kbps = sanitizeKbps(value);
-  }
-
-  setDeviceUpKbps(value: number): void {
-    this.device_up_kbps = sanitizeKbps(value);
-  }
-
-  setGroupDownKbps(value: number): void {
-    this.group_down_kbps = sanitizeKbps(value);
-  }
-
-  setGroupUpKbps(value: number): void {
-    this.group_up_kbps = sanitizeKbps(value);
-  }
-
-  setQuota(event: Event): void {
-    this.quotaGb = (event.target as HTMLInputElement).value;
-  }
-
-  setFormInterface(value: string): void {
-    this.formInterfaceId = value;
-  }
-
   private interfaceValid(): boolean {
-    if (this.formInterfaceId === "") return true;
-    return this.interfaces.some((iface) => iface.id === this.formInterfaceId);
+    const interfaceId = this.tariffForm.interfaceId;
+    if (interfaceId === "") return true;
+    return this.interfaces.some((iface) => iface.id === interfaceId);
   }
 
   private buildInput(): TariffInput {
-    const quota = this.quotaGb.trim();
+    const form = this.tariffForm;
+    const quota = form.quotaGb;
     const bytes =
-      quota === "" || Number(quota) === 0
+      quota === 0 || String(quota).trim() === ""
         ? null
         : Math.round(Number(quota) * 1024 * 1024 * 1024);
     return {
-      name: this.name,
-      description: this.description,
-      max_devices: this.max_devices,
-      device_down_kbps: this.device_down_kbps,
-      device_up_kbps: this.device_up_kbps,
-      group_down_kbps: this.group_down_kbps,
-      group_up_kbps: this.group_up_kbps,
+      name: form.name,
+      description: form.description,
+      max_devices: form.maxDevices,
+      device_down_kbps: form.deviceDownKbps,
+      device_up_kbps: form.deviceUpKbps,
+      group_down_kbps: form.groupDownKbps,
+      group_up_kbps: form.groupUpKbps,
       traffic_quota_bytes: bytes,
-      interface_id: this.formInterfaceId === "" ? null : this.formInterfaceId,
+      interface_id: form.interfaceId === "" ? null : form.interfaceId,
     };
   }
 
   async submit(): Promise<void> {
-    if (!this.interfaceValid()) {
-      this.formError = t("tariffs.form.error.interface");
-      return;
-    }
-    const input = this.buildInput();
-    const validationError = validateTariff({
-      name: input.name,
-      max_devices: input.max_devices,
-      device_down_kbps: input.device_down_kbps,
-      device_up_kbps: input.device_up_kbps,
-      group_down_kbps: input.group_down_kbps,
-      group_up_kbps: input.group_up_kbps,
-    });
-    if (validationError) {
-      this.formError = issueMessage(validationError);
-      return;
-    }
+    if (this.saving) return;
     this.saving = true;
     this.formError = null;
     try {
-      if (this.editingId) {
-        await this.tariffsService.updateTariff(this.editingId, input);
-        invalidate("tariffs", this.tariffsService);
-        this.toasts.success(t("tariffs.toast.updated"));
-      } else {
-        await this.tariffsService.createTariff(input);
-        invalidate("tariffs", this.tariffsService);
-        this.toasts.success(t("tariffs.toast.created"));
-      }
-      this.modalOpen = false;
-      this.formSnapshot = this.formState();
-      await this.load();
-    } catch (error) {
-      const message = userMessage(error, t("tariffs.form.error.save"));
-      this.formError = message;
-      this.toasts.error(message);
+      await this.tariffForm.onSubmit(async () => {
+        if (!this.interfaceValid()) {
+          this.formError = t("tariffs.form.error.interface");
+          return;
+        }
+        const input = this.buildInput();
+        const validationError = validateTariff({
+          name: input.name,
+          max_devices: input.max_devices,
+          device_down_kbps: input.device_down_kbps,
+          device_up_kbps: input.device_up_kbps,
+          group_down_kbps: input.group_down_kbps,
+          group_up_kbps: input.group_up_kbps,
+        });
+        if (validationError) {
+          this.formError = issueMessage(validationError);
+          return;
+        }
+        try {
+          if (this.editingId) {
+            await this.tariffsService.updateTariff(this.editingId, input);
+            invalidate("tariffs", this.tariffsService);
+            this.toasts.success(t("tariffs.toast.updated"));
+          } else {
+            await this.tariffsService.createTariff(input);
+            invalidate("tariffs", this.tariffsService);
+            this.toasts.success(t("tariffs.toast.created"));
+          }
+          this.modalOpen = false;
+          this.formSnapshot = this.formState();
+          await this.load();
+        } catch (error) {
+          const message = userMessage(error, t("tariffs.form.error.save"));
+          this.formError = message;
+          this.toasts.error(message);
+        }
+      })();
     } finally {
       this.saving = false;
     }
@@ -424,8 +394,4 @@ export class TariffsPageVM extends ViewModel {
 
 function quotaSortValue(value: number | null): number {
   return value === null ? Number.POSITIVE_INFINITY : value;
-}
-
-function sanitizeKbps(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }

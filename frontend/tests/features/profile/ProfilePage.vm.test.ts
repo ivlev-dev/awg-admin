@@ -276,6 +276,48 @@ function checkedEvent(checked: boolean): Event {
   return event;
 }
 
+function setPasswordFields(
+  vm: ProfilePageVM,
+  current: string,
+  next: string,
+  repeat: string,
+): void {
+  vm.passwordForm.getFieldProps("currentPassword").setValue(current);
+  vm.passwordForm.getFieldProps("nextPassword").setValue(next);
+  vm.passwordForm.getFieldProps("repeatPassword").setValue(repeat);
+}
+
+function passwordFieldValue(
+  vm: ProfilePageVM,
+  field: "currentPassword" | "nextPassword" | "repeatPassword",
+): string {
+  return vm.passwordForm.getFieldProps(field).value;
+}
+
+function setFullName(vm: ProfilePageVM, value: string): void {
+  vm.fullNameForm.getFieldProps("fullName").setValue(value);
+}
+
+function fullNameError(vm: ProfilePageVM): string | undefined {
+  return vm.fullNameForm.getFieldProps("fullName").error;
+}
+
+function setTotpSetupPassword(vm: ProfilePageVM, value: string): void {
+  vm.totpSetupForm.getFieldProps("password").setValue(value);
+}
+
+function setTotpCode(vm: ProfilePageVM, value: string): void {
+  vm.totpEnableForm.getFieldProps("code").setValue(value);
+}
+
+function setTotpDisablePassword(vm: ProfilePageVM, value: string): void {
+  vm.totpDisableForm.getFieldProps("password").setValue(value);
+}
+
+function setTotpDisableCode(vm: ProfilePageVM, value: string): void {
+  vm.totpDisableForm.getFieldProps("code").setValue(value);
+}
+
 class MemoryStorage {
   private readonly store = new Map<string, string>();
 
@@ -331,15 +373,15 @@ describe("ProfilePageVM", () => {
 
     harness.vm.startFullNameEdit();
     expect(harness.vm.editingFullName).toBe(true);
-    expect(harness.vm.fullNameDraft).toBe("Иван Петров");
+    expect(harness.vm.fullNameForm.getFieldProps("fullName").value).toBe("Иван Петров");
 
-    harness.vm.setFullNameDraft(valueEvent("  Пётр Сидоров  "));
+    setFullName(harness.vm, "  Пётр Сидоров  ");
     await harness.vm.saveFullName();
 
     expect(harness.auth.updateProfile).toHaveBeenCalledWith({ full_name: "Пётр Сидоров" });
     expect(harness.session.user?.full_name).toBe("Пётр Сидоров");
     expect(harness.vm.editingFullName).toBe(false);
-    expect(harness.vm.fullNameError).toBeNull();
+    expect(fullNameError(harness.vm)).toBeUndefined();
   });
 
   it("clears the full name and rejects an overlong value", async () => {
@@ -350,12 +392,12 @@ describe("ProfilePageVM", () => {
     }));
 
     harness.vm.startFullNameEdit();
-    harness.vm.setFullNameDraft(valueEvent("a".repeat(201)));
+    setFullName(harness.vm, "a".repeat(201));
     await harness.vm.saveFullName();
-    expect(harness.vm.fullNameError).toBe("ФИО не должно быть длиннее 200 символов");
+    expect(fullNameError(harness.vm)).toBe("ФИО не должно быть длиннее 200 символов");
     expect(harness.auth.updateProfile).not.toHaveBeenCalled();
 
-    harness.vm.setFullNameDraft(valueEvent("   "));
+    setFullName(harness.vm, "   ");
     await harness.vm.saveFullName();
     expect(harness.auth.updateProfile).toHaveBeenCalledWith({ full_name: null });
     expect(harness.session.user?.full_name).toBeNull();
@@ -809,16 +851,15 @@ describe("ProfilePageVM", () => {
 
   it("validates that the next password is long enough", async () => {
     const harness = makeHarness();
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "123456789";
-    harness.vm.repeatPassword = "123456789";
+    setPasswordFields(harness.vm, "old-password", "123456789", "123456789");
 
-    expect(harness.vm.nextTooShort).toBe(true);
     expect(harness.vm.canSave).toBe(false);
-
     await harness.vm.savePassword(submitEvent());
 
     expect(harness.changePassword).not.toHaveBeenCalled();
+    expect(
+      harness.vm.passwordForm.getFieldProps("nextPassword").error,
+    ).toBe("Новый пароль должен содержать минимум 10 символов");
     expect(
       harness.toasts.items.some(
         (item) => item.message === "Новый пароль должен содержать минимум 10 символов",
@@ -829,9 +870,7 @@ describe("ProfilePageVM", () => {
 
   it("rejects a next password that equals the email local part", async () => {
     const harness = makeHarness({ ...ADMIN, email: "VeryLongLocal@example.com" });
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "verylonglocal";
-    harness.vm.repeatPassword = "verylonglocal";
+    setPasswordFields(harness.vm, "old-password", "verylonglocal", "verylonglocal");
 
     expect(harness.vm.canSave).toBe(false);
     await harness.vm.savePassword(submitEvent());
@@ -846,8 +885,7 @@ describe("ProfilePageVM", () => {
 
   it("requires the current password", async () => {
     const harness = makeHarness();
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "new-password";
+    setPasswordFields(harness.vm, "", "new-password", "new-password");
 
     await harness.vm.savePassword(submitEvent());
 
@@ -855,36 +893,37 @@ describe("ProfilePageVM", () => {
     expect(
       harness.toasts.items.some((item) => item.message === "Введите текущий пароль"),
     ).toBe(true);
+    expect(
+      harness.vm.passwordForm.getFieldProps("currentPassword").error,
+    ).toBe("Введите текущий пароль");
   });
 
   it("validates that the passwords match", async () => {
     const harness = makeHarness();
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "another-password";
+    setPasswordFields(harness.vm, "old-password", "new-password", "another-password");
 
-    expect(harness.vm.repeatMismatch).toBe(true);
     expect(harness.vm.canSave).toBe(false);
 
     await harness.vm.savePassword(submitEvent());
 
     expect(harness.changePassword).not.toHaveBeenCalled();
     expect(harness.toasts.items.some((item) => item.message === "Пароли не совпадают")).toBe(true);
+    expect(
+      harness.vm.passwordForm.getFieldProps("repeatPassword").error,
+    ).toBe("Пароли не совпадают");
   });
 
   it("changes the password and clears the form", async () => {
     const harness = makeHarness();
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "new-password";
+    setPasswordFields(harness.vm, "old-password", "new-password", "new-password");
 
     expect(harness.vm.canSave).toBe(true);
     await harness.vm.savePassword(submitEvent());
 
     expect(harness.changePassword).toHaveBeenCalledWith("old-password", "new-password");
-    expect(harness.vm.currentPassword).toBe("");
-    expect(harness.vm.nextPassword).toBe("");
-    expect(harness.vm.repeatPassword).toBe("");
+    expect(passwordFieldValue(harness.vm, "currentPassword")).toBe("");
+    expect(passwordFieldValue(harness.vm, "nextPassword")).toBe("");
+    expect(passwordFieldValue(harness.vm, "repeatPassword")).toBe("");
     expect(harness.vm.saving).toBe(false);
     expect(harness.toasts.items.some((item) => item.message === "Пароль обновлён")).toBe(true);
   });
@@ -895,14 +934,15 @@ describe("ProfilePageVM", () => {
         throw new Error("Неверный текущий пароль");
       },
     });
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "new-password";
+    setPasswordFields(harness.vm, "old-password", "new-password", "new-password");
 
     await harness.vm.savePassword(submitEvent());
 
-    expect(harness.vm.currentPassword).toBe("old-password");
-    expect(harness.vm.nextPassword).toBe("new-password");
+    expect(passwordFieldValue(harness.vm, "currentPassword")).toBe("old-password");
+    expect(passwordFieldValue(harness.vm, "nextPassword")).toBe("new-password");
+    expect(
+      harness.vm.passwordForm.getFieldProps("currentPassword").error,
+    ).toBe("Неверный текущий пароль");
     expect(
       harness.toasts.items.some((item) => item.message === "Неверный текущий пароль"),
     ).toBe(true);
@@ -915,9 +955,7 @@ describe("ProfilePageVM", () => {
         throw "boom";
       },
     });
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "new-password";
+    setPasswordFields(harness.vm, "old-password", "new-password", "new-password");
 
     await harness.vm.savePassword(submitEvent());
 
@@ -934,13 +972,12 @@ describe("ProfilePageVM", () => {
     const harness = makeHarness(ADMIN, {
       changePassword: async () => pending,
     });
-    harness.vm.currentPassword = "old-password";
-    harness.vm.nextPassword = "new-password";
-    harness.vm.repeatPassword = "new-password";
+    setPasswordFields(harness.vm, "old-password", "new-password", "new-password");
 
     const submission = harness.vm.savePassword(submitEvent());
     expect(harness.vm.saving).toBe(true);
 
+    await vi.waitFor(() => expect(harness.changePassword).toHaveBeenCalledTimes(1));
     await harness.vm.savePassword(submitEvent());
     expect(harness.changePassword).toHaveBeenCalledTimes(1);
 
@@ -993,7 +1030,7 @@ describe("ProfilePageVM", () => {
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
 
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
 
     expect(harness.vm.canSubmitTotpSetup).toBe(true);
     await harness.vm.submitTotpSetup();
@@ -1012,18 +1049,18 @@ describe("ProfilePageVM", () => {
     expect(harness.vm.totpStatusLabel).toBe("Отключена");
 
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
 
-    harness.vm.setTotpCode(valueEvent("123456"));
+    setTotpCode(harness.vm, "123456");
     expect(harness.vm.canEnableTotp).toBe(true);
 
     await harness.vm.submitTotpEnable();
 
     expect(harness.totpEnable).toHaveBeenCalledWith("secret", "123456");
     expect(harness.vm.totpOpen).toBe(false);
-    expect(harness.vm.totpSetupPassword).toBe("");
-    expect(harness.vm.totpCode).toBe("");
+    expect(harness.vm.totpSetupForm.getFieldProps("password").value).toBe("");
+    expect(harness.vm.totpEnableForm.getFieldProps("code").value).toBe("");
     expect(harness.vm.totpEnabled).toBe(true);
     expect(harness.vm.totpStatusLabel).toBe("Включена");
     expect(harness.toasts.items.some((item) => item.message === "Двухфакторная аутентификация включена")).toBe(true);
@@ -1032,9 +1069,9 @@ describe("ProfilePageVM", () => {
   it("не включает 2FA с некорректным кодом", async () => {
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
-    harness.vm.setTotpCode(valueEvent("12"));
+    setTotpCode(harness.vm, "12");
 
     expect(harness.vm.canEnableTotp).toBe(false);
     await harness.vm.submitTotpEnable();
@@ -1046,7 +1083,7 @@ describe("ProfilePageVM", () => {
   it("не включает 2FA без пароля", async () => {
     const harness = makeHarness();
     harness.vm.totpSetup = { secret: "SECRET", otpauth_url: "otpauth://totp/test", recovery_codes: [] };
-    harness.vm.setTotpCode(valueEvent("123456"));
+    setTotpCode(harness.vm, "123456");
 
     expect(harness.vm.canEnableTotp).toBe(false);
     await harness.vm.submitTotpEnable();
@@ -1058,12 +1095,12 @@ describe("ProfilePageVM", () => {
   it("очищает пароль при закрытии модалки 2FA", async () => {
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
 
     harness.vm.closeTotpSetup();
 
     expect(harness.vm.totpOpen).toBe(false);
-    expect(harness.vm.totpSetupPassword).toBe("");
+    expect(harness.vm.totpSetupForm.getFieldProps("password").value).toBe("");
     expect(harness.vm.totpSetupError).toBeNull();
   });
 
@@ -1075,7 +1112,7 @@ describe("ProfilePageVM", () => {
     });
 
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
 
     expect(harness.vm.totpSetupError).toBe("Сервис недоступен");
@@ -1091,7 +1128,7 @@ describe("ProfilePageVM", () => {
     });
 
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("wrong"));
+    setTotpSetupPassword(harness.vm, "wrong");
     await harness.vm.submitTotpSetup();
 
     expect(harness.vm.totpSetupError).toBe("Неверный пароль");
@@ -1105,9 +1142,9 @@ describe("ProfilePageVM", () => {
       },
     });
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
-    harness.vm.setTotpCode(valueEvent("123456"));
+    setTotpCode(harness.vm, "123456");
 
     await harness.vm.submitTotpEnable();
 
@@ -1123,8 +1160,8 @@ describe("ProfilePageVM", () => {
     await harness.vm.toggleTotp();
 
     expect(harness.vm.totpDisableOpen).toBe(true);
-    harness.vm.setTotpDisablePassword(valueEvent("secret"));
-    harness.vm.setTotpDisableCode(valueEvent("654321"));
+    setTotpDisablePassword(harness.vm, "secret");
+    setTotpDisableCode(harness.vm, "654321");
 
     expect(harness.vm.canDisableTotp).toBe(true);
     await harness.vm.submitTotpDisable();
@@ -1138,7 +1175,7 @@ describe("ProfilePageVM", () => {
   it("не отключает 2FA без пароля", async () => {
     const harness = makeHarness({ ...ADMIN, totp_enabled: true });
     harness.vm.openTotpDisable();
-    harness.vm.setTotpDisableCode(valueEvent("654321"));
+    setTotpDisableCode(harness.vm, "654321");
 
     expect(harness.vm.canDisableTotp).toBe(false);
     await harness.vm.submitTotpDisable();
@@ -1151,7 +1188,7 @@ describe("ProfilePageVM", () => {
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
 
     await harness.vm.copyRecoveryCodes();
@@ -1165,7 +1202,7 @@ describe("ProfilePageVM", () => {
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     const harness = makeHarness();
     await harness.vm.openTotpSetup();
-    harness.vm.setTotpSetupPassword(valueEvent("secret"));
+    setTotpSetupPassword(harness.vm, "secret");
     await harness.vm.submitTotpSetup();
 
     await harness.vm.copyTotpSecret();

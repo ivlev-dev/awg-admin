@@ -36,7 +36,7 @@ import { TunnelSection } from "./details/tunnels";
 import type { ClientEditState, ForwardingMode, ForwardingPair, ForwardingRow, Option, TunnelRow, TunnelSeed } from "./details/types";
 
 export type { ClientEditState, ForwardingMode, ForwardingPair, ForwardingRow, Option, TunnelRow, TunnelSeed };
-export { SHARE_MAX_USES_LIMIT, SHARE_STATE_KEYS } from "./details/types";
+export { MAX_SHARE_USES, SHARE_STATE_KEYS } from "./details/types";
 
 export class ClientDetailsVM extends ViewModel {
   @reactive accessor device: Device | null = null;
@@ -205,6 +205,19 @@ export class ClientDetailsVM extends ViewModel {
     void this.load();
   }
 
+  override unmounted(): void {
+    this.editSection.dispose();
+    this.tunnelSection.dispose();
+    this.shareSection.dispose();
+  }
+
+  override dispose(): void {
+    this.editSection.dispose();
+    this.tunnelSection.dispose();
+    this.shareSection.dispose();
+    super.dispose();
+  }
+
   @computed get deviceId(): string {
     return this.router.params["id"] ?? "";
   }
@@ -333,9 +346,15 @@ export class ClientDetailsVM extends ViewModel {
 
   @computed get canSave(): boolean { return this.editSection.canSave; }
 
+  get editForm() { return this.editSection.form; }
+
   @computed get editDirty(): boolean { return this.editSection.dirty; }
 
   @computed get canCreateShare(): boolean { return this.shareSection.canCreate; }
+
+  get shareForm() { return this.shareSection.form; }
+
+  get tunnelForm() { return this.tunnelSection.form; }
 
   @computed get shareMaxUsesInvalid(): boolean { return this.shareSection.maxUsesInvalid; }
 
@@ -370,10 +389,10 @@ export class ClientDetailsVM extends ViewModel {
   get renameTunnelPeerId(): string { return this.tunnelSection.renamePeerId; }
   get renameTunnelLabel(): string { return this.tunnelSection.renameLabel; }
   get renameTunnelBusy(): boolean { return this.tunnelSection.renameBusy; }
-  get editName(): string { return this.editSection.name; }
-  set editName(value: string) { this.editSection.name = value; }
-  get editDownKbps(): number { return this.editSection.downKbps; }
-  get editUpKbps(): number { return this.editSection.upKbps; }
+  get editName(): string { return this.editSection.form.name; }
+  set editName(value: string) { this.editSection.form.name = value; }
+  get editDownKbps(): number { return this.editSection.form.downKbps; }
+  get editUpKbps(): number { return this.editSection.form.upKbps; }
   get forwardingMode(): ForwardingMode { return this.editSection.forwardingMode; }
   get forwardingSelected(): string[] { return this.editSection.forwardingSelected; }
   get forwardingRows(): ForwardingRow[] { return this.forwardingSection.rows; }

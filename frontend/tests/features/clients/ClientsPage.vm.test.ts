@@ -455,12 +455,12 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    vm.formName = " Pixel ";
+    vm.form.getFieldProps("name").setValue(" Pixel ");
     vm.setFormUser(OWNER.id);
     vm.toggleFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500);
     vm.setFormUpKbps(750);
-    vm.formForwarding = true;
+    vm.form.getFieldProps("forwarding").setValue(true);
 
     await vm.create();
 
@@ -484,25 +484,28 @@ describe("ClientsPageVM", () => {
     });
   });
 
-  it("хранит лимиты в кбит/с и нормализует значения", async () => {
+  it("валидирует целые неотрицательные лимиты", async () => {
     const { vm, devices } = setup("admin");
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "Round";
+    vm.form.getFieldProps("name").setValue("Round");
     vm.setFormUser(OWNER.id);
     vm.toggleFormInterface(INTERFACE.id);
     vm.setFormDownKbps(1500.4);
     vm.setFormUpKbps(-10);
 
-    expect(vm.formDownKbps).toBe(1500);
-    expect(vm.formUpKbps).toBe(0);
+    expect(vm.form.downKbps).toBe(1500.4);
+    expect(vm.form.upKbps).toBe(-10);
+    expect(vm.canCreate).toBe(false);
+
+    await vm.form.validateField("downKbps");
+    await vm.form.validateField("upKbps");
+    expect(vm.form.getFieldProps("downKbps").error).toBe("Лимит должен быть целым числом");
+    expect(vm.form.getFieldProps("upKbps").error).toBe("Лимит не может быть отрицательным");
 
     await vm.create();
-
-    expect(devices.repository.createDevice).toHaveBeenCalledWith(
-      expect.objectContaining({ down_kbps: 1500, up_kbps: 0 }),
-    );
+    expect(devices.repository.createDevice).not.toHaveBeenCalled();
   });
 
   it("ограничивает интерфейсы формы нодой выбранного пользователя", async () => {
@@ -538,10 +541,10 @@ describe("ClientsPageVM", () => {
 
     vm.openCreate();
     vm.setFormUser(MEMBER.id);
-    expect(vm.formInterfaceIds).toEqual([INTERFACE_2.id]);
+    expect(vm.form.interfaceIds).toEqual([INTERFACE_2.id]);
 
     vm.setFormUser(OWNER.id);
-    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
+    expect(vm.form.interfaceIds).toEqual([INTERFACE.id]);
   });
 
   it("создаёт устройство для собственного аккаунта обычного пользователя", async () => {
@@ -549,9 +552,9 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    expect(vm.formUserId).toBe(OWNER.id);
-    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
-    vm.formName = "Phone";
+    expect(vm.form.userId).toBe(OWNER.id);
+    expect(vm.form.interfaceIds).toEqual([INTERFACE.id]);
+    vm.form.getFieldProps("name").setValue("Phone");
     vm.toggleFormInterface(INTERFACE.id);
 
     await vm.create();
@@ -575,19 +578,18 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
     vm.setFormUser(OWNER.id);
 
     expect(vm.formInterfaceOptions).toHaveLength(2);
-    expect(vm.formInterfaceIds).toEqual([]);
+    expect(vm.form.interfaceIds).toEqual([]);
     expect(vm.canCreate).toBe(false);
     await vm.create();
 
     expect(devices.repository.createDevice).not.toHaveBeenCalled();
-    expect(toasts.items.at(-1)).toMatchObject({
-      kind: "error",
-      message: "Выберите хотя бы один интерфейс для устройства",
-    });
+    expect(vm.form.getFieldProps("interfaceIds").error).toBe(
+      "Выберите хотя бы один интерфейс для устройства",
+    );
   });
 
   it("подставляет единственный интерфейс ноды пользователя", async () => {
@@ -595,10 +597,10 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
     vm.setFormUser(OWNER.id);
 
-    expect(vm.formInterfaceIds).toEqual([INTERFACE.id]);
+    expect(vm.form.interfaceIds).toEqual([INTERFACE.id]);
     expect(vm.canCreate).toBe(true);
 
     await vm.create();
@@ -613,11 +615,11 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "Multi";
+    vm.form.getFieldProps("name").setValue("Multi");
     vm.setFormUser(OWNER.id);
 
     expect(vm.formInterfacesPinned).toBe(false);
-    expect(vm.formInterfaceIds).toEqual([]);
+    expect(vm.form.interfaceIds).toEqual([]);
     vm.toggleFormInterface(INTERFACE_3.id);
     vm.toggleFormInterface(INTERFACE.id);
 
@@ -639,11 +641,11 @@ describe("ClientsPageVM", () => {
   });
 
   it("не создаёт устройство, если снять все интерфейсы", async () => {
-    const { vm, devices, toasts } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_3]);
+    const { vm, devices } = setup("admin", [DEVICE], [INTERFACE, INTERFACE_3]);
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "Multi";
+    vm.form.getFieldProps("name").setValue("Multi");
     vm.setFormUser(OWNER.id);
     vm.toggleFormInterface(INTERFACE.id);
     vm.toggleFormInterface(INTERFACE.id);
@@ -654,10 +656,9 @@ describe("ClientsPageVM", () => {
     await vm.create();
 
     expect(devices.repository.createDevice).not.toHaveBeenCalled();
-    expect(toasts.items.at(-1)).toMatchObject({
-      kind: "error",
-      message: "Выберите хотя бы один интерфейс для устройства",
-    });
+    expect(vm.form.getFieldProps("interfaceIds").error).toBe(
+      "Выберите хотя бы один интерфейс для устройства",
+    );
   });
 
   it("показывает закреплённый интерфейс выбранным и недоступным", async () => {
@@ -714,7 +715,7 @@ describe("ClientsPageVM", () => {
     );
 
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
     vm.setFormUser(OWNER.id);
     vm.toggleFormInterface(INTERFACE.id);
 
@@ -733,8 +734,38 @@ describe("ClientsPageVM", () => {
     await vm.load();
 
     vm.openCreate();
-    vm.formName = "   ";
+    vm.form.getFieldProps("name").setValue("   ");
 
+    expect(vm.canCreate).toBe(false);
+    await vm.create();
+    expect(devices.repository.createDevice).not.toHaveBeenCalled();
+  });
+
+  it("показывает ошибку обязательного имени", async () => {
+    const { vm } = setup("admin");
+    await vm.load();
+    vm.openCreate();
+
+    const name = vm.form.getFieldProps("name");
+    name.setValue("");
+    await name.validate();
+
+    expect(name.error).toBe("Имя устройства не может быть пустым");
+    expect(vm.canCreate).toBe(false);
+  });
+
+  it("ограничивает имя устройства 64 символами", async () => {
+    const { vm, devices } = setup("admin");
+    await vm.load();
+    vm.openCreate();
+    vm.setFormUser(OWNER.id);
+    vm.toggleFormInterface(INTERFACE.id);
+
+    const name = vm.form.getFieldProps("name");
+    name.setValue("x".repeat(65));
+    await name.validate();
+
+    expect(name.error).toBe("Имя устройства: не длиннее 64 символов");
     expect(vm.canCreate).toBe(false);
     await vm.create();
     expect(devices.repository.createDevice).not.toHaveBeenCalled();
@@ -757,7 +788,7 @@ describe("ClientsPageVM", () => {
     vm.setFormName({ target: { value: "Pixel" } } as unknown as Event);
     expect(vm.formDirty).toBe(true);
 
-    vm.formDownKbps = 100;
+    vm.form.downKbps = 100;
     expect(vm.formDirty).toBe(true);
 
     vm.setFormDownKbps(0);
@@ -782,7 +813,7 @@ describe("ClientsPageVM", () => {
     confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm } = setup("admin");
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
 
     await vm.closeCreate();
 
@@ -793,13 +824,13 @@ describe("ClientsPageVM", () => {
       tone: "danger",
     });
     expect(vm.createOpen).toBe(true);
-    expect(vm.formName).toBe("Pixel");
+    expect(vm.form.name).toBe("Pixel");
   });
 
   it("закрывает форму создания после подтверждения и сбрасывает снимок", async () => {
     const { vm } = setup("admin");
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
 
     await vm.closeCreate();
 
@@ -812,7 +843,7 @@ describe("ClientsPageVM", () => {
     const { vm } = setup("admin");
     await vm.load();
     vm.openCreate();
-    vm.formName = "Pixel";
+    vm.form.getFieldProps("name").setValue("Pixel");
     vm.setFormUser(OWNER.id);
     vm.toggleFormInterface(INTERFACE.id);
 

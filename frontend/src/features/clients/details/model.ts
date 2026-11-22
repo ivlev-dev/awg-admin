@@ -28,10 +28,6 @@ export function parseForwardingMode(value: string): ForwardingMode {
   return value === "all" || value === "selected" ? value : "off";
 }
 
-export function sanitizeKbps(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
-}
-
 export function sameIds(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) return false;
   return left.every((value, index) => value === right[index]);

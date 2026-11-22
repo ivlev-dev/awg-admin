@@ -6,7 +6,6 @@ import { Session } from "@/app/session";
 import { ThemeStore, type ThemeMode } from "@/app/theme";
 import { ToastStore } from "@/app/toast";
 import { userMessage } from "@/application/errors";
-import { FULL_NAME_MAX } from "@/application/guards";
 import { quotaDisplay, type QuotaDisplay } from "@/application/quota/display";
 import type { QuotaService, QuotaSnapshot } from "@/application/quota/service";
 import type { AuthService } from "@/application/auth/service";
@@ -26,6 +25,10 @@ import {
   type TranslationKey,
 } from "@/i18n";
 import { formatBytesI18n, formatDateI18n, formatDateTimeI18n } from "@/i18n/format";
+
+import { FullNameForm } from "./full-name.form";
+import { PasswordForm } from "./password.form";
+import { TOTP_CODE_PATTERN, TotpDisableForm, TotpEnableForm, TotpSetupForm } from "./totp.form";
 
 export interface PermissionItem {
   key: string;
@@ -108,6 +111,12 @@ const THEME_DEFINITIONS: ThemeDefinition[] = [
 ];
 
 export class ProfilePageVM extends ViewModel {
+  readonly passwordForm: PasswordForm;
+  readonly fullNameForm: FullNameForm;
+  readonly totpSetupForm: TotpSetupForm;
+  readonly totpEnableForm: TotpEnableForm;
+  readonly totpDisableForm: TotpDisableForm;
+
   constructor(
     private readonly session: Session,
     private readonly auth: AuthService,
@@ -117,30 +126,34 @@ export class ProfilePageVM extends ViewModel {
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.passwordForm = new PasswordForm(this.session.user?.email ?? "");
+    this.fullNameForm = new FullNameForm(this.session.user?.full_name ?? "");
+    this.totpSetupForm = new TotpSetupForm();
+    this.totpEnableForm = new TotpEnableForm();
+    this.totpDisableForm = new TotpDisableForm();
   }
 
-  @reactive accessor currentPassword = "";
-  @reactive accessor nextPassword = "";
-  @reactive accessor repeatPassword = "";
+  override unmounted(): void {
+    this.passwordForm.dispose();
+    this.fullNameForm.dispose();
+    this.totpSetupForm.dispose();
+    this.totpEnableForm.dispose();
+    this.totpDisableForm.dispose();
+  }
+
   @reactive accessor saving = false;
   @reactive accessor editingFullName = false;
-  @reactive accessor fullNameDraft = "";
   @reactive accessor savingFullName = false;
-  @reactive accessor fullNameError: string | null = null;
   @reactive accessor quota: QuotaSnapshot | null = null;
   @reactive accessor quotaError: string | null = null;
   @reactive accessor quotaLoading = false;
 
   @reactive accessor totpOpen = false;
   @reactive accessor totpSetup: TotpSetup | null = null;
-  @reactive accessor totpSetupPassword = "";
   @reactive accessor totpSetupLoading = false;
   @reactive accessor totpSetupError: string | null = null;
-  @reactive accessor totpCode = "";
   @reactive accessor totpSaving = false;
   @reactive accessor totpDisableOpen = false;
-  @reactive accessor totpDisablePassword = "";
-  @reactive accessor totpDisableCode = "";
   @reactive accessor totpDisableSaving = false;
 
   /** Invalidates an in-flight setup request when the modal is closed. */
@@ -454,49 +467,16 @@ export class ProfilePageVM extends ViewModel {
   }
 
   @computed
-  get nextPasswordIssue(): string | null {
-    return passwordPolicyIssue(this.nextPassword, this.session.user?.email ?? "");
-  }
-
-  @computed
-  get nextTooShort(): boolean {
-    return this.nextPassword.length > 0 && this.nextPasswordIssue === "short";
-  }
-
-  @computed
-  get nextPasswordError(): string | null {
-    switch (this.nextPasswordIssue) {
-      case "short":
-        return t("profile.password.error.tooShort");
-      case "long":
-        return t("profile.password.error.tooLong");
-      case "common":
-        return t("profile.password.error.weak");
-      case "email":
-        return t("profile.password.error.email");
-      default:
-        return null;
-    }
-  }
-
-  @computed
-  get nextPasswordInvalid(): boolean {
-    return this.nextPassword.length > 0 && this.nextPasswordError !== null;
-  }
-
-  @computed
-  get repeatMismatch(): boolean {
-    return this.repeatPassword.length > 0 && this.nextPassword !== this.repeatPassword;
-  }
-
-  @computed
   get canSave(): boolean {
+    const form = this.passwordForm;
+    const email = this.session.user?.email ?? form.email;
     return (
       !this.saving &&
-      this.currentPassword.length > 0 &&
-      this.nextPassword.length > 0 &&
-      this.nextPasswordIssue === null &&
-      this.nextPassword === this.repeatPassword
+      form.currentPassword.length > 0 &&
+      form.nextPassword.length > 0 &&
+      form.repeatPassword.length > 0 &&
+      passwordPolicyIssue(form.nextPassword, email) === null &&
+      form.nextPassword === form.repeatPassword
     );
   }
 
@@ -516,89 +496,79 @@ export class ProfilePageVM extends ViewModel {
     if (isLocale(value)) setLocale(value);
   }
 
-  setCurrentPassword(event: Event): void {
-    this.currentPassword = (event.target as HTMLInputElement).value;
-  }
-
   startFullNameEdit(): void {
-    this.fullNameDraft = this.session.user?.full_name ?? "";
-    this.fullNameError = null;
+    this.fullNameForm.fullName = this.session.user?.full_name ?? "";
+    this.fullNameForm.clearFieldErrors("fullName");
     this.editingFullName = true;
   }
 
   cancelFullNameEdit(): void {
     if (this.savingFullName) return;
     this.editingFullName = false;
-    this.fullNameDraft = "";
-    this.fullNameError = null;
-  }
-
-  setFullNameDraft(event: Event): void {
-    this.fullNameDraft = (event.target as HTMLInputElement).value;
-    this.fullNameError = null;
+    this.fullNameForm.fullName = this.session.user?.full_name ?? "";
+    this.fullNameForm.clearFieldErrors("fullName");
   }
 
   async saveFullName(event?: Event): Promise<void> {
     event?.preventDefault();
     if (this.savingFullName) return;
-    const trimmed = this.fullNameDraft.trim();
-    if ([...trimmed].length > FULL_NAME_MAX) {
-      this.fullNameError = t("profile.fullName.error.tooLong", { max: FULL_NAME_MAX });
+    const field = this.fullNameForm.getFieldProps("fullName");
+    const trimmed = field.value.trim();
+    // Пустое значение по-прежнему очищает ФИО через null в API.
+    if (trimmed.length === 0) {
+      await this.persistFullName(null, event);
       return;
     }
+    await this.fullNameForm.onSubmit(async (form) => {
+      await this.persistFullName(form.fullName.trim(), event);
+    })(event);
+  }
+
+  private async persistFullName(value: string | null, event?: Event): Promise<void> {
+    event?.preventDefault();
     this.savingFullName = true;
-    this.fullNameError = null;
+    this.fullNameForm.clearFieldErrors("fullName");
     try {
-      const updated = await this.auth.updateProfile({
-        full_name: trimmed.length === 0 ? null : trimmed,
-      });
+      const updated = await this.auth.updateProfile({ full_name: value });
       this.session.user = updated;
+      this.fullNameForm.fullName = updated.full_name ?? "";
       this.editingFullName = false;
-      this.fullNameDraft = "";
       this.toasts.success(t("profile.fullName.success"));
     } catch (error) {
-      this.fullNameError = userMessage(error, t("profile.fullName.error.save"));
+      this.fullNameForm.setFieldErrors(
+        "fullName",
+        userMessage(error, t("profile.fullName.error.save")),
+      );
     } finally {
       this.savingFullName = false;
     }
   }
 
-  setNextPassword(event: Event): void {
-    this.nextPassword = (event.target as HTMLInputElement).value;
-  }
-
-  setRepeatPassword(event: Event): void {
-    this.repeatPassword = (event.target as HTMLInputElement).value;
-  }
-
   async savePassword(event: Event): Promise<void> {
     event.preventDefault();
     if (this.saving) return;
-    if (this.currentPassword.length === 0) {
-      this.toasts.error(t("profile.password.error.currentRequired"));
-      return;
-    }
-    const passwordError = this.nextPasswordError;
-    if (passwordError !== null) {
-      this.toasts.error(passwordError);
-      return;
-    }
-    if (this.nextPassword !== this.repeatPassword) {
-      this.toasts.error(t("profile.password.error.mismatch"));
-      return;
-    }
-
+    const form = this.passwordForm;
+    form.email = this.session.user?.email ?? form.email;
     this.saving = true;
     try {
-      await this.auth.changePassword(this.currentPassword, this.nextPassword);
-      this.currentPassword = "";
-      this.nextPassword = "";
-      this.repeatPassword = "";
+      const valid = await form.validate();
+      if (!valid) {
+        const message = formError(form.errors, [
+          "currentPassword",
+          "nextPassword",
+          "repeatPassword",
+        ]);
+        if (message !== undefined) this.toasts.error(message);
+        return;
+      }
+      await this.auth.changePassword(form.currentPassword, form.nextPassword);
+      form.reset();
       this.toasts.success(t("profile.password.success"));
     } catch (error) {
-      this.toasts.error(
-        error instanceof Error ? error.message : t("profile.password.error.failed"),
-      );
+      const message =
+        error instanceof Error ? error.message : t("profile.password.error.failed");
+      form.setFieldErrors("currentPassword", message);
+      this.toasts.error(message);
     } finally {
       this.saving = false;
     }
@@ -621,15 +591,15 @@ export class ProfilePageVM extends ViewModel {
 
   @computed
   get canSubmitTotpSetup(): boolean {
-    return !this.totpSetupLoading && this.totpSetupPassword.length > 0;
+    return !this.totpSetupLoading && this.totpSetupForm.password.length > 0;
   }
 
   @computed
   get canEnableTotp(): boolean {
     return (
       !this.totpSaving &&
-      this.totpSetupPassword.length > 0 &&
-      /^\d{6}$/.test(this.totpCode.trim())
+      this.totpEnableForm.password.length > 0 &&
+      TOTP_CODE_PATTERN.test(this.totpEnableForm.code.trim())
     );
   }
 
@@ -637,26 +607,9 @@ export class ProfilePageVM extends ViewModel {
   get canDisableTotp(): boolean {
     return (
       !this.totpDisableSaving &&
-      this.totpDisablePassword.length > 0 &&
-      /^\d{6}$/.test(this.totpDisableCode.trim())
+      this.totpDisableForm.password.length > 0 &&
+      TOTP_CODE_PATTERN.test(this.totpDisableForm.code.trim())
     );
-  }
-
-  setTotpCode(event: Event): void {
-    this.totpCode = (event.target as HTMLInputElement).value;
-  }
-
-  setTotpSetupPassword(event: Event): void {
-    this.totpSetupPassword = (event.target as HTMLInputElement).value;
-    this.totpSetupError = null;
-  }
-
-  setTotpDisablePassword(event: Event): void {
-    this.totpDisablePassword = (event.target as HTMLInputElement).value;
-  }
-
-  setTotpDisableCode(event: Event): void {
-    this.totpDisableCode = (event.target as HTMLInputElement).value;
   }
 
   async toggleTotp(): Promise<void> {
@@ -671,20 +624,21 @@ export class ProfilePageVM extends ViewModel {
     this.totpSetupRequest += 1;
     this.totpOpen = true;
     this.totpSetup = null;
-    this.totpSetupPassword = "";
+    this.totpSetupForm.reset();
+    this.totpEnableForm.reset();
     this.totpSetupLoading = false;
     this.totpSetupError = null;
-    this.totpCode = "";
   }
 
   async submitTotpSetup(event?: Event): Promise<void> {
     event?.preventDefault();
     if (this.totpSetupLoading) return;
-    if (this.totpSetupPassword.length === 0) {
-      this.totpSetupError = t("profile.totp.error.passwordRequired");
+    if (!(await this.totpSetupForm.validate())) {
+      this.totpSetupError = formError(this.totpSetupForm.errors, ["password"]) ??
+        t("profile.totp.error.passwordRequired");
       return;
     }
-    const password = this.totpSetupPassword;
+    const password = this.totpSetupForm.password;
     const request = ++this.totpSetupRequest;
     this.totpSetupLoading = true;
     this.totpSetupError = null;
@@ -692,11 +646,15 @@ export class ProfilePageVM extends ViewModel {
       const setup = await this.auth.totpSetup(password);
       if (request !== this.totpSetupRequest) return;
       this.totpSetup = setup;
-      this.totpCode = "";
+      this.totpEnableForm.password = password;
+      this.totpEnableForm.code = "";
+      this.totpEnableForm.clearFieldErrors();
     } catch (error) {
       if (request !== this.totpSetupRequest) return;
       this.totpSetup = null;
-      this.totpSetupError = this.totpErrorMessage(error, t("profile.totp.error.setup"));
+      const message = this.totpErrorMessage(error, t("profile.totp.error.setup"));
+      this.totpSetupForm.setFieldErrors("password", message);
+      this.totpSetupError = message;
     } finally {
       if (request === this.totpSetupRequest) this.totpSetupLoading = false;
     }
@@ -707,31 +665,33 @@ export class ProfilePageVM extends ViewModel {
     this.totpSetupRequest += 1;
     this.totpOpen = false;
     this.totpSetup = null;
-    this.totpSetupPassword = "";
+    this.totpSetupForm.reset();
+    this.totpEnableForm.reset();
     this.totpSetupError = null;
     this.totpSetupLoading = false;
-    this.totpCode = "";
   }
 
   async submitTotpEnable(): Promise<void> {
     if (this.totpSaving) return;
-    if (this.totpSetupPassword.length === 0) {
-      this.toasts.error(t("profile.totp.error.passwordRequired"));
-      return;
-    }
-    if (!/^\d{6}$/.test(this.totpCode.trim())) {
-      this.toasts.error(t("profile.totp.error.invalidCode"));
+    this.totpEnableForm.password = this.totpSetupForm.password;
+    if (!(await this.totpEnableForm.validate())) {
+      const message = formError(this.totpEnableForm.errors, ["password", "code"]) ??
+        t("profile.totp.error.invalidCode");
+      this.toasts.error(message);
       return;
     }
     this.totpSaving = true;
     try {
-      await this.auth.totpEnable(this.totpSetupPassword, this.totpCode.trim());
+      await this.auth.totpEnable(
+        this.totpEnableForm.password,
+        this.totpEnableForm.code.trim(),
+      );
       this.totpSetupRequest += 1;
       this.totpOpen = false;
       this.totpSetup = null;
-      this.totpSetupPassword = "";
+      this.totpSetupForm.reset();
+      this.totpEnableForm.reset();
       this.totpSetupError = null;
-      this.totpCode = "";
       this.toasts.success(t("profile.totp.success.enabled"));
       await this.session.reload();
     } catch (error) {
@@ -743,28 +703,30 @@ export class ProfilePageVM extends ViewModel {
 
   openTotpDisable(): void {
     this.totpDisableOpen = true;
-    this.totpDisablePassword = "";
-    this.totpDisableCode = "";
+    this.totpDisableForm.reset();
   }
 
   closeTotpDisable(): void {
     if (this.totpDisableSaving) return;
     this.totpDisableOpen = false;
-    this.totpDisablePassword = "";
-    this.totpDisableCode = "";
+    this.totpDisableForm.reset();
   }
 
   async submitTotpDisable(): Promise<void> {
-    if (!this.canDisableTotp) {
-      this.toasts.error(t("profile.totp.error.invalidCode"));
+    if (!(await this.totpDisableForm.validate())) {
+      const message = formError(this.totpDisableForm.errors, ["password", "code"]) ??
+        t("profile.totp.error.invalidCode");
+      this.toasts.error(message);
       return;
     }
     this.totpDisableSaving = true;
     try {
-      await this.auth.totpDisable(this.totpDisablePassword, this.totpDisableCode.trim());
+      await this.auth.totpDisable(
+        this.totpDisableForm.password,
+        this.totpDisableForm.code.trim(),
+      );
       this.totpDisableOpen = false;
-      this.totpDisablePassword = "";
-      this.totpDisableCode = "";
+      this.totpDisableForm.reset();
       this.toasts.success(t("profile.totp.success.disabled"));
       await this.session.reload();
     } catch (error) {
@@ -809,4 +771,15 @@ export class ProfilePageVM extends ViewModel {
     await this.session.logout();
     this.router.replace("/login");
   }
+}
+
+function formError(
+  errors: Readonly<Record<string, readonly string[]>>,
+  paths: readonly string[],
+): string | undefined {
+  for (const path of paths) {
+    const message = errors[path]?.[0];
+    if (message !== undefined) return message;
+  }
+  return undefined;
 }

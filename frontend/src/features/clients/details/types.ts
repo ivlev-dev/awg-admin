@@ -53,4 +53,4 @@ export const SHARE_STATE_KEYS: Record<ShareLinkState, TranslationKey> = {
   revoked: "clients.details.share.state.revoked",
 };
 
-export const SHARE_MAX_USES_LIMIT = 1000;
+export const MAX_SHARE_USES = 1000;

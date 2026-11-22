@@ -1,4 +1,5 @@
 import { ViewModel, computed, reactive } from "@ivlev-dev/silent-core";
+import { beforeUnloadGuard, onDirtyChange } from "@ivlev-dev/silent-form";
 
 import { askConfirm } from "@/app/confirm";
 import { density, setDensity, type TableDensity } from "@/app/density";
@@ -6,7 +7,7 @@ import { ToastStore } from "@/app/toast";
 import { registerUnsaved, unregisterUnsaved } from "@/app/unsaved";
 import type { SettingsService } from "@/application/settings/service";
 import { userMessage } from "@/application/errors";
-import type { ObfuscationSettings, Settings } from "@/domain/types";
+import type { Settings } from "@/domain/types";
 import {
   languageOptions,
   isLocale,
@@ -18,9 +19,22 @@ import {
   type TranslationKey,
 } from "@/i18n";
 
-export type ObfuscationProfile = ObfuscationSettings["profile"];
-export type ObfuscationIntensity = ObfuscationSettings["intensity"];
-export type ObfuscationBrowser = ObfuscationSettings["browser"];
+import {
+  BROWSER_VALUES,
+  INTENSITY_VALUES,
+  PROFILE_VALUES,
+  S_PADDING_FLOOR,
+  SettingsForm,
+  type ObfuscationBrowser,
+  type ObfuscationIntensity,
+  type ObfuscationProfile,
+} from "./settings.form";
+
+export type {
+  ObfuscationBrowser,
+  ObfuscationIntensity,
+  ObfuscationProfile,
+} from "./settings.form";
 
 export interface Choice<T extends string> {
   value: T;
@@ -46,8 +60,6 @@ export type NumericField =
   | "sMax"
   | "keepaliveMin"
   | "keepaliveMax";
-
-const S_FLOOR = 12;
 
 interface DensityOptionDefinition {
   value: TableDensity;
@@ -97,11 +109,18 @@ function describeChoice<T extends string>(
 }
 
 export class SettingsPageVM extends ViewModel {
+  @reactive accessor form: SettingsForm = new SettingsForm();
+  @reactive private accessor formDirty = false;
+
+  private stopDirty: (() => void) | null = null;
+  private stopGuard: (() => void) | null = null;
+
   constructor(
     private readonly settingsService: SettingsService,
     private readonly toasts: ToastStore,
   ) {
     super();
+    this.bindForm(this.form);
   }
 
   @reactive accessor loading = true;
@@ -109,43 +128,38 @@ export class SettingsPageVM extends ViewModel {
   @reactive accessor saving = false;
   @reactive accessor error: string | null = null;
 
-  @reactive accessor profile: ObfuscationProfile = "http3";
-  @reactive accessor intensity: ObfuscationIntensity = "medium";
-  @reactive accessor browser: ObfuscationBrowser = "random";
-  @reactive accessor mtu = "1280";
-  @reactive accessor jcMin = "3";
-  @reactive accessor jcMax = "10";
-  @reactive accessor jminMin = "50";
-  @reactive accessor jminMax = "200";
-  @reactive accessor jmaxExtraMin = "0";
-  @reactive accessor jmaxExtraMax = "100";
-  @reactive accessor sMin = "12";
-  @reactive accessor sMax = "64";
-  @reactive accessor randomTrailers = true;
-  @reactive accessor disableCookies = false;
-  @reactive accessor keepaliveMin = "15";
-  @reactive accessor keepaliveMax = "25";
-  @reactive accessor hosts = "";
-  @reactive accessor ttlHours = "24";
-
-  @reactive private accessor savedSnapshot = "";
-
-  private readonly handleBeforeUnload = (event: BeforeUnloadEvent): void => {
-    if (!this.dirty) return;
-    event.preventDefault();
-    event.returnValue = "";
-  };
-
   override created(): void {
-    window.addEventListener("beforeunload", this.handleBeforeUnload);
     registerUnsaved("settings", () => this.dirty);
     void this.load();
   }
 
+  override unmounted(): void {
+    this.releaseForm();
+  }
+
   override dispose(): void {
-    window.removeEventListener("beforeunload", this.handleBeforeUnload);
-    unregisterUnsaved("settings");
+    this.releaseForm();
     super.dispose();
+  }
+
+  private releaseForm(): void {
+    this.stopDirty?.();
+    this.stopGuard?.();
+    this.stopDirty = null;
+    this.stopGuard = null;
+    this.form.dispose();
+    unregisterUnsaved("settings");
+  }
+
+  private bindForm(form: SettingsForm): void {
+    this.stopDirty?.();
+    this.stopGuard?.();
+    this.form = form;
+    this.formDirty = form.isDirty;
+    this.stopDirty = onDirtyChange(form, (dirty) => {
+      this.formDirty = dirty;
+    });
+    this.stopGuard = beforeUnloadGuard(form);
   }
 
   @computed
@@ -165,17 +179,17 @@ export class SettingsPageVM extends ViewModel {
 
   @computed
   get profileHint(): string {
-    return describeChoice(PROFILE_OPTIONS, this.profile);
+    return describeChoice(PROFILE_OPTIONS, this.form.profile);
   }
 
   @computed
   get intensityHint(): string {
-    return describeChoice(INTENSITY_OPTIONS, this.intensity);
+    return describeChoice(INTENSITY_OPTIONS, this.form.intensity);
   }
 
   @computed
   get browserHint(): string {
-    return describeChoice(BROWSER_OPTIONS, this.browser);
+    return describeChoice(BROWSER_OPTIONS, this.form.browser);
   }
 
   @computed
@@ -214,45 +228,29 @@ export class SettingsPageVM extends ViewModel {
 
   @computed
   get hostsCount(): number {
-    return parseHosts(this.hosts).length;
+    return parseHosts(this.form.hosts).length;
   }
 
   @computed
   get ttlSeconds(): number {
-    return Math.max(0, Math.round(toDecimal(this.ttlHours, 24) * 3600));
+    const hours = Number(this.form.ttlHours);
+    return Number.isFinite(hours) ? Math.max(0, Math.round(hours * 3600)) : 0;
   }
 
   @computed
   get canSave(): boolean {
-    return this.loaded && !this.loading && !this.saving && this.dirty;
+    return (
+      this.loaded &&
+      !this.loading &&
+      !this.saving &&
+      this.dirty &&
+      this.form.isValid
+    );
   }
 
   @computed
   get dirty(): boolean {
-    return this.loaded && this.snapshot() !== this.savedSnapshot;
-  }
-
-  snapshot(): string {
-    return JSON.stringify([
-      this.profile,
-      this.intensity,
-      this.browser,
-      this.mtu,
-      this.jcMin,
-      this.jcMax,
-      this.jminMin,
-      this.jminMax,
-      this.jmaxExtraMin,
-      this.jmaxExtraMax,
-      this.sMin,
-      this.sMax,
-      this.randomTrailers,
-      this.disableCookies,
-      this.keepaliveMin,
-      this.keepaliveMax,
-      this.hosts,
-      this.ttlHours,
-    ]);
+    return this.loaded && (this.form.isDirty || this.formDirty);
   }
 
   async load(): Promise<void> {
@@ -260,9 +258,8 @@ export class SettingsPageVM extends ViewModel {
     this.error = null;
     try {
       const settings = await this.settingsService.getSettings();
-      this.apply(settings);
+      this.adopt(settings);
       this.loaded = true;
-      this.savedSnapshot = this.snapshot();
     } catch (error) {
       this.loaded = false;
       this.error = userMessage(error, t("settings.error.load"));
@@ -290,9 +287,9 @@ export class SettingsPageVM extends ViewModel {
     if (!this.canSave) return;
     this.saving = true;
     try {
+      if (!(await this.form.validate())) return;
       const settings = await this.settingsService.updateSettings(this.buildInput());
-      this.apply(settings);
-      this.savedSnapshot = this.snapshot();
+      this.adopt(settings);
       this.toasts.success(t("settings.saved"));
     } catch (error) {
       this.toasts.error(userMessage(error, t("settings.error.save")));
@@ -302,118 +299,79 @@ export class SettingsPageVM extends ViewModel {
   }
 
   setProfile(value: string): void {
-    if (value === "http3" || value === "tls" || value === "quic" || value === "random") {
-      this.profile = value;
+    if (isProfile(value)) {
+      this.form.getFieldProps("profile").setValue(value);
     }
   }
 
   setIntensity(value: string): void {
-    if (value === "low" || value === "medium" || value === "high") {
-      this.intensity = value;
+    if (isIntensity(value)) {
+      this.form.getFieldProps("intensity").setValue(value);
     }
   }
 
   setBrowser(value: string): void {
-    if (value === "chrome" || value === "firefox" || value === "safari" || value === "edge" || value === "random") {
-      this.browser = value;
+    if (isBrowser(value)) {
+      this.form.getFieldProps("browser").setValue(value);
     }
   }
 
   setNumeric(field: NumericField, event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    switch (field) {
-      case "mtu":
-        this.mtu = value;
-        break;
-      case "jcMin":
-        this.jcMin = value;
-        break;
-      case "jcMax":
-        this.jcMax = value;
-        break;
-      case "jminMin":
-        this.jminMin = value;
-        break;
-      case "jminMax":
-        this.jminMax = value;
-        break;
-      case "jmaxExtraMin":
-        this.jmaxExtraMin = value;
-        break;
-      case "jmaxExtraMax":
-        this.jmaxExtraMax = value;
-        break;
-      case "sMin":
-        this.sMin = value;
-        break;
-      case "sMax":
-        this.sMax = value;
-        break;
-      case "keepaliveMin":
-        this.keepaliveMin = value;
-        break;
-      case "keepaliveMax":
-        this.keepaliveMax = value;
-        break;
-    }
+    this.form.getFieldProps(field).onInput(event);
   }
 
   setRandomTrailers(event: Event): void {
-    this.randomTrailers = (event.target as HTMLInputElement).checked;
+    this.form
+      .getFieldProps("randomTrailers")
+      .setValue((event.target as HTMLInputElement).checked);
   }
 
   setDisableCookies(event: Event): void {
-    this.disableCookies = (event.target as HTMLInputElement).checked;
+    this.form
+      .getFieldProps("disableCookies")
+      .setValue((event.target as HTMLInputElement).checked);
   }
 
   setHosts(event: Event): void {
-    this.hosts = (event.target as HTMLTextAreaElement).value;
+    this.form
+      .getFieldProps("hosts")
+      .setValue((event.target as HTMLTextAreaElement).value);
   }
 
   setTtlHours(event: Event): void {
-    this.ttlHours = (event.target as HTMLInputElement).value;
+    const value = (event.target as HTMLInputElement).value;
+    const normalized = value.trim().replace(",", ".");
+    const numeric = Number(normalized);
+    const parsed = normalized === "" || !Number.isFinite(numeric) ? "" : numeric;
+    this.form.getFieldProps("ttlHours").setValue(parsed as number);
   }
 
-  private apply(settings: Settings): void {
-    const obf = settings.obfuscation;
-    this.profile = obf.profile;
-    this.intensity = obf.intensity;
-    this.browser = obf.browser;
-    this.mtu = String(obf.mtu);
-    this.jcMin = String(obf.jc_min);
-    this.jcMax = String(obf.jc_max);
-    this.jminMin = String(obf.jmin_min);
-    this.jminMax = String(obf.jmin_max);
-    this.jmaxExtraMin = String(obf.jmax_extra_min);
-    this.jmaxExtraMax = String(obf.jmax_extra_max);
-    this.sMin = String(obf.s_min);
-    this.sMax = String(obf.s_max);
-    this.randomTrailers = obf.random_trailers;
-    this.disableCookies = obf.disable_cookies;
-    this.keepaliveMin = String(obf.keepalive_min);
-    this.keepaliveMax = String(obf.keepalive_max);
-    this.hosts = obf.hosts.join("\n");
-    this.ttlHours = formatHours(settings.share_default_ttl_secs);
+  private adopt(settings: Settings): void {
+    const previous = this.form;
+    const next = SettingsForm.from(settings);
+    this.bindForm(next);
+    previous.dispose();
   }
 
   private buildInput(): Partial<Settings> {
-    const jcMin = clamp(toNumber(this.jcMin, 3), 1, 128);
-    const jcMax = clamp(toNumber(this.jcMax, 10), jcMin, 128);
-    const jminMin = clamp(toNumber(this.jminMin, 50), 0, 1280);
-    const jminMax = clamp(toNumber(this.jminMax, 200), jminMin, 1280);
-    const jmaxExtraMin = clamp(toNumber(this.jmaxExtraMin, 0), 0, 1280);
-    const jmaxExtraMax = clamp(toNumber(this.jmaxExtraMax, 100), jmaxExtraMin, 1280);
-    const sMin = Math.max(S_FLOOR, toNumber(this.sMin, S_FLOOR));
-    const sMax = Math.max(sMin, toNumber(this.sMax, 64));
-    const keepaliveMin = clamp(toNumber(this.keepaliveMin, 15), 1, 120);
-    const keepaliveMax = clamp(toNumber(this.keepaliveMax, 25), keepaliveMin, 120);
+    const form = this.form;
+    const jcMin = clamp(toNumber(form.jcMin, 3), 1, 128);
+    const jcMax = clamp(toNumber(form.jcMax, 10), jcMin, 128);
+    const jminMin = clamp(toNumber(form.jminMin, 50), 0, 1280);
+    const jminMax = clamp(toNumber(form.jminMax, 200), jminMin, 1280);
+    const jmaxExtraMin = clamp(toNumber(form.jmaxExtraMin, 0), 0, 1280);
+    const jmaxExtraMax = clamp(toNumber(form.jmaxExtraMax, 100), jmaxExtraMin, 1280);
+    const sMin = Math.max(S_PADDING_FLOOR, toNumber(form.sMin, S_PADDING_FLOOR));
+    const sMax = Math.max(sMin, toNumber(form.sMax, 64));
+    const keepaliveMin = clamp(toNumber(form.keepaliveMin, 15), 1, 120);
+    const keepaliveMax = clamp(toNumber(form.keepaliveMax, 25), keepaliveMin, 120);
 
     return {
       obfuscation: {
-        profile: this.profile,
-        intensity: this.intensity,
-        browser: this.browser,
-        mtu: clamp(toNumber(this.mtu, 1280), 576, 9000),
+        profile: form.profile,
+        intensity: form.intensity,
+        browser: form.browser,
+        mtu: clamp(toNumber(form.mtu, 1280), 576, 9000),
         jc_min: jcMin,
         jc_max: jcMax,
         jmin_min: jminMin,
@@ -422,9 +380,9 @@ export class SettingsPageVM extends ViewModel {
         jmax_extra_max: jmaxExtraMax,
         s_min: sMin,
         s_max: sMax,
-        hosts: parseHosts(this.hosts),
-        random_trailers: this.randomTrailers,
-        disable_cookies: this.disableCookies,
+        hosts: parseHosts(form.hosts),
+        random_trailers: form.randomTrailers,
+        disable_cookies: form.disableCookies,
         keepalive_min: keepaliveMin,
         keepalive_max: keepaliveMax,
       },
@@ -433,8 +391,20 @@ export class SettingsPageVM extends ViewModel {
   }
 }
 
-function toNumber(value: string, fallback: number): number {
-  const parsed = toDecimal(value, fallback);
+function isProfile(value: string): value is ObfuscationProfile {
+  return (PROFILE_VALUES as readonly string[]).includes(value);
+}
+
+function isIntensity(value: string): value is ObfuscationIntensity {
+  return (INTENSITY_VALUES as readonly string[]).includes(value);
+}
+
+function isBrowser(value: string): value is ObfuscationBrowser {
+  return (BROWSER_VALUES as readonly string[]).includes(value);
+}
+
+function toNumber(value: number | string, fallback: number): number {
+  const parsed = toDecimal(String(value), fallback);
   return Math.round(parsed);
 }
 
@@ -459,9 +429,3 @@ function parseHosts(value: string): string[] {
   }
   return hosts;
 }
-
-function formatHours(seconds: number): string {
-  if (!Number.isFinite(seconds)) return "0";
-  return String(Math.round((seconds / 3600) * 100) / 100);
-}
-

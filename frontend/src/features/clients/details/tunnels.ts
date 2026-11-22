@@ -18,6 +18,7 @@ import {
   withPrimaryPeer,
 } from "./model";
 import type { Option, TunnelRow } from "./types";
+import { TunnelForm } from "./tunnels.form";
 
 type TunnelHost = {
   readonly device: Device | null;
@@ -32,10 +33,12 @@ type TunnelHost = {
   setActivePeer(peerId: string): void;
   interfaceName(interfaceId: string): string;
   syncSelection(): void;
-}
+};
 
 export class TunnelSection {
   private host!: TunnelHost;
+
+  readonly form = new TunnelForm({ formId: "device-tunnel", validateOnInput: true });
 
   attach(host: TunnelHost): void {
     this.host = host;
@@ -43,12 +46,9 @@ export class TunnelSection {
 
   @reactive accessor busy = false;
   @reactive accessor addOpen = false;
-  @reactive accessor addInterfaceId = "";
-  @reactive accessor addLabel = "";
   @reactive accessor addBusy = false;
   @reactive accessor renameOpen = false;
   @reactive accessor renamePeerId = "";
-  @reactive accessor renameLabel = "";
   @reactive accessor renameBusy = false;
 
   @reactive private accessor addLabelEdited = false;
@@ -125,15 +125,31 @@ export class TunnelSection {
   }
 
   @computed
+  get addInterfaceId(): string {
+    return this.form.interfaceId;
+  }
+
+  @computed
+  get addLabel(): string {
+    return this.form.addLabel;
+  }
+
+  @computed
+  get renameLabel(): string {
+    return this.form.renameLabel;
+  }
+
+  @computed
   get addLabelError(): string | null {
-    return labelError(this.addLabel);
+    return this.form.getFieldProps("addLabel").error ?? null;
   }
 
   @computed
   get canAdd(): boolean {
     return (
       this.addOpen &&
-      this.addInterfaceId.length > 0 &&
+      this.form.interfaceId.length > 0 &&
+      isAddLabelValid(this.form.addLabel) &&
       this.addLabelError === null &&
       !this.addBusy
     );
@@ -141,7 +157,7 @@ export class TunnelSection {
 
   @computed
   get renameLabelError(): string | null {
-    return labelError(this.renameLabel);
+    return this.form.getFieldProps("renameLabel").error ?? null;
   }
 
   @computed
@@ -149,6 +165,7 @@ export class TunnelSection {
     return (
       this.renameOpen &&
       this.renamePeerId.length > 0 &&
+      isRenameLabelValid(this.form.renameLabel) &&
       this.renameLabelError === null &&
       !this.renameBusy
     );
@@ -167,19 +184,27 @@ export class TunnelSection {
 
   resetUi(): void {
     this.addOpen = false;
-    this.addInterfaceId = "";
-    this.addLabel = "";
-    this.addLabelEdited = false;
     this.renameOpen = false;
     this.renamePeerId = "";
-    this.renameLabel = "";
+    this.addLabelEdited = false;
+    this.form.reset();
+    this.form.mode = "add";
+    this.form.interfaceId = "";
+    this.form.addLabel = "";
+    this.form.renameLabel = "";
+  }
+
+  dispose(): void {
+    this.form.dispose();
   }
 
   openAdd(): void {
     if (this.addBusy || !this.host.device) return;
+    this.form.reset();
+    this.form.mode = "add";
     const interfaceId = this.defaultInterfaceId();
-    this.addInterfaceId = interfaceId;
-    this.addLabel = this.interfaceNameFor(interfaceId);
+    this.form.interfaceId = interfaceId;
+    this.form.addLabel = this.interfaceNameFor(interfaceId);
     this.addLabelEdited = false;
     this.addOpen = true;
   }
@@ -190,47 +215,57 @@ export class TunnelSection {
   }
 
   setAddInterface(value: string): void {
-    const previous = this.interfaceNameFor(this.addInterfaceId);
-    this.addInterfaceId = value;
-    if (!this.addLabelEdited || this.addLabel.trim() === previous) {
-      this.addLabel = this.interfaceNameFor(value);
+    const previous = this.interfaceNameFor(this.form.interfaceId);
+    this.form.interfaceId = value;
+    if (!this.addLabelEdited || this.form.addLabel.trim() === previous) {
+      this.form.addLabel = this.interfaceNameFor(value);
       this.addLabelEdited = false;
     }
+    void this.form.validateField("interfaceId");
+    void this.form.validateField("addLabel");
   }
 
   setAddLabel(event: Event): void {
-    this.addLabel = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("addLabel").onInput(event);
     this.addLabelEdited = true;
   }
 
   async add(): Promise<void> {
     const device = this.host.device;
     if (!device || !this.canAdd) return;
-    const before = new Set(this.host.peers.map((peer) => peer.peer_id));
-    this.addBusy = true;
-    try {
-      const updated = await this.host.devicesService.addTunnel(
-        device.id,
-        this.addInterfaceId,
-        this.addLabel.trim(),
-      );
-      const added = updated.peers.find((peer) => !before.has(peer.peer_id));
-      await this.applyUpdate(updated, added?.peer_id);
-      this.addOpen = false;
-      this.host.toasts.success(
-        t("clients.details.toast.tunnelAdded", { label: added?.label ?? this.addLabel.trim() }),
-      );
-    } catch (error) {
-      this.host.toasts.error(tunnelError(error, t("clients.details.error.tunnelAdd")));
-    } finally {
-      this.addBusy = false;
-    }
+    this.form.mode = "add";
+    await this.form.onSubmit(async (submitted) => {
+      if (!submitted.isValid) return;
+      const before = new Set(this.host.peers.map((peer) => peer.peer_id));
+      this.addBusy = true;
+      try {
+        const updated = await this.host.devicesService.addTunnel(
+          device.id,
+          submitted.interfaceId,
+          submitted.addLabel.trim(),
+        );
+        const added = updated.peers.find((peer) => !before.has(peer.peer_id));
+        await this.applyUpdate(updated, added?.peer_id);
+        this.addOpen = false;
+        this.host.toasts.success(
+          t("clients.details.toast.tunnelAdded", { label: added?.label ?? submitted.addLabel.trim() }),
+        );
+      } catch (error) {
+        const message = tunnelError(error, t("clients.details.error.tunnelAdd"));
+        if (isConflict(error)) submitted.setFieldErrors("addLabel", [message]);
+        this.host.toasts.error(message);
+      } finally {
+        this.addBusy = false;
+      }
+    })();
   }
 
   openRename(tunnel: TunnelRow): void {
     if (this.renameBusy) return;
+    this.form.reset();
+    this.form.mode = "rename";
     this.renamePeerId = tunnel.peerId;
-    this.renameLabel = tunnel.label;
+    this.form.renameLabel = tunnel.label;
     this.renameOpen = true;
   }
 
@@ -240,38 +275,44 @@ export class TunnelSection {
   }
 
   setRenameLabel(event: Event): void {
-    this.renameLabel = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("renameLabel").onInput(event);
   }
 
   async rename(): Promise<void> {
     const device = this.host.device;
     if (!device || !this.canRename) return;
-    const peerId = this.renamePeerId;
-    this.renameBusy = true;
-    try {
-      const updated = await this.host.devicesService.renameTunnel(
-        device.id,
-        peerId,
-        this.renameLabel.trim(),
-      );
-      const renamed = updated.peers.find((peer) => peer.peer_id === peerId);
-      this.host.setDevice(updated);
-      this.host.setProfiles(
-        this.host.profiles.map((profile) =>
-          profile.peer_id === peerId
-            ? { ...profile, label: renamed?.label ?? profile.label }
-            : profile,
-        ),
-      );
-      this.renameOpen = false;
-      this.host.toasts.success(
-        t("clients.details.toast.tunnelRenamed", { label: renamed?.label ?? "" }),
-      );
-    } catch (error) {
-      this.host.toasts.error(tunnelError(error, t("clients.details.error.tunnelRename")));
-    } finally {
-      this.renameBusy = false;
-    }
+    this.form.mode = "rename";
+    await this.form.onSubmit(async (submitted) => {
+      if (!submitted.isValid) return;
+      const peerId = this.renamePeerId;
+      this.renameBusy = true;
+      try {
+        const updated = await this.host.devicesService.renameTunnel(
+          device.id,
+          peerId,
+          submitted.renameLabel.trim(),
+        );
+        const renamed = updated.peers.find((peer) => peer.peer_id === peerId);
+        this.host.setDevice(updated);
+        this.host.setProfiles(
+          this.host.profiles.map((profile) =>
+            profile.peer_id === peerId
+              ? { ...profile, label: renamed?.label ?? profile.label }
+              : profile,
+          ),
+        );
+        this.renameOpen = false;
+        this.host.toasts.success(
+          t("clients.details.toast.tunnelRenamed", { label: renamed?.label ?? "" }),
+        );
+      } catch (error) {
+        const message = tunnelError(error, t("clients.details.error.tunnelRename"));
+        if (isConflict(error)) submitted.setFieldErrors("renameLabel", [message]);
+        this.host.toasts.error(message);
+      } finally {
+        this.renameBusy = false;
+      }
+    })();
   }
 
   async remove(peerId: string): Promise<void> {
@@ -343,11 +384,11 @@ export class TunnelSection {
   }
 }
 
-function labelError(label: string): string | null {
+function isAddLabelValid(label: string): boolean {
+  return [...label].length <= PEER_LABEL_MAX;
+}
+
+function isRenameLabelValid(label: string): boolean {
   const trimmed = label.trim();
-  if (trimmed.length === 0) return t("clients.details.tunnels.labelRequired");
-  if (trimmed.length > PEER_LABEL_MAX) {
-    return t("clients.details.tunnels.labelTooLong", { max: PEER_LABEL_MAX });
-  }
-  return null;
+  return trimmed.length > 0 && [...trimmed].length <= PEER_LABEL_MAX;
 }

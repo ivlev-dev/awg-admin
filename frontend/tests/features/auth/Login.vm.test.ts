@@ -6,9 +6,8 @@ import type { AuthRepository } from "@/domain/auth/repository";
 import type { LoginInput } from "@/domain/auth/types";
 import type { AuthSession, User } from "@/domain/types";
 import { ApiError } from "@/infrastructure/http/errors";
-import type { TokenStore } from "@/infrastructure/storage";
-import type { Mock } from "vitest";
 import { LoginVM } from "@/features/auth/Login.vm";
+import type { Mock } from "vitest";
 
 const USER: User = {
   id: "u1",
@@ -106,10 +105,8 @@ function makeHarness(
   };
 }
 
-function valueEvent(value: string): Event {
-  const event = new Event("input");
-  Object.defineProperty(event, "target", { value: { value } });
-  return event;
+function setField(vm: LoginVM, field: "email" | "password" | "totpCode", value: string): void {
+  vm.form.getFieldProps(field).setValue(value);
 }
 
 function submitEvent(): Event {
@@ -119,8 +116,8 @@ function submitEvent(): Event {
 describe("LoginVM", () => {
   it("logs in with trimmed credentials, stores tokens and navigates to the dashboard", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent(" admin@example.com "));
-    harness.vm.setPassword(valueEvent("secret"));
+    setField(harness.vm, "email", " admin@example.com ");
+    setField(harness.vm, "password", "secret");
 
     expect(harness.vm.canSubmit).toBe(true);
     await harness.vm.submit(submitEvent());
@@ -140,8 +137,8 @@ describe("LoginVM", () => {
     const harness = makeHarness(async () => {
       throw new Error("Неверный логин или пароль");
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "wrong";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "wrong");
 
     await harness.vm.submit(submitEvent());
 
@@ -159,16 +156,17 @@ describe("LoginVM", () => {
       }
       return SESSION;
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
 
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.step).toBe("totp");
+    expect(harness.vm.form.totpRequired).toBe(true);
     expect(harness.vm.error).toBeNull();
     expect(harness.router.path).toBe("/login");
 
-    harness.vm.setTotpCode(valueEvent("123456"));
+    setField(harness.vm, "totpCode", "123456");
     expect(harness.vm.canSubmit).toBe(true);
 
     await harness.vm.submit(submitEvent());
@@ -187,11 +185,11 @@ describe("LoginVM", () => {
       if (!input.totp_code) throw new ApiError(401, "totp_required", "totp required");
       return SESSION;
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
     await harness.vm.submit(submitEvent());
 
-    harness.vm.setTotpCode(valueEvent("abcd-1234"));
+    setField(harness.vm, "totpCode", "abcd-1234");
     await harness.vm.submit(submitEvent());
 
     expect(harness.login).toHaveBeenLastCalledWith({
@@ -202,16 +200,37 @@ describe("LoginVM", () => {
     expect(harness.router.path).toBe("/");
   });
 
+  it("does not send an invalid TOTP code", async () => {
+    const harness = makeHarness(async (input) => {
+      if (!input.totp_code) throw new ApiError(401, "totp_required", "totp required");
+      return SESSION;
+    });
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
+    await harness.vm.submit(submitEvent());
+
+    setField(harness.vm, "totpCode", "12");
+    expect(harness.vm.canSubmit).toBe(false);
+    await harness.vm.submit(submitEvent());
+
+    expect(harness.login).toHaveBeenCalledTimes(1);
+    expect(harness.login.mock.lastCall?.[0]).not.toHaveProperty("totp_code");
+    expect(harness.vm.form.getFieldProps("totpCode").error).toBe(
+      "Неверный код двухфакторной аутентификации.",
+    );
+    expect(harness.vm.step).toBe("totp");
+  });
+
   it("shows an error for an invalid TOTP code", async () => {
     const harness = makeHarness(async (input) => {
       if (!input.totp_code) throw new ApiError(401, "totp_required", "totp required");
       throw new ApiError(401, "totp_invalid", "invalid code");
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
     await harness.vm.submit(submitEvent());
 
-    harness.vm.setTotpCode(valueEvent("000000"));
+    setField(harness.vm, "totpCode", "000000");
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.error).toBe("Неверный код двухфакторной аутентификации.");
@@ -223,15 +242,16 @@ describe("LoginVM", () => {
     const harness = makeHarness(async () => {
       throw new ApiError(401, "totp_required", "totp required");
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
     await harness.vm.submit(submitEvent());
-    harness.vm.setTotpCode(valueEvent("123456"));
+    setField(harness.vm, "totpCode", "123456");
 
     harness.vm.backToCredentials();
 
     expect(harness.vm.step).toBe("credentials");
-    expect(harness.vm.totpCode).toBe("");
+    expect(harness.vm.form.totpRequired).toBe(false);
+    expect(harness.vm.form.getFieldProps("totpCode").value).toBe("");
     expect(harness.vm.error).toBeNull();
   });
 
@@ -239,16 +259,16 @@ describe("LoginVM", () => {
     const pending = makeHarness(async () => {
       throw new ApiError(403, "pending_approval", "pending");
     });
-    pending.vm.email = "admin@example.com";
-    pending.vm.password = "secret";
+    setField(pending.vm, "email", "admin@example.com");
+    setField(pending.vm, "password", "secret");
     await pending.vm.submit(submitEvent());
     expect(pending.vm.error).toBe("Заявка ожидает подтверждения администратором.");
 
     const rejected = makeHarness(async () => {
       throw new ApiError(403, "rejected", "rejected");
     });
-    rejected.vm.email = "admin@example.com";
-    rejected.vm.password = "secret";
+    setField(rejected.vm, "email", "admin@example.com");
+    setField(rejected.vm, "password", "secret");
     await rejected.vm.submit(submitEvent());
     expect(rejected.vm.error).toBe("Заявка отклонена администратором. Обратитесь в поддержку.");
   });
@@ -257,8 +277,8 @@ describe("LoginVM", () => {
     const harness = makeHarness(async () => {
       throw new ApiError(403, "email_not_verified", "verify email");
     });
-    harness.vm.email = " user@example.com ";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", " user@example.com ");
+    setField(harness.vm, "password", "secret");
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.showResend).toBe(true);
@@ -280,8 +300,8 @@ describe("LoginVM", () => {
         throw new Error("Слишком часто");
       },
     );
-    harness.vm.email = "user@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "user@example.com");
+    setField(harness.vm, "password", "secret");
     await harness.vm.submit(submitEvent());
 
     await harness.vm.resend();
@@ -293,8 +313,8 @@ describe("LoginVM", () => {
     const harness = makeHarness(async () => {
       throw "unreachable";
     });
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
 
     await harness.vm.submit(submitEvent());
 
@@ -303,28 +323,32 @@ describe("LoginVM", () => {
 
   it("requires an email address instead of a login", async () => {
     const harness = makeHarness();
-    harness.vm.email = "admin";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin");
+    setField(harness.vm, "password", "secret");
 
-    expect(harness.vm.emailValid).toBe(false);
-    expect(harness.vm.emailInvalid).toBe(true);
     expect(harness.vm.canSubmit).toBe(false);
 
     await harness.vm.submit(submitEvent());
     expect(harness.login).not.toHaveBeenCalled();
+    expect(harness.vm.form.getFieldProps("email").error).toBe("Введите корректный email");
   });
 
   it("blocks submission while the credentials are empty", async () => {
     const harness = makeHarness();
-    harness.vm.email = "   ";
-    harness.vm.password = "secret";
+
+    expect(harness.vm.canSubmit).toBe(false);
+    await harness.vm.submit(submitEvent());
+    expect(harness.login).not.toHaveBeenCalled();
+
+    setField(harness.vm, "email", "   ");
+    setField(harness.vm, "password", "secret");
     expect(harness.vm.canSubmit).toBe(false);
 
     await harness.vm.submit(submitEvent());
     expect(harness.login).not.toHaveBeenCalled();
 
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "");
     expect(harness.vm.canSubmit).toBe(false);
 
     await harness.vm.submit(submitEvent());
@@ -338,10 +362,13 @@ describe("LoginVM", () => {
       release = resolve;
     });
     const harness = makeHarness(async () => pending);
-    harness.vm.email = "admin@example.com";
-    harness.vm.password = "secret";
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
 
     const submission = harness.vm.submit(submitEvent());
+    await vi.waitFor(() => {
+      expect(harness.session.busy).toBe(true);
+    });
 
     expect(harness.vm.busy).toBe(true);
     expect(harness.vm.canSubmit).toBe(false);
@@ -380,12 +407,20 @@ describe("LoginVM", () => {
     expect(harness.vm.showPassword).toBe(false);
   });
 
-  it("navigates to the registration page", () => {
+  it("navigates to the registration and forgot-password pages", () => {
     const harness = makeHarness();
 
-    harness.vm.goRegister();
+    harness.vm.goForgotPassword();
+    expect(harness.router.path).toBe("/forgot-password");
 
+    harness.vm.goRegister();
     expect(harness.router.path).toBe("/register");
+  });
+
+  it("does not throw on unmount", () => {
+    const harness = makeHarness();
+
+    expect(() => harness.vm.unmounted()).not.toThrow();
   });
 
   it("resolves constructor dependencies through the container", async () => {

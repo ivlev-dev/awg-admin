@@ -22,6 +22,7 @@ import { DefaultApiConfig } from "@/infrastructure/http/config";
 import { LiveStats } from "@/infrastructure/stats";
 import { LocalTokenStore } from "@/infrastructure/storage";
 import { t } from "@/i18n";
+import { syncValidationLocale } from "./validation";
 import { createAppServices } from "./di";
 
 const toasts = new ToastStore();
@@ -41,6 +42,7 @@ const services = createAppServices({
 const liveStats = new LiveStats(services.tokens, services.repositories.stats);
 
 export function bindAppServices(container: Container): void {
+  syncValidationLocale();
   container.bindValue(LocalTokenStore, services.tokens);
   container.bindValue(DefaultApiConfig, services.config);
   container.bindValue(Session, services.session);

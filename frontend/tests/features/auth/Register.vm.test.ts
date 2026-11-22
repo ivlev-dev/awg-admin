@@ -5,7 +5,6 @@ import { DefaultAuthService } from "@/application/auth/service";
 import type { AuthRepository } from "@/domain/auth/repository";
 import { ApiError } from "@/domain/errors";
 import type { AuthSession, User } from "@/domain/types";
-import type { TokenStore } from "@/infrastructure/storage";
 import { RegisterVM } from "@/features/auth/Register.vm";
 
 const USER: User = {
@@ -102,10 +101,18 @@ function makeHarness(
   };
 }
 
-function valueEvent(value: string): Event {
-  const event = new Event("input");
-  Object.defineProperty(event, "target", { value: { value } });
-  return event;
+function setField(
+  vm: RegisterVM,
+  field: "email" | "fullName" | "password" | "repeatPassword",
+  value: string,
+): void {
+  vm.form.getFieldProps(field).setValue(value);
+}
+
+function fillValid(vm: RegisterVM): void {
+  setField(vm, "email", "user@example.com");
+  setField(vm, "password", "secret1234");
+  setField(vm, "repeatPassword", "secret1234");
 }
 
 function submitEvent(): Event {
@@ -119,77 +126,83 @@ afterEach(() => {
 describe("RegisterVM", () => {
   it("validates the email, password length and confirmation", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("nope"));
-    harness.vm.setPassword(valueEvent("short"));
-    harness.vm.setRepeatPassword(valueEvent("other"));
-
-    expect(harness.vm.emailValid).toBe(false);
-    expect(harness.vm.canSubmit).toBe(false);
+    setField(harness.vm, "email", "nope");
+    setField(harness.vm, "password", "short");
+    setField(harness.vm, "repeatPassword", "other");
 
     await harness.vm.submit(submitEvent());
-    expect(harness.vm.error).toBe("Введите корректный email");
 
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    await harness.vm.submit(submitEvent());
-    expect(harness.vm.error).toBe("Пароль должен содержать минимум 10 символов");
+    expect(harness.vm.form.getFieldProps("email").error).toBe("Введите корректный email");
+    expect(harness.register).not.toHaveBeenCalled();
 
-    harness.vm.setPassword(valueEvent("secret1234"));
+    setField(harness.vm, "email", "user@example.com");
     await harness.vm.submit(submitEvent());
-    expect(harness.vm.error).toBe("Пароли не совпадают");
+    expect(harness.vm.form.getFieldProps("password").error).toBe(
+      "Пароль должен содержать минимум 10 символов",
+    );
+
+    setField(harness.vm, "password", "secret1234");
+    await harness.vm.submit(submitEvent());
+    expect(harness.vm.form.getFieldProps("repeatPassword").error).toBe(
+      "Пароли не совпадают",
+    );
     expect(harness.register).not.toHaveBeenCalled();
   });
 
   it("requires a password of at least 10 characters", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("123456789"));
-    harness.vm.setRepeatPassword(valueEvent("123456789"));
+    setField(harness.vm, "email", "user@example.com");
+    setField(harness.vm, "password", "123456789");
+    setField(harness.vm, "repeatPassword", "123456789");
 
-    expect(harness.vm.passwordTooShort).toBe(true);
-    expect(harness.vm.canSubmit).toBe(false);
+    expect(await harness.vm.form.validate()).toBe(false);
     await harness.vm.submit(submitEvent());
-    expect(harness.vm.error).toBe("Пароль должен содержать минимум 10 символов");
+    expect(harness.vm.form.getFieldProps("password").error).toBe(
+      "Пароль должен содержать минимум 10 символов",
+    );
     expect(harness.register).not.toHaveBeenCalled();
 
-    harness.vm.setPassword(valueEvent("abcdefghij"));
-    harness.vm.setRepeatPassword(valueEvent("abcdefghij"));
+    setField(harness.vm, "password", "abcdefghij");
+    setField(harness.vm, "repeatPassword", "abcdefghij");
 
-    expect(harness.vm.passwordTooShort).toBe(false);
+    expect(await harness.vm.form.validate()).toBe(true);
     expect(harness.vm.canSubmit).toBe(true);
   });
 
   it("rejects a password that equals the email local part", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("VeryLongLocal@example.com"));
-    harness.vm.setPassword(valueEvent("verylonglocal"));
-    harness.vm.setRepeatPassword(valueEvent("verylonglocal"));
+    setField(harness.vm, "email", "VeryLongLocal@example.com");
+    setField(harness.vm, "password", "verylonglocal");
+    setField(harness.vm, "repeatPassword", "verylonglocal");
 
-    expect(harness.vm.canSubmit).toBe(false);
     await harness.vm.submit(submitEvent());
 
-    expect(harness.vm.error).toBe("Пароль не должен совпадать с частью email до @");
+    expect(harness.vm.form.getFieldProps("password").error).toBe(
+      "Пароль не должен совпадать с частью email до @",
+    );
     expect(harness.register).not.toHaveBeenCalled();
   });
 
   it("rejects common passwords", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("letmein123"));
-    harness.vm.setRepeatPassword(valueEvent("letmein123"));
+    fillValid(harness.vm);
+    setField(harness.vm, "password", "letmein123");
+    setField(harness.vm, "repeatPassword", "letmein123");
 
-    expect(harness.vm.canSubmit).toBe(false);
     await harness.vm.submit(submitEvent());
 
-    expect(harness.vm.error).toBe("Пароль слишком простой. Используйте более сложный пароль.");
+    expect(harness.vm.form.getFieldProps("password").error).toBe(
+      "Пароль слишком простой. Используйте более сложный пароль.",
+    );
     expect(harness.register).not.toHaveBeenCalled();
   });
 
   it("registers without a full name and shows the email confirmation screen", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent(" user@example.com "));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    setField(harness.vm, "email", " user@example.com ");
+    setField(harness.vm, "password", "secret1234");
+    setField(harness.vm, "repeatPassword", "secret1234");
 
     expect(harness.vm.canSubmit).toBe(true);
     await harness.vm.submit(submitEvent());
@@ -206,10 +219,8 @@ describe("RegisterVM", () => {
 
   it("sends a trimmed full name when it is provided", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setFullName(valueEvent("  Иван Петров  "));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
+    setField(harness.vm, "fullName", "  Иван Петров  ");
     await harness.vm.submit(submitEvent());
 
     expect(harness.register).toHaveBeenCalledWith({
@@ -221,16 +232,14 @@ describe("RegisterVM", () => {
 
   it("rejects a full name longer than 200 characters", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setFullName(valueEvent("a".repeat(201)));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
+    setField(harness.vm, "fullName", "a".repeat(201));
 
-    expect(harness.vm.fullNameTooLong).toBe(true);
-    expect(harness.vm.canSubmit).toBe(false);
     await harness.vm.submit(submitEvent());
 
-    expect(harness.vm.error).toBe("ФИО должно быть не длиннее 200 символов");
+    expect(harness.vm.form.getFieldProps("fullName").error).toBe(
+      "ФИО должно быть не длиннее 200 символов",
+    );
     expect(harness.register).not.toHaveBeenCalled();
   });
 
@@ -238,9 +247,7 @@ describe("RegisterVM", () => {
     vi.useFakeTimers();
     try {
       const harness = makeHarness();
-      harness.vm.setEmail(valueEvent("user@example.com"));
-      harness.vm.setPassword(valueEvent("secret1234"));
-      harness.vm.setRepeatPassword(valueEvent("secret1234"));
+      fillValid(harness.vm);
       await harness.vm.submit(submitEvent());
 
       harness.vm.unmounted();
@@ -258,15 +265,13 @@ describe("RegisterVM", () => {
         throw new ApiError(403, "registration_disabled", "registration is disabled");
       },
     });
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
 
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.error).toBe("Саморегистрация отключена. Обратитесь к администратору.");
     expect(harness.vm.sent).toBe(false);
-    expect(harness.vm.password).toBe("secret1234");
+    expect(harness.vm.form.getFieldProps("password").value).toBe("secret1234");
   });
 
   it("does not reveal that an email is already registered", async () => {
@@ -275,9 +280,7 @@ describe("RegisterVM", () => {
         throw new ApiError(400, "bad_request", "email is already registered");
       },
     });
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
 
     await harness.vm.submit(submitEvent());
 
@@ -287,15 +290,13 @@ describe("RegisterVM", () => {
 
   it("treats an existing email as a pending confirmation (202)", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("existing@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
 
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.sent).toBe(true);
     expect(harness.vm.error).toBeNull();
-    expect(harness.vm.registeredEmail).toBe("existing@example.com");
+    expect(harness.vm.registeredEmail).toBe("user@example.com");
   });
 
   it("maps a weak password rejection from the server", async () => {
@@ -304,9 +305,7 @@ describe("RegisterVM", () => {
         throw new ApiError(400, "bad_request", "password is too weak: at least 10 characters required");
       },
     });
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
 
     await harness.vm.submit(submitEvent());
 
@@ -317,9 +316,7 @@ describe("RegisterVM", () => {
   it("counts down the resend cooldown and sends the email again", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
     await harness.vm.submit(submitEvent());
 
     expect(harness.vm.canResend).toBe(false);
@@ -342,9 +339,7 @@ describe("RegisterVM", () => {
         throw new Error("Слишком часто");
       },
     });
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
     await harness.vm.submit(submitEvent());
     harness.vm.cooldown = 0;
 
@@ -355,9 +350,7 @@ describe("RegisterVM", () => {
 
   it("returns to the form to change the address", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
-    harness.vm.setPassword(valueEvent("secret1234"));
-    harness.vm.setRepeatPassword(valueEvent("secret1234"));
+    fillValid(harness.vm);
     await harness.vm.submit(submitEvent());
 
     harness.vm.editEmail();
@@ -382,6 +375,19 @@ describe("RegisterVM", () => {
     harness.vm.created();
 
     expect(harness.router.path).toBe("/");
+  });
+
+  it("toggles password visibility", () => {
+    const harness = makeHarness();
+
+    harness.vm.togglePassword();
+    expect(harness.vm.showPassword).toBe(true);
+  });
+
+  it("does not throw on unmount", () => {
+    const harness = makeHarness();
+
+    expect(() => harness.vm.unmounted()).not.toThrow();
   });
 
   it("resolves through the container", async () => {

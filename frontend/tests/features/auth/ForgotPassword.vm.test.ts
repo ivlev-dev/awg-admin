@@ -67,10 +67,8 @@ function makeHarness(
   };
 }
 
-function valueEvent(value: string): Event {
-  const event = new Event("input");
-  Object.defineProperty(event, "target", { value: { value } });
-  return event;
+function setEmail(vm: ForgotPasswordVM, value: string): void {
+  vm.form.getFieldProps("email").setValue(value);
 }
 
 function submitEvent(): Event {
@@ -85,25 +83,25 @@ afterEach(() => {
 describe("ForgotPasswordVM", () => {
   it("rejects an invalid email without calling the service", async () => {
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("nope"));
+    setEmail(harness.vm, "nope");
 
-    expect(harness.vm.emailValid).toBe(false);
     expect(harness.vm.canSubmit).toBe(false);
-
     await harness.vm.submit(submitEvent());
 
-    expect(harness.vm.error).toBe("Введите корректный email");
+    expect(harness.vm.form.getFieldProps("email").error).toBe("Введите корректный email");
+    expect(harness.vm.error).toBeNull();
     expect(harness.forgotPassword).not.toHaveBeenCalled();
   });
 
   it("sends the link with a trimmed email and starts the cooldown", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent(" user@example.com "));
+    setEmail(harness.vm, " user@example.com ");
 
     await harness.vm.submit(submitEvent());
 
     expect(harness.forgotPassword).toHaveBeenCalledWith("user@example.com");
+    expect(harness.vm.form.getFieldProps("email").value).toBe("user@example.com");
     expect(harness.vm.sent).toBe(true);
     expect(harness.vm.cooldown).toBe(60);
     expect(harness.vm.canResend).toBe(false);
@@ -112,7 +110,7 @@ describe("ForgotPasswordVM", () => {
   it("останавливает таймер обратного отсчёта при размонтировании", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
+    setEmail(harness.vm, "user@example.com");
     await harness.vm.submit(submitEvent());
 
     harness.vm.unmounted();
@@ -124,7 +122,7 @@ describe("ForgotPasswordVM", () => {
   it("counts down the cooldown and resends the link", async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
-    harness.vm.setEmail(valueEvent("user@example.com"));
+    setEmail(harness.vm, "user@example.com");
     await harness.vm.submit(submitEvent());
 
     vi.advanceTimersByTime(59_000);
@@ -145,7 +143,7 @@ describe("ForgotPasswordVM", () => {
     const harness = makeHarness(async () => {
       throw new Error("Сервис недоступен");
     });
-    harness.vm.setEmail(valueEvent("user@example.com"));
+    setEmail(harness.vm, "user@example.com");
 
     await harness.vm.submit(submitEvent());
 
@@ -158,7 +156,7 @@ describe("ForgotPasswordVM", () => {
     const harness = makeHarness(async () => {
       throw new Error("Слишком часто");
     });
-    harness.vm.email = "user@example.com";
+    setEmail(harness.vm, "user@example.com");
     harness.vm.sent = true;
 
     await harness.vm.resend();
@@ -172,6 +170,12 @@ describe("ForgotPasswordVM", () => {
     harness.vm.goLogin();
 
     expect(harness.router.path).toBe("/login");
+  });
+
+  it("does not throw on unmount", () => {
+    const harness = makeHarness();
+
+    expect(() => harness.vm.unmounted()).not.toThrow();
   });
 
   it("resolves through the container", async () => {

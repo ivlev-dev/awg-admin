@@ -8,6 +8,10 @@ import { formatDateTimeI18n } from "@/i18n/format";
 
 export function ClientShareSection(props: { vm: ClientDetailsVM }) {
   const vm = props.vm;
+  const form = vm.shareForm;
+  const maxUsesField = form.getFieldProps("maxUses");
+  const ttlField = form.getFieldProps("ttl");
+  const formatField = form.getFieldProps("format");
   return (
     <section class="card client-section" id="client-share" tabindex={-1}>
       <div class="card__head">
@@ -45,7 +49,7 @@ export function ClientShareSection(props: { vm: ClientDetailsVM }) {
               <label for="share-format">{t("clients.details.share.format")}</label>
               <Select
                 id="share-format"
-                value={vm.shareFormat}
+                value={formatField.value}
                 options={vm.formatOptions.map((option) => ({ value: option.value, label: option.label }))}
                 onChange={(value) => vm.setShareFormat(value)}
                 ariaLabel={t("clients.details.share.format")}
@@ -55,11 +59,14 @@ export function ClientShareSection(props: { vm: ClientDetailsVM }) {
               <label for="share-ttl">{t("clients.details.share.ttl")}</label>
               <Select
                 id="share-ttl"
-                value={String(vm.shareTtl)}
+                value={String(ttlField.value)}
                 options={vm.ttlOptions.map((option) => ({ value: String(option.value), label: option.label }))}
                 onChange={(value) => vm.setShareTtl(value)}
                 ariaLabel={t("clients.details.share.ttl")}
               />
+              <Show when={ttlField.error}>
+                <div class="hint hint--error">{ttlField.error}</div>
+              </Show>
             </div>
           </div>
 
@@ -67,7 +74,7 @@ export function ClientShareSection(props: { vm: ClientDetailsVM }) {
             <label class="switch">
               <input
                 type="checkbox"
-                checked={vm.shareOneTime}
+                checked={form.oneTime}
                 onChange={(event: Event) => vm.setShareOneTime(event)}
               />
               <span class="track"></span>
@@ -94,10 +101,14 @@ export function ClientShareSection(props: { vm: ClientDetailsVM }) {
                 onInput={(event: Event) =>
                   vm.setShareMaxUses((event.target as HTMLInputElement).value)
                 }
+                onBlur={maxUsesField.onBlur}
               />
-              <div class={vm.shareMaxUsesInvalid ? "hint hint--error" : "hint"}>
-                {t("clients.details.share.maxUsesHint")}
-              </div>
+              <Show
+                when={maxUsesField.error}
+                fallback={<div class="hint">{t("clients.details.share.maxUsesHint")}</div>}
+              >
+                <div class="hint hint--error">{maxUsesField.error}</div>
+              </Show>
             </div>
           </div>
 

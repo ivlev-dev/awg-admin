@@ -21,6 +21,8 @@ import type { Device, InterfaceInfo, User } from "@/domain/types";
 import { t } from "@/i18n";
 import { pluralI18n } from "@/i18n/format";
 
+import { CreateDeviceForm, DEVICE_NAME_MAX } from "./ClientsPage.form";
+
 const SEARCH_DEBOUNCE_MS = 250;
 const QUERY_LIMIT = 200;
 const FILTER_ID_LIMIT = 100;
@@ -128,13 +130,9 @@ export class ClientsPageVM extends ViewModel {
   @reactive accessor createOpen = false;
   @reactive accessor submitting = false;
 
-  @reactive accessor formName = "";
-  @reactive accessor formUserId = "";
-  @reactive accessor formInterfaceIds: string[] = [];
+  readonly form = new CreateDeviceForm({ formId: "client-create", validateOnInput: true });
+
   @reactive accessor formInterfaceQuery = "";
-  @reactive accessor formDownKbps = 0;
-  @reactive accessor formUpKbps = 0;
-  @reactive accessor formForwarding = false;
 
   @reactive private accessor formSnapshot: ClientFormState | null = null;
 
@@ -153,11 +151,13 @@ export class ClientsPageVM extends ViewModel {
 
   override unmounted(): void {
     this.detachPopstate();
+    this.form.dispose();
   }
 
   override dispose(): void {
     this.applyQuery.cancel();
     this.detachPopstate();
+    this.form.dispose();
     this.controller?.abort();
     this.controller = null;
     super.dispose();
@@ -190,7 +190,7 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get formInterfaceOptions(): InterfaceOption[] {
-    return this.interfacesForNode(this.userNodeId(this.formUserId)).map((item) => ({
+    return this.interfacesForNode(this.userNodeId(this.form.userId)).map((item) => ({
       value: item.id,
       label: interfaceLabel(item),
     }));
@@ -210,7 +210,7 @@ export class ClientsPageVM extends ViewModel {
   get selectedFormInterfaceIds(): string[] {
     const available = this.formInterfaceOptions.map((option) => option.value);
     if (this.formInterfacesPinned) return available;
-    return available.filter((id) => this.formInterfaceIds.includes(id));
+    return available.filter((id) => this.form.interfaceIds.includes(id));
   }
 
   @computed
@@ -397,8 +397,10 @@ export class ClientsPageVM extends ViewModel {
 
   @computed
   get canCreate(): boolean {
-    if (this.submitting || this.formName.trim().length === 0) return false;
-    if (this.isAdmin && this.formUserId.length === 0) return false;
+    if (this.submitting) return false;
+    if (!isDeviceNameValid(this.form.name)) return false;
+    if (this.isAdmin && this.form.userId.length === 0) return false;
+    if (!isLimitValid(this.form.downKbps) || !isLimitValid(this.form.upKbps)) return false;
     if (this.isAdmin || this.formInterfaceOptions.length > 0) {
       return this.selectedFormInterfaceCount > 0;
     }
@@ -433,9 +435,13 @@ export class ClientsPageVM extends ViewModel {
 
   toggleFormInterface(id: string): void {
     if (this.formInterfacesPinned || this.isFormInterfaceDisabled(id)) return;
-    this.formInterfaceIds = this.formInterfaceIds.includes(id)
-      ? this.formInterfaceIds.filter((value) => value !== id)
-      : [...this.formInterfaceIds, id];
+    const current = this.form.interfaceIds;
+    const next = current.includes(id)
+      ? current.filter((value) => value !== id)
+      : [...current, id];
+    const field = this.form.getFieldProps("interfaceIds");
+    field.setValue(next);
+    void field.validate();
   }
 
   setFormInterfaceQuery(event: Event): void {
@@ -444,12 +450,12 @@ export class ClientsPageVM extends ViewModel {
 
   private formState(): ClientFormState {
     return {
-      name: this.formName,
-      userId: this.formUserId,
-      interfaceIds: [...this.formInterfaceIds],
-      downKbps: this.formDownKbps,
-      upKbps: this.formUpKbps,
-      forwarding: this.formForwarding,
+      name: this.form.name,
+      userId: this.form.userId,
+      interfaceIds: [...this.form.interfaceIds],
+      downKbps: this.form.downKbps,
+      upKbps: this.form.upKbps,
+      forwarding: this.form.forwarding,
     };
   }
 
@@ -565,35 +571,40 @@ export class ClientsPageVM extends ViewModel {
   }
 
   setFormName(event: Event): void {
-    this.formName = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("name").onInput(event);
   }
 
   setFormUser(value: string): void {
-    this.formUserId = value;
-    this.formInterfaceIds = this.defaultInterfaceIds();
+    this.form.userId = value;
+    this.form.interfaceIds = this.defaultInterfaceIds();
+    this.form.interfaceRequired = this.isAdmin || this.formInterfaceOptions.length > 0;
+    void this.form.validateField("userId");
+    void this.form.validateField("interfaceIds");
   }
 
   setFormDownKbps(value: number): void {
-    this.formDownKbps = sanitizeKbps(value);
+    const field = this.form.getFieldProps("downKbps");
+    field.setValue(value);
+    void field.validate();
   }
 
   setFormUpKbps(value: number): void {
-    this.formUpKbps = sanitizeKbps(value);
+    const field = this.form.getFieldProps("upKbps");
+    field.setValue(value);
+    void field.validate();
   }
 
   setFormForwarding(event: Event): void {
-    this.formForwarding = (event.target as HTMLInputElement).checked;
+    this.form.getFieldProps("forwarding").onChange(event);
   }
 
   openCreate(): void {
-    const userId = this.isAdmin ? "" : this.session.user?.id ?? "";
-    this.formName = "";
-    this.formUserId = userId;
+    this.form.reset();
+    this.form.adminMode = this.isAdmin;
+    this.form.userId = this.isAdmin ? "" : this.session.user?.id ?? "";
+    this.form.interfaceRequired = this.isAdmin || this.formInterfaceOptions.length > 0;
+    this.form.interfaceIds = this.defaultInterfaceIds();
     this.formInterfaceQuery = "";
-    this.formInterfaceIds = this.defaultInterfaceIds();
-    this.formDownKbps = 0;
-    this.formUpKbps = 0;
-    this.formForwarding = false;
     this.formSnapshot = this.formState();
     this.createOpen = true;
   }
@@ -615,42 +626,45 @@ export class ClientsPageVM extends ViewModel {
 
   async create(): Promise<void> {
     if (this.submitting) return;
-    const name = this.formName.trim();
-    if (name.length === 0) return;
-    const userId = this.isAdmin ? this.formUserId : this.session.user?.id ?? "";
-    if (userId.length === 0) {
-      this.toasts.error(t("clients.error.user"));
-      return;
-    }
-    const interfaceIds = this.selectedFormInterfaceIds;
-    if ((this.isAdmin || this.formInterfaceOptions.length > 0) && interfaceIds.length === 0) {
-      this.toasts.error(t("clients.error.interface"));
-      return;
-    }
-    this.submitting = true;
-    try {
-      const device = await this.devicesService.createDevice({
-        user_id: userId,
-        group_id: this.formInterfaceGroupId,
-        ...(interfaceIds.length > 0 ? { interface_ids: [...interfaceIds] } : {}),
-        name,
-        down_kbps: this.formDownKbps,
-        up_kbps: this.formUpKbps,
-        forwarding: {
-          to_own_devices: this.formForwarding,
-          allowed_devices: [],
-        },
-      });
-      this.createOpen = false;
-      this.formSnapshot = null;
-      invalidate("devices", this.devicesService);
-      this.toasts.success(t("clients.toast.created", { name: device.name }));
-      await this.load();
-    } catch (error) {
-      this.toasts.error(userMessage(error, t("clients.error.create")));
-    } finally {
-      this.submitting = false;
-    }
+    const form = this.form;
+    form.adminMode = this.isAdmin;
+    form.interfaceRequired = this.isAdmin || this.formInterfaceOptions.length > 0;
+    await form.onSubmit(async (submitted) => {
+      if (!submitted.isValid) return;
+      const name = submitted.name.trim();
+      const userId = this.isAdmin ? submitted.userId : this.session.user?.id ?? "";
+      if (userId.length === 0) {
+        this.toasts.error(t("clients.error.user"));
+        return;
+      }
+      const interfaceIds = this.selectedFormInterfaceIds;
+      this.submitting = true;
+      try {
+        const device = await this.devicesService.createDevice({
+          user_id: userId,
+          group_id: this.formInterfaceGroupId,
+          ...(interfaceIds.length > 0 ? { interface_ids: [...interfaceIds] } : {}),
+          name,
+          down_kbps: submitted.downKbps,
+          up_kbps: submitted.upKbps,
+          forwarding: {
+            to_own_devices: submitted.forwarding,
+            allowed_devices: [],
+          },
+        });
+        this.createOpen = false;
+        this.formSnapshot = null;
+        invalidate("devices", this.devicesService);
+        this.toasts.success(t("clients.toast.created", { name: device.name }));
+        await this.load();
+      } catch (error) {
+        const message = userMessage(error, t("clients.error.create"));
+        if (isServerFieldError(error)) submitted.setFieldErrors("name", [message]);
+        this.toasts.error(message);
+      } finally {
+        this.submitting = false;
+      }
+    })();
   }
 
   openDevice(id: string): void {
@@ -792,11 +806,20 @@ function validateClientsFilters(value: unknown): ClientsFilters | null {
   return { query, interfaceFilter };
 }
 
-function sanitizeKbps(value: number): number {
-  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+function isDeviceNameValid(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= DEVICE_NAME_MAX;
 }
 
-function sameClientForm(left: ClientFormState, right: ClientFormState): boolean {
+function isLimitValid(value: number): boolean {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function isServerFieldError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const status = Reflect.get(error, "status");
+  return status === 400 || status === 409 || status === 422;
+}function sameClientForm(left: ClientFormState, right: ClientFormState): boolean {
   return (
     left.name === right.name &&
     left.userId === right.userId &&

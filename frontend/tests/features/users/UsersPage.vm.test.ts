@@ -536,14 +536,14 @@ describe("UsersPageVM", () => {
     expect(vm.roleLocked).toBe(true);
     vm.setRole("user");
 
-    expect(vm.role).toBe("admin");
+    expect(vm.userForm.role).toBe("admin");
   });
 
   it("перезагружает сессию после сохранения собственного профиля", async () => {
     const { vm, session } = setup();
     const reload = vi.spyOn(session, "reload").mockResolvedValue(undefined);
     vm.openEdit(ADMIN);
-    vm.email = "admin@example.com";
+    vm.userForm.email = "admin@example.com";
 
     await vm.submit();
 
@@ -619,12 +619,12 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, toasts, services } = setup();
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
-    vm.email = "  bob@example.com  ";
-    vm.fullName = "  Боб  ";
-    vm.password = "secret1234";
-    vm.role = "admin";
-    vm.tariffId = "t1";
-    vm.setNode("n1");
+    vm.userForm.email = "  bob@example.com  ";
+    vm.userForm.fullName = "  Боб  ";
+    vm.userForm.password = "secret1234";
+    vm.userForm.role = "admin";
+    vm.userForm.tariffId = "t1";
+    vm.userForm.nodeId = "n1";
 
     await vm.submit();
 
@@ -652,8 +652,8 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, services } = setup();
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
-    vm.email = "bob@example.com";
-    vm.password = "secret1234";
+    vm.userForm.email = "bob@example.com";
+    vm.userForm.password = "secret1234";
 
     await vm.submit();
 
@@ -671,12 +671,15 @@ describe("UsersPageVM", () => {
   it("rejects a short password before creating", async () => {
     const { vm, usersRepo, toasts } = setup();
     vm.openCreate();
-    vm.email = "bob@example.com";
-    vm.password = "123";
+    vm.userForm.email = "bob@example.com";
+    vm.userForm.password = "123";
     await vm.load();
 
     await vm.submit();
 
+    expect(vm.userForm.getFieldProps("password").error).toBe(
+      "Пароль должен содержать не менее 10 символов",
+    );
     expect(vm.formError).toBe("Пароль должен содержать не менее 10 символов");
     expect(usersRepo.users).toHaveLength(2);
     expect(vm.modalOpen).toBe(true);
@@ -686,8 +689,8 @@ describe("UsersPageVM", () => {
   it("accepts a password of exactly 10 characters", async () => {
     const { vm, usersRepo } = setup();
     vm.openCreate();
-    vm.email = "bob@example.com";
-    vm.password = "abcdefghij";
+    vm.userForm.email = "bob@example.com";
+    vm.userForm.password = "abcdefghij";
 
     await vm.submit();
 
@@ -699,12 +702,14 @@ describe("UsersPageVM", () => {
   it("rejects a password that equals the email local part", async () => {
     const { vm, usersRepo } = setup();
     vm.openCreate();
-    vm.email = "VeryLongLocal@example.com";
-    vm.password = "verylonglocal";
+    vm.userForm.email = "VeryLongLocal@example.com";
+    vm.userForm.password = "verylonglocal";
 
     await vm.submit();
 
-    expect(vm.passwordError).toBe("Пароль не должен совпадать с частью email до @");
+    expect(vm.userForm.getFieldProps("password").error).toBe(
+      "Пароль не должен совпадать с частью email до @",
+    );
     expect(usersRepo.users.some((user) => user.email === "VeryLongLocal@example.com")).toBe(false);
     expect(vm.modalOpen).toBe(true);
   });
@@ -714,16 +719,16 @@ describe("UsersPageVM", () => {
     vm.openEdit(ALICE);
 
     expect(vm.title).toBe("Редактировать пользователя");
-    expect(vm.tariffId).toBe("t1");
-    expect(vm.nodeId).toBe("n1");
-    expect(vm.email).toBe("alice@example.com");
+    expect(vm.userForm.tariffId).toBe("t1");
+    expect(vm.userForm.nodeId).toBe("n1");
+    expect(vm.userForm.email).toBe("alice@example.com");
 
-    vm.email = "alice.updated@example.com";
-    vm.fullName = "  Алиса  ";
-    vm.role = "admin";
-    vm.disabled = true;
-    vm.tariffId = "";
-    vm.setNode("");
+    vm.userForm.email = "alice.updated@example.com";
+    vm.userForm.fullName = "  Алиса  ";
+    vm.userForm.role = "admin";
+    vm.userForm.disabled = true;
+    vm.userForm.tariffId = "";
+    vm.userForm.nodeId = "";
     await vm.submit();
 
     const updated = usersRepo.users.find((user) => user.id === ALICE.id);
@@ -744,8 +749,8 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, toasts } = setup();
     usersRepo.failure = new Error("Сервер недоступен");
     vm.openCreate();
-    vm.email = "bob@example.com";
-    vm.password = "secret1234";
+    vm.userForm.email = "bob@example.com";
+    vm.userForm.password = "secret1234";
 
     await vm.submit();
 
@@ -758,7 +763,7 @@ describe("UsersPageVM", () => {
   it("resets a password", async () => {
     const { vm, usersRepo, toasts } = setup();
     vm.openReset(ALICE);
-    vm.resetPassword = "newsecret1";
+    vm.resetForm.newPassword = "newsecret1";
 
     await vm.submitReset();
 
@@ -771,7 +776,7 @@ describe("UsersPageVM", () => {
   it("rejects a short reset password", async () => {
     const { vm, usersRepo, toasts } = setup();
     vm.openReset(ALICE);
-    vm.resetPassword = "short";
+    vm.resetForm.newPassword = "short";
 
     await vm.submitReset();
 
@@ -951,14 +956,14 @@ describe("UsersPageVM", () => {
     const { vm, usersRepo, services } = setup();
     const createSpy = vi.spyOn(services.users, "createUser");
     vm.openCreate();
-    vm.email = "not-an-email";
-    vm.password = "secret1234";
+    vm.userForm.email = "not-an-email";
+    vm.userForm.password = "secret1234";
 
     await vm.submit();
 
     expect(createSpy).not.toHaveBeenCalled();
     expect(usersRepo.users).toHaveLength(2);
-    expect(vm.formError).toBe("Введите корректный email");
+    expect(vm.userForm.getFieldProps("email").error).toBe("Введите корректный email");
     expect(vm.modalOpen).toBe(true);
   });
 
@@ -1003,8 +1008,8 @@ describe("UsersPageVM", () => {
 
     vm.setTab("active");
     vm.openCreate();
-    vm.setPassword({ target: { value: "secret1234" } } as unknown as Event);
-    vm.setEmail({ target: { value: "bob@example.com" } } as unknown as Event);
+    vm.userForm.password = "secret1234";
+    vm.userForm.email = "bob@example.com";
 
     const raw = localStorage.getItem(usersFiltersStorage.key);
     expect(raw).not.toBeNull();
@@ -1293,7 +1298,7 @@ describe("UsersPageVM UX-состояния", () => {
   it("спрашивает подтверждение при закрытии изменённой формы", async () => {
     const { vm } = setup();
     vm.openCreate();
-    vm.email = "dirty@example.com";
+    vm.userForm.email = "dirty@example.com";
 
     expect(vm.formDirty).toBe(true);
 
@@ -1309,12 +1314,12 @@ describe("UsersPageVM UX-состояния", () => {
     confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm } = setup();
     vm.openCreate();
-    vm.email = "dirty@example.com";
+    vm.userForm.email = "dirty@example.com";
 
     await vm.closeModal();
 
     expect(vm.modalOpen).toBe(true);
-    expect(vm.email).toBe("dirty@example.com");
+    expect(vm.userForm.email).toBe("dirty@example.com");
   });
 
   it("запрещает удаление последнего администратора", async () => {
@@ -1332,11 +1337,13 @@ describe("UsersPageVM UX-состояния", () => {
   it("не отправляет сброс пароля повторно и показывает ошибку рядом", async () => {
     const { vm, usersRepo, toasts } = setup();
     vm.openReset(ALICE);
-    vm.resetPassword = "short";
+    vm.resetForm.newPassword = "short";
 
     await vm.submitReset();
 
-    expect(vm.resetError).toBe("Пароль должен содержать не менее 10 символов");
+    expect(vm.resetForm.getFieldProps("newPassword").error).toBe(
+      "Пароль должен содержать не менее 10 символов",
+    );
     expect(vm.resetOpen).toBe(true);
     expect(toastMessages(toasts)).toContain("Пароль должен содержать не менее 10 символов");
 
@@ -1344,14 +1351,16 @@ describe("UsersPageVM UX-состояния", () => {
     usersRepo.resetPassword = vi.fn(
       () => new Promise<void>((resolve) => { gate.release = resolve; }),
     );
-    vm.resetPassword = "newsecret1";
+    vm.resetForm.newPassword = "newsecret1";
     const first = vm.submitReset();
-    await Promise.resolve();
-
-    expect(vm.resetSaving).toBe(true);
+    await vi.waitFor(() => {
+      expect(vm.resetSaving).toBe(true);
+    });
     await vm.submitReset();
 
-    expect(usersRepo.resetPassword).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => {
+      expect(usersRepo.resetPassword).toHaveBeenCalledTimes(1);
+    });
     gate.release();
     await first;
     expect(vm.resetOpen).toBe(false);

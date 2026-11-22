@@ -7,13 +7,13 @@ import type { ToastStore } from "@/app/toast";
 import type { Device, Forwarding } from "@/domain/types";
 import { t } from "@/i18n";
 
+import { DeviceEditForm, DEVICE_NAME_MAX } from "./edit.form";
 import {
   FORWARDING_MODE_KEYS,
   FORWARDING_MODES,
   modeOfForwarding,
   parseForwardingMode,
   sameIds,
-  sanitizeKbps,
 } from "./model";
 import type { ClientEditState, ForwardingMode } from "./types";
 
@@ -24,18 +24,17 @@ type EditHost = {
   setDevice(device: Device): void;
   buildForwarding(mode: ForwardingMode, allowed: readonly string[]): Forwarding;
   applyRowFromDevice(device: Device): void;
-}
+};
 
 export class EditSection {
   private host!: EditHost;
+
+  readonly form = new DeviceEditForm({ formId: "device-edit", validateOnInput: true });
 
   attach(host: EditHost): void {
     this.host = host;
   }
 
-  @reactive accessor name = "";
-  @reactive accessor downKbps = 0;
-  @reactive accessor upKbps = 0;
   @reactive accessor forwardingMode: ForwardingMode = "off";
   @reactive accessor forwardingSelected: string[] = [];
   @reactive accessor saving = false;
@@ -68,9 +67,11 @@ export class EditSection {
   get canSave(): boolean {
     return (
       this.host.device !== null &&
-      this.name.trim().length > 0 &&
       !this.saving &&
-      this.forwardingError === null
+      this.forwardingError === null &&
+      isNameValid(this.form.name) &&
+      isLimitValid(this.form.downKbps) &&
+      isLimitValid(this.form.upKbps)
     );
   }
 
@@ -104,15 +105,19 @@ export class EditSection {
   }
 
   setName(event: Event): void {
-    this.name = (event.target as HTMLInputElement).value;
+    this.form.getFieldProps("name").onInput(event);
   }
 
   setDownKbps(value: number): void {
-    this.downKbps = sanitizeKbps(value);
+    const field = this.form.getFieldProps("downKbps");
+    field.setValue(value);
+    void field.validate();
   }
 
   setUpKbps(value: number): void {
-    this.upKbps = sanitizeKbps(value);
+    const field = this.form.getFieldProps("upKbps");
+    field.setValue(value);
+    void field.validate();
   }
 
   setMode(value: string): void {
@@ -131,13 +136,18 @@ export class EditSection {
   }
 
   hydrate(device: Device): void {
-    this.name = device.name;
-    this.downKbps = device.down_kbps;
-    this.upKbps = device.up_kbps;
+    this.form.reset();
+    this.form.name = device.name;
+    this.form.downKbps = device.down_kbps;
+    this.form.upKbps = device.up_kbps;
     this.forwardingMode = modeOfForwarding(device.forwarding);
     this.forwardingSelected =
       this.forwardingMode === "selected" ? [...device.forwarding.allowed_devices] : [];
     this.snapshot = this.state();
+  }
+
+  dispose(): void {
+    this.form.dispose();
   }
 
   async cancel(): Promise<void> {
@@ -158,38 +168,54 @@ export class EditSection {
 
   async save(): Promise<void> {
     const device = this.host.device;
-    if (!device || !this.canSave) return;
-    const name = this.name.trim();
-    if (!name) {
-      this.host.toasts.error(t("clients.details.error.name"));
-      return;
-    }
-    this.saving = true;
-    try {
-      const updated = await this.host.devicesService.updateDevice(device.id, {
-        name,
-        down_kbps: this.downKbps,
-        up_kbps: this.upKbps,
-        forwarding: this.host.buildForwarding(this.forwardingMode, this.forwardingSelected),
-      });
-      this.host.setDevice(updated);
-      this.host.applyRowFromDevice(updated);
-      this.hydrate(updated);
-      this.host.toasts.success(t("clients.details.toast.saved"));
-    } catch (error) {
-      this.host.toasts.error(userMessage(error, t("clients.details.error.save")));
-    } finally {
-      this.saving = false;
-    }
+    if (!device || this.saving) return;
+    await this.form.onSubmit(async (submitted) => {
+      if (!submitted.isValid || this.forwardingError !== null) return;
+      const name = submitted.name.trim();
+      this.saving = true;
+      try {
+        const updated = await this.host.devicesService.updateDevice(device.id, {
+          name,
+          down_kbps: submitted.downKbps,
+          up_kbps: submitted.upKbps,
+          forwarding: this.host.buildForwarding(this.forwardingMode, this.forwardingSelected),
+        });
+        this.host.setDevice(updated);
+        this.host.applyRowFromDevice(updated);
+        this.hydrate(updated);
+        this.host.toasts.success(t("clients.details.toast.saved"));
+      } catch (error) {
+        const message = userMessage(error, t("clients.details.error.save"));
+        if (isServerFieldError(error)) submitted.setFieldErrors("name", [message]);
+        this.host.toasts.error(message);
+      } finally {
+        this.saving = false;
+      }
+    })();
   }
 
   private state(): ClientEditState {
     return {
-      name: this.name,
-      downKbps: this.downKbps,
-      upKbps: this.upKbps,
+      name: this.form.name,
+      downKbps: this.form.downKbps,
+      upKbps: this.form.upKbps,
       forwardingMode: this.forwardingMode,
       forwardingSelected: [...this.forwardingSelected],
     };
   }
+}
+
+function isNameValid(value: string): boolean {
+  const trimmed = value.trim();
+  return trimmed.length > 0 && trimmed.length <= DEVICE_NAME_MAX;
+}
+
+function isLimitValid(value: number): boolean {
+  return Number.isInteger(value) && value >= 0;
+}
+
+function isServerFieldError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  const status = Reflect.get(error, "status");
+  return status === 400 || status === 409 || status === 422;
 }

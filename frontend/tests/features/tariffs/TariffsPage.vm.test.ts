@@ -286,10 +286,10 @@ describe("TariffsPageVM", () => {
     await vm.load();
     vm.openCreate();
 
-    expect(vm.formInterfaceId).toBe("");
+    expect(vm.tariffForm.interfaceId).toBe("");
 
-    vm.name = "Bound";
-    vm.setFormInterface("if1");
+    vm.tariffForm.name = "Bound";
+    vm.tariffForm.interfaceId = "if1";
     await vm.submit();
 
     expect(repo.tariffs[2]).toEqual(
@@ -300,25 +300,29 @@ describe("TariffsPageVM", () => {
   });
 
   it("creates a tariff without an interface", async () => {
-    const { vm, repo } = setup();
+    const { vm, repo, service, toasts } = setup();
+    const createSpy = vi.spyOn(service, "createTariff");
     await vm.load();
     vm.openCreate();
-    vm.name = "Free";
+    vm.tariffForm.name = "Free";
 
     await vm.submit();
 
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ interface_id: null }));
     expect(repo.tariffs[2]?.interface_id).toBeNull();
     expect(repo.tariffs[2]?.interface_name).toBeNull();
+    expect(vm.modalOpen).toBe(false);
+    expect(toastMessages(toasts)).toContain("Тариф создан");
   });
 
-  it("preselects the bound interface on edit and can clear it", async () => {
+  it("clears the interface binding on edit", async () => {
     const { vm, repo } = setup();
     await vm.load();
     vm.openEdit(TARIFF);
 
-    expect(vm.formInterfaceId).toBe("if1");
+    expect(vm.tariffForm.interfaceId).toBe("if1");
 
-    vm.setFormInterface("");
+    vm.tariffForm.interfaceId = "";
     await vm.submit();
 
     const updated = repo.tariffs.find((tariff) => tariff.id === TARIFF.id);
@@ -326,12 +330,26 @@ describe("TariffsPageVM", () => {
     expect(updated?.interface_name).toBeNull();
   });
 
+  it("preselects the bound interface on edit and keeps it on save", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openEdit(TARIFF);
+
+    expect(vm.tariffForm.interfaceId).toBe("if1");
+
+    await vm.submit();
+
+    const updated = repo.tariffs.find((tariff) => tariff.id === TARIFF.id);
+    expect(updated?.interface_id).toBe("if1");
+    expect(updated?.interface_name).toBe("awgpanel0");
+  });
+
   it("rebinds a tariff to another interface", async () => {
     const { vm, repo } = setup();
     await vm.load();
     vm.openEdit(PRO);
 
-    vm.setFormInterface("if2");
+    vm.tariffForm.interfaceId = "if2";
     await vm.submit();
 
     const updated = repo.tariffs.find((tariff) => tariff.id === PRO.id);
@@ -344,8 +362,8 @@ describe("TariffsPageVM", () => {
     const { vm, repo } = setup();
     await vm.load();
     vm.openCreate();
-    vm.name = "Broken";
-    vm.setFormInterface("missing");
+    vm.tariffForm.name = "Broken";
+    vm.tariffForm.interfaceId = "missing";
 
     await vm.submit();
 
@@ -367,15 +385,17 @@ describe("TariffsPageVM", () => {
 
   it("creates a tariff and converts the quota to bytes", async () => {
     const { vm, repo, toasts } = setup();
+    await vm.load();
     vm.openCreate();
-    vm.name = "  Premium  ";
-    vm.description = "  Лучший  ";
-    vm.max_devices = 3;
-    vm.setDeviceDownKbps(400);
-    vm.setDeviceUpKbps(200);
-    vm.setGroupDownKbps(800);
-    vm.setGroupUpKbps(400);
-    vm.quotaGb = "2";
+    vm.tariffForm.name = "  Premium  ";
+    vm.tariffForm.description = "  Лучший  ";
+    vm.tariffForm.maxDevices = 3;
+    vm.tariffForm.deviceDownKbps = 400;
+    vm.tariffForm.deviceUpKbps = 200;
+    vm.tariffForm.groupDownKbps = 800;
+    vm.tariffForm.groupUpKbps = 400;
+    vm.tariffForm.quotaGb = 2;
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.submit();
 
@@ -397,37 +417,80 @@ describe("TariffsPageVM", () => {
     expect(toastMessages(toasts)).toContain("Тариф создан");
   });
 
-  it("treats an empty quota as unlimited", async () => {
+  it("treats a zero quota as unlimited", async () => {
     const { vm, repo } = setup();
+    await vm.load();
     vm.openCreate();
-    vm.name = "Unlimited";
-    vm.quotaGb = "0";
+    vm.tariffForm.name = "Unlimited";
+    vm.tariffForm.quotaGb = 0;
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.submit();
 
     expect(repo.tariffs[2]?.traffic_quota_bytes).toBeNull();
   });
 
-  it("stores limits in kbps and sanitizes the input", () => {
-    const { vm } = setup();
+  it("treats an empty quota as unlimited", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
     vm.openCreate();
+    vm.tariffForm.name = "Unlimited";
+    vm.tariffForm.quotaGb = "" as unknown as number;
+    vm.tariffForm.interfaceId = "if1";
 
-    vm.setDeviceDownKbps(1500);
-    vm.setDeviceUpKbps(0);
-    vm.setGroupDownKbps(12.6);
-    vm.setGroupUpKbps(-5);
+    await vm.submit();
 
-    expect(vm.device_down_kbps).toBe(1500);
-    expect(vm.device_up_kbps).toBe(0);
-    expect(vm.group_down_kbps).toBe(13);
-    expect(vm.group_up_kbps).toBe(0);
+    expect(repo.tariffs[2]?.traffic_quota_bytes).toBeNull();
+  });
+
+  it("converts a fractional quota to bytes", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openCreate();
+    vm.tariffForm.name = "Fractional";
+    vm.tariffForm.quotaGb = 1.5;
+
+    await vm.submit();
+
+    expect(repo.tariffs[2]?.traffic_quota_bytes).toBe(1.5 * 1024 * 1024 * 1024);
+  });
+
+  it("keeps a fractional quota when editing a legacy tariff", async () => {
+    const { vm, repo } = setup();
+    await vm.load();
+    vm.openEdit({ ...PRO, traffic_quota_bytes: Math.round(1.5 * 1024 * 1024 * 1024) });
+
+    expect(vm.tariffForm.quotaGb).toBe(1.5);
+
+    await vm.submit();
+
+    const updated = repo.tariffs.find((tariff) => tariff.id === PRO.id);
+    expect(updated?.traffic_quota_bytes).toBe(1.5 * 1024 * 1024 * 1024);
+  });
+
+  it("rejects negative limits", async () => {
+    const { vm, repo } = setup();
+    vm.openCreate();
+    vm.tariffForm.name = "Negative";
+    vm.tariffForm.interfaceId = "if1";
+    vm.tariffForm.deviceUpKbps = -5;
+    vm.tariffForm.groupUpKbps = -1;
+
+    await vm.submit();
+
+    expect(vm.tariffForm.getFieldProps("deviceUpKbps").error).toContain("не меньше 0");
+    expect(vm.tariffForm.getFieldProps("groupUpKbps").error).toContain("не меньше 0");
+    expect(repo.tariffs).toHaveLength(2);
+    expect(vm.modalOpen).toBe(true);
   });
 
   it("rejects a tariff without a name", async () => {
     const { vm, repo, service, toasts } = setup();
     const createSpy = vi.spyOn(service, "createTariff");
+    await vm.load();
     vm.openCreate();
-    vm.name = "   ";
+    vm.tariffForm.name = "   ";
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.submit();
 
@@ -440,10 +503,12 @@ describe("TariffsPageVM", () => {
 
   it("rejects a device limit above the group limit", async () => {
     const { vm, repo } = setup();
+    await vm.load();
     vm.openCreate();
-    vm.name = "Broken";
-    vm.setDeviceDownKbps(500);
-    vm.setGroupDownKbps(100);
+    vm.tariffForm.name = "Broken";
+    vm.tariffForm.interfaceId = "if1";
+    vm.tariffForm.deviceDownKbps = 500;
+    vm.tariffForm.groupDownKbps = 100;
 
     await vm.submit();
 
@@ -453,13 +518,15 @@ describe("TariffsPageVM", () => {
 
   it("updates a tariff", async () => {
     const { vm, repo, toasts } = setup();
+    await vm.load();
     vm.openEdit(PRO);
 
     expect(vm.title).toBe("Редактировать тариф");
-    expect(vm.quotaGb).toBe("10");
+    expect(vm.tariffForm.quotaGb).toBe(10);
 
-    vm.name = "Pro Max";
-    vm.max_devices = 10;
+    vm.tariffForm.name = "Pro Max";
+    vm.tariffForm.maxDevices = 10;
+    vm.tariffForm.interfaceId = "if1";
     await vm.submit();
 
     const updated = repo.tariffs.find((tariff) => tariff.id === PRO.id);
@@ -470,9 +537,11 @@ describe("TariffsPageVM", () => {
 
   it("keeps a form error when saving fails", async () => {
     const { vm, repo, toasts } = setup();
+    await vm.load();
     repo.failure = new Error("Сервер недоступен");
     vm.openCreate();
-    vm.name = "Premium";
+    vm.tariffForm.name = "Premium";
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.submit();
 
@@ -759,15 +828,15 @@ describe("TariffsPageVM bulk delete", () => {
 
 describe("TariffsPageVM discard guard", () => {
   it.each<[string, (vm: TariffsPageVM) => void]>([
-    ["name", (vm) => { vm.name = "Другой"; }],
-    ["description", (vm) => { vm.description = "Другое"; }],
-    ["max_devices", (vm) => { vm.max_devices = 7; }],
-    ["device_down_kbps", (vm) => { vm.setDeviceDownKbps(300); }],
-    ["device_up_kbps", (vm) => { vm.setDeviceUpKbps(150); }],
-    ["group_down_kbps", (vm) => { vm.setGroupDownKbps(600); }],
-    ["group_up_kbps", (vm) => { vm.setGroupUpKbps(300); }],
-    ["quotaGb", (vm) => { vm.quotaGb = "5"; }],
-    ["formInterfaceId", (vm) => { vm.setFormInterface("if1"); }],
+    ["name", (vm) => { vm.tariffForm.name = "Другой"; }],
+    ["description", (vm) => { vm.tariffForm.description = "Другое"; }],
+    ["max_devices", (vm) => { vm.tariffForm.maxDevices = 7; }],
+    ["device_down_kbps", (vm) => { vm.tariffForm.deviceDownKbps = 300; }],
+    ["device_up_kbps", (vm) => { vm.tariffForm.deviceUpKbps = 150; }],
+    ["group_down_kbps", (vm) => { vm.tariffForm.groupDownKbps = 600; }],
+    ["group_up_kbps", (vm) => { vm.tariffForm.groupUpKbps = 300; }],
+    ["quotaGb", (vm) => { vm.tariffForm.quotaGb = 5; }],
+    ["formInterfaceId", (vm) => { vm.tariffForm.interfaceId = "if1"; }],
   ])("tracks changes of %s", (_field, mutate) => {
     const { vm } = setup();
     vm.openCreate();
@@ -783,7 +852,7 @@ describe("TariffsPageVM discard guard", () => {
     vm.openEdit(PRO);
     expect(vm.formDirty).toBe(false);
 
-    vm.name = "Pro Max";
+    vm.tariffForm.name = "Pro Max";
 
     expect(vm.formDirty).toBe(true);
   });
@@ -791,7 +860,7 @@ describe("TariffsPageVM discard guard", () => {
   it("asks for confirmation when only the interface changed", async () => {
     const { vm } = setup();
     vm.openCreate();
-    vm.setFormInterface("if1");
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.closeModal();
 
@@ -802,7 +871,7 @@ describe("TariffsPageVM discard guard", () => {
   it("asks for confirmation and closes the modal when the form changed", async () => {
     const { vm } = setup();
     vm.openCreate();
-    vm.name = "Новый тариф";
+    vm.tariffForm.name = "Новый тариф";
 
     await vm.closeModal();
 
@@ -819,13 +888,13 @@ describe("TariffsPageVM discard guard", () => {
     confirmMock.askConfirm.mockResolvedValueOnce(false);
     const { vm } = setup();
     vm.openCreate();
-    vm.name = "Новый тариф";
+    vm.tariffForm.name = "Новый тариф";
 
     await vm.closeModal();
 
     expect(vm.modalOpen).toBe(true);
     expect(vm.formDirty).toBe(true);
-    expect(vm.name).toBe("Новый тариф");
+    expect(vm.tariffForm.name).toBe("Новый тариф");
   });
 
   it("closes without confirmation when the form is untouched", async () => {
@@ -841,7 +910,7 @@ describe("TariffsPageVM discard guard", () => {
   it("does not close while saving", async () => {
     const { vm } = setup();
     vm.openCreate();
-    vm.name = "Новый тариф";
+    vm.tariffForm.name = "Новый тариф";
     vm.saving = true;
 
     await vm.closeModal();
@@ -852,9 +921,11 @@ describe("TariffsPageVM discard guard", () => {
 
   it("resets the dirty flag after a successful save", async () => {
     const { vm } = setup();
+    await vm.load();
     vm.openCreate();
-    vm.name = "Premium";
-    vm.quotaGb = "2";
+    vm.tariffForm.name = "Premium";
+    vm.tariffForm.quotaGb = 2;
+    vm.tariffForm.interfaceId = "if1";
 
     await vm.submit();
 

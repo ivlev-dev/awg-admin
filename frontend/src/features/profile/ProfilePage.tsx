@@ -9,6 +9,15 @@ import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "@/domain/validation";
 import { t } from "@/i18n";
 
 export function ProfilePage(this: { vm: ProfilePageVM }) {
+  const fullNameField = this.vm.fullNameForm.getFieldProps("fullName");
+  const currentPasswordField = this.vm.passwordForm.getFieldProps("currentPassword");
+  const nextPasswordField = this.vm.passwordForm.getFieldProps("nextPassword");
+  const repeatPasswordField = this.vm.passwordForm.getFieldProps("repeatPassword");
+  const totpSetupPasswordField = this.vm.totpSetupForm.getFieldProps("password");
+  const totpCodeField = this.vm.totpEnableForm.getFieldProps("code");
+  const totpDisablePasswordField = this.vm.totpDisableForm.getFieldProps("password");
+  const totpDisableCodeField = this.vm.totpDisableForm.getFieldProps("code");
+
   return (
     <div class="stack">
       <div class="page-head">
@@ -55,22 +64,23 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                         <label for="profile-full-name">{t("profile.fullName.label")}</label>
                         <input
                           id="profile-full-name"
-                          class={`input ${this.vm.fullNameError ? "is-invalid" : ""}`}
+                          class={`input ${fullNameField.error ? "is-invalid" : ""}`}
                           type="text"
                           autocomplete="name"
                           maxlength={200}
                           placeholder={t("profile.fullName.placeholder")}
-                          value={this.vm.fullNameDraft}
-                          onInput={(event: Event) => this.vm.setFullNameDraft(event)}
-                          aria-invalid={this.vm.fullNameError ? "true" : undefined}
-                          aria-describedby={this.vm.fullNameError ? "profile-full-name-error" : "profile-full-name-hint"}
+                          value={fullNameField.value}
+                          onInput={fullNameField.onInput}
+                          onBlur={fullNameField.onBlur}
+                          aria-invalid={fullNameField.error ? "true" : undefined}
+                          aria-describedby={fullNameField.error ? "profile-full-name-error" : "profile-full-name-hint"}
                           data-autofocus
                         />
                         <Show
-                          when={this.vm.fullNameError}
+                          when={fullNameField.error}
                           fallback={<span class="hint" id="profile-full-name-hint">{t("profile.fullName.hint")}</span>}
                         >
-                          <span class="field-error" id="profile-full-name-error" role="alert">{this.vm.fullNameError}</span>
+                          <span class="field-error" id="profile-full-name-error" role="alert">{fullNameField.error}</span>
                         </Show>
                       </div>
                       <div class="row" style="gap:8px">
@@ -447,33 +457,46 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               <label for="profile-current">{t("profile.password.current")}</label>
               <input
                 id="profile-current"
-                class="input"
+                class={`input ${currentPasswordField.error ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="current-password"
                 placeholder="••••••••"
-                value={this.vm.currentPassword}
-                onInput={(event: InputEvent) => this.vm.setCurrentPassword(event)}
+                value={currentPasswordField.value}
+                onInput={currentPasswordField.onInput}
+                onBlur={currentPasswordField.onBlur}
+                aria-invalid={currentPasswordField.error ? "true" : undefined}
+                aria-describedby={currentPasswordField.error ? "profile-current-error" : undefined}
               />
+              <Show when={currentPasswordField.error}>
+                <div class="hint" id="profile-current-error" style="color:var(--red)" role="alert">
+                  {currentPasswordField.error}
+                </div>
+              </Show>
             </div>
 
             <div class="field">
               <label for="profile-next">{t("profile.password.next")}</label>
               <input
                 id="profile-next"
-                class={`input ${this.vm.nextPasswordInvalid ? "is-invalid" : ""}`}
+                class={`input ${nextPasswordField.error ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
                 minlength={MIN_PASSWORD_LENGTH}
                 maxlength={MAX_PASSWORD_LENGTH}
                 placeholder={t("profile.password.nextPlaceholder")}
-                value={this.vm.nextPassword}
-                onInput={(event: InputEvent) => this.vm.setNextPassword(event)}
+                value={nextPasswordField.value}
+                onInput={nextPasswordField.onInput}
+                onBlur={nextPasswordField.onBlur}
+                aria-invalid={nextPasswordField.error ? "true" : undefined}
+                aria-describedby={nextPasswordField.error ? "profile-next-error" : "profile-next-hint"}
               />
               <Show
-                when={this.vm.nextPasswordError}
-                fallback={<div class="hint">{t("profile.password.hint")}</div>}
+                when={nextPasswordField.error}
+                fallback={<div class="hint" id="profile-next-hint">{t("profile.password.hint")}</div>}
               >
-                <div class="hint" style="color:var(--red)">{this.vm.nextPasswordError}</div>
+                <div class="hint" id="profile-next-error" style="color:var(--red)" role="alert">
+                  {nextPasswordField.error}
+                </div>
               </Show>
             </div>
 
@@ -481,16 +504,21 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               <label for="profile-repeat">{t("profile.password.repeat")}</label>
               <input
                 id="profile-repeat"
-                class={`input ${this.vm.repeatMismatch ? "is-invalid" : ""}`}
+                class={`input ${repeatPasswordField.error ? "is-invalid" : ""}`}
                 type="password"
                 autocomplete="new-password"
                 maxlength={MAX_PASSWORD_LENGTH}
                 placeholder={t("profile.password.repeatPlaceholder")}
-                value={this.vm.repeatPassword}
-                onInput={(event: InputEvent) => this.vm.setRepeatPassword(event)}
+                value={repeatPasswordField.value}
+                onInput={repeatPasswordField.onInput}
+                onBlur={repeatPasswordField.onBlur}
+                aria-invalid={repeatPasswordField.error ? "true" : undefined}
+                aria-describedby={repeatPasswordField.error ? "profile-repeat-error" : undefined}
               />
-              <Show when={this.vm.repeatMismatch}>
-                <div class="hint" style="color:var(--red)">{t("profile.password.mismatch")}</div>
+              <Show when={repeatPasswordField.error}>
+                <div class="hint" id="profile-repeat-error" style="color:var(--red)" role="alert">
+                  {repeatPasswordField.error}
+                </div>
               </Show>
             </div>
 
@@ -555,16 +583,25 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
                 <label for="totp-setup-password">{t("profile.totp.modal.password")}</label>
                 <input
                   id="totp-setup-password"
-                  class="input"
+                  class={`input ${totpSetupPasswordField.error ? "is-invalid" : ""}`}
                   type="password"
                   autocomplete="current-password"
                   placeholder="••••••••"
-                  value={this.vm.totpSetupPassword}
-                  onInput={(event: Event) => this.vm.setTotpSetupPassword(event)}
-                  aria-describedby="totp-setup-password-hint"
+                  value={totpSetupPasswordField.value}
+                  onInput={totpSetupPasswordField.onInput}
+                  onBlur={totpSetupPasswordField.onBlur}
+                  aria-invalid={totpSetupPasswordField.error ? "true" : undefined}
+                  aria-describedby={totpSetupPasswordField.error ? "totp-setup-password-error" : "totp-setup-password-hint"}
                   data-autofocus
                 />
-                <div class="hint" id="totp-setup-password-hint">{t("profile.totp.modal.passwordHint")}</div>
+                <Show
+                  when={totpSetupPasswordField.error}
+                  fallback={<div class="hint" id="totp-setup-password-hint">{t("profile.totp.modal.passwordHint")}</div>}
+                >
+                  <div class="hint" id="totp-setup-password-error" style="color:var(--red)" role="alert">
+                    {totpSetupPasswordField.error}
+                  </div>
+                </Show>
               </div>
             </form>
           </Show>
@@ -623,14 +660,22 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
               <label for="totp-enable-code">{t("profile.totp.modal.code")}</label>
               <input
                 id="totp-enable-code"
-                class="input"
+                class={`input ${totpCodeField.error ? "is-invalid" : ""}`}
                 type="text"
                 inputmode="numeric"
                 autocomplete="one-time-code"
                 placeholder={t("profile.totp.modal.codePlaceholder")}
-                value={this.vm.totpCode}
-                onInput={(event: Event) => this.vm.setTotpCode(event)}
+                value={totpCodeField.value}
+                onInput={totpCodeField.onInput}
+                onBlur={totpCodeField.onBlur}
+                aria-invalid={totpCodeField.error ? "true" : undefined}
+                aria-describedby={totpCodeField.error ? "totp-enable-code-error" : undefined}
               />
+              <Show when={totpCodeField.error}>
+                <div class="hint" id="totp-enable-code-error" style="color:var(--red)" role="alert">
+                  {totpCodeField.error}
+                </div>
+              </Show>
             </div>
           </Show>
         </div>
@@ -660,25 +705,41 @@ export function ProfilePage(this: { vm: ProfilePageVM }) {
             <label for="totp-disable-password">{t("profile.totp.modal.password")}</label>
             <input
               id="totp-disable-password"
-              class="input"
+              class={`input ${totpDisablePasswordField.error ? "is-invalid" : ""}`}
               type="password"
               autocomplete="current-password"
-              value={this.vm.totpDisablePassword}
-              onInput={(event: Event) => this.vm.setTotpDisablePassword(event)}
+              value={totpDisablePasswordField.value}
+              onInput={totpDisablePasswordField.onInput}
+              onBlur={totpDisablePasswordField.onBlur}
+              aria-invalid={totpDisablePasswordField.error ? "true" : undefined}
+              aria-describedby={totpDisablePasswordField.error ? "totp-disable-password-error" : undefined}
             />
+            <Show when={totpDisablePasswordField.error}>
+              <div class="hint" id="totp-disable-password-error" style="color:var(--red)" role="alert">
+                {totpDisablePasswordField.error}
+              </div>
+            </Show>
           </div>
           <div class="field">
             <label for="totp-disable-code">{t("profile.totp.modal.code")}</label>
             <input
               id="totp-disable-code"
-              class="input"
+              class={`input ${totpDisableCodeField.error ? "is-invalid" : ""}`}
               type="text"
               inputmode="numeric"
               autocomplete="one-time-code"
               placeholder={t("profile.totp.modal.codePlaceholder")}
-              value={this.vm.totpDisableCode}
-              onInput={(event: Event) => this.vm.setTotpDisableCode(event)}
+              value={totpDisableCodeField.value}
+              onInput={totpDisableCodeField.onInput}
+              onBlur={totpDisableCodeField.onBlur}
+              aria-invalid={totpDisableCodeField.error ? "true" : undefined}
+              aria-describedby={totpDisableCodeField.error ? "totp-disable-code-error" : undefined}
             />
+            <Show when={totpDisableCodeField.error}>
+              <div class="hint" id="totp-disable-code-error" style="color:var(--red)" role="alert">
+                {totpDisableCodeField.error}
+              </div>
+            </Show>
           </div>
         </div>
       </Modal>

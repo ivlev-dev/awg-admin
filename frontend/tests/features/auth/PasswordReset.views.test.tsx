@@ -98,7 +98,7 @@ describe("ForgotPassword view", () => {
     const result = createComponent(ForgotPassword, {}, { container });
     await result.ready;
 
-    vm.email = "user@example.com";
+    vm.form.getFieldProps("email").setValue("user@example.com");
     await vm.submit(submitEvent());
 
     await vi.waitFor(() => {
@@ -137,8 +137,8 @@ describe("ResetPassword view", () => {
     const result = createComponent(ResetPassword, {}, { container });
     await result.ready;
 
-    vm.password = "secret1234";
-    vm.repeatPassword = "secret1234";
+    vm.form.getFieldProps("password").setValue("secret1234");
+    vm.form.getFieldProps("repeatPassword").setValue("secret1234");
     await vm.submit(submitEvent());
 
     await vi.waitFor(() => {

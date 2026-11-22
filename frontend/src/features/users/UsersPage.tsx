@@ -40,6 +40,16 @@ function quotaMeterStyle(quota: UserQuotaSnapshot | null): string {
 }
 
 export function UsersPage(this: { vm: UsersPageVM }) {
+  const form = this.vm.userForm;
+  const email = form.getFieldProps("email");
+  const fullName = form.getFieldProps("fullName");
+  const password = form.getFieldProps("password");
+  const tariff = form.getFieldProps("tariffId");
+  const node = form.getFieldProps("nodeId");
+  const disabled = form.getFieldProps("disabled");
+  const resetForm = this.vm.resetForm;
+  const newPassword = resetForm.getFieldProps("newPassword");
+
   return (
     <div class="stack">
       <div class="page-head">
@@ -577,14 +587,14 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   autocomplete="email"
                   required
                   data-autofocus
-                  aria-invalid={this.vm.emailError ? "true" : undefined}
-                  aria-describedby={this.vm.emailError ? "users-form-email-error" : undefined}
+                  aria-invalid={email.error ? "true" : undefined}
+                  aria-describedby={email.error ? "users-form-email-error" : undefined}
                   placeholder={t("auth.register.emailPlaceholder")}
-                  value={this.vm.email}
-                  onInput={(event: Event) => this.vm.setEmail(event)}
+                  value={email.value}
+                  onInput={email.onInput}
                 />
-                <Show when={this.vm.emailError}>
-                  <span class="field-error" id="users-form-email-error" role="alert">{this.vm.emailError}</span>
+                <Show when={email.error}>
+                  <span class="field-error" id="users-form-email-error" role="alert">{email.error}</span>
                 </Show>
               </div>
               <div class="field">
@@ -595,24 +605,24 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                   type="text"
                   autocomplete="name"
                   maxlength={200}
-                  aria-invalid={this.vm.fullNameError ? "true" : undefined}
-                  aria-describedby={this.vm.fullNameError ? "users-form-full-name-error" : "users-form-full-name-hint"}
+                  aria-invalid={fullName.error ? "true" : undefined}
+                  aria-describedby={fullName.error ? "users-form-full-name-error" : "users-form-full-name-hint"}
                   placeholder={t("users.form.fullNamePlaceholder")}
-                  value={this.vm.fullName}
-                  onInput={(event: Event) => this.vm.setFullName(event)}
+                  value={fullName.value}
+                  onInput={fullName.onInput}
                 />
                 <Show
-                  when={this.vm.fullNameError}
+                  when={fullName.error}
                   fallback={<span class="hint" id="users-form-full-name-hint">{t("users.form.fullNameHint")}</span>}
                 >
-                  <span class="field-error" id="users-form-full-name-error" role="alert">{this.vm.fullNameError}</span>
+                  <span class="field-error" id="users-form-full-name-error" role="alert">{fullName.error}</span>
                 </Show>
               </div>
               <div class="field">
                 <label for="users-form-role">{t("users.form.role")}</label>
               <Select
                 id="users-form-role"
-                value={this.vm.role}
+                value={form.role}
                 options={[
                   { value: "user", label: t("users.role.user") },
                   { value: "admin", label: t("users.role.admin") },
@@ -637,16 +647,16 @@ export function UsersPage(this: { vm: UsersPageVM }) {
                 autocomplete="new-password"
                 minlength={MIN_PASSWORD_LENGTH}
                 maxlength={MAX_PASSWORD_LENGTH}
-                aria-invalid={this.vm.passwordError ? "true" : undefined}
-                aria-describedby={this.vm.passwordError ? "users-form-password-error" : "users-form-password-hint"}
-                value={this.vm.password}
-                onInput={(event: Event) => this.vm.setPassword(event)}
+                aria-invalid={password.error ? "true" : undefined}
+                aria-describedby={password.error ? "users-form-password-error" : "users-form-password-hint"}
+                value={password.value}
+                onInput={password.onInput}
               />
               <Show
-                when={this.vm.passwordError}
+                when={password.error}
                 fallback={<span class="hint" id="users-form-password-hint">{t("users.form.passwordHint")}</span>}
               >
-                <span class="field-error" id="users-form-password-error" role="alert">{this.vm.passwordError}</span>
+                <span class="field-error" id="users-form-password-error" role="alert">{password.error}</span>
               </Show>
             </div>
           </Show>
@@ -656,9 +666,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               <label for="users-form-tariff">{t("users.form.tariff")}</label>
               <Select
                 id="users-form-tariff"
-                value={this.vm.tariffId}
-                options={[{ value: "", label: t("users.form.tariffNone") }, ...this.vm.tariffs.map((tariff) => ({ value: tariff.id, label: tariff.name }))]}
-                onChange={(value) => this.vm.setTariff(value)}
+                value={tariff.value}
+                options={[{ value: "", label: t("users.form.tariffNone") }, ...this.vm.tariffs.map((item) => ({ value: item.id, label: item.name }))]}
+                onChange={(value) => tariff.setValue(value)}
                 ariaLabel={t("users.form.tariff")}
                 searchable
               />
@@ -667,9 +677,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               <label for="users-form-node">{t("users.form.node")}</label>
               <Select
                 id="users-form-node"
-                value={this.vm.nodeId}
-                options={[{ value: "", label: t("users.form.nodeOptional") }, ...this.vm.nodes.map((node) => ({ value: node.id, label: node.name }))]}
-                onChange={(value) => this.vm.setNode(value)}
+                value={node.value}
+                options={[{ value: "", label: t("users.form.nodeOptional") }, ...this.vm.nodes.map((item) => ({ value: item.id, label: item.name }))]}
+                onChange={(value) => node.setValue(value)}
                 ariaLabel={t("users.form.node")}
                 searchable
               />
@@ -680,9 +690,9 @@ export function UsersPage(this: { vm: UsersPageVM }) {
             <label class="checkbox">
               <input
                 type="checkbox"
-                checked={this.vm.disabled}
+                checked={disabled.value}
                 disabled={this.vm.editingId === this.vm.selfId}
-                onChange={(event: Event) => this.vm.setDisabled(event)}
+                onChange={disabled.onChange}
               />
               {t("users.form.disabled")}
               <Show when={this.vm.editingId === this.vm.selfId}>
@@ -703,7 +713,7 @@ export function UsersPage(this: { vm: UsersPageVM }) {
         open={this.vm.resetOpen}
         title={t("users.reset.title")}
         onClose={() => this.vm.closeReset()}
-        describedBy={this.vm.resetError ? "users-reset-error" : undefined}
+        describedBy={newPassword.error ? "users-reset-error" : undefined}
         footer={
           <div class="row" style="gap:8px">
             <button class="btn" type="button" onClick={() => this.vm.closeReset()} disabled={this.vm.resetSaving}>
@@ -749,16 +759,16 @@ export function UsersPage(this: { vm: UsersPageVM }) {
               maxlength={MAX_PASSWORD_LENGTH}
               required
               data-autofocus
-              aria-invalid={this.vm.resetError ? "true" : undefined}
-              aria-describedby={this.vm.resetError ? "users-reset-error" : "users-reset-hint"}
-              value={this.vm.resetPassword}
-              onInput={(event: Event) => this.vm.setResetPassword(event)}
+              aria-invalid={newPassword.error ? "true" : undefined}
+              aria-describedby={newPassword.error ? "users-reset-error" : "users-reset-hint"}
+              value={newPassword.value}
+              onInput={newPassword.onInput}
             />
             <Show
-              when={this.vm.resetError}
+              when={newPassword.error}
               fallback={<span class="hint" id="users-reset-hint">{t("users.form.passwordHint")}</span>}
             >
-              <span class="field-error" id="users-reset-error" role="alert">{this.vm.resetError}</span>
+              <span class="field-error" id="users-reset-error" role="alert">{newPassword.error}</span>
             </Show>
           </div>
           <button type="submit" class="sr-only">{t("users.reset.submit")}</button>

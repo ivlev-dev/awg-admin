@@ -23,6 +23,7 @@ import {
   readClientFileDrafts,
   validateFiles,
 } from "./drafts";
+import { ClientsImportForm } from "./clients.form";
 import {
   changesKey,
   clientChangeLabel,
@@ -31,6 +32,8 @@ import {
 } from "./interface-issues";
 
 export class ClientsFlow {
+  readonly form = new ClientsImportForm();
+
   constructor(
     private readonly importService: ImportService,
     private readonly router: Router,
@@ -38,9 +41,16 @@ export class ClientsFlow {
   ) {}
 
   @reactive accessor clientsStep: ClientsStep = 1;
-  @reactive accessor clientOwnerUserId = "";
-  @reactive accessor clientInterfaceId = "";
-  @reactive accessor clientsImportText = "";
+
+  get clientOwnerUserId(): string { return this.form.clientOwnerUserId; }
+  set clientOwnerUserId(value: string) { this.form.clientOwnerUserId = value; }
+
+  get clientInterfaceId(): string { return this.form.clientInterfaceId; }
+  set clientInterfaceId(value: string) { this.form.clientInterfaceId = value; }
+
+  get clientsImportText(): string { return this.form.clientsImportText; }
+  set clientsImportText(value: string) { this.form.clientsImportText = value; }
+
   @reactive accessor clientsImport: ClientDraft[] = [];
   @reactive accessor clientsPreviewing = false;
   @reactive accessor clientsPreview: ClientsPreview | null = null;
@@ -75,6 +85,12 @@ export class ClientsFlow {
     );
   }
 
+  /** Готовность формы: разобранные конфиги; владелец и интерфейс необязательны. */
+  @computed
+  get clientsFormValid(): boolean {
+    return this.clientsValid;
+  }
+
   @computed
   get clientsTotal(): number {
     return this.clientsImport.length;
@@ -82,7 +98,7 @@ export class ClientsFlow {
 
   @computed
   get canPreviewClients(): boolean {
-    return this.clientsValid && !this.clientsPreviewing;
+    return this.clientsFormValid && !this.clientsPreviewing;
   }
 
   @computed
@@ -188,17 +204,19 @@ export class ClientsFlow {
 
   setClientOwner(value: string): void {
     this.clientOwnerUserId = value;
+    void this.form.validateField("clientOwnerUserId");
     this.touchClients();
   }
 
   setClientInterface(value: string): void {
     this.clientInterfaceId = value;
+    void this.form.validateField("clientInterfaceId");
     this.touchClients();
   }
 
   setClientsImportText(event: Event): void {
-    this.clientsImportText = (event.target as HTMLTextAreaElement).value;
-    this.clientsImport = buildClientDrafts(this.clientsImportText);
+    this.form.getFieldProps("clientsImportText").onInput(event);
+    this.clientsImport = buildClientDrafts(this.form.clientsImportText);
     this.touchClients();
   }
 
@@ -263,7 +281,10 @@ export class ClientsFlow {
     switch (this.clientsStep) {
       case 1:
         if (this.canPreviewClients) void this.previewClientsNow();
-        else this.toasts.error(t("import.clients.error.clients"));
+        else {
+          void this.form.validate();
+          this.toasts.error(t("import.clients.error.clients"));
+        }
         return;
       case 2:
         if (this.canApplyClients) void this.applyClientsNow();
@@ -275,10 +296,12 @@ export class ClientsFlow {
 
   async previewClientsNow(): Promise<void> {
     if (this.clientsPreviewing) return;
-    if (!this.clientsValid) {
+    await this.form.validate();
+    if (!this.clientsFormValid) {
       this.toasts.error(t("import.clients.error.clients"));
       return;
     }
+    if (this.clientsPreviewing) return;
     const signature = this.clientsFormSignature;
     const payload = this.clientsPayload;
     this.clientsPreviewing = true;
@@ -319,10 +342,16 @@ export class ClientsFlow {
 
   async applyClientsNow(): Promise<void> {
     if (this.clientsApplying) return;
+    await this.form.validate();
+    if (!this.clientsFormValid) {
+      this.toasts.error(t("import.clients.error.clients"));
+      return;
+    }
     if (!this.clientsPreview) {
       this.toasts.error(t("import.clients.toast.previewRequired"));
       return;
     }
+    if (this.clientsApplying) return;
     this.clientsApplying = true;
     this.clientsApplyError = null;
     try {
@@ -360,9 +389,7 @@ export class ClientsFlow {
 
   resetClientsImport(): void {
     this.clientsStep = 1;
-    this.clientOwnerUserId = "";
-    this.clientInterfaceId = "";
-    this.clientsImportText = "";
+    this.form.reset();
     this.clientsImport = [];
     this.clientsPreview = null;
     this.clientsApplied = null;
@@ -371,6 +398,10 @@ export class ClientsFlow {
     this.clientsPreviewSignature = "";
     this.clientsPlanInvalidated = false;
     this.expandedChanges = [];
+  }
+
+  dispose(): void {
+    this.form.dispose();
   }
 
   changesKey(interfaceId: string, client: ImportPreviewClient): string {
@@ -434,5 +465,6 @@ export class ClientsFlow {
 
   private syncClientsImportText(): void {
     this.clientsImportText = joinClientConfigs(this.clientsImport);
+    void this.form.validateField("clientsImportText");
   }
 }
