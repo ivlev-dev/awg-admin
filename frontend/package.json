@@ -17,15 +17,18 @@
     "e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "@ivlev-dev/silent": "0.11.21",
-    "@ivlev-dev/silent-core": "0.11.21",
-    "@ivlev-dev/silent-di": "0.11.21",
-    "@ivlev-dev/silent-reactivity": "0.11.21",
-    "@ivlev-dev/silent-router": "0.11.21",
+    "@ivlev-dev/silent": "0.13.1",
+    "@ivlev-dev/silent-core": "0.13.1",
+    "@ivlev-dev/silent-di": "0.13.1",
+    "@ivlev-dev/silent-form": "0.13.1",
+    "@ivlev-dev/silent-reactivity": "0.13.1",
+    "@ivlev-dev/silent-router": "0.13.1",
+    "@ivlev-dev/silent-validation": "0.13.1",
     "qrcode-generator": "^2.0.4"
   },
   "devDependencies": {
-    "@ivlev-dev/silent-vite": "0.11.21",
+    "@ivlev-dev/silent-validation-vite": "0.13.1",
+    "@ivlev-dev/silent-vite": "0.13.1",
     "@playwright/test": "1.65.0",
     "@swc/core": "^1.16.22",
     "dependency-cruiser": "^18.7.2",
