@@ -29,7 +29,7 @@
   "devDependencies": {
     "@ivlev-dev/silent-validation-vite": "0.13.1",
     "@ivlev-dev/silent-vite": "0.13.1",
-    "@playwright/test": "1.65.0",
+    "@playwright/test": "1.65.1",
     "@swc/core": "^1.16.22",
     "dependency-cruiser": "^18.7.2",
     "happy-dom": "^20.0.0",
