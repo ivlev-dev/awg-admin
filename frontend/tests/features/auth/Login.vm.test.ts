@@ -149,6 +149,23 @@ describe("LoginVM", () => {
     expect(harness.vm.busy).toBe(false);
   });
 
+  it("keeps a 429 rate-limit error in VM state instead of a field error", async () => {
+    const harness = makeHarness(async () => {
+      throw new ApiError(429, "too_many_requests", "Слишком много попыток входа");
+    });
+    setField(harness.vm, "email", "admin@example.com");
+    setField(harness.vm, "password", "secret");
+
+    await harness.vm.submit(submitEvent());
+
+    expect(harness.vm.error).toBe("Слишком много попыток входа");
+    expect(harness.session.errorCode).toBe("too_many_requests");
+    expect(harness.vm.form.getFieldProps("email").error).toBeUndefined();
+    expect(harness.vm.form.getFieldProps("password").error).toBeUndefined();
+    expect(harness.router.path).toBe("/login");
+    expect(harness.vm.busy).toBe(false);
+  });
+
   it("switches to the TOTP step when the server requires a second factor", async () => {
     const harness = makeHarness(async (input) => {
       if (!input.totp_code) {

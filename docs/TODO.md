@@ -23,7 +23,7 @@
 - Frontend: silent 0.13.1 + Vite + vitest, MVVM, DDD-слои (domain/application/
   infrastructure), репозитории и сервисы, DI на `@ivlev-dev/silent-di`, HTTP-клиент
   с request/response-интерсепторами, Select, темы, графики, статические
-  SVG-иконки, формы на silent-form, 1513 тестов.
+  SVG-иконки, формы на silent-form, 1514 тестов.
 - Формы — `@ivlev-dev/silent-form` (`*.form.ts`, `@Field`, `onSubmit`,
   `setFieldErrors`), валидация — `@ivlev-dev/silent-validation`; локаль
   встроенных сообщений синхронизируется в `app/validation.ts`, схема типов
@@ -64,7 +64,7 @@
 
 - `cargo test --workspace` — 378 тестов, зелёные; `cargo clippy --workspace --all-targets -- -D warnings` — чисто.
 - `cd frontend && pnpm typecheck` — чисто.
-- `cd frontend && pnpm test` — 1513 тестов, зелёные (121 файл).
+- `cd frontend && pnpm test` — 1514 тестов, зелёные (121 файл).
 - Формы и валидация: покрыты отдельными тестами в `tests/features/**`
   (`*.form.test.ts`, `*Form*.test.ts`), включая `InterfaceForm` с
   `types:false` для числовых полей, приходящих строками.
@@ -475,7 +475,7 @@ UI-этап закрыт.
   сводные уведомления об обновлении и удалении/отзыве туннеля.
 - Серверная пагинация: `/devices/page`, `/users/page`, `/app/devices/page` с индексами
   redb (schema 9), фильтрами/поиском/сортировкой; панель и Android грузят страницы.
-- Unit-тесты Android (342), мобильного API (33) и панели (1513), сборка `assembleFdroidDebug`.
+- Unit-тесты Android (342), мобильного API (33) и панели (1514), сборка `assembleFdroidDebug`.
 
 Осталось:
 
